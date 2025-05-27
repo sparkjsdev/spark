@@ -1,0 +1,94 @@
+body {
+  margin: 0;
+  background-color: black;
+}
+
+header {
+  margin: 0 auto;
+  padding: 10px 0;
+  min-width: 400px;
+  width: 50%;
+}
+
+/********** Range Input Styles **********/
+/*Range Reset*/
+input {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  width: 100%;
+  padding: 10px 0;
+}
+
+/* Removes default focus */
+input:focus {
+  outline: none;
+}
+
+/***** Chrome, Safari, Opera and Edge Chromium styles *****/
+/* slider track */
+input::-webkit-slider-runnable-track {
+  background-color: #4a4a4a;
+  border-radius: 0.5rem;
+  height: 0.3rem;
+  margin-top: 1.2rem;
+}
+
+/* slider thumb */
+input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  /* Override default look */
+  appearance: none;
+  margin-top: -9px;
+  /* Centers thumb on the track */
+
+  /*custom styles*/
+  background-color: #e5e5e5;
+  height: 1.4rem;
+  width: 1.4rem;
+  border-radius: 1rem;
+  border: none;
+}
+
+#camera1::-webkit-slider-runnable-track {
+  background-color: #223165;
+}
+
+#camera1::-webkit-slider-thumb {
+  background-color: #4967c9;
+}
+
+#camera2::-webkit-slider-runnable-track {
+  background-color: #5c2424;
+}
+
+#camera2::-webkit-slider-thumb {
+  background-color: #c44b4b;
+}
+
+/******** Firefox styles ********/
+/* slider track */
+input::-moz-range-track {
+  border-radius: 0.5rem;
+  height: 0.3rem;
+  opacity: 0.5;
+}
+
+/* slider thumb */
+input::-moz-range-thumb {
+  height: 1.4rem;
+  width: 1.4rem;
+  border-radius: 1rem;
+  border: none;
+}
+
+#camera2::-moz-range-track,
+#camera2::-moz-range-thumb {
+  background-color: #c44b4b;
+}
+
+#camera1::-moz-range-track,
+#camera1::-moz-range-thumb {
+  background-color: #4967c9;
+}
