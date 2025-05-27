@@ -340,6 +340,7 @@ export function imageSplats({
     constructSplats: async (splats) => {
       return new Promise((resolve, reject) => {
         const img = new Image();
+        img.crossOrigin = "anonymous";
         img.onerror = reject;
         img.onload = () => {
           const { width, height } = img;
