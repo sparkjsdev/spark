@@ -2,15 +2,25 @@
 
 <head>
   <meta charset="utf-8">
-  <title>Forge • Hello World</title>
+  <title>Forge • VFX Particle Simulation</title>
   <style>
-    body {
-      margin: 0;
-    }
+    html, body {
+            margin: 0;
+            height: 100%;
+            background-color: black;
+        }
+
+        #canvas {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+        }
   </style>
 </head>
 
 <body>
+  <canvas id="canvas"></canvas>
   <script type="importmap">
     {
       "imports": {
@@ -19,28 +29,7 @@
       }
     }
   </script>
-  <script type="module">
-    import * as THREE from "three";
-    import { SplatMesh } from "@forge-gfx/forge";
-    import { getAssetFileURL } from "/examples/js/get-asset-url.js";
-
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    const renderer = new THREE.WebGLRenderer();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    document.body.appendChild(renderer.domElement)
-
-    const splatURL = await getAssetFileURL("butterfly-wings-closed.spz");
-    const butterfly = new SplatMesh({ url: splatURL });
-    butterfly.quaternion.set(1, 0, 0, 0);
-    butterfly.position.set(0, -0.5, -3);
-    scene.add(butterfly);
-
-    renderer.setAnimationLoop(function animate(time) {
-      renderer.render(scene, camera);
-      butterfly.rotation.y += 0.01;
-    });
-  </script>
+  <script type="module" src="main.js"></script>
 </body>
 
 </html>
