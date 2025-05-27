@@ -15,6 +15,10 @@
     "url": "https://forge-gfx.github.io/assets/splats/butterfly.spz",
     "directory": "splats"
   },
+  "butterfly-ai.spz": {
+    "url": "https://forge-gfx.github.io/assets/splats/butterfly-ai.spz",
+    "directory": "splats"
+  },
   "fireplace.spz": {
     "url": "https://forge-gfx.github.io/assets/splats/fireplace.spz",
     "directory": "splats"

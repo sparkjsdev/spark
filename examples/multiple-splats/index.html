@@ -22,9 +22,6 @@
 </head>
 
 <body>
-  <footer>
-    <div>Food scans by <a href="https://x.com/tipatat">Tipatat</a></div>
-  </footer>
   <script type="importmap">
     {
       "imports": {
@@ -40,7 +37,6 @@
     import { EXRLoader } from "three/addons/loaders/EXRLoader.js";
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
-    import { FOOD_ASSETS } from "/examples/interactivity/food.js";
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -52,23 +48,20 @@
     renderer.setClearColor(new THREE.Color(0xFFFFFF), 1);
     document.body.appendChild(renderer.domElement)
 
-    // add food
-    const foods = [];
-    for (let i = 0; i < FOOD_ASSETS.length; i++) {
-      let splatURL = await getAssetFileURL(FOOD_ASSETS[i].file);
+    const butterflies = [];
+    for (let i = 0; i < 6; i++) {
+      let splatURL = await getAssetFileURL("butterfly-ai.spz");
       const splat = new SplatMesh({ url: splatURL });
       splat.quaternion.set(1, 0, 0, 0);
-      splat.scale.setScalar(FOOD_ASSETS[i].scale);
       scene.add(splat);
-      foods.push(splat);
+      butterflies.push(splat);
     }
 
-    // add food master
     let splatURL = await getAssetFileURL("cat.spz");
-    const master = new SplatMesh({ url: splatURL });
-    master.quaternion.set(1, 0, 0, 0);
-    master.scale.setScalar(0.5);
-    scene.add(master);
+    const cat = new SplatMesh({ url: splatURL });
+    cat.quaternion.set(1, 0, 0, 0);
+    cat.scale.setScalar(0.5);
+    scene.add(cat);
 
     // Setup mouse controls to orbit the camera around
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -83,14 +76,14 @@
       controls.update();
 
       // Rotate food
-      for (let i = 0; i < foods.length; i++) {
-        const ang = (-time / 10000) + i / FOOD_ASSETS.length * Math.PI * 2;
-        foods[i].position.set(Math.cos(ang) * RADIUS, Math.sin(ang) * RADIUS - 0.2, 0);
-        foods[i].rotation.y = i + time / 4000;
+      for (let i = 0; i < butterflies.length; i++) {
+        const ang = (-time / 10000) + i / butterflies.length * Math.PI * 2;
+        butterflies[i].position.set(Math.cos(ang) * RADIUS, Math.sin(ang) * RADIUS - 0.2, 0);
+        butterflies[i].rotation.y = i + time / 4000;
       }
 
       // Animate food master
-      master.position.y = -0.8 + Math.sin(time / 1000) * 0.1;
+      cat.position.y = -0.8 + Math.sin(time / 1000) * 0.1;
 
       renderer.render(scene, camera);
     });
