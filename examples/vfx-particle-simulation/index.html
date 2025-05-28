@@ -69,9 +69,7 @@
     handleResize();
     window.addEventListener("resize", handleResize);
 
-    // const backgroundURL = await getAssetFileURL("snow-street.spz");
-    const backgroundURL =
-      "./snow-street.spz";
+    const backgroundURL = await getAssetFileURL("snow-street.spz");
     const background = new SplatMesh({ url: backgroundURL });
     background.quaternion.set(1, 0, 0, 0);
     scene.add(background);
@@ -221,9 +219,9 @@
       controls.update(dt, camera);
 
       // camera movement
-      const targetZ = 91;
+      const targetZ = 90.5;
       const startZ = 104;
-      const duration = 90;
+      const duration = 9;
       const progress = Math.min(1, t / duration);
       const smoothProgress = Math.sin(progress * Math.PI * 0.5);
       camera.position.z = startZ + (targetZ - startZ) * smoothProgress;
