@@ -177,44 +177,29 @@ function createClouds(splats, particleCount) {
 
 function createCloudAnimation(params, BOUNDS) {
   return ({ mesh, time, deltaTime }) => {
-    const windDelta = params.windSpeed * deltaTime;
-
     mesh.packedSplats.forEachSplat(
       (index, center, scales, quaternion, opacity, color) => {
-        let newX = center.x;
-        let newY = center.y;
-        let newZ = center.z + windDelta;
+        const seed = index * 0.12345;
+        const randomZ = (Math.sin(seed * 37.719) * 43758.5453) % 1;
+        const zZero = THREE.MathUtils.lerp(
+          BOUNDS.MIN_Z,
+          BOUNDS.MAX_Z,
+          Math.abs(randomZ),
+        );
 
-        if (newZ > BOUNDS.MAX_Z || newZ < BOUNDS.MIN_Z) {
-          const overflow =
-            newZ > BOUNDS.MAX_Z ? newZ - BOUNDS.MAX_Z : BOUNDS.MIN_Z - newZ;
+        const displacement = params.windSpeed * time;
+        const range = BOUNDS.MAX_Z - BOUNDS.MIN_Z;
 
-          // wrap to other side, accounting for overflow
-          newZ =
-            newZ > BOUNDS.MAX_Z
-              ? BOUNDS.MIN_Z + overflow
-              : BOUNDS.MAX_Z - overflow;
+        let newZ = zZero + displacement;
+        // try to compute  mod on time
+        // lod clumping behavior
+        // add splats in different resolutions
+        // add big then medium then smaller
+        // adjust preset (opacity)
+        newZ =
+          ((((newZ - BOUNDS.MIN_Z) % range) + range) % range) + BOUNDS.MIN_Z;
 
-          // randomize X/Y for seamless wrapping
-          const seed = index * 0.12345;
-          const randomX =
-            (Math.sin(seed * 12.9898 + time * 0.001) * 43758.5453) % 1;
-          const randomY =
-            (Math.sin(seed * 78.233 + time * 0.001) * 43758.5453) % 1;
-
-          newX = THREE.MathUtils.lerp(
-            BOUNDS.MIN_X,
-            BOUNDS.MAX_X,
-            Math.abs(randomX),
-          );
-          newY = THREE.MathUtils.lerp(
-            BOUNDS.MIN_Y,
-            BOUNDS.MAX_Y,
-            Math.abs(randomY),
-          );
-        }
-
-        center.set(newX, newY, newZ);
+        center.set(center.x, center.y, newZ);
         mesh.packedSplats.setSplat(
           index,
           center,
