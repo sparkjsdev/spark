@@ -39,9 +39,8 @@ Check out all the [examples]()
 
 ## Getting Started
 
-### Copy code
-
-Copy code below in an `index.html` file.
+### Hello World - Local Development
+This minimal example is included in `examples/hello-world/index.html`:
 
 ```html
 <style> body {margin: 0;} </style>
@@ -74,13 +73,14 @@ renderer.setAnimationLoop(function animate(time) {
 });
 </script>
 ```
+See the [Run Examples](#run-examples) section below, to run this hello-world example as well as others.
 
-### Web Editor
+### Hello World - Web Editor
 
 Remix the [glitch starter template](https://glitch.com/edit/#!/forge-dev)
 
 ### Usage from CDN
-
+TO-DO: setup CDN
 ```html
 <script type="importmap">
   {
@@ -93,14 +93,14 @@ Remix the [glitch starter template](https://glitch.com/edit/#!/forge-dev)
 ```
 
 ### Install with NPM
-
+TO-DO: publish package
 ```shell
 npm install forge-dev
 ```
 
-## Develop and contribute to the project
+## Run Examples
 
-The examples fetch the assets from an external URL. To work offline is possible to downloading the assets files locally with the following command:
+Download the example assets files with the following command:
 
 ```
 npm run assets:download
@@ -115,13 +115,15 @@ npm run build
 ```
 This will first build the Rust Wasm component (can be invoked via `npm run build:wasm`), then Forge itself (`npm run build`).
 
-Once you've fetched the data and built Forge, you can run run the examples:
+Once you've fetched the data and built Forge, you can now run the examples:
 ```
 npm start
 ```
 This will run a dev server by default at [http://localhost:8080/](http://localhost:8080/). Check the console log output to see if yours is served on a different port.
 
-## Build troubleshooting
+## Develop and contribute to the project
+Here are some additional development tips and instructions:
+### Build troubleshooting
 
 First try cleaning all the build files and re-building everything:
 ```
@@ -137,7 +139,7 @@ There's no versioning system for assets. If you need to re-download a specific f
  npm run assets:download
 ```
 
-## Ignore dist directory during development
+### Ignore dist directory during development
 
 To ignore the dist directory and prevent accidental commits and merge conflicts
 
@@ -157,7 +159,7 @@ To list ignored files in case of need to troubleshoot
 git ls-files -v | grep '^[a-z]' | cut -c3-
 ```
 
-## Build docs
+### Build docs
 
 Install [Mkdocs Material](https://squidfunk.github.io/mkdocs-material/)
 
@@ -177,7 +179,7 @@ Edit markdown in `/docs` directory
 mkdocs serve
 ```
 
-## Build Forge website
+### Build Forge website
 
 Build the static site and docs in a `site` directory.
 
@@ -191,11 +193,11 @@ You can run any static server in the `site` directory but for convenience you ca
 npm run site:serve
 ```
 
-## Deploy Forge website
+### Deploy Forge website
 
 TO-DO
 
-## Compress splats
+### Compress splats
 
 To compress a splat to [spz](https://scaniverse.com/spz) run
 
