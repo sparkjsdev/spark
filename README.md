@@ -39,16 +39,21 @@ Check out all the [examples]()
 
 ## Getting Started
 
-### Hello World - Local Development
-This minimal example is included in `examples/hello-world/index.html`:
+### Copy Code
+(Note: CDN setup is work-in-progress -- for now, skip to the [Web Editor](#web-editor) or [Run Examples](#run-examples) section to get started.)
+
+
+Copy the following code into an `index.html` file.
+
+
 
 ```html
 <style> body {margin: 0;} </style>
 <script type="importmap">
 {
   "imports": {
-    "three": "/node_modules/three/build/three.module.js",
-    "@forge-gfx/forge": "/dist/forge.module.js"
+    "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.174.0/three.module.js",
+      "@forge-gfx/forge": "cdn/url/to/forge.module.js"
   }
 }
 </script>
@@ -62,7 +67,7 @@ const renderer = new THREE.WebGLRenderer();
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement)
 
-const butterfly = new SplatMesh({ url: "../assets/basic/butterfly.wlg"});
+const butterfly = new SplatMesh({ url: "cdn/url/to/butterfly.spz"});
 butterfly.quaternion.set(1, 0, 0, 0);
 butterfly.position.set(0, 0, -1);
 scene.add(butterfly);
@@ -73,9 +78,9 @@ renderer.setAnimationLoop(function animate(time) {
 });
 </script>
 ```
-See the [Run Examples](#run-examples) section below, to run this hello-world example as well as others.
+See the [Run Examples](#run-examples) section below to try out other examples.
 
-### Hello World - Web Editor
+### Web Editor
 
 Remix the [glitch starter template](https://glitch.com/edit/#!/forge-dev)
 
