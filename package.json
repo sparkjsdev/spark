@@ -6,12 +6,12 @@
   "description": "An advanced 3D Gaussian Splatting renderer for THREE.js",
   "scripts": {
     "assets:clean": "node scripts/clean-assets.js",
+    "assets:compress": "node scripts/compress-to-spz.js",
     "assets:download": "node scripts/download-assets.js",
     "build": "vite build --mode production && vite build --mode dev && tsc --emitDeclarationOnly --outFile dist/forge.d.ts",
     "build:wasm": "node rust/build_wasm.js",
     "build:watch": "onchange 'src/**/*.{ts,glsl}' -- npm run build",
     "clean": "rm -rf dist/ && rm -rf node_modules/ && rm -rf rust/target/ && rm -rf rust/forge-internal-rs/pkg/ && npm run assets:clean",
-    "to-spz": "node scripts/to-spz.js",
     "dev": "npm run build && (vite --host & npm run build:watch)",
     "deploy": "node scripts/deploy.js",
     "docs": "mkdocs serve",

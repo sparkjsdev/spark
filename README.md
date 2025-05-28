@@ -1,8 +1,8 @@
 <p align="center">
-  <picture>
-    <img alt="Forge" src="https://github.com/user-attachments/assets/adb2f0d7-df30-49e5-be7f-75c14f008735" width="auto" height="180">
-  </picture>
-  <br>
+
+  ![Forge logo](https://github.com/user-attachments/assets/d9cec150-8ca1-47f4-b7d9-4782aa629166#gh-dark-mode-only)
+  ![Forge logo](https://github.com/user-attachments/assets/adb2f0d7-df30-49e5-be7f-75c14f008735#gh-light-mode-only)
+
   <h3 align="center">An advanced 3D Gaussian Splatting renderer for THREE.js</h3>
   <div align="center">
 
@@ -194,3 +194,9 @@ npm run site:serve
 ## Deploy Forge website
 
 TO-DO
+
+## Compress splats
+
+To compress a splat to [spz](https://scaniverse.com/spz) run
+
+`npm run assets:compress <file or URL to ply>`

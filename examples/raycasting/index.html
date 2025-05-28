@@ -49,6 +49,7 @@
     for (let i = 0; i < NUM_ROBOTS; i++) {
       const robot = new SplatMesh({ url: splatURL });
       robot.rotation.x = Math.PI;
+      robot.scale.setScalar(0.2);
       robot.position.set(0, 0, i);
       robot.speed = 600 + i * 10;
       robot.angle = 0;
@@ -75,7 +76,7 @@
         const robot = hits[index].object;
         if (!robot.clickedTimer) {
           // Tint object and start countdown timer to remove tint
-          robot.recolor.set(1, 0.6, 0.6);
+          robot.recolor.set(1, 0.5, 0.5);
           robot.clickedTimer = 40;
         }
       }
