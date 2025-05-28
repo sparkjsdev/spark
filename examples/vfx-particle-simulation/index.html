@@ -221,7 +221,7 @@
       // camera movement
       const targetZ = 90.5;
       const startZ = 104;
-      const duration = 9;
+      const duration = 90;
       const progress = Math.min(1, t / duration);
       const smoothProgress = Math.sin(progress * Math.PI * 0.5);
       camera.position.z = startZ + (targetZ - startZ) * smoothProgress;
