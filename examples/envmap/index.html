@@ -27,7 +27,7 @@
 </head>
 
 <body>
-  <label><input type="checkbox" onchange="toggleMetal(this)" autocomplete="off"> Metal</label>
+  <label><input type="checkbox" onchange="toggleMetal(this)" autocomplete="off"> Plastic</label>
   <script type="importmap">
     {
       "imports": {
@@ -106,8 +106,8 @@
               // Set some reflectivity in the materials of the duck
               obj.material.envMap = envMap;
               obj.material.original_color = obj.material.color.clone();
-              obj.material.metalness = 0.0;
-              obj.material.roughness = 0.2;
+              obj.material.metalness = 1.0;
+              obj.material.roughness = 0.02;
             }
           });
       }
@@ -117,8 +117,8 @@
     window.toggleMetal = function toggleMetal(el) {
       const metal = el.checked;
       for (let obj of duck.children) {
-        obj.material.metalness = metal ? 1.0 : 0.0;
-        obj.material.roughness = metal ? 0.02 : 0.2;
+        obj.material.metalness = metal ? 0.0 : 1.0;
+        obj.material.roughness = metal ? 0.2 : 0.02;
       }
     }
   </script>
