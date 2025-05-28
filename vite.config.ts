@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { defineConfig } from "vite";
+import dts from "vite-plugin-dts";
 import glsl from "vite-plugin-glsl";
 
 const assetsDirectory = "examples/assets";
@@ -29,6 +30,8 @@ export default defineConfig(({ mode }) => {
       glsl({
         include: ["**/*.glsl"],
       }),
+
+      dts({ outDir: "dist/types" }),
 
       {
         name: "serve-three-alias",

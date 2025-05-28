@@ -1,0 +1,17 @@
+export declare const LN_SCALE_MIN = -9;
+export declare const LN_SCALE_MAX = 9;
+export declare const LN_RESCALE: number;
+export declare const SCALE_MIN: number;
+export declare const SCALE_MAX: number;
+export declare const SPLAT_TEX_WIDTH_BITS = 11;
+export declare const SPLAT_TEX_HEIGHT_BITS = 11;
+export declare const SPLAT_TEX_DEPTH_BITS = 11;
+export declare const SPLAT_TEX_LAYER_BITS: number;
+export declare const SPLAT_TEX_WIDTH: number;
+export declare const SPLAT_TEX_HEIGHT: number;
+export declare const SPLAT_TEX_DEPTH: number;
+export declare const SPLAT_TEX_MIN_HEIGHT = 1;
+export declare const SPLAT_TEX_WIDTH_MASK: number;
+export declare const SPLAT_TEX_HEIGHT_MASK: number;
+export declare const SPLAT_TEX_DEPTH_MASK: number;
+export declare const WASM_SPLAT_SORT = true;

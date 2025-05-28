@@ -8,7 +8,7 @@
     "assets:clean": "node scripts/clean-assets.js",
     "assets:compress": "node scripts/compress-to-spz.js",
     "assets:download": "node scripts/download-assets.js",
-    "build": "vite build --mode production && vite build --mode dev && tsc --emitDeclarationOnly --outFile dist/forge.d.ts",
+    "build": "vite build --mode production && vite build --mode dev",
     "build:wasm": "node rust/build_wasm.js",
     "build:watch": "onchange 'src/**/*.{ts,glsl}' -- npm run build",
     "clean": "rm -rf dist/ && rm -rf node_modules/ && rm -rf rust/target/ && rm -rf rust/forge-internal-rs/pkg/ && npm run assets:clean",
@@ -29,7 +29,7 @@
   },
   "exports": {
     ".": {
-      "types": "./dist/forge.d.ts",
+      "types": "./dist/types/index.d.ts",
       "import": "./dist/forge.module.js",
       "require": "./dist/forge.cjs.js"
     }
@@ -46,6 +46,7 @@
     "ts-node": "10.9.2",
     "typescript": "^5.7.3",
     "vite": "^6.0.11",
+    "vite-plugin-dts": "^4.5.4",
     "vite-plugin-glsl": "^1.3.1"
   },
   "dependencies": {
