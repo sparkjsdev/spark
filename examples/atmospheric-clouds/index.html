@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="data:,">
+    <title>Forge • Atmospheric - Clouds</title>
+    <style>
+        html, body {
+            margin: 0;
+            height: 100%;
+            background-color: black;
+        }
+
+        #canvas {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <script type="importmap">
+        {
+          "imports": {
+            "three": "/examples/js/vendor/three/build/three.module.js",
+            "@forge-gfx/forge": "/dist/forge.module.js",
+            "lil-gui": "../node_modules/lil-gui/dist/lil-gui.esm.js"
+          }
+        }
+    </script>
+    <script type="module" src="main.js"></script>
+</body>
+</html>
