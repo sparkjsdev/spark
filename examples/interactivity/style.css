@@ -3,6 +3,7 @@
 body {
   margin: 0;
   background-color: black;
+  font-family: serif;
 }
 
 h1 {
@@ -65,12 +66,12 @@ h3 {
 }
 
 #menu a.active::before {
-  content: "🙜 ";
+  content: "● ";
   font-weight: 100;
 }
 
 #menu a.active::after {
-  content: " 🙟";
+  content: " ● ";
   font-weight: 100;
 }
 
@@ -89,4 +90,41 @@ h3 {
   position: absolute;
   top: 40vh;
   left: 45vw;
+}
+
+/* mobile */
+#mobile_button {
+  text-decoration: none;
+  color: black;
+  padding: 10px 15px;
+  background-color: burlywood;
+  text-align: center;
+  font-family: serif;
+  font-style: italic;
+  font-size: 1.5rem;
+  position: absolute;
+  border-radius: 1rem;
+  margin: 1rem;
+  opacity: 0.8;
+  display: none;
+}
+
+.visible {
+  display: block !important;
+}
+
+@media (any-pointer: coarse) {
+  #menu {
+    display: none;
+    top: 4.5rem;
+    left: 0;
+    font-size: 1rem;
+    line-height: 3.2vh;
+    width: 82%;
+    margin: 0 auto;
+  }
+
+  h1 {
+    font-size: 4rem;
+  }
 }
