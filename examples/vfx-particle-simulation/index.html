@@ -49,7 +49,6 @@
       0.1,
       1000
     );
-    camera.position.set(8, 12, 104);
 
     const renderer = new THREE.WebGLRenderer();
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -72,6 +71,11 @@
     const backgroundURL = await getAssetFileURL("snow-street.spz");
     const background = new SplatMesh({ url: backgroundURL });
     background.quaternion.set(1, 0, 0, 0);
+    background.position.set(
+      background.position.x - 8,
+      background.position.y - 12,
+      background.position.z - 104,
+    );
     scene.add(background);
     await background.initialized;
 
@@ -104,7 +108,7 @@
 
     const gui = new GUI({ title: "Snow Particle Simulation" });
     const params = {
-      fallVelocity: 0.1,
+      fallVelocity: 0.04,
       wanderScale: generators.DEFAULT_SNOW.wanderScale,
       wanderVariance: generators.DEFAULT_SNOW.wanderVariance,
       maxScale: 0.01,
@@ -219,8 +223,8 @@
       controls.update(dt, camera);
 
       // camera movement
-      const targetZ = 90.5;
-      const startZ = 104;
+      const targetZ = -13.5;
+      const startZ = 0;
       const duration = 90;
       const progress = Math.min(1, t / duration);
       const smoothProgress = Math.sin(progress * Math.PI * 0.5);
