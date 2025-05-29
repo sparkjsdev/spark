@@ -4,5 +4,6 @@ examples/js/vendor
 examples/showcase/assets
 node_modules/
 site/
+site-repo/
 *.zip
 *.gltf

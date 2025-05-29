@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { copyFile, mkdir, rename } from "node:fs/promises";
+import { copyFile, mkdir, rename, rmSync } from "node:fs/promises";
 import path from "node:path";
 
 function copyDir(src, dest) {

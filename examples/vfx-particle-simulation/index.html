@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Forge • VFX Particle Simulation</title>
   <style>
     html, body {
@@ -48,8 +49,7 @@
       0.1,
       1000
     );
-    camera.position.set(-6, 12, 100);
-    camera.rotateY((3 * Math.PI) / 2);
+    camera.position.set(8, 12, 104);
 
     const renderer = new THREE.WebGLRenderer();
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -69,9 +69,7 @@
     handleResize();
     window.addEventListener("resize", handleResize);
 
-    // const backgroundURL = await getAssetFileURL("snow-street.spz");
-    const backgroundURL =
-      "./snow_street_crop37.spz";
+    const backgroundURL = await getAssetFileURL("snow-street.spz");
     const background = new SplatMesh({ url: backgroundURL });
     background.quaternion.set(1, 0, 0, 0);
     scene.add(background);
@@ -221,12 +219,12 @@
       controls.update(dt, camera);
 
       // camera movement
-      const targetX = 0.5;
-      const startX = -6;
+      const targetZ = 90.5;
+      const startZ = 104;
       const duration = 90;
       const progress = Math.min(1, t / duration);
       const smoothProgress = Math.sin(progress * Math.PI * 0.5);
-      camera.position.x = startX + (targetX - startX) * smoothProgress;
+      camera.position.z = startZ + (targetZ - startZ) * smoothProgress;
 
       if (!params.isPaused) {
         snow.fallVelocity.value = params.fallVelocity;

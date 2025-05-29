@@ -43,17 +43,10 @@
 
     const ASSETS = [
       { file: "butterfly.spz", scale: 1.2 },
-      { file: "furry.spz", scale: 0.45 },
+      { file: "furry-logo-pedestal.spz", scale: 0.45 },
       { file: "forge.spz", scale: 1 },
     ];
     const assets = [];
-
-    const pedestalURL = await getAssetFileURL("pedestal.spz");
-    const pedestalSplat = new SplatMesh({ url: pedestalURL });
-    pedestalSplat.scale.set(0.4, 0.4, 0.4);
-    pedestalSplat.position.set(0, -2.25, -3);
-    pedestalSplat.opacity = 0.0;
-    scene.add(pedestalSplat);
 
     for (let asset of ASSETS) {
       const splatURL = await getAssetFileURL(asset.file);
@@ -99,7 +92,6 @@
       // fade in
       if (fadeIn !== null) {
         fadeIn += dt;
-        pedestalSplat.opacity = ASSETS[current].file === "furry.spz" ? 1 : 0;
         if (fadeIn < FADE_TIME) {
           assets[current].opacity = easeInOutSine(fadeIn / FADE_TIME);
         } else {

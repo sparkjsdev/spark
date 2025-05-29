@@ -39,17 +39,21 @@ Check out all the [examples]()
 
 ## Getting Started
 
-### Copy code
+### Copy Code
+(Note: CDN setup is work-in-progress -- for now, skip to the [Web Editor](#web-editor) or [Run Examples](#run-examples) section to get started.)
 
-Copy code below in an `index.html` file.
+
+Copy the following code into an `index.html` file.
+
+
 
 ```html
 <style> body {margin: 0;} </style>
 <script type="importmap">
 {
   "imports": {
-    "three": "/node_modules/three/build/three.module.js",
-    "@forge-gfx/forge": "/dist/forge.module.js"
+    "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.174.0/three.module.js",
+      "@forge-gfx/forge": "cdn/url/to/forge.module.js"
   }
 }
 </script>
@@ -63,7 +67,7 @@ const renderer = new THREE.WebGLRenderer();
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement)
 
-const butterfly = new SplatMesh({ url: "../assets/basic/butterfly.wlg"});
+const butterfly = new SplatMesh({ url: "cdn/url/to/butterfly.spz"});
 butterfly.quaternion.set(1, 0, 0, 0);
 butterfly.position.set(0, 0, -1);
 scene.add(butterfly);
@@ -74,13 +78,14 @@ renderer.setAnimationLoop(function animate(time) {
 });
 </script>
 ```
+See the [Run Examples](#run-examples) section below to try out other examples.
 
 ### Web Editor
 
 Remix the [glitch starter template](https://glitch.com/edit/#!/forge-dev)
 
 ### Usage from CDN
-
+TO-DO: setup CDN
 ```html
 <script type="importmap">
   {
@@ -93,18 +98,12 @@ Remix the [glitch starter template](https://glitch.com/edit/#!/forge-dev)
 ```
 
 ### Install with NPM
-
+TO-DO: publish package
 ```shell
 npm install forge-dev
 ```
 
-## Develop and contribute to the project
-
-The examples fetch the assets from an external URL. To work offline is possible to downloading the assets files locally with the following command:
-
-```
-npm run assets:download
-```
+## Run Examples
 
 Install [Rust](https://www.rust-lang.org/tools/install) if it's not already installed in your machine.
 
@@ -115,13 +114,21 @@ npm run build
 ```
 This will first build the Rust Wasm component (can be invoked via `npm run build:wasm`), then Forge itself (`npm run build`).
 
-Once you've fetched the data and built Forge, you can run run the examples:
+The examples fetch assets from a remote URL. This step is optional, but offline development and faster loading times are possible if you download and cache the assets files locally with the following command:
+```
+npm run assets:download
+```
+
+Once you've built Forge and optionally downloaded the assets, you can now run the examples:
 ```
 npm start
 ```
 This will run a dev server by default at [http://localhost:8080/](http://localhost:8080/). Check the console log output to see if yours is served on a different port.
 
-## Build troubleshooting
+
+## Develop and contribute to the project
+Here are some additional development tips and instructions:
+### Build troubleshooting
 
 First try cleaning all the build files and re-building everything:
 ```
@@ -137,7 +144,7 @@ There's no versioning system for assets. If you need to re-download a specific f
  npm run assets:download
 ```
 
-## Ignore dist directory during development
+### Ignore dist directory during development
 
 To ignore the dist directory and prevent accidental commits and merge conflicts
 
@@ -157,7 +164,7 @@ To list ignored files in case of need to troubleshoot
 git ls-files -v | grep '^[a-z]' | cut -c3-
 ```
 
-## Build docs
+### Build docs
 
 Install [Mkdocs Material](https://squidfunk.github.io/mkdocs-material/)
 
@@ -177,7 +184,7 @@ Edit markdown in `/docs` directory
 mkdocs serve
 ```
 
-## Build Forge website
+### Build Forge website
 
 Build the static site and docs in a `site` directory.
 
@@ -191,11 +198,11 @@ You can run any static server in the `site` directory but for convenience you ca
 npm run site:serve
 ```
 
-## Deploy Forge website
+### Deploy Forge website
 
 TO-DO
 
-## Compress splats
+### Compress splats
 
 To compress a splat to [spz](https://scaniverse.com/spz) run
 

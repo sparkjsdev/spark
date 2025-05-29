@@ -13,7 +13,8 @@
       "rust/target",
       "rust/forge-internal-rs/pkg",
       "src/vrButton.ts",
-      "site"
+      "site",
+      "site-repo"
     ]
   },
   "formatter": {

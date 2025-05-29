@@ -2,11 +2,13 @@
 
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Forge • Multiple Splats</title>
   <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
+  <a href="#" id="mobile_button">Menu</a>
   <div id="menu">
     <div class="border">
       <div class="border">
@@ -48,6 +50,12 @@
       document.getElementById('menu_list').appendChild(el);
     });
 
+    // Setup mobile menu button
+    let IS_MOBILE = 'ontouchstart' in window || navigator.msMaxTouchPoints;
+    document.getElementById('mobile_button').addEventListener('click', () => {
+      document.getElementById('menu').classList.toggle('visible');
+    });
+
     const scene = new THREE.Scene();
     const renderer = new THREE.WebGLRenderer();
     renderer.shadowMap.enabled = true;
@@ -57,6 +65,14 @@
     // Setup camera
     const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 1000);
     camera.position.set(0, 0.9, -1.2);
+
+    // handle windows resize
+    window.addEventListener('resize', onWindowResize, false);
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
 
     // Setup mouse controls to orbit the camera around
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -80,7 +96,7 @@
 
     // Transition length in frames.
     // Two transitions: one for fading out the old food, another for fading in the next one
-    const TRANSITION_LENGTH = 60;
+    const TRANSITION_LENGTH = IS_MOBILE ? 30 : 60;
     // Transition timers. `null` if transition is not active
     let fadeOutTime = null;
     let fadeInTime = null;
@@ -93,9 +109,6 @@
     });
 
     async function init() {
-      // show menu
-      document.getElementById('menu').style.display = 'block';
-
       // Setup lighting
       const spotLight = new THREE.SpotLight(0xffcc88);
       spotLight.position.set(0, 1, 0);
@@ -134,6 +147,10 @@
       floor.rotation.x = -Math.PI / 2;
       floor.position.set(0, -1.397, 0);
       scene.add(floor);
+
+      // Show menu
+      document.getElementById('menu').classList.add('visible');
+      if (IS_MOBILE) document.getElementById('mobile_button').classList.add('visible');
 
       // Load first food by default
       switchToFood(0);
@@ -207,6 +224,9 @@
       });
 
       scene.add(nextFood);
+
+      // Hide menu if on mobile
+      if (IS_MOBILE) document.getElementById('menu').classList.remove('visible');
 
       // toggle menu item
       const menu_items = document.getElementById('menu_list').children;
