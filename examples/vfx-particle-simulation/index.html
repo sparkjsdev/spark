@@ -36,8 +36,8 @@
 
     const SCENE_CONFIG = {
       SNOW_HEIGHT: 8,
-      HALF_WIDTH: 25,
-      HALF_DEPTH: 50,
+      HALF_WIDTH: 12,
+      HALF_DEPTH: 48,
       SNOW_MIN_Y: -0.7,
       CAMERA_DURATION: 90,
     };
@@ -49,6 +49,7 @@
       0.1,
       1000
     );
+    console.log(camera.position);
 
     const renderer = new THREE.WebGLRenderer();
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -85,13 +86,13 @@
     const snowVolumeBox = new THREE.Box3(
       new THREE.Vector3(
         cam.x - SCENE_CONFIG.HALF_WIDTH,
-        cam.y - SCENE_CONFIG.SNOW_HEIGHT / 1.5,
-        cam.z - SCENE_CONFIG.HALF_DEPTH,
+        cam.y - (SCENE_CONFIG.SNOW_HEIGHT * 8),
+        cam.z - SCENE_CONFIG.HALF_DEPTH * 2,
       ),
       new THREE.Vector3(
         cam.x + SCENE_CONFIG.HALF_WIDTH,
         cam.y + SCENE_CONFIG.SNOW_HEIGHT * 2,
-        cam.z + SCENE_CONFIG.HALF_DEPTH,
+        cam.z + SCENE_CONFIG.HALF_DEPTH / 8,
       ),
     );
 
