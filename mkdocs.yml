@@ -22,6 +22,7 @@ nav:
   - Splat RGBA-XYZ SDF editing: splat-editing.md
   - Controls: controls.md
   - Performance tuning: performance.md
+  - Community Resources: community-resources.md
 markdown_extensions:
   - pymdownx.highlight:
       anchor_linenums: true
