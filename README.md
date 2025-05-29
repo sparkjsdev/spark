@@ -105,12 +105,6 @@ npm install forge-dev
 
 ## Run Examples
 
-Download the example assets files with the following command:
-
-```
-npm run assets:download
-```
-
 Install [Rust](https://www.rust-lang.org/tools/install) if it's not already installed in your machine.
 
 Next, build Forge by running:
@@ -120,11 +114,17 @@ npm run build
 ```
 This will first build the Rust Wasm component (can be invoked via `npm run build:wasm`), then Forge itself (`npm run build`).
 
-Once you've fetched the data and built Forge, you can now run the examples:
+The examples fetch assets from a remote URL. This step is optional, but offline development and faster loading times are possible if you download and cache the assets files locally with the following command:
+```
+npm run assets:download
+```
+
+Once you've built Forge and optionally downloaded the assets, you can now run the examples:
 ```
 npm start
 ```
 This will run a dev server by default at [http://localhost:8080/](http://localhost:8080/). Check the console log output to see if yours is served on a different port.
+
 
 ## Develop and contribute to the project
 Here are some additional development tips and instructions:
