@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Forge &#8226; Examples</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+        <style>
+            @import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap');
+
+            :root {
+                --panel-width: 300px;
+                --border-style: 4px solid #ab2f3b;
+            }
+
+            body {
+                margin: 0;
+                padding: 0;
+                font-family: "Inter", sans-serif;
+                font-weight: 300;
+            }
+
+            #panel {
+                position: fixed;
+                z-index: 100;
+                left: 0px;
+                width: var(--panel-width);
+                height: 100%;
+                overflow: auto;
+                border-right: var(--border-style);
+                display: flex;
+                flex-direction: column;
+                transition: 0s 0s height;
+                background: #D43E4C;
+            }
+
+            #header {
+                display: flex;
+                height: 4rem;
+                align-items: center;
+                justify-content: center;
+                padding: 0 1rem;
+            }
+
+            #header .logo {
+                height: 1.25rem;
+                margin-right: 1rem;
+            }
+
+            #header .title {
+                color: white;
+                font-size: 1.0rem;
+                text-transform: uppercase;
+                letter-spacing: 0.04rem;
+            }
+
+            #header a, #mobile-header a {
+                display: flex;
+                align-items: center;
+                text-decoration: none;
+            }
+
+            #header a .logo, #mobile-header a .logo {
+                height: 1.25rem;
+                margin-right: 1rem;
+                display: block;
+            }
+
+            #content {
+                margin-left: var(--panel-width);
+                width: calc(100% - var(--panel-width));
+                height: 100vh;
+            }
+
+            #content iframe {
+                width: 100%;
+                height: 100%;
+                border: none;
+            }
+
+            #code-button {
+                position: fixed;
+                bottom: 16px;
+                right: 16px;
+                padding: 12px;
+                border-radius: 50%;
+                margin-bottom: 0px;
+                background-color: #D43E4C;
+                opacity: .9;
+                z-index: 999;
+                box-shadow: 0 0 4px rgba(0, 0, 0, .15);
+            }
+
+            .example-link {
+                display: block;
+                font-size: 0.8rem;
+                padding: 10px 15px;
+                text-decoration: none;
+                color: #ffffff;
+            }
+
+            .example-link:hover {
+                background-color: rgba(0, 0, 0, 0.15);
+            }
+
+            .example-link.active {
+                background-color: rgba(0, 0, 0, 0.15);
+                border-left: 4px solid #ffffff;
+            }
+
+            #mobile-header {
+                display: none;
+            }
+
+            @media screen and (max-width: 768px) {
+                #panel {
+                    display: none !important;
+                }
+
+                #mobile-header {
+                    display: flex !important;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding: 1rem;
+                    background: #D43E4C;
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    z-index: 1000;
+                    height: 2rem;
+                }
+
+                #mobile-header #logo-section {
+                    display: flex;
+                    flex-direction: row;
+                    color: white;
+                }
+
+                #content {
+                    margin: 0 !important;
+                    padding-top: 4rem !important;
+                    width: 100% !important;
+                    height: calc(100vh - 4rem) !important;
+                }
+
+                #mobile-panel {
+                    display: flex;
+                    position: fixed;
+                    flex-direction: column;
+                    top: 4rem;
+                    right: -100%;
+                    left: auto;
+                    width: 70%;
+                    height: 100%;
+                    transform: none;
+                    transition: right 0.3s ease-in-out;
+                    z-index: 1001;
+                    background: #D43E4C;
+                    border-left: var(--border-style);
+                }
+
+                #mobile-panel.active {
+                    right: 0;
+                }
+
+                #mobile-panel .example-link.active {
+                    border-left: none;
+                    border-right: 4px solid #ffffff;
+                }
+
+                #mobile-panel #header {
+                    display: none;
+                }
+
+                #overlay {
+                    display: none;
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    background: rgba(0, 0, 0, 0.5);
+                    z-index: 1000;
+                }
+
+                #overlay.active {
+                    display: block;
+                }
+            }
+        </style>
+        <script>
+            function loadExamples() {
+                const panel = document.getElementById('panel');
+                const iframe = document.getElementById('example-frame');
+                const codeButton = document.createElement('a');
+                codeButton.id = 'code-button';
+                codeButton.target = '_blank';
+                codeButton.title = 'View source code for this example on GitHub';
+                codeButton.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" style="display:block;">
+                        <path fill="none" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m9 8l-4 4l4 4m6-8l4 4l-4 4"/>
+                    </svg>
+                `;
+                document.body.appendChild(codeButton);
+
+                const initialLink = panel.querySelector('.example-link.active');
+                if (initialLink) {
+                    const path = initialLink.getAttribute('href');
+                    iframe.src = path;
+                    codeButton.href = `https://github.com/forge-gfx/forge/blob/main${path}`;
+                }
+
+                panel.querySelectorAll('.example-link').forEach((link) => {
+                    link.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        const path = link.getAttribute('href').substring(1);
+                        iframe.src = path;
+
+                        console.log('path:', path);
+                        document.querySelectorAll('.example-link').forEach(l => l.classList.remove('active'));
+                        link.classList.add('active');
+                        codeButton.href = `https://github.com/forge-gfx/forge/blob/main/${path}`;
+                        console.log('codeButton href:', codeButton.href);
+                    });
+                });
+            }
+
+            function setupMobileMenu() {
+                const hamburger = document.getElementById('hamburger');
+                const panel = document.getElementById('panel');
+                const overlay = document.getElementById('overlay');
+                const iframe = document.getElementById('example-frame');
+                const codeButton = document.getElementById('code-button');
+
+                const mobilePanel = document.createElement('div');
+                mobilePanel.id = 'mobile-panel';
+
+                const copyLinks = () => {
+                    mobilePanel.innerHTML = '';
+                    const links = panel.querySelectorAll('.example-link');
+                    links.forEach(link => {
+                        const newLink = link.cloneNode(true);
+                        if (link.classList.contains('active')) {
+                            newLink.classList.add('active');
+                        }
+                        mobilePanel.appendChild(newLink);
+                    });
+                };
+
+                copyLinks();
+
+                const observer = new MutationObserver(copyLinks);
+                observer.observe(panel, { childList: true });
+
+                document.body.appendChild(mobilePanel);
+
+                function closeMenu() {
+                    mobilePanel.classList.remove('active');
+                    overlay.classList.remove('active');
+                }
+
+                function openMenu() {
+                    mobilePanel.classList.add('active');
+                    overlay.classList.add('active');
+                }
+
+                hamburger.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (mobilePanel.classList.contains('active')) {
+                        closeMenu();
+                    } else {
+                        openMenu();
+                    }
+                });
+
+                overlay.addEventListener('click', closeMenu);
+
+                mobilePanel.querySelectorAll('.example-link').forEach(link => {
+                    link.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        const path = link.getAttribute('href').substring(1);
+
+                        iframe.src = path;
+
+                        document.querySelectorAll('.example-link').forEach(l => l.classList.remove('active'));
+                        link.classList.add('active');
+
+                        const example = link.getAttribute('data-source');
+                        if (example) {
+                            codeButton.href = example;
+                        }
+
+                        closeMenu();
+                    });
+                });
+
+                mobilePanel.addEventListener('click', (e) => {
+                    const link = e.target.closest('.example-link');
+
+                    if (link) {
+                        e.preventDefault();
+                        const path = link.getAttribute('href');
+                        iframe.src = path;
+
+                        document.querySelectorAll('.example-link').forEach(l => l.classList.remove('active'));
+                        link.classList.add('active');
+                        panel.querySelector(`[href="${path}"]`)?.classList.add('active');
+
+                        codeButton.href = `https://github.com/forge-gfx/forge/blob/main${path}`;
+                        closeMenu();
+                    }
+                });
+            }
+
+            document.addEventListener('DOMContentLoaded', () => {
+                loadExamples();
+                setupMobileMenu();
+            });
+        </script>
+    </head>
+    <body>
+        <div id="overlay"></div>
+        <div id="mobile-header">
+            <div id="logo-section">
+                <a href="https://forge.dev/">
+                    <img src="docs/assets/images/logo.svg" alt="Forge" class="logo" />
+                </a>
+                <span class="title">EXAMPLES</span>
+            </div>
+            <div id="hamburger">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M3 12H21" stroke="white" stroke-width="2" stroke-linecap="round"/>
+                    <path d="M3 6H21" stroke="white" stroke-width="2" stroke-linecap="round"/>
+                    <path d="M3 18H21" stroke="white" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+            </div>
+        </div>
+        <div id="panel">
+            <div id="header">
+                <a href="https://forge.dev/">
+                    <img src="/docs/assets/images/logo.svg" alt="Forge" class="logo" />
+                </a>
+                <span class="title">EXAMPLES</span>
+            </div>
+            <a href="/examples/hello-world/index.html" class="example-link active">Hello World</a>
+            <a href="/examples/envmap/index.html" class="example-link">Environment Map</a>
+            <a href="/examples/interactivity/index.html" class="example-link">Interactivity</a>
+            <a href="/examples/multiple-splats/index.html" class="example-link">Multiple Splats</a>
+            <a href="/examples/multiple-viewpoints/index.html" class="example-link">Multiple Viewpoints</a>
+            <a href="/examples/procedural-splats/index.html" class="example-link">Procedural Splats</a>
+            <a href="/examples/raycasting/index.html" class="example-link">Raycasting</a>
+            <a href="/examples/vfx-dynamic-lighting/index.html" class="example-link">VFX - Dynamic Lighting</a>
+            <a href="/examples/vfx-particle-simulation/index.html" class="example-link">VFX - Particle Simulation</a>
+            <a href="/examples/viewer/index.html" class="example-link">Viewer</a>
+        </div>
+        <div id="content">
+            <iframe id="example-frame" src=""></iframe>
+        </div>
+    </body>
+</html>
