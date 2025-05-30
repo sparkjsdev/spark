@@ -17,7 +17,6 @@ Convert Gaussian Splat files to optimized .spz format.
 
 Supported input formats:
   .ply      PLY Gaussian Splat files
-  .wlg      WorldLabs Gaussian format
   .spz      SPZ format (for reprocessing/filtering)
   .splat    AntiSplat format
   .ksplat   KSplat format

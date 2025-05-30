@@ -1,7 +1,27 @@
 use half::f16;
-use wlg::decode_scale;
 
 const MIN_OPACITY: f32 = 0.1;
+
+pub const LN_SCALE_MIN: f32 = -9.0;
+pub const LN_SCALE_MAX: f32 = 9.0;
+pub const LN_RESCALE: f32 = (LN_SCALE_MAX - LN_SCALE_MIN) / 254.0; // 1..=255
+
+// pub fn encode_scale(scale: f32) -> u8 {
+//     if scale == 0.0 {
+//         0
+//     } else {
+//         // Allow scales below LN_SCALE_MIN to be encoded as 0, which signifies a 2DGS
+//         ((scale.ln() - LN_SCALE_MIN) / LN_RESCALE + 1.0).clamp(0.0, 255.0).round() as u8
+//     }
+// }
+
+pub fn decode_scale(scale: u8) -> f32 {
+    if scale == 0 {
+        0.0
+    } else {
+        (LN_SCALE_MIN + (scale - 1) as f32 * LN_RESCALE).exp()
+    }
+}
 
 pub fn raycast_spheres(
     buffer: &[u32], distances: &mut Vec<f32>, 

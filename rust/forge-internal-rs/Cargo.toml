@@ -15,4 +15,3 @@ anyhow.workspace = true
 half.workspace = true
 js-sys.workspace = true
 wasm-bindgen.workspace = true
-wlg = { path = "../wlg" }

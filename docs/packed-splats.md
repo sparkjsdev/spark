@@ -6,9 +6,9 @@ A `PackedSplats` is a collection of Gaussian splats, packed into a format that t
 
 ```typescript
 const packedSplats = new PackedSplats({
-  // Fetch PLY/WLG/SPZ/SPLAT/KSPLAT file from URL
+  // Fetch PLY/SPZ/SPLAT/KSPLAT file from URL
   url?: string;
-  // Decode raw PLY/WLG/SPZ/SPLAT/KSPLAT file bytes
+  // Decode raw PLY/SPZ/SPLAT/KSPLAT file bytes
   fileBytes?: Uint8Array | ArrayBuffer;
   // Override file type
   fileType?: SplatFileType;

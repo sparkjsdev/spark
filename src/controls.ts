@@ -186,6 +186,10 @@ export class FpsMovement {
       this.keydown[event.key] = false;
       this.keycode[event.code] = false;
     });
+    window.addEventListener("blur", () => {
+      this.keydown = {};
+      this.keycode = {};
+    });
   }
 
   // Call this method in your render loop with `control` set to the object to control

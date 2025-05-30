@@ -10,9 +10,9 @@ The usual Three.js properties `position`, `quaternion`, `rotation` behave as you
 
 ```typescript
 const splats = new SplatMesh({
-  // Fetch PLY/WLG/SPZ/SPLAT/KSPLAT file from URL
+  // Fetch PLY/SPZ/SPLAT/KSPLAT file from URL
   url?: string;
-  // Decode raw PLY/WLG/SPZ/SPLAT/KSPLAT file bytes
+  // Decode raw PLY/SPZ/SPLAT/KSPLAT file bytes
   fileBytes?: Uint8Array | ArrayBuffer;
   // Override file type
   fileType?: SplatFileType;

@@ -1,7 +1,6 @@
 [workspace]
 members = [
     "forge-internal-rs",
-    "wlg",
 ]
 resolver = "2"
 
@@ -14,9 +13,6 @@ repository = "https://github.com/forge-gfx/forge"
 
 [workspace.dependencies]
 anyhow = "1.0.98"
-bincode = "1.3.3"
 half = "2.6.0"
 js-sys = "0.3.77"
-ruzstd = "0.8.0"
-serde = { version = "1.0.219", features = ["derive"] }
 wasm-bindgen = "0.2.100"

@@ -23,8 +23,8 @@ const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerH
 const renderer = new THREE.WebGLRenderer();
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement)
-
-const butterfly = new SplatMesh({ url: "../assets/basic/butterfly.wlg"});
+`
+const butterfly = new SplatMesh({ url: "../assets/splats/butterfly.spz"});
 butterfly.quaternion.set(1, 0, 0, 0);
 butterfly.position.set(0, 0, -1);
 scene.add(butterfly);

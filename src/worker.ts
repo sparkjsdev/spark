@@ -1,8 +1,4 @@
-import init_wasm, {
-  decode_wlg,
-  old_sort_splats,
-  sort_splats,
-} from "forge-internal-rs";
+import init_wasm, { sort_splats } from "forge-internal-rs";
 import type { TranscodeSpzInput } from "./SplatLoader";
 import { unpackAntiSplat } from "./antisplat";
 import {
@@ -57,20 +53,6 @@ async function onMessage(event: MessageEvent) {
         };
         break;
       }
-      case "decodeWlg": {
-        const { fileBytes } = args as { fileBytes: Uint8Array };
-        const decoded = decode_wlg(
-          fileBytes,
-          SPLAT_TEX_WIDTH,
-          SPLAT_TEX_HEIGHT,
-        ) as { numSplats: number; packedSplats: Uint32Array };
-        result = {
-          id,
-          numSplats: decoded.numSplats,
-          packedArray: decoded.packedSplats,
-        };
-        break;
-      }
       case "decodeSpz": {
         const { fileBytes } = args as { fileBytes: Uint8Array };
         const decoded = unpackSpz(fileBytes);
@@ -113,25 +95,11 @@ async function onMessage(event: MessageEvent) {
           ordering: Uint32Array;
         };
         // Sort totalSplats splats each with 4 bytes of readback, and outputs Uint32Array ordering of splat indices
-        if (WASM_SPLAT_SORT) {
-          result = {
-            id,
-            readback,
-            ordering,
-            activeSplats: old_sort_splats(
-              maxSplats,
-              totalSplats,
-              readback,
-              ordering,
-            ),
-          };
-        } else {
-          result = {
-            id,
-            readback,
-            ...oldSortSplats({ totalSplats, readback, ordering }),
-          };
-        }
+        result = {
+          id,
+          readback,
+          ...sortSplats({ totalSplats, readback, ordering }),
+        };
         break;
       }
       case "sortDoubleSplats": {
@@ -158,7 +126,7 @@ async function onMessage(event: MessageEvent) {
           result = {
             id,
             readback,
-            ...sortSplats({ numSplats, readback, ordering }),
+            ...sortDoubleSplats({ numSplats, readback, ordering }),
           };
         }
         break;
@@ -322,7 +290,7 @@ const DEPTH_INFINITY = 0x7c00;
 const DEPTH_SIZE = DEPTH_INFINITY + 1;
 let depthArray: Uint32Array | null = null;
 
-function oldSortSplats({
+function sortSplats({
   totalSplats,
   readback,
   ordering,
@@ -386,7 +354,7 @@ function oldSortSplats({
 
 // Sort numSplats splats, each with 2 bytes of float16 readback for distance metric,
 // using one bucket sort pass, outputting Uint32Array of indices.
-function sortSplats({
+function sortDoubleSplats({
   numSplats,
   readback,
   ordering,

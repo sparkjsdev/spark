@@ -1,12 +1,10 @@
 
 use std::cell::RefCell;
-use js_sys::{Array, ArrayBuffer, Float32Array, Object, Reflect, Uint16Array, Uint32Array, Uint8Array};
+use js_sys::{Float32Array, Uint16Array, Uint32Array};
 use wasm_bindgen::prelude::*;
 
-use wlg::decode12_packed;
-
 mod sort;
-use sort::{old_sort_internal, OldSortBuffers, sort_internal, SortBuffers};
+use sort::{sort_internal, SortBuffers};
 
 mod raycast;
 use raycast::{raycast_ellipsoids, raycast_spheres};
@@ -15,80 +13,7 @@ const RAYCAST_BUFFER_COUNT: u32 = 65536;
 
 thread_local! {
     static SORT_BUFFERS: RefCell<SortBuffers> = RefCell::new(SortBuffers::default());
-    static OLD_SORT_BUFFERS: RefCell<OldSortBuffers> = RefCell::new(OldSortBuffers::default());
     static RAYCAST_BUFFER: RefCell<Vec<u32>> = RefCell::new(vec![0; RAYCAST_BUFFER_COUNT as usize * 4]);
-}
-
-#[wasm_bindgen]
-pub fn decode_wlg(bytes: ArrayBuffer, tex_width: u32, tex_height: u32) -> Object {
-    let mut bytes = Uint8Array::new(&bytes).to_vec();
-    let (_settings, packed_splats) = match decode12_packed(&mut bytes) {
-        Ok(result) => result,
-        Err(err) => {
-            wasm_bindgen::throw_str(&format!("{}", err));
-        }
-    };
-
-    let num_splats = packed_splats.0.len() / 4;
-    let max_splats = if tex_width != 0 && tex_height != 0 {            
-        let width = tex_width as usize;
-        let height = num_splats.div_ceil(width).min(tex_height as usize);
-        let depth = num_splats.div_ceil(width * height);
-        width * height * depth
-    } else {
-        num_splats
-    };
-
-    let packed = Uint32Array::new_with_length(max_splats as u32 * 4);
-    let packed_slice = packed.subarray(0, packed_splats.0.len() as u32);
-    packed_slice.copy_from(&packed_splats.0);
-
-    let result = Object::new();
-    Reflect::set(&result, &JsValue::from_str("numSplats"), &JsValue::from_f64(num_splats as f64)).unwrap();
-    Reflect::set(&result, &JsValue::from_str("packedSplats"), &JsValue::from(packed)).unwrap();
-    result
-}
-
-#[wasm_bindgen]
-pub fn old_sort_splats(
-    max_splats: u32, total_splats: u32, readback: Array, ordering: Uint32Array,
-) -> u32 {
-    let max_splats = max_splats as usize;
-    let total_splats = total_splats as usize;
-    let num_layers = readback.length() as usize;
-    let layer_size = readback.get(0).dyn_into::<Uint8Array>().unwrap().length() as usize / 4;
-
-    let active_splats = OLD_SORT_BUFFERS.with_borrow_mut(|buffers| {
-        buffers.ensure_size(max_splats);
-
-        // Copy the readback data layers into a contiguous buffer
-        let mut layer_base = 0;
-        for layer in 0..num_layers {
-            let layer_count = layer_size.min(total_splats - layer_base);
-            if layer_count > 0 {
-                let layer_buffer = readback.get(layer as u32).dyn_into::<Uint8Array>().unwrap().buffer();
-                let layer_uint32 = Uint32Array::new_with_byte_offset_and_length(&layer_buffer, 0, layer_count as u32);
-                layer_uint32.copy_to(&mut buffers.readback[layer_base..layer_base + layer_count]);
-            }
-            layer_base += layer_count;
-        }
-
-        let active_splats = match old_sort_internal(buffers, total_splats) {
-            Ok(active_splats) => active_splats,
-            Err(err) => {
-                wasm_bindgen::throw_str(&format!("{}", err));
-            }
-        };
-
-        if active_splats > 0 {
-            // Copy out ordering result
-            let subarray = &buffers.ordering[..active_splats as usize];
-            ordering.subarray(0, active_splats).copy_from(&subarray);
-        }
-        active_splats
-    });
-
-    active_splats
 }
 
 #[wasm_bindgen]

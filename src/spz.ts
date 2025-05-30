@@ -8,9 +8,7 @@ import {
 } from "./SplatLoader";
 import { GunzipReader, fromHalf, unpackSplat } from "./utils";
 
-import init_wasm, { decode_wlg } from "forge-internal-rs";
 import { decodeAntiSplat } from "./antisplat";
-import { SPLAT_TEX_HEIGHT, SPLAT_TEX_WIDTH } from "./defines";
 import { decodeKsplat } from "./ksplat";
 import { PlyReader } from "./ply";
 
@@ -463,38 +461,6 @@ export async function transcodeSpz(input: TranscodeSpzInput) {
       }
     }
     switch (fileType) {
-      case SplatFileType.WLG0: {
-        await init_wasm();
-        const decoded = decode_wlg(
-          input.fileBytes,
-          SPLAT_TEX_WIDTH,
-          SPLAT_TEX_HEIGHT,
-        ) as { numSplats: number; packedSplats: Uint32Array };
-        for (let i = 0; i < decoded.numSplats; ++i) {
-          let { center, scales, quaternion, opacity, color } = unpackSplat(
-            decoded.packedSplats,
-            i,
-          );
-          center = transformPos(center);
-          if (withinClip(center) && withinOpacity(opacity)) {
-            const index = splats.pushSplat();
-            splats.setCenter(index, center.x, center.y, center.z);
-            scales = transformScales(scales);
-            splats.setScale(index, scales.x, scales.y, scales.z);
-            quaternion = transformQuaternion(quaternion);
-            splats.setQuaternion(
-              index,
-              quaternion.x,
-              quaternion.y,
-              quaternion.z,
-              quaternion.w,
-            );
-            splats.setOpacity(index, opacity);
-            splats.setColor(index, color.r, color.g, color.b);
-          }
-        }
-        break;
-      }
       case SplatFileType.PLY: {
         const ply = new PlyReader({ fileBytes: input.fileBytes });
         await ply.parseHeader();

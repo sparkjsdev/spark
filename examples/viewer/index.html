@@ -61,7 +61,7 @@
   <canvas id="canvas" tabindex="0"></canvas>
   <div id="main-gui"></div>
   <div id="second-gui"></div>
-  <input id="file-input" type="file" accept=".ply,.spz,.splat,.ksplat,.wlg" multiple="true" style="display: none;" />
+  <input id="file-input" type="file" accept=".ply,.spz,.splat,.ksplat" multiple="true" style="display: none;" />
   <script type="module">
     import * as THREE from "three";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -633,7 +633,6 @@
       console.log("Dropped files:", files.length, files);
       const splatFiles = files.filter((file) =>
         file.name.toLowerCase().endsWith('.ply') ||
-        file.name.toLowerCase().endsWith('.wlg') ||
         file.name.toLowerCase().endsWith('.spz') ||
         file.name.toLowerCase().endsWith('.splat') ||
         file.name.toLowerCase().endsWith('.ksplat')
@@ -646,7 +645,7 @@
 
     // Parse URLs from text (handles single URLs, multiple lines, mixed content)
     function parseURLsFromText(text) {
-      const supportedExtensions = [".ply", ".wlg", ".spz", ".splat", ".ksplat"];
+      const supportedExtensions = [".ply", ".spz", ".splat", ".ksplat"];
       const urls = [];
 
       // Split by lines, commas, and semicolons

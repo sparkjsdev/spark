@@ -73,7 +73,6 @@ export class SplatLoader extends Loader {
 
 export enum SplatFileType {
   PLY = "ply",
-  WLG0 = "wlg0",
   SPZ = "spz",
   SPLAT = "splat",
   KSPLAT = "ksplat",
@@ -85,9 +84,6 @@ export function getSplatFileType(
   const view = new DataView(fileBytes.buffer);
   if ((view.getUint32(0, true) & 0x00ffffff) === 0x00796c70) {
     return SplatFileType.PLY;
-  }
-  if (view.getUint32(0, true) === 0x30474c57) {
-    return SplatFileType.WLG0;
   }
   if ((view.getUint32(0, true) & 0x00ffffff) === 0x00088b1f) {
     // Gzipped file, unpack beginning to check magic number
@@ -125,9 +121,6 @@ export function getSplatFileTypeFromPath(
   if (extension === "ply") {
     return SplatFileType.PLY;
   }
-  if (extension === "wlg") {
-    return SplatFileType.WLG0;
-  }
   if (extension === "spz") {
     return SplatFileType.SPZ;
   }
@@ -164,13 +157,6 @@ export async function unpackSplats({
   }
 
   switch (splatFileType) {
-    case SplatFileType.WLG0:
-      return await withWorker(async (worker) => {
-        const { packedArray, numSplats } = (await worker.call("decodeWlg", {
-          fileBytes,
-        })) as { packedArray: Uint32Array; numSplats: number };
-        return { packedArray, numSplats };
-      });
     case SplatFileType.PLY: {
       const ply = new PlyReader({ fileBytes });
       await ply.parseHeader();

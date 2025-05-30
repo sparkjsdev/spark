@@ -1,0 +1,65 @@
+import { SplatGenerator } from '../SplatGenerator';
+import * as THREE from "three";
+export declare const DEFAULT_SNOW: {
+    box: THREE.Box3;
+    density: number;
+    fallDirection: THREE.Vector3;
+    fallVelocity: number;
+    wanderScale: number;
+    wanderVariance: number;
+    color1: THREE.Color;
+    color2: THREE.Color;
+    minScale: number;
+    maxScale: number;
+    anisoScale: THREE.Vector3;
+};
+export declare const DEFAULT_RAIN: {
+    box: THREE.Box3;
+    density: number;
+    fallDirection: THREE.Vector3;
+    fallVelocity: number;
+    wanderScale: number;
+    wanderVariance: number;
+    color1: THREE.Color;
+    color2: THREE.Color;
+    minScale: number;
+    maxScale: number;
+    anisoScale: THREE.Vector3;
+};
+export declare function snowBox({ box, minY, numSplats, density, anisoScale, minScale, maxScale, fallDirection, fallVelocity, wanderScale, wanderVariance, color1, color2, opacity, onFrame, }: {
+    box?: THREE.Box3;
+    minY?: number;
+    numSplats?: number;
+    density?: number;
+    anisoScale?: THREE.Vector3;
+    minScale?: number;
+    maxScale?: number;
+    fallDirection?: THREE.Vector3;
+    fallVelocity?: number;
+    wanderScale?: number;
+    wanderVariance?: number;
+    color1?: THREE.Color;
+    color2?: THREE.Color;
+    opacity?: number;
+    onFrame?: ({ object, time, deltaTime, }: {
+        object: SplatGenerator;
+        time: number;
+        deltaTime: number;
+    }) => void;
+}): {
+    snow: SplatGenerator;
+    min: import('../dyno').DynoVec3<THREE.Vector3, string>;
+    max: import('../dyno').DynoVec3<THREE.Vector3, string>;
+    minY: import('../dyno').DynoFloat<string>;
+    color1: import('../dyno').DynoVec3<THREE.Color, string>;
+    color2: import('../dyno').DynoVec3<THREE.Color, string>;
+    opacity: import('../dyno').DynoFloat<string>;
+    fallVelocity: import('../dyno').DynoFloat<string>;
+    wanderVariance: import('../dyno').DynoFloat<string>;
+    wanderScale: import('../dyno').DynoFloat<string>;
+    fallDirection: import('../dyno').DynoVec3<THREE.Vector3, string>;
+    minScale: import('../dyno').DynoFloat<string>;
+    maxScale: import('../dyno').DynoFloat<string>;
+    anisoScale: import('../dyno').DynoVec3<THREE.Vector3, string>;
+};
+export type SNOW_RESULT_TYPE = ReturnType<typeof snowBox>;
