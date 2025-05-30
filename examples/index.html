@@ -31,31 +31,38 @@
                 }
 
                 #content {
-                    margin: 0 m !important;
+                    margin: 0 !important;
                     padding-top: 4rem !important;
                     width: 100% !important;
                     height: calc(100vh - 4rem) !important;
                 }
 
-                #panel.mobile {
+                #mobile-panel {
                     display: flex;
                     position: fixed;
-                    top: 0;
+                    flex-direction: column;
+                    top: 4rem;
                     right: -100%;
                     left: auto;
-                    width: 80%;
+                    width: 70%;
                     height: 100%;
                     transform: none;
                     transition: right 0.3s ease-in-out;
                     z-index: 1001;
                     background: #D43E4C;
+                    border-left: var(--border-style);
                 }
 
-                #panel.mobile.active {
+                #mobile-panel.active {
                     right: 0;
                 }
 
-                #header {
+                #mobile-panel .example-link.active {
+                    border-left: none;
+                    border-right: 4px solid #ffffff;
+                }
+
+                #mobile-panel #header {
                     display: none;
                 }
 
@@ -241,9 +248,23 @@
                 const panel = document.getElementById('panel');
                 const overlay = document.getElementById('overlay');
 
-                const mobilePanel = panel.cloneNode(true);
+                const mobilePanel = document.createElement('div');
                 mobilePanel.id = 'mobile-panel';
-                mobilePanel.classList.add('mobile');
+
+                const copyLinks = () => {
+                    mobilePanel.innerHTML = '';
+                    const links = panel.querySelectorAll('.example-link');
+                    links.forEach(link => {
+                        const newLink = link.cloneNode(true);
+                        mobilePanel.appendChild(newLink);
+                    });
+                };
+
+                copyLinks();
+
+                const observer = new MutationObserver(copyLinks);
+                observer.observe(panel, { childList: true });
+
                 document.body.appendChild(mobilePanel);
 
                 function closeMenu() {
@@ -282,31 +303,17 @@
                 loadExamples();
                 setupMobileMenu();
             });
-
-            // function checkMobileView() {
-            //     const isMobile = window.matchMedia("(max-width: 768px)").matches;
-            //     console.log('Is mobile view:', isMobile);
-            //     console.log('Mobile header display:', window.getComputedStyle(document.getElementById('mobile-header')).display);
-            // }
-
-            // window.addEventListener('load', checkMobileView);
-            // window.addEventListener('resize', checkMobileView);
-
-            // const mediaQuery = window.matchMedia("(max-width: 768px)");
-            // mediaQuery.addListener((e) => {
-            //     if (e.matches) {
-            //         document.getElementById('mobile-header').style.display = 'flex';
-            //         document.getElementById('panel').style.display = 'none';
-            //     }
-            // })
         </script>
     </head>
     <body>
         <div id="overlay"></div>
         <div id="mobile-header">
-            <a href="https://forge.dev/">
-                <img src="../docs/assets/images/logo.svg" alt="Forge" class="logo" />
-            </a>
+            <div style="display: flex; flex-direction: row; color: white;">
+                <a href="https://forge.dev/">
+                    <img src="../docs/assets/images/logo.svg" alt="Forge" class="logo" />
+                </a>
+                <span class="title">EXAMPLES</span>
+            </div>
             <div id="hamburger">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <path d="M3 12H21" stroke="white" stroke-width="2" stroke-linecap="round"/>
