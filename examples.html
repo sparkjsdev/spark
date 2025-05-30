@@ -191,7 +191,6 @@
             function loadExamples() {
                 const panel = document.getElementById('panel');
                 const iframe = document.getElementById('example-frame');
-
                 const codeButton = document.createElement('a');
                 codeButton.id = 'code-button';
                 codeButton.target = '_blank';
@@ -203,43 +202,26 @@
                 `;
                 document.body.appendChild(codeButton);
 
-                for (link of panel.querySelectorAll('.example-link')) {
+                const initialLink = panel.querySelector('.example-link.active');
+                if (initialLink) {
+                    const path = initialLink.getAttribute('href');
+                    iframe.src = path;
+                    codeButton.href = `https://github.com/forge-gfx/forge/blob/main${path}`;
+                }
+
+                panel.querySelectorAll('.example-link').forEach((link) => {
                     link.addEventListener('click', (e) => {
                         e.preventDefault();
                         const path = link.getAttribute('href').substring(1);
                         iframe.src = path;
 
-                        document.querySelectorAll('.example-link').forEach(link => link.classList.remove('active'));
+                        console.log('path:', path);
+                        document.querySelectorAll('.example-link').forEach(l => l.classList.remove('active'));
                         link.classList.add('active');
-                        // panel.querySelectorAll(`[href="#${path}"]`)?.classList.add('active');
-
-                        const example = link.getAttribute('data-source');
-                        if (example) {
-                            codeButton.href = example;
-                        }
+                        codeButton.href = `https://github.com/forge-gfx/forge/blob/main/${path}`;
+                        console.log('codeButton href:', codeButton.href);
                     });
-                }
-
-                // for (example of examples) {
-                //     if (example.name === 'Hello World') {
-                //         example.classList.add('active');
-                //         const iframe = document.getElementById('example-frame');
-                //         iframe.src = example.href;
-                //         codeButton.href = example.source;
-                //     }
-
-                //     link.addEventListener('click', (e) => {
-                //         e.preventDefault();
-                //         const iframe = document.getElementById('example-frame');
-                //         iframe.src = example.href;
-
-                //         for (link of document.querySelectorAll('.example-link')) {
-                //             link.classList.remove('active');
-                //         }
-                //         link.classList.add('active');
-                //         codeButton.href = example.source;
-                //     });
-                // }
+                });
             }
 
             function setupMobileMenu() {
@@ -301,7 +283,6 @@
 
                         document.querySelectorAll('.example-link').forEach(l => l.classList.remove('active'));
                         link.classList.add('active');
-                        panel.querySelectorAll(`[href="#${path}"]`)?.classList.add('active');
 
                         const example = link.getAttribute('data-source');
                         if (example) {
@@ -313,7 +294,20 @@
                 });
 
                 mobilePanel.addEventListener('click', (e) => {
-                    e.stopPropagation();
+                    const link = e.target.closest('.example-link');
+
+                    if (link) {
+                        e.preventDefault();
+                        const path = link.getAttribute('href');
+                        iframe.src = path;
+
+                        document.querySelectorAll('.example-link').forEach(l => l.classList.remove('active'));
+                        link.classList.add('active');
+                        panel.querySelector(`[href="${path}"]`)?.classList.add('active');
+
+                        codeButton.href = `https://github.com/forge-gfx/forge/blob/main${path}`;
+                        closeMenu();
+                    }
                 });
             }
 
