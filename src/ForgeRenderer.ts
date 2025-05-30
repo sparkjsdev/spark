@@ -43,9 +43,20 @@ let hasForgeRenderer = false;
 
 let forgeRendererInstance: ForgeRenderer;
 
+// Helper function to check if a THREE.Object3D has a SplatMesh in its hierarchy
+function hasSplatMeshInHierarchy(object: THREE.Object3D) {
+  let found = false;
+  object.traverse((child) => {
+    if (child instanceof SplatMesh) {
+      found = true;
+    }
+  });
+  return found;
+}
+
 const sceneAdd = THREE.Scene.prototype.add;
 THREE.Scene.prototype.add = function (object) {
-  hasSplatMesh = hasSplatMesh || object instanceof SplatMesh;
+  hasSplatMesh = hasSplatMesh || hasSplatMeshInHierarchy(object);
   hasForgeRenderer = hasForgeRenderer || object instanceof ForgeRenderer;
   sceneAdd.call(this, object);
   return this;
