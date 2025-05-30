@@ -1,0 +1,54 @@
+{
+  "examples": [
+    {
+      "name": "Hello World",
+      "path": "/examples/hello-world/index.html",
+      "source": "https://github.com/forge-gfx/forge/blob/main/examples/hello-world/index.html"
+    },
+    {
+      "name": "Environment Map",
+      "path": "/examples/envmap/index.html",
+      "source": "https://github.com/forge-gfx/forge/blob/main/examples/envmap/index.html"
+    },
+    {
+      "name": "Interactivity",
+      "path": "/examples/interactivity/index.html",
+      "source": "https://github.com/forge-gfx/forge/blob/main/examples/interactivity/index.html"
+    },
+    {
+      "name": "Multiple Splats",
+      "path": "/examples/multiple-splats/index.html",
+      "source": "https://github.com/forge-gfx/forge/blob/main/examples/multiple-splats/index.html"
+    },
+    {
+      "name": "Multiple Viewpoints",
+      "path": "/examples/multiple-viewpoints/index.html",
+      "source": "https://github.com/forge-gfx/forge/blob/main/examples/multiple-viewpoints/index.html"
+    },
+    {
+      "name": "Procedural Splats",
+      "path": "/examples/procedural-splats/index.html",
+      "source": "https://github.com/forge-gfx/forge/blob/main/examples/procedural-splats/index.html"
+    },
+    {
+      "name": "Raycasting",
+      "path": "/examples/raycasting/index.html",
+      "source": "https://github.com/forge-gfx/forge/blob/main/examples/raycasting/index.html"
+    },
+    {
+      "name": "VFX - Dynamic Lighting",
+      "path": "/examples/vfx-dynamic-lighting/index.html",
+      "source": "https://github.com/forge-gfx/forge/blob/main/examples/vfx-dynamic-lighting/index.html"
+    },
+    {
+      "name": "VFX - Particle Simulation",
+      "path": "/examples/vfx-particle-simulation/index.html",
+      "source": "https://github.com/forge-gfx/forge/blob/main/examples/vfx-particle-simulation/index.html"
+    },
+    {
+      "name": "Viewer",
+      "path": "/examples/viewer/index.html",
+      "source": "https://github.com/forge-gfx/forge/blob/main/examples/viewer/index.html"
+    }
+  ]
+}

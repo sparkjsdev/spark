@@ -10,19 +10,6 @@ header {
   width: 50%;
 }
 
-#button {
-  position: fixed;
-  bottom: 16px;
-  right: 16px;
-  padding: 12px;
-  border-radius: 50%;
-  margin-bottom: 0px;
-  background-color: #d43e4c;
-  opacity: 0.9;
-  z-index: 999;
-  box-shadow: 0 0 4px rgba(0, 0, 0, 0.15);
-}
-
 /********** Range Input Styles **********/
 /*Range Reset*/
 input {
