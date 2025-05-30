@@ -8288,7 +8288,7 @@ function WorkerWrapper(options) {
   try {
     objURL = blob && (self.URL || self.webkitURL).createObjectURL(blob);
     if (!objURL) throw "";
-    const worker = new Worker(objURL, {
+    const worker = new window.Worker(objURL, {
       name: options == null ? void 0 : options.name
     });
     worker.addEventListener("error", () => {
@@ -8296,7 +8296,7 @@ function WorkerWrapper(options) {
     });
     return worker;
   } catch (e) {
-    return new Worker(
+    return new window.Worker(
       "data:text/javascript;charset=utf-8," + encodeURIComponent(jsContent),
       {
         name: options == null ? void 0 : options.name
@@ -9762,13 +9762,22 @@ function getShaders() {
   }
   return shaders;
 }
+function hasSplatMeshInHierarchy(object) {
+  let found = false;
+  object.traverse((child) => {
+    if (child instanceof SplatMesh) {
+      found = true;
+    }
+  });
+  return found;
+}
 const MAX_ACCUMULATORS = 5;
 let hasSplatMesh = false;
 let hasForgeRenderer = false;
 let forgeRendererInstance;
 const sceneAdd = THREE.Scene.prototype.add;
 THREE.Scene.prototype.add = function(object) {
-  hasSplatMesh = hasSplatMesh || object instanceof SplatMesh;
+  hasSplatMesh = hasSplatMesh || hasSplatMeshInHierarchy(object);
   hasForgeRenderer = hasForgeRenderer || object instanceof ForgeRenderer;
   sceneAdd.call(this, object);
   return this;
