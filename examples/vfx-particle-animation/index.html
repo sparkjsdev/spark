@@ -3,26 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Forge • Atmospheric - Clouds</title>
+    <title>Forge • VFX Particle Animation</title>
     <style>
         html, body {
             margin: 0;
             height: 100%;
             width: 100%;
             background-color: black;
-        }
-
-        #button {
-            position: fixed;
-            bottom: 16px;
-            right: 16px;
-            padding: 12px;
-            border-radius: 50%;
-            margin-bottom: 0px;
-            background-color: #D43E4C;
-            opacity: .9;
-            z-index: 999;
-            box-shadow: 0 0 4px rgba(0, 0, 0, .15);
         }
 
         #canvas {
@@ -34,11 +21,6 @@
     </style>
 </head>
 <body>
-    <a id="button" target="_blank" href="https://github.com/forge-gfx/forge/blob/main/examples/atmospheric-clouds/index.html" title="View source code for this example on GitHub">
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" style="display:block;">
-          <path fill="none" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m9 8l-4 4l4 4m6-8l4 4l-4 4"/>
-        </svg>
-    </a>
     <script type="importmap">
         {
           "imports": {
@@ -285,10 +267,6 @@
             0.1,
             1000
         );
-        // const loader = new THREE.TextureLoader();
-        // loader.load("./sky.jpeg", (texture) => {
-        //     scene.background = texture;
-        // });
         scene.background = new THREE.Color(0x08a2d3);
 
         const renderer = new THREE.WebGLRenderer();
@@ -311,8 +289,7 @@
         // add sky background
         const skyGeometry = new THREE.SphereGeometry(10, 60, 40);
         const skyMaterial = new THREE.MeshBasicMaterial({
-            //map: new THREE.TextureLoader().load(`${ASSETS_BASE}/sky.jpeg`),
-            map: new THREE.TextureLoader().load("./sky.jpeg"),
+            map: new THREE.TextureLoader().load((await getAssetFileURL("sky.jpeg"))),
             side: THREE.BackSide,
             depthWrite: false,
         });
