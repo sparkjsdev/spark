@@ -124,3 +124,15 @@
 .md-custom-header-right .md-nav__link:hover {
   color: white;
 }
+
+.feature-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  max-width: 800px;
+  margin: 1.5rem auto;
+}
+
+.feature-item {
+  list-style: none;
+}

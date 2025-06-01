@@ -1,18 +1,19 @@
-# Loading Gsplats
+# Loading Splats
 
-Forge provides loaders for most popular Gsplat file formats, including `.ply` (original "gsplat" format, some compressed variants, and plain x/y/z/r/g/b point clouds) and `.spz` (Niantic open source compressed format), both auto-detected from the file contents.
+Forge provides loaders for most popular splat file formats, including `.ply` (original "gsplat" format, compressed SuperSplat variant, and plain x/y/z/r/g/b point clouds) and `.spz` (Niantic open source compressed format), both auto-detected from the file contents.
 
-Forge can also load popular formats `.splat` (from `antimatter15/splat`) and `.ksplat` (from `mkkellogg/GaussianSplats3D`) if the file type can be inferred from the URL/path extension, or set explicitly using the `fileType` property when creating a `SplatMesh` or `PackedSplats`.
+Forge can also load formats `.splat` (from [`antimatter15/splat`](https://github.com/antimatter15/splat)) and `.ksplat` (from [`mkkellogg/GaussianSplats3D`](https://github.com/mkkellogg/GaussianSplats3D)) if the file type can be inferred from the URL/path extension, or set explicitly using the `fileType` property when creating a `SplatMesh` or `PackedSplats`.
 
 ## Loading auto-detectable formats `.ply` and `.spz`
 
-Adding an individual `SplatMesh` from an auto-detectable format is easy and can be done as simply as below:
+Adding an individual `SplatMesh` from an auto-detectable format is easy and can be done as simply as:
 
 ```javascript
 // Load and create SplatMesh in one go
 const splats = new SplatMesh({ url: "./butterfly.ply" });
 scene.add(splats);
 
+// No file extension but we can auto-detect format from the contents
 scene.add(new SplatMesh({ url: "plyBin/0123456789abcdef" }));
 scene.add(new SplatMesh({ url: "spzBin/fedcba9876543210" }));
 ```
@@ -60,7 +61,7 @@ loader.loadAsync(url, (event) => {
 
 ## Loading additional formats `.splat` and `.ksplat`
 
-These formats are reliably auto-detected from the file contents, so we use two fall-back mechanism to enable support for these popular formats.
+These formats cannot be reliably auto-detected from the file contents, so we use two fall-back mechanism to enable support for these formats.
 
 First, the auto-detection fails on these files, which triggers file type inference via URL/path file extension. If the URL contains the `.splat` or `.ksplat` extensions (stripping out query parameters etc.), we set the corresponding file type.
 
@@ -71,9 +72,11 @@ scene.add(splats);
 const ksplats = new SplatMesh({ url: "./butterfly.ksplats" });
 scene.add(ksplats);
 ```
+
 If the URL contains a path with no obvious file extension, you can set the field `fileType` when constructing a `SplatMesh` or `PackedSplats`.
 
 ```javascript
+// File type can't be auto-detected, so we set it explicitly
 scene.add(new SplatMesh({
   url: "splatBin/0123456789abcdef",
   fileType: SplatFileType.SPLAT,

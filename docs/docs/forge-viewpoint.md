@@ -1,6 +1,6 @@
 # ForgeViewpoint
 
-A `ForgeViewpoint` is created from and tied to a `ForgeRenderer`, and represents an independent viewpoint of all the scene Gsplats and their sort order. Making these viewpoints explicit allows us to have multiple, simultaneous viewpoint renders, for example for camera preview panes or overhead map views.
+A `ForgeViewpoint` is created from and tied to a `ForgeRenderer`, and represents an independent viewpoint of all the scene splats and their sort order. Making these viewpoints explicit allows us to have multiple, simultaneous viewpoint renders, for example for camera preview panes or overhead map views.
 
 When creating a `ForgeRenderer` it automatically creates a default viewpoint `.defaultView` that is used in the normal render loop when drawing to the canvas, and is automatically updated whenever the camera moves. Additional viewpoints can be created and configured separately:
 
@@ -30,7 +30,7 @@ const viewpoint = forge.newViewpoint({
 
 | **Parameter**     | Description |
 | ----------------- | ----------- |
-| **autoUpdate**    | Controls whether to auto-update its sort order whenever the ForgeRenderer updates the Gsplats. If you expect to render/display from this viewpoint most frames, set this to `true`. (default: `false`)
+| **autoUpdate**    | Controls whether to auto-update its sort order whenever the ForgeRenderer updates the splats. If you expect to render/display from this viewpoint most frames, set this to `true`. (default: `false`)
 | **camera**        | Set a `THREE.Camera` for this viewpoint to follow. (default: `undefined`)
 | **viewToWorld**   | Set an explicit view-to-world transformation matrix for this viewpoint (equivalent to `camera.matrixWorld`), overrides any `camera` setting. (default: `undefined`)
 | **target**        | Configure viewpoint with an off-screen render target. (default: `undefined`)
@@ -41,8 +41,8 @@ const viewpoint = forge.newViewpoint({
 | **onTextureUpdated** | Callback function that is called when the render target texture is updated. Receives the texture as a parameter. Use this to update a viewport with the latest viewpoint render each frame. (default: `undefined`)
 | **sortRadial**    | Whether to sort splats radially (geometric distance) from the viewpoint (true) or by Z-depth (false). Most scenes are trained with the Z-depth sort metric and will render more accurately at certain viewpoints. However, radial sorting is more stable under viewpoint rotations. (default: `true`)
 | **sortDistance**  | Distance threshold for re-sorting splats. If the viewpoint moves more than this distance, splats will be re-sorted. (default: `0.01` units)
-| **sortCoorient**  | View direction dot product threshold for re-sorting splats. For `sortRadial: true` we use 0.99 while `sortRadial: false` uses 0.999 because it is more sensitive to view direction. (default: `0.99` if `sortRadial` else `0.999`)
-| **depthBias**     | Constant added to Z-depth to bias values into the positive range for `sortRadial: false`, but also used for culling Gsplats "well behind" the viewpoint origin (default: `1.0`)
+| **sortCoorient**  | View direction dot product threshold for re-sorting splats. For `sortRadial: true` it defaults to 0.99 while `sortRadial: false` uses 0.999 because it is more sensitive to view direction. (default: `0.99` if `sortRadial` else `0.999`)
+| **depthBias**     | Constant added to Z-depth to bias values into the positive range for `sortRadial: false`, but also used for culling splats "well behind" the viewpoint origin (default: `1.0`)
 | **sort360**       | Set this to true if rendering a 360 to disable "behind the viewpoint" culling during sorting. This is set automatically when rendering 360 envMaps using the `ForgeRenderer.renderEnvMap()` utility function. (default: `false`)
 
 ## `dispose()`
@@ -51,17 +51,17 @@ Call this when you are done with the `ForgeViewpoint` and want to free up its re
 
 ## `setAutoUpdate(autoUpdate: boolean)`
 
-Use this function to change whether this viewpoint will auto-update its sort order whenever the attached `ForgeRenderer` updates the Gsplats. Turn this on or off depending on whether you expect to do renders from this viewpoint most frames.
+Use this function to change whether this viewpoint will auto-update its sort order whenever the attached `ForgeRenderer` updates the splats. Turn this on or off depending on whether you expect to do renders from this viewpoint for most frames.
 
 ## `async prepareRenderPixels({ scene, camera?, viewToWOrld?, update?, forceOrigin? })`
 
-Render out a viewpoint as a Uint8Array of RGBA values for the provided scene and any `camera`/`viewToWorld` viewpoint overrides. By default `update` is `true`, which triggers its `ForgeRenderer` to check and potentially update the Gsplats. Setting `update` to `false` disables this and sorts the Gsplats as they are. Setting `forceOrigin` (default: `false`) to `true` forces the view update to recalculate the splats with this view origin, potentially altering any view-dependent effects. If you expect view-dependent effects to play a role in the rendering quality, enable this.
+Render out a viewpoint as a Uint8Array of RGBA values for the provided scene and any `camera`/`viewToWorld` viewpoint overrides. By default `update` is `true`, which triggers its `ForgeRenderer` to check and potentially update the splats. Setting `update` to `false` disables this and sorts the splats as they are. Setting `forceOrigin` (default: `false`) to `true` forces the view update to recalculate the splats with this view origin, potentially altering any view-dependent effects. If you expect view-dependent effects to play a role in the rendering quality, enable this.
 
-Underneath, `prepareRenderPixels()` simply calls `await this.prepare(...)`, `this.renderTarget(...)`, and finally returns the result `this.readTarget()`, a Promise to a Uint8Array with RGBA values for all the pixels (potentially downsampled if the `superXY` parameter was used). These steps can also be called manually, for example if you need to alter the scene before and after `this.renderTarget(...)` to hide UI elements from being rendered.
+Underneath, `prepareRenderPixels()` simply calls `await this.prepare(...)`, `this.renderTarget(...)`, and finally returns the result of `this.readTarget()`, a Promise to a Uint8Array with RGBA values for all the pixels (potentially downsampled if the `superXY` parameter was used). These steps can also be called manually, for example if you need to alter the scene before and after `this.renderTarget(...)` to hide UI elements from being rendered.
 
 ## `async prepare({ scene, camera?, viewToWorld?, update?, forceOrigin? })`
 
-See above `async prepareRenderPixels()` for explanation of parameters. Awaiting this method updates the Gsplats in the scene and performs a sort of the Gsplats from this viewpoint, preparing it for a subsequent `this.renderTarget()` call in the same tick.
+See above `async prepareRenderPixels()` for explanation of parameters. Awaiting this method updates the splats in the scene and performs a sort of the splats from this viewpoint, preparing it for a subsequent `this.renderTarget()` call in the same tick.
 
 ## `renderTarget({ scene, camera? })`
 
@@ -78,4 +78,3 @@ This is called automatically by `ForgeRenderer`, there is no need to call it! Th
 ## `ForgeViewpoint.EMPTY_TEXTURE`
 
 If you need an empty `THREE.Texture` to use to initialize a uniform that is updated via `onTextureUpdated(texture)`, this static texture can be handy.
-
