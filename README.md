@@ -28,14 +28,17 @@
 
 ## Features
 
-- Load multiple splats files simultaneously ([demo]())
-- Combine and composite splats with regular Meshes ([demo]())
-- Animation ([demo]())
-- Real Time Visual Effects ([demo]())
-- Multiple Camera Views ([demo]())
-- Procedurally generated splats ([demo]())
+- Integrates with THREE.js rendering pipeline to fuse splat and mesh-based objects
+- Portable: Works across almost all devices, targeting 98%+ WebGL2 support
+- Renders fast even on low-powered mobile devices
+- Render multiple splat objects together with correct sorting
+- Most major splat file formats supported including .PLY (also compressed), .SPZ, .SPLAT, .KSPLAT
+- Render multiple viewpoints simultaneously
+- Fully dynamic: each splat can be transformed and edited for animation
+- Real-time splat color editing, displacement, and skeletal animation
+- Shader graph system to dynamically create/edit splats on the GPU
 
-Check out all the [examples]()
+Check out all the [examples](https://forge.dev/examples/)
 
 ## Getting Started
 
@@ -47,33 +50,33 @@ Copy the following code into an `index.html` file.
 ```html
 <style> body {margin: 0;} </style>
 <script type="importmap">
-    {
-      "imports": {
-        "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.174.0/three.module.js",
-        "@worldlabsai/forge": "https://forge.dev/releases/forge/0.1.0/forge.module.js"
-      }
+  {
+    "imports": {
+      "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.174.0/three.module.js",
+      "@worldlabsai/forge": "https://forge.dev/releases/forge/0.1.0/forge.module.js"
     }
-  </script>
-  <script type="module">
-    import * as THREE from "three";
-    import { SplatMesh } from "@worldlabsai/forge";
+  }
+</script>
+<script type="module">
+  import * as THREE from "three";
+  import { SplatMesh } from "@worldlabsai/forge";
 
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-    const renderer = new THREE.WebGLRenderer();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    document.body.appendChild(renderer.domElement)
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+  const renderer = new THREE.WebGLRenderer();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement)
 
-    const splatURL = "https://forge.dev/assets/splats/butterfly.spz";
-    const butterfly = new SplatMesh({ url: splatURL });
-    butterfly.quaternion.set(1, 0, 0, 0);
-    butterfly.position.set(0, 0, -3);
-    scene.add(butterfly);
+  const splatURL = "https://forge.dev/assets/splats/butterfly.spz";
+  const butterfly = new SplatMesh({ url: splatURL });
+  butterfly.quaternion.set(1, 0, 0, 0);
+  butterfly.position.set(0, 0, -3);
+  scene.add(butterfly);
 
-    renderer.setAnimationLoop(function animate(time) {
-      renderer.render(scene, camera);
-      butterfly.rotation.y += 0.01;
-    });
+  renderer.setAnimationLoop(function animate(time) {
+    renderer.render(scene, camera);
+    butterfly.rotation.y += 0.01;
+  });
 </script>
 ```
 

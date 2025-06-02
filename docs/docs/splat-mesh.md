@@ -2,7 +2,7 @@
 
 A `SplatMesh` is a high-level interface for displaying and manipulating a "Splat mesh", a collection of Gaussian splats that serves as an "object" of sorts. It is analagous to a traditional triangle-based `THREE.Mesh`, which consists of geometry (points and triangles) and materials (color and lighting). Similarly, a `SplatMesh` contains geometry (splat centers, quaternion, and xyz scales) and materials (RGB color, opacity, spherical harmonics up to degree 3 for directional lighting), and can be added anywhere in the scene hierarchy.
 
-The usual Three.js properties `position`, `quaternion`, `rotation` behave as you would expect, however `scale` only allows uniform scaling and averages the x/y/z scales. Additional properties `recolor` and `opacity` are multiplied in with the final splat color and opacity.
+The usual THREE.js properties `position`, `quaternion`, `rotation` behave as you would expect, however `scale` only allows uniform scaling and averages the x/y/z scales. Additional properties `recolor` and `opacity` are multiplied in with the final splat color and opacity.
 
 `SplatMesh` is a subclass of the more fundamental `SplatGenerator`, which itself is a subclass of `THREE.Object3D`. Any methods and properties on `Object3D` are also available in `SplatMesh`. `SplatGenerator` gives you more control over splat generation and modification, but `SplatMesh` has an simpler higher-level API.
 
@@ -64,7 +64,7 @@ Constructor argument callbacks can be used like `constructSplats` to create a co
 
 The constructor argument options `packedSplats`, `editable`, `onFrame`, `objectModifier`, and `worldModifier` can be modified directly on the `SplatMesh`.
 
-If you modify `packedSplats` you should set `splatMesh.packedSplats.needsUpdate = true` to signal to Three.js that it should re-upload the data to the underlying texture. Use this sparingly with objects with lower splat counts as it requires a CPU-GPU data transfer for each frame. Thousands to tens of thousands of splats is reasonable. (See `hands.ts` for an example of rendering "splat hands" in WebXR using this technique.)
+If you modify `packedSplats` you should set `splatMesh.packedSplats.needsUpdate = true` to signal to THREE.js that it should re-upload the data to the underlying texture. Use this sparingly with objects with lower splat counts as it requires a CPU-GPU data transfer for each frame. Thousands to tens of thousands of splats is reasonable. (See `hands.ts` for an example of rendering "splat hands" in WebXR using this technique.)
 
 If you modify `objectModifier` or `worldModifier` you should call `splatMesh.updateGenerator()` to update the pipeline and have it compile to run efficiently on the GPU.
 

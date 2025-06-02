@@ -145,7 +145,7 @@ Typically you don't need to call this, because calling `this.setSplat(index, ...
 
 ### `getSplat(index): { center, scales, quaternion, opacity, color }`
 
-Unpack the 16-byte splat data at `index` into the Three.js components `center: THREE.Vector3`, `scales: THREE.Vector3`, `quaternion: THREE.Quaternion`, `opacity: number 0..1`, `color: THREE.Color 0..1`.
+Unpack the 16-byte splat data at `index` into the THREE.js components `center: THREE.Vector3`, `scales: THREE.Vector3`, `quaternion: THREE.Quaternion`, `opacity: number 0..1`, `color: THREE.Color 0..1`.
 
 ### `setSplat(index, center, scales, quaternion, opacity, color)`
 

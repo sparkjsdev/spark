@@ -7,9 +7,9 @@ hide:
 
 <div class="hero">
   <h1><img src="/assets/images/logo-hero.png"/></h1>
-  <h2>3D Gaussian Splatting for Developers</h2>
+  <h2>An advanced 3D Gaussian Splatting renderer for THREE.js</h2>
   <div class="feature-grid">
-    <li class="feature-item">Integrates with Three.js scenes</li>
+    <li class="feature-item">Integrates with THREE.js scenes</li>
     <li class="feature-item">Fast rendering on all devices via WebGL2</li>
     <li class="feature-item">Combine multiple splat objects</li>
     <li class="feature-item">Programmable GPU-driven dynamic splat effects</li>
