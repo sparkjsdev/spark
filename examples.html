@@ -77,6 +77,8 @@
           margin-left: var(--panel-width);
           width: calc(100% - var(--panel-width));
           height: 100%;
+          position: fixed;
+          top: 0;
         }
 
         .content iframe {
@@ -142,6 +144,10 @@
             display: flex;
             flex-direction: row;
             color: white;
+          }
+
+          .mobile-header svg {
+            height: 1.5rem;
           }
 
           .content {
@@ -333,7 +339,7 @@
             <use xlink:href="#forge-logo" />
           </svg>
         </a>
-        <span class="title">EXAMPLES</span>
+        <!-- <span class="title">EXAMPLES</span> -->
       </div>
       <div class="hamburger">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
