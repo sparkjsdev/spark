@@ -1,6 +1,6 @@
 # Controls
 
-A program using `Forge` can use any camera control scheme that is compatible with Three.js and will typically manipulate a `THREE.Camera` object's transform. `Forge` also ships with simple, intuitive controls for navigating 3D space that use the keyboard + mouse, game pad, or mobile multi-touch. To add these controls, you can create a `ForgeControls` instance:
+A program using `Forge` can use any camera control scheme that is compatible with THREE.js and will typically manipulate a `THREE.Camera` object's transform. `Forge` also ships with simple, intuitive controls for navigating 3D space that use the keyboard + mouse, game pad, or mobile multi-touch. To add these controls, you can create a `ForgeControls` instance:
 
 ```typescript
 const controls = new ForgeControls({

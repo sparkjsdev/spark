@@ -1,20 +1,7 @@
 import { Dyno, DynoBlock, unindent } from "./base";
 import { float, vec2, vec3, vec4 } from "./convert";
 import { mul } from "./math";
-import {
-  ScalarTypes,
-  type ValueTypes,
-  Vector2Types,
-  Vector3Types,
-  Vector4Types,
-  isIntType,
-  isScalarType,
-  isUintType,
-  isVector2Type,
-  isVector3Type,
-  isVector4Type,
-  sameSizeUvec,
-} from "./types";
+import { type ValueTypes, isIntType, isUintType, sameSizeUvec } from "./types";
 import {
   DynoOutput,
   type DynoVal,

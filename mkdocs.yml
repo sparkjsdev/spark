@@ -19,6 +19,8 @@ nav:
   - Loading Gsplats: docs/loading-splats.md
   - Procedural Splats: docs/procedural-splats.md
   - Splat RGBA-XYZ SDF editing: docs/splat-editing.md
+  - Dyno overview: docs/dyno-overview.md
+  - Dyno standard library: docs/dyno-stdlib.md
   - Controls: docs/controls.md
   - Performance tuning: docs/performance.md
   - Community Resources: docs/community-resources.md

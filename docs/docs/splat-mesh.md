@@ -1,6 +1,6 @@
 # SplatMesh
 
-A `SplatMesh` is a high-level interface for displaying and manipulating a "Splat mesh", a collection of Gaussian splats that serves as an "object" of sorts. It is analagous to a traditional triangle-based `THREE.Mesh`, which consists of geometry (points and triangles) and materials (color and lighting). Similarly, a `SplatMesh` contains geometry (splat centers, quaternion, and xyz scales) and materials (RGB color, opacity, spherical harmonics up to degree 3 for directional lighting), and can be added anywhere in the scene hierarchy.
+A `SplatMesh` is a high-level interface for displaying and manipulating a "Splat mesh", a collection of Gaussian splats that serves as an object of sorts. It is analagous to a traditional triangle-based `THREE.Mesh`, which consists of geometry (points and triangles) and materials (color and lighting). Similarly, a `SplatMesh` contains geometry (splat centers, orientation, and xyz scales) and materials (RGB color, opacity, spherical harmonics), and can be added anywhere in the scene hierarchy.
 
 The usual THREE.js properties `position`, `quaternion`, `rotation` behave as you would expect, however `scale` only allows uniform scaling and averages the x/y/z scales. Additional properties `recolor` and `opacity` are multiplied in with the final splat color and opacity.
 
@@ -36,7 +36,7 @@ const splats = new SplatMesh({
   objectModifier?: GsplatModifier;
   worldModifier?: GsplatModifier;
 });
-// Add to scene to show splats (requires ForgeRenderer as well)
+// Add to scene to show splats
 scene.add(splats);
 ```
 
@@ -83,7 +83,7 @@ Additional properties on a `SplatMesh` instance:
 | **skinning**      | Optional `SplatSkinning` instance for animating splats with dual-quaternion skeletal animation. (default: `null`)
 | **edits**         | Optional list of `SplatEdit`s to apply to the mesh. If `null`, any `SplatEdit` children in the scene graph will be added automatically. (default: `null`)
 | **splatRgba**     | Optional `RgbaArray` to overwrite splat RGBA values with custom values. Useful for "baking" RGB and opacity edits into the `SplatMesh`. (default: `null`)
-| **maxSh**         | Maximum Spherical Harmonics level to use. Call `updateGenerator()` after changing. (default: `3`)
+| **maxSh**         | Maximum Spherical Harmonics level to use. Forge supports up to SH3. Call `updateGenerator()` after changing. (default: `3`)
 
 ## `dispose()`
 
