@@ -54,7 +54,8 @@
         "three": "/examples/js/vendor/three/build/three.module.js",
         "three/addons/": "/examples/js/vendor/three/examples/jsm/",
         "@forge-gfx/forge": "/dist/forge.module.js",
-        "lil-gui": "../node_modules/lil-gui/dist/lil-gui.esm.js"
+        "lil-gui": "../node_modules/lil-gui/dist/lil-gui.esm.js",
+        "stats.js": "../node_modules/stats.js/build/stats.min.js"
       }
     }
   </script>
@@ -66,6 +67,7 @@
     import * as THREE from "three";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
     import { GUI } from "lil-gui";
+    import Stats from "stats.js";
     import { constructGrid, ForgeControls, ForgeRenderer, SplatMesh, textSplats, dyno, transcodeSpz } from "@forge-gfx/forge";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
@@ -104,6 +106,10 @@
     grid.opacity = 0;
     scene.add(grid);
 
+    const stats = new Stats();
+    document.body.appendChild(stats.dom);
+    stats.dom.style.display = "none";
+
     const gui = new GUI({
       title: "Settings",
       container: document.getElementById("main-gui")
@@ -129,6 +135,7 @@
 
     const guiOptions = {
       highDevicePixel: false,
+      stats: false,
       resetOnLoad: true,
       loadOffset: 0,
       openCv: true,
@@ -453,6 +460,9 @@
       renderer.setSize(width, height, false);
       console.log("Render size", canvas.width, canvas.height);
     });
+    gui.add(guiOptions, "stats").name("Show frame stats").onChange((value) => {
+      stats.dom.style.display = value ? "block" : "none";
+    });
     gui.add(grid, "opacity", 0, 1, 0.01).name("Grid opacity").listen();
 
     const normalColor = dyno.dynoBool(false);
@@ -675,6 +685,7 @@
     renderer.setAnimationLoop(function animate(time) {
       const deltaTime = time - (lastTime || time);
       lastTime = time;
+      stats.begin();
 
       if (guiOptions.autoRotate) {
         frame.rotation.y += deltaTime / 5000;
@@ -687,6 +698,8 @@
       }
 
       renderer.render(scene, camera);
+
+      stats.end();
     });
   </script>
 </body>
