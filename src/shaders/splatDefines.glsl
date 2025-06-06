@@ -22,7 +22,7 @@ const float INFINITY = 1.0 / 0.0;
 const float NEG_INFINITY = -INFINITY;
 
 const float MAX_PIXEL_RADIUS = 512.0;
-const float MIN_ALPHA = 0.01;
+const float MIN_ALPHA = 0.5 * (1.0 / 255.0); // 0.00196
 const float MAX_STDDEV = sqrt(8.0);
 
 float sqr(float x) {
