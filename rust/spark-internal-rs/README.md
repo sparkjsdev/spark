@@ -1,6 +1,6 @@
-# forge-internal-rs
+# spark-internal-rs
 
-Rust WebAssembly functions for forge-internal.
+Rust WebAssembly functions for spark-internal.
 
 ## Installing build tools
 
@@ -21,15 +21,15 @@ cargo install wasm-pack
 
 ## Building
 
-Run the following script inside `forge-internal/rust`:
+Run the following script inside `spark-internal/rust`:
 ```
 ./build_rust_wasm.sh
 ```
 
 You can also build it manually by running these commands:
 ```
-cd forge-internal-rs
+cd spark-internal-rs
 wasm-pack build --target web
 ```
 
-The generated files will be in the `pkg/` subdirectory, which is already symlinked in `forge-internal/package.json`.
+The generated files will be in the `pkg/` subdirectory, which is already symlinked in `spark-internal/package.json`.

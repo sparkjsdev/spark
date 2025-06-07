@@ -1,19 +1,19 @@
-site_name: Forge
-site_url: https://forge.dev/
+site_name: Spark
+site_url: https://sparkjs.dev/
 theme:
   name: material
   custom_dir: docs/overrides
   features:
       - content.code.copy
 extra_css:
-  - stylesheets/forge.css
+  - stylesheets/spark.css
 nav:
   - Home: index.md
   - Getting Started: docs/index.md
   - Overview: docs/overview.md
   - System Design: docs/system-design.md
-  - ForgeRenderer: docs/forge-renderer.md
-  - ForgeViewpoint: docs/forge-viewpoint.md
+  - SparkRenderer: docs/spark-renderer.md
+  - SparkViewpoint: docs/spark-viewpoint.md
   - SplatMesh: docs/splat-mesh.md
   - PackedSplats: docs/packed-splats.md
   - Loading Gsplats: docs/loading-splats.md

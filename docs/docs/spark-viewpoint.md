@@ -1,13 +1,13 @@
-# ForgeViewpoint
+# SparkViewpoint
 
-A `ForgeViewpoint` is created from and tied to a `ForgeRenderer`, and represents an independent viewpoint of all the scene splats and their sort order. Making these viewpoints explicit allows us to have multiple, simultaneous viewpoint renders, for example for camera preview panes or overhead map views.
+A `SparkViewpoint` is created from and tied to a `SparkRenderer`, and represents an independent viewpoint of all the scene splats and their sort order. Making these viewpoints explicit allows us to have multiple, simultaneous viewpoint renders, for example for camera preview panes or overhead map views.
 
-When creating a `ForgeRenderer` it automatically creates a default viewpoint `.defaultView` that is used in the normal render loop when drawing to the canvas, and is automatically updated whenever the camera moves. Additional viewpoints can be created and configured separately:
+When creating a `SparkRenderer` it automatically creates a default viewpoint `.defaultView` that is used in the normal render loop when drawing to the canvas, and is automatically updated whenever the camera moves. Additional viewpoints can be created and configured separately:
 
-## Creating a `ForgeViewpoint`
+## Creating a `SparkViewpoint`
 
 ```typescript
-const viewpoint = forge.newViewpoint({
+const viewpoint = spark.newViewpoint({
   autoUpdate?: boolean;
   camera?: THREE.Camera;
   viewToWorld?: THREE.Matrix4;
@@ -30,7 +30,7 @@ const viewpoint = forge.newViewpoint({
 
 | **Parameter**     | Description |
 | ----------------- | ----------- |
-| **autoUpdate**    | Controls whether to auto-update its sort order whenever the ForgeRenderer updates the splats. If you expect to render/display from this viewpoint most frames, set this to `true`. (default: `false`)
+| **autoUpdate**    | Controls whether to auto-update its sort order whenever the SparkRenderer updates the splats. If you expect to render/display from this viewpoint most frames, set this to `true`. (default: `false`)
 | **camera**        | Set a `THREE.Camera` for this viewpoint to follow. (default: `undefined`)
 | **viewToWorld**   | Set an explicit view-to-world transformation matrix for this viewpoint (equivalent to `camera.matrixWorld`), overrides any `camera` setting. (default: `undefined`)
 | **target**        | Configure viewpoint with an off-screen render target. (default: `undefined`)
@@ -43,19 +43,19 @@ const viewpoint = forge.newViewpoint({
 | **sortDistance**  | Distance threshold for re-sorting splats. If the viewpoint moves more than this distance, splats will be re-sorted. (default: `0.01` units)
 | **sortCoorient**  | View direction dot product threshold for re-sorting splats. For `sortRadial: true` it defaults to 0.99 while `sortRadial: false` uses 0.999 because it is more sensitive to view direction. (default: `0.99` if `sortRadial` else `0.999`)
 | **depthBias**     | Constant added to Z-depth to bias values into the positive range for `sortRadial: false`, but also used for culling splats "well behind" the viewpoint origin (default: `1.0`)
-| **sort360**       | Set this to true if rendering a 360 to disable "behind the viewpoint" culling during sorting. This is set automatically when rendering 360 envMaps using the `ForgeRenderer.renderEnvMap()` utility function. (default: `false`)
+| **sort360**       | Set this to true if rendering a 360 to disable "behind the viewpoint" culling during sorting. This is set automatically when rendering 360 envMaps using the `SparkRenderer.renderEnvMap()` utility function. (default: `false`)
 
 ## `dispose()`
 
-Call this when you are done with the `ForgeViewpoint` and want to free up its resources (GPU targets, pixel buffers, etc.)
+Call this when you are done with the `SparkViewpoint` and want to free up its resources (GPU targets, pixel buffers, etc.)
 
 ## `setAutoUpdate(autoUpdate: boolean)`
 
-Use this function to change whether this viewpoint will auto-update its sort order whenever the attached `ForgeRenderer` updates the splats. Turn this on or off depending on whether you expect to do renders from this viewpoint for most frames.
+Use this function to change whether this viewpoint will auto-update its sort order whenever the attached `SparkRenderer` updates the splats. Turn this on or off depending on whether you expect to do renders from this viewpoint for most frames.
 
 ## `async prepareRenderPixels({ scene, camera?, viewToWorld?, update?, forceOrigin? })`
 
-Render out a viewpoint as a Uint8Array of RGBA values for the provided scene and any `camera`/`viewToWorld` viewpoint overrides. By default `update` is `true`, which triggers its `ForgeRenderer` to check and potentially update the splats. Setting `update` to `false` disables this and sorts the splats as they are. Setting `forceOrigin` (default: `false`) to `true` forces the view update to recalculate the splats with this view origin, potentially altering any view-dependent effects. If you expect view-dependent effects to play a role in the rendering quality, enable this.
+Render out a viewpoint as a Uint8Array of RGBA values for the provided scene and any `camera`/`viewToWorld` viewpoint overrides. By default `update` is `true`, which triggers its `SparkRenderer` to check and potentially update the splats. Setting `update` to `false` disables this and sorts the splats as they are. Setting `forceOrigin` (default: `false`) to `true` forces the view update to recalculate the splats with this view origin, potentially altering any view-dependent effects. If you expect view-dependent effects to play a role in the rendering quality, enable this.
 
 Underneath, `prepareRenderPixels()` simply calls `await this.prepare(...)`, `this.renderTarget(...)`, and finally returns the result of `this.readTarget()`, a Promise to a Uint8Array with RGBA values for all the pixels (potentially downsampled if the `superXY` parameter was used). These steps can also be called manually, for example if you need to alter the scene before and after `this.renderTarget(...)` to hide UI elements from being rendered.
 
@@ -73,8 +73,8 @@ Read back the previously rendered target image as a Uint8Array of packed RGBA va
 
 ## `autoPoll()`
 
-This is called automatically by `ForgeRenderer`, there is no need to call it! The method cannot be private because then ForgeRenderer would not be able to call it.
+This is called automatically by `SparkRenderer`, there is no need to call it! The method cannot be private because then SparkRenderer would not be able to call it.
 
-## `ForgeViewpoint.EMPTY_TEXTURE`
+## `SparkViewpoint.EMPTY_TEXTURE`
 
 If you need an empty `THREE.Texture` to use to initialize a uniform that is updated via `onTextureUpdated(texture)`, this static texture can be handy.

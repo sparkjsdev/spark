@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-// Forge controls for keyboard + mouse, game pad, or mobile multi-touch
+// Spark controls for keyboard + mouse, game pad, or mobile multi-touch
 
 const DEFAULT_MOVEMENT_SPEED = 1.0;
 const DEFAULT_ROLL_SPEED = 2.0;
@@ -54,11 +54,11 @@ const ARROW_KEYCODE_ROTATE = {
   Delete: new THREE.Vector3(1, 0, 0),
 };
 
-// ForgeControls provides simple, intuitive controls for navigating 3D space that
+// SparkControls provides simple, intuitive controls for navigating 3D space that
 // use the keyboard + mouse, game pad, or mobile multi-touch. Internally it
 // instantiates and updates a `FpsMovement` and `PointerControls` instance.
 
-export class ForgeControls {
+export class SparkControls {
   fpsMovement: FpsMovement;
   pointerControls: PointerControls;
   lastTime = 0;

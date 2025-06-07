@@ -9,7 +9,7 @@ import { getTextureSize } from "./utils";
 // Readback can be used to run a Dyno program that maps an index to a 32-bit
 // RGBA8 value, which is the only allowed, portable readback format for WebGL2.
 // Using data packing and conversion you can read back any 32-bit value, which
-// Forge uses to read back 2 float16 Gsplat distance values per index.
+// Spark uses to read back 2 float16 Gsplat distance values per index.
 
 export type Rgba8Readback = Dyno<{ index: "int" }, { rgba8: "vec4" }>;
 

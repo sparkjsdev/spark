@@ -1,12 +1,12 @@
 # Dyno shaders
 
-The `dyno` shader graph system is one of the architectural pillars of Forge, allowing you to create custom computation graphs using Javascript (and optionally GLSL) that are compiled to GLSL and run on the GPU, similar to shader graph systems in modern 3D graphics engines.
+The `dyno` shader graph system is one of the architectural pillars of Spark, allowing you to create custom computation graphs using Javascript (and optionally GLSL) that are compiled to GLSL and run on the GPU, similar to shader graph systems in modern 3D graphics engines.
 
-A core component of this system is the class `Dyno` and its subclasses, which can be thought of as function blocks with multiple typed inputs and outputs. Values passed between such blocks are of type `DynoVal<T>`, where `T` must be a `DynoType`, representing a GPU type in GLSL. Using TypeScript, Forge ensures type safety and static validation of the GPU computation graph. 
+A core component of this system is the class `Dyno` and its subclasses, which can be thought of as function blocks with multiple typed inputs and outputs. Values passed between such blocks are of type `DynoVal<T>`, where `T` must be a `DynoType`, representing a GPU type in GLSL. Using TypeScript, Spark ensures type safety and static validation of the GPU computation graph. 
 
 All `dyno` code is contained within `src/dyno`, and has definitions which cover all built-in GLSL ES 3.0 types (`"int"`, `"float"`, `"vec"`, etc.) and most of the standard functions (`mul`, `cross`, `texelFetch`, etc.). Note that regular Javascript functions can't be part of a `dyno` computation graph: instead of `x + y` you should use `dyno.add(x, y)`. You can also define your own custom types and `dyno` blocks, both by compositing existing `dyno` functions or by writing GLSL code directly.
 
-Forge currently uses these Dynos in two main places:
+Spark currently uses these Dynos in two main places:
 
 - Dynamically generating splats from `SplatGenerator`/`SplatMesh` into the scene
 - Computing the splat distance metric for CPU readback and sorting
@@ -17,7 +17,7 @@ Learning to build and use `dyno` programs is probably best approached by startin
 
 ## `type DynoType`
 
-A `DynoType` can be either a string that corresponds to a built-in GLSL type, or `{ type: "MyType" }` for a user-defined type. These types are used both for identifying value types `DynoVal<T extends DynoType>` and for declaring input/output types for `Dyno` blocks, for example `{ index: "int" }` or `{ gsplat: Gsplat }` (`Gsplat` is defined as `{ type: "Gsplat" }`). Forge uses these to enforce TypeScript constraints on inputs+outputs of `Dyno` blocks to generate correct GLSL code.
+A `DynoType` can be either a string that corresponds to a built-in GLSL type, or `{ type: "MyType" }` for a user-defined type. These types are used both for identifying value types `DynoVal<T extends DynoType>` and for declaring input/output types for `Dyno` blocks, for example `{ index: "int" }` or `{ gsplat: Gsplat }` (`Gsplat` is defined as `{ type: "Gsplat" }`). Spark uses these to enforce TypeScript constraints on inputs+outputs of `Dyno` blocks to generate correct GLSL code.
 
 ### Build-in types
 
@@ -25,7 +25,7 @@ A built-in GLSL type can be single-valued (`"int"`, `"uint"`, `"float"`, `"bool"
 
 ### Custom types
 
-Forge defines a handful of custom types that are useful: `Gsplat`, `TPackedSplats`, `SdfArray`, `TRgbaArray`, and `SplatSkinning`.  For example, in `src/dyno/splats.ts` we define `Gsplat` as `{ type: "Gsplat" }` along with a helper function:
+Spark defines a handful of custom types that are useful: `Gsplat`, `TPackedSplats`, `SdfArray`, `TRgbaArray`, and `SplatSkinning`.  For example, in `src/dyno/splats.ts` we define `Gsplat` as `{ type: "Gsplat" }` along with a helper function:
 
 ```typescript
 export const defineGsplat = unindent(`

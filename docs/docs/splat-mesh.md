@@ -42,7 +42,7 @@ scene.add(splats);
 
 ### Optional parameters
 
-You can create a `new SplatMesh()` with no options, which will create a new default instance with `.numSplats=0`. Alternatively, you can provide an input `url` to fetch and decode, `fileBytes`, or `packedSplats` (an existing collection of "packed" splats). Forge supports most splat file types, including .ply (including SuperSplat compressed), .splat, .ksplat, .spz. To load filetypes .splat and .ksplat (which can't be reliably auto-detected), use the optional `fileType` argument.
+You can create a `new SplatMesh()` with no options, which will create a new default instance with `.numSplats=0`. Alternatively, you can provide an input `url` to fetch and decode, `fileBytes`, or `packedSplats` (an existing collection of "packed" splats). Spark supports most splat file types, including .ply (including SuperSplat/gsplat compressed), .splat, .ksplat, .spz. To load filetypes .splat and .ksplat (which can't be reliably auto-detected), use the optional `fileType` argument.
 
 Constructor argument callbacks can be used like `constructSplats` to create a collection of splats procedurally at initialization, `onLoad` when loading and initialization completes, `onFrame` to update state every frame. Splat effects can be injected into the standard splat processing pipeline that operate in object-space and world-space via `objectModifier` and `worldModifier` respectively.
 
@@ -83,7 +83,7 @@ Additional properties on a `SplatMesh` instance:
 | **skinning**      | Optional `SplatSkinning` instance for animating splats with dual-quaternion skeletal animation. (default: `null`)
 | **edits**         | Optional list of `SplatEdit`s to apply to the mesh. If `null`, any `SplatEdit` children in the scene graph will be added automatically. (default: `null`)
 | **splatRgba**     | Optional `RgbaArray` to overwrite splat RGBA values with custom values. Useful for "baking" RGB and opacity edits into the `SplatMesh`. (default: `null`)
-| **maxSh**         | Maximum Spherical Harmonics level to use. Forge supports up to SH3. Call `updateGenerator()` after changing. (default: `3`)
+| **maxSh**         | Maximum Spherical Harmonics level to use. Spark supports up to SH3. Call `updateGenerator()` after changing. (default: `3`)
 
 ## `dispose()`
 
@@ -103,7 +103,7 @@ Call this whenever something changes in the splat processing pipeline, for examp
 
 ## `update(...)`
 
-This is called automatically by `ForgeRenderer` and you should not have to call it. It updates parameters for the generated pipeline and calls `updateGenerator()` if the pipeline needs to change.
+This is called automatically by `SparkRenderer` and you should not have to call it. It updates parameters for the generated pipeline and calls `updateGenerator()` if the pipeline needs to change.
 
 ## `raycast(raycaster, intersects: { distance, point, object}[])`
 

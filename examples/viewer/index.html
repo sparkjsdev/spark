@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Forge • Viewer</title>
+  <title>Spark • Viewer</title>
   <style>
     * {
       box-sizing: border-box;
@@ -38,7 +38,7 @@
       align-items: center;
     }
 
-    .forge-canvas {
+    .spark-canvas {
       display: block;
       position: fixed;
       top: 0;
@@ -179,22 +179,22 @@
       "imports": {
         "three": "/examples/js/vendor/three/build/three.module.js",
         "three/addons/": "/examples/js/vendor/three/examples/jsm/",
-        "@forge-gfx/forge": "/dist/forge.module.js"
+        "@sparkjs-dev/spark": "/dist/spark.module.js"
       }
     }
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { SplatMesh, transcodeSpz } from "@forge-gfx/forge";
+    import { SplatMesh, transcodeSpz } from "@sparkjs-dev/spark";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
-    const forgeCanvasEl = document.querySelector(".forge-canvas");
+    const sparkCanvasEl = document.querySelector(".spark-canvas");
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 1000);
     camera.position.set(0, 0, 1);
-    const renderer = new THREE.WebGLRenderer({canvas: forgeCanvasEl});
-    const width = forgeCanvasEl.clientWidth;
-    const height = forgeCanvasEl.clientHeight;
+    const renderer = new THREE.WebGLRenderer({canvas: sparkCanvasEl});
+    const width = sparkCanvasEl.clientWidth;
+    const height = sparkCanvasEl.clientHeight;
     var fileName;
     var fileBytes;
     renderer.setSize(width, height, false);
@@ -250,13 +250,13 @@
     };
 
     dropZoneEl.addEventListener('dragover', onDragover);
-    forgeCanvasEl.addEventListener('dragover', onDragover);
+    sparkCanvasEl.addEventListener('dragover', onDragover);
 
     dropZoneEl.addEventListener('dragleave', onDragLeave);
-    forgeCanvasEl.addEventListener('dragleave', onDragLeave);
+    sparkCanvasEl.addEventListener('dragleave', onDragLeave);
 
     dropZoneEl.addEventListener('drop', onDrop);
-    forgeCanvasEl.addEventListener('drop', onDrop);
+    sparkCanvasEl.addEventListener('drop', onDrop);
 
     const fileInput = document.querySelector('#file-input');
     fileInput.onchange = function(event) {
@@ -332,7 +332,7 @@
   </script>
   <div class="canvas-container invisible">
     <div class="logo">
-      <a href="/"><img src="forge-logo.svg" alt="Forge Logo" /></a>
+      <a href="/"><img src="spark-logo.svg" alt="Spark Logo" /></a>
     </div>
     <button class="spz-button">
       <span class="icon" aria-hidden="true">
@@ -341,12 +341,12 @@
       <span class="label">.spz</span>
     </button>
 </button>
-    <canvas class="forge-canvas"></canvas>
+    <canvas class="spark-canvas"></canvas>
   </div>
   <div class="container">
     <div class="drop-container">
       <div class="hero-logo">
-        <a href="/"><img src="forge-viewer.svg" alt="Forge Viewer Logo" /></a>
+        <a href="/"><img src="spark-viewer.svg" alt="Spark Viewer Logo" /></a>
       </div>
       <div class="drop-zone">Drag and drop a splat file here</div>
       <label for="file-input" class="button upload"><img class="upload-icon" src="upload-icon.svg" alt="upload" />Choose file</label>

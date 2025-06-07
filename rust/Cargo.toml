@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "forge-internal-rs",
+    "spark-internal-rs",
 ]
 resolver = "2"
 
@@ -9,7 +9,7 @@ rust-version = "1.82"
 edition = "2021"
 license = "Proprietary"
 authors = ["World Labs Technologies"]
-repository = "https://github.com/forge-gfx/forge"
+repository = "https://github.com/sparkjs-dev/spark"
 
 [workspace.dependencies]
 anyhow = "1.0.98"

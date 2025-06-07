@@ -11,7 +11,7 @@ import {
 } from "./dyno";
 import { newArray } from "./utils";
 
-// Forge provides the ability to apply "edits" to Gsplats as part of the standard
+// Spark provides the ability to apply "edits" to Gsplats as part of the standard
 // SplatMesh pipeline. These edits take the form of a sequence of operations,
 // applied one at a time to the set of Gsplats in its packedSplats. Each operation
 // evaluates a 7-dimensional field (RGBA and XYZ displacement) at each point in

@@ -27,7 +27,7 @@ export class SplatAccumulator {
   toWorld = new THREE.Matrix4();
   // An array of all Gsplat mappings that were used for generation
   mapping: GeneratorMapping[] = [];
-  // Number of ForgeViewpoints (or other) that reference this accumulator, used
+  // Number of SparkViewpoints (or other) that reference this accumulator, used
   // to figure out when it can be recycled for use
   refCount = 0;
 

@@ -4,7 +4,7 @@ export async function getAssetFileURL(assetFile) {
     const assetsDirectory = "/examples/assets/";
     const assetsInfo = await response.json();
     let url = assetsInfo[assetFile].url;
-    if (window.forgeLocalAssets) {
+    if (window.sparkLocalAssets) {
       url = `${assetsDirectory}${assetsInfo[assetFile].directory}/${assetFile}`;
     }
     return url;

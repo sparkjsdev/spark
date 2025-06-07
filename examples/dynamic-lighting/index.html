@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Forge • VFX Dynamic Lighting</title>
+  <title>Spark • VFX Dynamic Lighting</title>
   <style>
     html,
     body {
@@ -68,7 +68,7 @@
   {
     "imports": {
       "three": "/examples/js/vendor/three/build/three.module.js",
-      "@forge-gfx/forge": "/dist/forge.module.js"
+      "@sparkjs-dev/spark": "/dist/spark.module.js"
     }
   }
   </script>
@@ -77,13 +77,13 @@
     import {
       SplatMesh,
       SplatEdit,
-      ForgeRenderer,
+      SparkRenderer,
       SplatEditSdf,
       SplatEditSdfType,
       SplatEditRgbaBlendMode,
       FpsMovement,
       PointerControls,
-    } from "@forge-gfx/forge";
+    } from "@sparkjs-dev/spark";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
     const canvas = document.getElementById("canvas");
@@ -96,9 +96,9 @@
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement)
 
-    // Create a ForgeRenderer and add it to the scene to render all the Gsplats.
-    const forge = new ForgeRenderer({ renderer });
-    scene.add(forge);
+    // Create a SparkRenderer and add it to the scene to render all the Gsplats.
+    const spark = new SparkRenderer({ renderer });
+    scene.add(spark);
 
     const splatURL = await getAssetFileURL("fireplace.spz");
     const fireplace = new SplatMesh({ url: splatURL });

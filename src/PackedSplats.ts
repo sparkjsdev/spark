@@ -535,7 +535,7 @@ export class PackedSplats {
 
   // Executes a dyno program specified by generator which is any DynoBlock that
   // maps { index: "int" } to { gsplat: Gsplat }. This is called in
-  // ForgeRenderer.updateInternal() to re-generate Gsplats in the scene for
+  // SparkRenderer.updateInternal() to re-generate Gsplats in the scene for
   // SplatGenerator instances whose version is newer than what was generated
   // for it last time.
   generate({

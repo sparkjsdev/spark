@@ -11,7 +11,7 @@
       "dist/*",
       "examples/showcase/hello-gsplat",
       "rust/target",
-      "rust/forge-internal-rs/pkg",
+      "rust/spark-internal-rs/pkg",
       "src/vrButton.ts",
       "site",
       "site-repo",

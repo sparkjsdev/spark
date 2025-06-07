@@ -1,5 +1,5 @@
-export { ForgeRenderer, type ForgeRendererOptions } from "./ForgeRenderer";
-export { ForgeViewpoint, type ForgeViewpointOptions } from "./ForgeViewpoint";
+export { SparkRenderer, type SparkRendererOptions } from "./SparkRenderer";
+export { SparkViewpoint, type SparkViewpointOptions } from "./SparkViewpoint";
 
 export * as dyno from "./dyno";
 
@@ -70,7 +70,7 @@ export {
   HandMovement,
 } from "./hands";
 
-export { ForgeControls, FpsMovement, PointerControls } from "./controls";
+export { SparkControls, FpsMovement, PointerControls } from "./controls";
 
 export {
   isMobile,

@@ -1,7 +1,7 @@
 import { Gunzip } from "fflate";
 import * as THREE from "three";
 
-// Miscellaneous utility functions for Forge
+// Miscellaneous utility functions for Spark
 
 import {
   LN_RESCALE,
@@ -598,7 +598,7 @@ export function unpackSplat(
 
 // Compute a texture array size that is large enough to fit numSplats. The most
 // common 2D texture size in WebGL2 is 4096x4096 which only allows for 16M splats,
-// so Forge stores Gsplat data in a 2D texture array, which most platforms support
+// so Spark stores Gsplat data in a 2D texture array, which most platforms support
 // up to 2048x2048x2048 = 8G splats. Allocations that fit within a single 2D texture
 // array layer will be rounded up to fill an entire texture row. Once a texture
 // array layer is filled, the allocation will be rounded up to fill an entire layer.

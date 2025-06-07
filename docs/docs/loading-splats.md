@@ -1,8 +1,8 @@
 # Loading Splats
 
-Forge provides loaders for most popular splat file formats, including `.ply` (original "gsplat" format, compressed SuperSplat variant, and plain x/y/z/r/g/b point clouds) and `.spz` (Niantic open source compressed format), both auto-detected from the file contents.
+Spark provides loaders for most popular splat file formats, including `.ply` (original "gsplat" format, compressed SuperSplat/gsplat variant, and plain x/y/z/r/g/b point clouds) and `.spz` (Niantic open source compressed format), both auto-detected from the file contents.
 
-Forge can also load formats `.splat` (from [`antimatter15/splat`](https://github.com/antimatter15/splat)) and `.ksplat` (from [`mkkellogg/GaussianSplats3D`](https://github.com/mkkellogg/GaussianSplats3D)) if the file type can be inferred from the URL/path extension, or set explicitly using the `fileType` property when creating a `SplatMesh` or `PackedSplats`.
+Spark can also load formats `.splat` (from [`antimatter15/splat`](https://github.com/antimatter15/splat)) and `.ksplat` (from [`mkkellogg/GaussianSplats3D`](https://github.com/mkkellogg/GaussianSplats3D)) if the file type can be inferred from the URL/path extension, or set explicitly using the `fileType` property when creating a `SplatMesh` or `PackedSplats`.
 
 ## Loading auto-detectable formats `.ply` and `.spz`
 

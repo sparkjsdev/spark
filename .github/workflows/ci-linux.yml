@@ -1,4 +1,4 @@
-name: Forge CI Linux
+name: Spark CI Linux
 on:
   push:
     branches:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 jobs:
   test:
-    name: forge
+    name: spark
     runs-on: ubuntu-latest
     strategy:
       matrix:

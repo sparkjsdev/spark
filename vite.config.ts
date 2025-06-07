@@ -58,10 +58,10 @@ export default defineConfig(({ mode }) => {
       minify: isMinify,
       lib: {
         entry: path.resolve(__dirname, "src/index.ts"),
-        name: "forge",
+        name: "spark",
         formats: ["es", "cjs"],
         fileName: (format) => {
-          const base = format === "es" ? "forge.module" : `forge.${format}`;
+          const base = format === "es" ? "spark.module" : `spark.${format}`;
           return isMinify ? `${base}.min.js` : `${base}.js`;
         },
       },
@@ -98,7 +98,7 @@ export default defineConfig(({ mode }) => {
     },
 
     define: {
-      forgeLocalAssets: localAssetsDirectoryExist,
+      sparkLocalAssets: localAssetsDirectoryExist,
     },
   };
 });

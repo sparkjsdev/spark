@@ -1,102 +1,102 @@
 {
   "robot-head.spz": {
-    "url": "https://forge.dev/assets/splats/robot-head.spz",
+    "url": "https://sparkjs.dev/assets/splats/robot-head.spz",
     "directory": "splats"
   },
   "forge.spz": {
-    "url": "https://forge.dev/assets/splats/forge.spz",
+    "url": "https://sparkjs.dev/assets/splats/forge.spz",
     "directory": "splats"
   },
   "butterfly-wings-closed.spz": {
-    "url": "https://forge.dev/assets/splats/butterfly-wings-closed.spz",
+    "url": "https://sparkjs.dev/assets/splats/butterfly-wings-closed.spz",
     "directory": "splats"
   },
   "butterfly.spz": {
-    "url": "https://forge.dev/assets/splats/butterfly.spz",
+    "url": "https://sparkjs.dev/assets/splats/butterfly.spz",
     "directory": "splats"
   },
   "butterfly-ai.spz": {
-    "url": "https://forge.dev/assets/splats/butterfly-ai.spz",
+    "url": "https://sparkjs.dev/assets/splats/butterfly-ai.spz",
     "directory": "splats"
   },
   "fireplace.spz": {
-    "url": "https://forge.dev/assets/splats/fireplace.spz",
+    "url": "https://sparkjs.dev/assets/splats/fireplace.spz",
     "directory": "splats"
   },
   "snow-street.spz": {
-    "url": "https://forge.dev/assets/splats/snow-street.spz",
+    "url": "https://sparkjs.dev/assets/splats/snow-street.spz",
     "directory": "splats"
   },
   "branzino-amarin.spz": {
-    "url": "https://forge.dev/assets/splats/food/branzino-amarin.spz",
+    "url": "https://sparkjs.dev/assets/splats/food/branzino-amarin.spz",
     "directory": "splats/food"
   },
   "burger-from-amboy.spz": {
-    "url": "https://forge.dev/assets/splats/food/burger-from-amboy.spz",
+    "url": "https://sparkjs.dev/assets/splats/food/burger-from-amboy.spz",
     "directory": "splats/food"
   },
   "clams-and-caviar-by-ikoyi.spz": {
-    "url": "https://forge.dev/assets/splats/food/clams-and-caviar-by-ikoyi.spz",
+    "url": "https://sparkjs.dev/assets/splats/food/clams-and-caviar-by-ikoyi.spz",
     "directory": "splats/food"
   },
   "coral-caviar.spz": {
-    "url": "https://forge.dev/assets/splats/food/coral-caviar.spz",
+    "url": "https://sparkjs.dev/assets/splats/food/coral-caviar.spz",
     "directory": "splats/food"
   },
   "double-double-from-InNOut.spz": {
-    "url": "https://forge.dev/assets/splats/food/double-Double-from-InNOut.spz",
+    "url": "https://sparkjs.dev/assets/splats/food/double-Double-from-InNOut.spz",
     "directory": "splats/food"
   },
   "gyro.spz": {
-    "url": "https://forge.dev/assets/splats/food/gyro.spz",
+    "url": "https://sparkjs.dev/assets/splats/food/gyro.spz",
     "directory": "splats/food"
   },
   "iberico-sandwich-by-reserve.spz": {
-    "url": "https://forge.dev/assets/splats/food/iberico-sandwich-by-reserve.spz",
+    "url": "https://sparkjs.dev/assets/splats/food/iberico-sandwich-by-reserve.spz",
     "directory": "splats/food"
   },
   "primerib-tamos.spz": {
-    "url": "https://forge.dev/assets/splats/food/primerib-tamos.spz",
+    "url": "https://sparkjs.dev/assets/splats/food/primerib-tamos.spz",
     "directory": "splats/food"
   },
   "steaksandwich-mels.spz": {
-    "url": "https://forge.dev/assets/splats/food/steaksandwich-mels.spz",
+    "url": "https://sparkjs.dev/assets/splats/food/steaksandwich-mels.spz",
     "directory": "splats/food"
   },
   "pad-thai.spz": {
-    "url": "https://forge.dev/assets/splats/food/pad-thai.spz",
+    "url": "https://sparkjs.dev/assets/splats/food/pad-thai.spz",
     "directory": "splats/food"
   },
   "tomahawk-niku.spz": {
-    "url": "https://forge.dev/assets/splats/food/tomahawk-niku.spz",
+    "url": "https://sparkjs.dev/assets/splats/food/tomahawk-niku.spz",
     "directory": "splats/food"
   },
   "rubberduck.glb": {
-    "url": "https://forge.dev/assets/models/rubberduck.glb",
+    "url": "https://sparkjs.dev/assets/models/rubberduck.glb",
     "directory": "models"
   },
   "table.glb": {
-    "url": "https://forge.dev/assets/models/table.glb",
+    "url": "https://sparkjs.dev/assets/models/table.glb",
     "directory": "models"
   },
   "butterfly.png": {
-    "url": "https://forge.dev/assets/images/butterfly.png",
+    "url": "https://sparkjs.dev/assets/images/butterfly.png",
     "directory": "images"
   },
   "sky.jpeg": {
-    "url": "https://forge.dev/assets/images/sky.jpeg",
+    "url": "https://sparkjs.dev/assets/images/sky.jpeg",
     "directory": "images"
   },
   "furry-logo-pedestal.spz": {
-    "url": "https://forge.dev/assets/splats/furry-logo-pedestal.spz",
+    "url": "https://sparkjs.dev/assets/splats/furry-logo-pedestal.spz",
     "directory": "splats"
   },
   "cat.spz": {
-    "url": "https://forge.dev/assets/splats/cat.spz",
+    "url": "https://sparkjs.dev/assets/splats/cat.spz",
     "directory": "splats"
   },
   "arrow.glb": {
-    "url": "https://forge.dev/assets/models/arrow.glb",
+    "url": "https://sparkjs.dev/assets/models/arrow.glb",
     "directory": "models"
   }
 }

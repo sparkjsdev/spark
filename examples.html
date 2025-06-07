@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
     <head>
-      <title>Forge &#8226; Examples</title>
+      <title>Spark &#8226; Examples</title>
       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
       <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap');
@@ -221,7 +221,7 @@
           if (initialLink) {
             const path = initialLink.getAttribute('href');
             iframe.src = path;
-            codeButton.href = `https://github.com/forge-gfx/forge/blob/main${path}`;
+            codeButton.href = `https://github.com/sparkjs-dev/spark/blob/main${path}`;
           }
 
           panel.querySelectorAll('.example-link').forEach((link) => {
@@ -232,7 +232,7 @@
 
               document.querySelectorAll('.example-link').forEach(l => l.classList.remove('active'));
               link.classList.add('active');
-              codeButton.href = `https://github.com/forge-gfx/forge/blob/main/${path.substring(1)}`;
+              codeButton.href = `https://github.com/sparkjs-dev/spark/blob/main/${path.substring(1)}`;
             });
           });
         }
@@ -318,7 +318,7 @@
             link.classList.add('active');
             panel.querySelector(`[href="${path}"]`)?.classList.add('active');
 
-            codeButton.href = `https://github.com/forge-gfx/forge/blob/main${path}`;
+            codeButton.href = `https://github.com/sparkjs-dev/spark/blob/main${path}`;
             closeMenu();
           }
         });
@@ -336,7 +336,7 @@
       <div class="logo-section">
         <a class="logo" href="/">
           <svg>
-            <use xlink:href="#forge-logo" />
+            <use xlink:href="#spark-logo" />
           </svg>
         </a>
         <!-- <span class="title">EXAMPLES</span> -->
@@ -353,7 +353,7 @@
       <div class="header">
         <a class="logo" href="/">
           <svg style="width: 100%; height: 100%;">
-            <use xlink:href="#forge-logo" style="position: absolute; width: 100%; height: 100%;"/>
+            <use xlink:href="#spark-logo" style="position: absolute; width: 100%; height: 100%;"/>
           </svg>
         </a>
         <span class="title">EXAMPLES</span>
@@ -375,7 +375,7 @@
     </div>
     <svg style="display: none" xmlns="http://www.w3.org/2000/svg">
       <defs>
-        <symbol id="forge-logo" viewBox="0 0 501 94" fill="none">
+        <symbol id="spark-logo" viewBox="0 0 501 94" fill="none">
           <path d="M0.618225 2.26904H137.346L132.185 20.4418C88.172 20.805 78.5674 74.9667 120.859 79.8385C120.859 79.8385 120.859 79.8386 118.408 91.5049L20.8455 91.5634L20.8455 69.2102C20.8455 69.2102 58.0664 68.1922 51.5113 49.0215C44.9561 29.8507 13.0163 42.7018 0.618225 2.26904Z" fill="white"/>
           <path d="M230.17 1.91944L226.42 21.9194H203.42V38.9194H224.17L220.42 58.9194H203.42V91.9194H179.045V19.0444L172.17 1.91944H230.17Z" fill="white"/>
           <path d="M264.215 93.1694C256.048 93.1694 249.465 91.7944 244.465 89.0444C239.465 86.2111 235.798 81.4611 233.465 74.7944C231.215 68.0444 230.09 58.7944 230.09 47.0444C230.09 35.2944 231.215 26.0861 233.465 19.4194C235.798 12.6694 239.465 7.91944 244.465 5.16944C249.465 2.3361 256.048 0.919434 264.215 0.919434C272.381 0.919434 278.965 2.3361 283.965 5.16944C288.965 7.91944 292.59 12.6694 294.84 19.4194C297.173 26.0861 298.34 35.2944 298.34 47.0444C298.34 58.7944 297.173 68.0444 294.84 74.7944C292.59 81.4611 288.965 86.2111 283.965 89.0444C278.965 91.7944 272.381 93.1694 264.215 93.1694ZM272.09 46.7944C272.09 39.6278 271.84 34.1694 271.34 30.4194C270.923 26.5861 270.131 23.9611 268.965 22.5444C267.881 21.0444 266.298 20.2944 264.215 20.2944C262.215 20.2944 260.631 21.0444 259.465 22.5444C258.298 23.9611 257.465 26.5861 256.965 30.4194C256.548 34.1694 256.34 39.6278 256.34 46.7944C256.34 53.8778 256.548 59.3778 256.965 63.2944C257.465 67.2111 258.298 69.9611 259.465 71.5444C260.631 73.0444 262.215 73.7944 264.215 73.7944C266.298 73.7944 267.881 73.0444 268.965 71.5444C270.131 69.9611 270.923 67.2111 271.34 63.2944C271.84 59.3778 272.09 53.8778 272.09 46.7944Z" fill="white"/>
@@ -384,7 +384,7 @@
           <path d="M439.87 1.91944H499.745L495.995 21.9194H471.12V35.6694H494.495L490.745 55.6694H471.12V71.9194H500.62L496.87 91.9194H446.745V19.0444L439.87 1.91944Z" fill="white"/>
         </symbol>
       </defs>
-      <use href="#forge-logo"/>
+      <use href="#spark-logo"/>
     </svg>
   </body>
 </html>

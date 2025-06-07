@@ -49,7 +49,7 @@ Utility functions are provided in Javascript to pack/unpack these encodings:
 packedSplats.setSplat(index, center, scales, quaternion, opacity, color);
 
 // Set underlying Uint32 array directly
-import { utils } from "@forge-gfx/forge";
+import { utils } from "@sparkjs-dev/spark";
 utils.setPackedSplat(packedSplats.packedArray, index, x, y, z, scaleX, scaleY, ...);
 
 // Set rotation components of underlying Uint32 array directly
@@ -111,7 +111,7 @@ Opacity is encoded on a linear scale where 0..255 maps to 0..1.
 
 ### Splat center encoding
 
-The center x/y/z components are encoded as float16, which provides 10 bits of mantissa, or approximately 1K steps (0.1%) of resolution between each successive power of 0 from the origin, with a range of up to 32K in distance. If most of the splats are positioned relative to the origin this provides enough positional resolution. Splats that are transformed far from the origin, however (for example when bringing multiple `SplatMesh`es together in a scene that are far apart) may lose precision when mapped to the space of `ForgeRenderer`. For scenes where the user camera may move far from the origin, you may want to tie the `ForgeRenderer` origin to your camera by adding it as a child of the camera.
+The center x/y/z components are encoded as float16, which provides 10 bits of mantissa, or approximately 1K steps (0.1%) of resolution between each successive power of 0 from the origin, with a range of up to 32K in distance. If most of the splats are positioned relative to the origin this provides enough positional resolution. Splats that are transformed far from the origin, however (for example when bringing multiple `SplatMesh`es together in a scene that are far apart) may lose precision when mapped to the space of `SparkRenderer`. For scenes where the user camera may move far from the origin, you may want to tie the `SparkRenderer` origin to your camera by adding it as a child of the camera.
 
 ### Splat scales encoding
 
@@ -171,7 +171,7 @@ Can be used where you need an uninitialized `THREE.DataArrayTexture` like a unif
 
 To generate a large number of splats we can use the `dyno` shader graph system, which allows you to create a computation graph mapping `{ index: DynoVal<"int"> }` to `{ gsplat: DynoVal<Gsplat> }` via Javascript code, then have that synthesize GLSL code, which is finally compiled and executed in parallel on the GPU.
 
-This building block is used by `ForgeRenderer` to traverse each visible `SplatMesh`/`SplatGenerator` and have it "generate" its splats into the global `PackedSplats` array managed by a `SplatAccumulator`. At its core a `PackedSplats` has the ability to run `dyno` computation graphs to produce its contents using the following methods, which are typically managed by `ForgeRenderer`:
+This building block is used by `SparkRenderer` to traverse each visible `SplatMesh`/`SplatGenerator` and have it "generate" its splats into the global `PackedSplats` array managed by a `SplatAccumulator`. At its core a `PackedSplats` has the ability to run `dyno` computation graphs to produce its contents using the following methods, which are typically managed by `SparkRenderer`:
 
 ### `generateMapping(splatCounts: number[]): { maxSplats, mapping[] }`
 
@@ -183,7 +183,7 @@ Ensures our `PackedSplats.target` render target has enough space to generate `ma
 
 ### `generate({ generator, base, count, ... })`
 
-Executes a `dyno` program specified by `generator` which is any `DynoBlock` that maps `{ index: "int" }` to `{ gsplat: Gsplat }`. This is invoked from `ForgeRenderer.updateInternal()` to re-generate splats in the scene for `SplatGenerator` instances whose version is newer than last generated version.
+Executes a `dyno` program specified by `generator` which is any `DynoBlock` that maps `{ index: "int" }` to `{ gsplat: Gsplat }`. This is invoked from `SparkRenderer.updateInternal()` to re-generate splats in the scene for `SplatGenerator` instances whose version is newer than last generated version.
 
 ## Using dynamic PackedSplats inputs in `dyno`
 

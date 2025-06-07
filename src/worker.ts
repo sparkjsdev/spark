@@ -1,4 +1,4 @@
-import init_wasm, { sort_splats } from "forge-internal-rs";
+import init_wasm, { sort_splats } from "spark-internal-rs";
 import type { TranscodeSpzInput } from "./SplatLoader";
 import { unpackAntiSplat } from "./antisplat";
 import {
@@ -24,7 +24,7 @@ import {
   setPackedSplatScales,
 } from "./utils";
 
-// WebWorker for Forge's background CPU tasks, such as Gsplat file decoding
+// WebWorker for Spark's background CPU tasks, such as Gsplat file decoding
 // and sorting.
 
 async function onMessage(event: MessageEvent) {

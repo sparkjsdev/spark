@@ -1,11 +1,11 @@
-import { SplatMesh } from "@forge-gfx/forge";
+import { SplatMesh } from "@sparkjs-dev/spark";
 import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
 // Add loading icon in the center of the screen
 function addLoader(loading_icon_color) {
   const loaderIcon = new Image();
-  loaderIcon.src = `/examples/js/forge_loading_${loading_icon_color}.gif`;
-  loaderIcon.id = "_forge_loader";
+  loaderIcon.src = `/examples/js/spark_loading_${loading_icon_color}.gif`;
+  loaderIcon.id = "_spark_loader";
   loaderIcon.style.position = "absolute";
   loaderIcon.style.zIndex = 99999;
   loaderIcon.style.left = "50%";
@@ -16,7 +16,7 @@ function addLoader(loading_icon_color) {
 }
 
 function removeLoader() {
-  const el = document.getElementById("_forge_loader");
+  const el = document.getElementById("_spark_loader");
   el.parentNode.removeChild(el);
 }
 

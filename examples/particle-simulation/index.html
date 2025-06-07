@@ -2,7 +2,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Forge • Particle Simulation</title>
+  <title>Spark • Particle Simulation</title>
   <style>
     html, body {
       margin: 0;
@@ -19,18 +19,18 @@
       "imports": {
         "three": "/examples/js/vendor/three/build/three.module.js",
         "lil-gui": "/examples/js/vendor/lil-gui/dist/lil-gui.esm.js",
-        "@forge-gfx/forge": "/dist/forge.module.js"
+        "@sparkjs-dev/spark": "/dist/spark.module.js"
       }
     }
   </script>
   <script type="module">
     import * as THREE from "three";
     import {
-      ForgeRenderer,
+      SparkRenderer,
       PointerControls,
       SplatMesh,
       generators,
-    } from "@forge-gfx/forge";
+    } from "@sparkjs-dev/spark";
     import GUI from "lil-gui";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
@@ -54,8 +54,8 @@
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
 
-    const forge = new ForgeRenderer({ renderer });
-    scene.add(forge);
+    const spark = new SparkRenderer({ renderer });
+    scene.add(spark);
 
     function handleResize() {
       const width = window.innerWidth;

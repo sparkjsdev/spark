@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-// SplatGeometry is an internal class used by ForgeRenderer to render a collection
+// SplatGeometry is an internal class used by SparkRenderer to render a collection
 // of Gsplats in a single draw call by extending THREE.InstancedBufferGeometry.
 // Each Gsplat is drawn as two triangles, with the order of the Gsplats determined
 // by the instance attribute "ordering".

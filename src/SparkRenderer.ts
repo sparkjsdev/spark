@@ -1,8 +1,8 @@
 import * as THREE from "three";
 
-import { ForgeViewpoint, type ForgeViewpointOptions } from "./ForgeViewpoint";
 import { PackedSplats } from "./PackedSplats";
 import { RgbaArray } from "./RgbaArray";
+import { SparkViewpoint, type SparkViewpointOptions } from "./SparkViewpoint";
 import { type GeneratorMapping, SplatAccumulator } from "./SplatAccumulator";
 import { SplatEdit } from "./SplatEdit";
 import { SplatGenerator, SplatModifier } from "./SplatGenerator";
@@ -25,7 +25,7 @@ import {
   withinCoorientDist,
 } from "./utils";
 
-// ForgeRenderer aggregates splats from multiple generators into a single
+// SparkRenderer aggregates splats from multiple generators into a single
 // accumulated collection per frame. In normal operation we only need a
 // maximum of 3 accumulators: One currently being viewed, one currently
 // being sorted, and one more for generating the next frame. Accumulators
@@ -36,17 +36,17 @@ import {
 const MAX_ACCUMULATORS = 5;
 
 // Scene.onBeforeRender monkey-patch to
-// inject a ForgeRenderer into a scene with SplatMeshes if there isn't
+// inject a SparkRenderer into a scene with SplatMeshes if there isn't
 // one already. Restore original Scene.onBeforeRenderer and Scene.add when done.
 let hasSplatMesh = false;
-let hasForgeRenderer = false;
+let hasSparkRenderer = false;
 
-let forgeRendererInstance: ForgeRenderer;
+let sparkRendererInstance: SparkRenderer;
 
 const sceneAdd = THREE.Scene.prototype.add;
 THREE.Scene.prototype.add = function (object) {
   hasSplatMesh = hasSplatMesh || object instanceof SplatMesh;
-  hasForgeRenderer = hasForgeRenderer || object instanceof ForgeRenderer;
+  hasSparkRenderer = hasSparkRenderer || object instanceof SparkRenderer;
   sceneAdd.call(this, object);
   return this;
 };
@@ -56,22 +56,22 @@ THREE.Scene.prototype.onBeforeRender = function (renderer) {
   if (!hasSplatMesh) {
     return;
   }
-  if (!hasForgeRenderer) {
-    const forge = forgeRendererInstance || new ForgeRenderer({ renderer });
-    this.add(forge);
+  if (!hasSparkRenderer) {
+    const spark = sparkRendererInstance || new SparkRenderer({ renderer });
+    this.add(spark);
   }
   THREE.Scene.prototype.onBeforeRender = sceneOnBeforeRender;
   THREE.Scene.prototype.add = sceneAdd;
 };
 
-export type ForgeRendererOptions = {
-  // Pass in your THREE.WebGLRenderer instance so Forge can perform work
+export type SparkRendererOptions = {
+  // Pass in your THREE.WebGLRenderer instance so Spark can perform work
   // outside the usual render loop. Should be created with antialias: false
   // (default setting) as WebGL anti-aliasing doesn't improve Gaussian Splatting
   // rendering and significantly reduces performance.
   renderer: THREE.WebGLRenderer;
   // Pass in a THREE.Clock to synchronize time-based effects across different
-  // systems. Alternatively, you can set the ForgeRenderer properties time and
+  // systems. Alternatively, you can set the SparkRenderer properties time and
   // deltaTime directly. (default: new THREE.Clock)
   clock?: THREE.Clock;
   // Controls whether to check and automatically update Gsplat collection after
@@ -81,7 +81,7 @@ export type ForgeRendererOptions = {
   // this must be false in order to complete rendering as soon as possible.
   // (default: false)
   preUpdate?: boolean;
-  // Distance threshold for ForgeRenderer movement triggering a Gsplat update at
+  // Distance threshold for SparkRenderer movement triggering a Gsplat update at
   // the new origin. (default: 1.0)
   originDistance?: number;
   // Maximum standard deviations from the center to render Gaussians. Values
@@ -109,16 +109,16 @@ export type ForgeRendererOptions = {
   // 1.0 clips any centers that are exactly out of bounds, while 1.4 clips
   // centers that are 40% beyond the bounds. (default: 1.4)
   clipXY?: number;
-  // Configures the ForgeViewpointOptions for the default ForgeViewpoint
-  // associated with this ForgeRenderer. Notable option: sortRadial (sort by
+  // Configures the SparkViewpointOptions for the default SparkViewpoint
+  // associated with this SparkRenderer. Notable option: sortRadial (sort by
   // radial distance or Z-depth)
-  view?: ForgeViewpointOptions;
+  view?: SparkViewpointOptions;
 };
 
-export class ForgeRenderer extends THREE.Mesh {
+export class SparkRenderer extends THREE.Mesh {
   renderer: THREE.WebGLRenderer;
   material: THREE.ShaderMaterial;
-  uniforms: ReturnType<typeof ForgeRenderer.makeUniforms>;
+  uniforms: ReturnType<typeof SparkRenderer.makeUniforms>;
 
   autoUpdate: boolean;
   preUpdate: boolean;
@@ -140,10 +140,10 @@ export class ForgeRenderer extends THREE.Mesh {
   private freeAccumulators: SplatAccumulator[];
   // Total number of accumulators currently allocated
   private accumulatorCount: number;
-  // Default ForgeViewpoint used for rendering to the canvas
-  defaultView: ForgeViewpoint;
-  // List of ForgeViewpoints with autoUpdate enabled
-  autoViewpoints: ForgeViewpoint[] = [];
+  // Default SparkViewpoint used for rendering to the canvas
+  defaultView: SparkViewpoint;
+  // List of SparkViewpoints with autoUpdate enabled
+  autoViewpoints: SparkViewpoint[] = [];
 
   // Dynos used to transform Gsplats to the accumulator coordinate system
   private rotateToAccumulator = new DynoVec4({ value: new THREE.Quaternion() });
@@ -159,7 +159,7 @@ export class ForgeRenderer extends THREE.Mesh {
 
   // Should be set to the defaultView, but can be temporarily changed to another
   // viewpoint using prepareViewpoint() for rendering from a different viewpoint.
-  viewpoint: ForgeViewpoint;
+  viewpoint: SparkViewpoint;
 
   // Holds data needed to perform a scheduled Gsplat update.
   private pendingUpdate: {
@@ -167,8 +167,8 @@ export class ForgeRenderer extends THREE.Mesh {
     originToWorld: THREE.Matrix4;
   } | null = null;
 
-  // Internal ForgeViewpoint used for environment map rendering.
-  private envViewpoint: ForgeViewpoint | null = null;
+  // Internal SparkViewpoint used for environment map rendering.
+  private envViewpoint: SparkViewpoint | null = null;
 
   // Data and buffers used for environment map rendering
   private static cubeRender: {
@@ -179,8 +179,8 @@ export class ForgeRenderer extends THREE.Mesh {
   } | null = null;
   private static pmrem: THREE.PMREMGenerator | null = null;
 
-  constructor(options: ForgeRendererOptions) {
-    const uniforms = ForgeRenderer.makeUniforms();
+  constructor(options: SparkRendererOptions) {
+    const uniforms = SparkRenderer.makeUniforms();
     const shaders = getShaders();
     const material = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
@@ -240,19 +240,19 @@ export class ForgeRenderer extends THREE.Mesh {
       this.accumulatorCount += 1;
     }
 
-    // Create a default ForgeViewpoint that is used when we call render()
+    // Create a default SparkViewpoint that is used when we call render()
     // on the scene and has the sorted Gsplat collection from that viewpoint.
-    this.defaultView = new ForgeViewpoint({
+    this.defaultView = new SparkViewpoint({
       ...options.view,
       autoUpdate: true,
-      forge: this,
+      spark: this,
     });
     this.viewpoint = this.defaultView;
     this.prepareViewpoint(this.viewpoint);
 
     this.clock = options.clock ? cloneClock(options.clock) : new THREE.Clock();
 
-    forgeRendererInstance = this;
+    sparkRendererInstance = this;
   }
 
   static makeUniforms() {
@@ -323,15 +323,15 @@ export class ForgeRenderer extends THREE.Mesh {
     }
   }
 
-  newViewpoint(options: ForgeViewpointOptions) {
-    // Create a new ForgeViewpoint for this ForgeRenderer.
-    // Note that every ForgeRenderer has an initial forge.defaultView: ForgeViewpoint
+  newViewpoint(options: SparkViewpointOptions) {
+    // Create a new SparkViewpoint for this SparkRenderer.
+    // Note that every SparkRenderer has an initial spark.defaultView: SparkViewpoint
     // from construction, which is used for the default canvas render loop.
     // Calling this method allows you to create additional viewpoints, which can be
     // updated automatically each frame (performing Gsplat sorting every time there
     // is an update), or updated on-demand for controlled rendering for video render
     // or similar applications.
-    return new ForgeViewpoint({ ...options, forge: this });
+    return new SparkViewpoint({ ...options, spark: this });
   }
 
   onBeforeRender(
@@ -339,7 +339,7 @@ export class ForgeRenderer extends THREE.Mesh {
     scene: THREE.Scene,
     camera: THREE.Camera,
   ) {
-    // Called by Three.js before rendering this ForgeRenderer.
+    // Called by Three.js before rendering this SparkRenderer.
     // At this point we can't modify the geometry or material, all these must
     // be set in the scene already before this is called. Update the uniforms
     // to render the Gsplats from the current active viewpoint.
@@ -433,7 +433,7 @@ export class ForgeRenderer extends THREE.Mesh {
   // Note that the client expects to be able to call render() at any point
   // to update the canvas, so we must switch the viewpoint back to
   // defaultView when we're finished.
-  prepareViewpoint(viewpoint?: ForgeViewpoint) {
+  prepareViewpoint(viewpoint?: SparkViewpoint) {
     this.viewpoint = viewpoint ?? this.viewpoint;
 
     if (this.viewpoint.display) {
@@ -449,13 +449,13 @@ export class ForgeRenderer extends THREE.Mesh {
     }
   }
 
-  // If forge.autoUpdate is false then you must manually call
-  // forge.update({ scene }) to have the scene Gsplats be re-generated.
+  // If spark.autoUpdate is false then you must manually call
+  // spark.update({ scene }) to have the scene Gsplats be re-generated.
   update({
     scene,
     viewToWorld,
   }: { scene: THREE.Scene; viewToWorld?: THREE.Matrix4 }) {
-    // Compute the transform for the ForgeRenderer to use as origin
+    // Compute the transform for the SparkRenderer to use as origin
     // for Gsplat generation and accumulation.
     const originToWorld = this.matrixWorld.clone();
     // Either do the update now, or in the next "tick" depending on preUpdate
@@ -493,7 +493,7 @@ export class ForgeRenderer extends THREE.Mesh {
       return false;
     }
 
-    // Figure out the frame of the ForgeRenderer and current view
+    // Figure out the frame of the SparkRenderer and current view
     if (!originToWorld) {
       originToWorld = this.active.toWorld;
     }
@@ -710,13 +710,13 @@ export class ForgeRenderer extends THREE.Mesh {
       this.envViewpoint = this.newViewpoint({ sort360: true });
     }
     if (
-      !ForgeRenderer.cubeRender ||
-      ForgeRenderer.cubeRender.target.width !== size ||
-      ForgeRenderer.cubeRender.near !== near ||
-      ForgeRenderer.cubeRender.far !== far
+      !SparkRenderer.cubeRender ||
+      SparkRenderer.cubeRender.target.width !== size ||
+      SparkRenderer.cubeRender.near !== near ||
+      SparkRenderer.cubeRender.far !== far
     ) {
-      if (ForgeRenderer.cubeRender) {
-        ForgeRenderer.cubeRender.target.dispose();
+      if (SparkRenderer.cubeRender) {
+        SparkRenderer.cubeRender.target.dispose();
       }
       const target = new THREE.WebGLCubeRenderTarget(size, {
         format: THREE.RGBAFormat,
@@ -724,18 +724,18 @@ export class ForgeRenderer extends THREE.Mesh {
         minFilter: THREE.LinearMipMapLinearFilter,
       });
       const camera = new THREE.CubeCamera(near, far, target);
-      ForgeRenderer.cubeRender = { target, camera, near, far };
+      SparkRenderer.cubeRender = { target, camera, near, far };
     }
 
-    if (!ForgeRenderer.pmrem) {
-      ForgeRenderer.pmrem = new THREE.PMREMGenerator(renderer ?? this.renderer);
+    if (!SparkRenderer.pmrem) {
+      SparkRenderer.pmrem = new THREE.PMREMGenerator(renderer ?? this.renderer);
     }
 
     // Prepare the viewpoint, sorting Gsplats for this view origin.
     const viewToWorld = new THREE.Matrix4().setPosition(worldCenter);
     await this.envViewpoint?.prepare({ scene, viewToWorld, update });
 
-    const { target, camera } = ForgeRenderer.cubeRender;
+    const { target, camera } = SparkRenderer.cubeRender;
     camera.position.copy(worldCenter);
 
     // Save the visibility state of objects we want to hide before render
@@ -756,7 +756,7 @@ export class ForgeRenderer extends THREE.Mesh {
     }
 
     // Pre-filter the cube map using THREE.PMREMGenerator
-    return ForgeRenderer.pmrem?.fromCubemap(target.texture).texture;
+    return SparkRenderer.pmrem?.fromCubemap(target.texture).texture;
   }
 
   // Utility function to recursively set the envMap property for any

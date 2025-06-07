@@ -1,8 +1,8 @@
 import * as THREE from "three";
 
-import type { ForgeRenderer } from "./ForgeRenderer";
 import { DynoPackedSplats } from "./PackedSplats";
 import { Readback } from "./Readback";
+import type { SparkRenderer } from "./SparkRenderer";
 import type { SplatAccumulator } from "./SplatAccumulator";
 import { SplatGeometry } from "./SplatGeometry";
 import {
@@ -28,8 +28,8 @@ import {
 import { withWorker } from "./splatWorker";
 import { FreeList, withinCoorientDist } from "./utils";
 
-export type ForgeViewpointOptions = {
-  // Controls whether to auto-update its sort order whenever the ForgeRenderer
+export type SparkViewpointOptions = {
+  // Controls whether to auto-update its sort order whenever the SparkRenderer
   // updates the Gsplats. If you expect to render/display from this viewpoint
   // most frames, set this to true. (default: false)
   autoUpdate?: boolean;
@@ -75,22 +75,22 @@ export type ForgeViewpointOptions = {
   depthBias?: number;
   // Set this to true if rendering a 360 to disable "behind the viewpoint"
   // culling during sorting. This is set automatically when rendering 360 envMaps
-  // using the ForgeRenderer.renderEnvMap() utility function. (default: false)
+  // using the SparkRenderer.renderEnvMap() utility function. (default: false)
   sort360?: boolean;
 };
 
-// A ForgeViewpoint is created from and tied to a ForgeRenderer, and represents
+// A SparkViewpoint is created from and tied to a SparkRenderer, and represents
 // an independent viewpoint of all the scene Gsplats and their sort order. Making
 // these viewpoints explicit allows us to have multiple, simultaneous viewpoint
 // renders, for example for camera preview panes or overhead map views.
 //
-// When creating a ForgeRenderer it automatically creates a default viewpoint
+// When creating a SparkRenderer it automatically creates a default viewpoint
 // .defaultView that is used in the normal render loop when drawing to the canvas,
 // and is automatically updated whenever the camera moves. Additional viewpoints
 // can be created and configured separately.
 
-export class ForgeViewpoint {
-  forge: ForgeRenderer;
+export class SparkViewpoint {
+  spark: SparkRenderer;
   autoUpdate: boolean;
   camera?: THREE.Camera;
   viewToWorld: THREE.Matrix4;
@@ -127,8 +127,8 @@ export class ForgeViewpoint {
   private readback: Uint16Array = new Uint16Array(0);
   private orderingFreelist: FreeList<Uint32Array, number>;
 
-  constructor(options: ForgeViewpointOptions & { forge: ForgeRenderer }) {
-    this.forge = options.forge;
+  constructor(options: SparkViewpointOptions & { spark: SparkRenderer }) {
+    this.spark = options.spark;
     this.camera = options.camera;
     this.viewToWorld = options.viewToWorld ?? new THREE.Matrix4();
 
@@ -179,7 +179,7 @@ export class ForgeViewpoint {
     this.setAutoUpdate(options.autoUpdate ?? false);
   }
 
-  // Call this when you are done with the ForgeViewpoint and want to
+  // Call this when you are done with the SparkViewpoint and want to
   // free up its resources (GPU targets, pixel buffers, etc.)
   dispose() {
     this.setAutoUpdate(false);
@@ -192,25 +192,25 @@ export class ForgeViewpoint {
       this.back = undefined;
     }
     if (this.display) {
-      this.forge.releaseAccumulator(this.display.accumulator);
+      this.spark.releaseAccumulator(this.display.accumulator);
       this.display.geometry.dispose();
       this.display = null;
     }
     if (this.pending?.accumulator) {
-      this.forge.releaseAccumulator(this.pending.accumulator);
+      this.spark.releaseAccumulator(this.pending.accumulator);
       this.pending = null;
     }
   }
 
   // Use this function to change whether this viewpoint will auto-update
-  // its sort order whenever the attached ForgeRenderer updates the Gsplats.
+  // its sort order whenever the attached SparkRenderer updates the Gsplats.
   // Turn this on or off depending on whether you expect to do renders from
   // this viewpoint most frames.
   setAutoUpdate(autoUpdate: boolean) {
     if (!this.autoUpdate && autoUpdate) {
-      this.forge.autoViewpoints.push(this);
+      this.spark.autoViewpoints.push(this);
     } else if (this.autoUpdate && !autoUpdate) {
-      this.forge.autoViewpoints = this.forge.autoViewpoints.filter(
+      this.spark.autoViewpoints = this.spark.autoViewpoints.filter(
         (v) => v !== this,
       );
     }
@@ -247,7 +247,7 @@ export class ForgeViewpoint {
       // Force an update, possibly with origin centered at this camera
       // to yield the best quality output.
       const originToWorld = forceOrigin ? this.viewToWorld : undefined;
-      const updated = this.forge.updateInternal({ scene, originToWorld });
+      const updated = this.spark.updateInternal({ scene, originToWorld });
       if (updated) {
         break;
       }
@@ -255,9 +255,9 @@ export class ForgeViewpoint {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
 
-    const accumulator = this.forge.active;
+    const accumulator = this.spark.active;
     if (accumulator !== this.display?.accumulator) {
-      this.forge.active.refCount += 1;
+      this.spark.active.refCount += 1;
     }
     await this.sortUpdate({ accumulator, viewToWorld: this.viewToWorld });
   }
@@ -271,7 +271,7 @@ export class ForgeViewpoint {
   }: { scene: THREE.Scene; camera?: THREE.Camera }) {
     const target = this.back ?? this.target;
     if (!target) {
-      throw new Error("Must initialize ForgeViewpoint with target");
+      throw new Error("Must initialize SparkViewpoint with target");
     }
 
     camera = camera ?? this.camera;
@@ -287,13 +287,13 @@ export class ForgeViewpoint {
     this.viewToWorld = camera.matrixWorld.clone();
 
     try {
-      this.forge.renderer.setRenderTarget(target);
-      this.forge.prepareViewpoint(this);
+      this.spark.renderer.setRenderTarget(target);
+      this.spark.prepareViewpoint(this);
 
-      this.forge.renderer.render(scene, camera);
+      this.spark.renderer.render(scene, camera);
     } finally {
-      this.forge.prepareViewpoint(this.forge.defaultView);
-      this.forge.renderer.setRenderTarget(null);
+      this.spark.prepareViewpoint(this.spark.defaultView);
+      this.spark.renderer.setRenderTarget(null);
     }
 
     if (target !== this.target) {
@@ -310,14 +310,14 @@ export class ForgeViewpoint {
   // will reuse the same buffers to minimize memory allocations.
   async readTarget(): Promise<Uint8Array> {
     if (!this.target) {
-      throw new Error("Must initialize ForgeViewpoint with target");
+      throw new Error("Must initialize SparkViewpoint with target");
     }
     const { width, height } = this.target;
     const byteSize = width * height * 4;
     if (!this.superPixels || this.superPixels.length < byteSize) {
       this.superPixels = new Uint8Array(byteSize);
     }
-    await this.forge.renderer.readRenderTargetPixelsAsync(
+    await this.spark.renderer.readRenderTargetPixelsAsync(
       this.target,
       0,
       0,
@@ -370,7 +370,7 @@ export class ForgeViewpoint {
 
   // Render out a viewpoint as a Uint8Array of RGBA values for the provided scene
   // and any camera/viewToWorld viewpoint overrides. By default update is true,
-  // which triggers its ForgeRenderer to check and potentially update the Gsplats.
+  // which triggers its SparkRenderer to check and potentially update the Gsplats.
   // Setting update to false disables this and sorts the Gsplats as they are.
   // Setting forceOrigin (default: false) to true forces the view update to
   // recalculate the splats with this view origin, potentially altering any
@@ -401,8 +401,8 @@ export class ForgeViewpoint {
     return this.readTarget();
   }
 
-  // This is called automatically by ForgeRenderer, there is no need to call it!
-  // The method cannot be private because then ForgeRenderer would
+  // This is called automatically by SparkRenderer, there is no need to call it!
+  // The method cannot be private because then SparkRenderer would
   // not be able to call it.
   autoPoll({ accumulator }: { accumulator?: SplatAccumulator }) {
     if (this.camera) {
@@ -423,7 +423,7 @@ export class ForgeViewpoint {
         // Splat mapping has not changed, so reuse the existing sorted
         // geometry to show updates faster. We will still fire off
         // a re-sort if necessary. First release old accumulator.
-        this.forge.releaseAccumulator(this.display.accumulator);
+        this.spark.releaseAccumulator(this.display.accumulator);
         this.display.accumulator = accumulator;
         displayed = true;
       }
@@ -462,7 +462,7 @@ export class ForgeViewpoint {
       this.pending?.accumulator &&
       this.pending.accumulator !== this.display?.accumulator
     ) {
-      this.forge.releaseAccumulator(this.pending.accumulator);
+      this.spark.releaseAccumulator(this.pending.accumulator);
     }
     this.pending = { accumulator, viewToWorld: this.viewToWorld, displayed };
 
@@ -479,7 +479,7 @@ export class ForgeViewpoint {
       const { viewToWorld, displayed } = this.pending;
       let accumulator = this.pending.accumulator ?? this.display?.accumulator;
       if (!accumulator) {
-        accumulator = this.forge.active;
+        accumulator = this.spark.active;
         accumulator.refCount += 1;
       }
       this.pending = null;
@@ -508,7 +508,7 @@ export class ForgeViewpoint {
     }
     this.sortingCheck = true;
 
-    accumulator = accumulator ?? this.forge.active;
+    accumulator = accumulator ?? this.spark.active;
     const { numSplats, maxSplats } = accumulator.splats;
     let activeSplats = 0;
     let ordering = this.orderingFreelist.alloc(maxSplats);
@@ -523,7 +523,7 @@ export class ForgeViewpoint {
         dynoDepthBias,
         dynoSort360,
         dynoSplats,
-      } = ForgeViewpoint.makeSorter();
+      } = SparkViewpoint.makeSorter();
       const halfMaxSplats = Math.ceil(maxSplats / 2);
       this.readback = reader.ensureBuffer(halfMaxSplats, this.readback);
 
@@ -542,7 +542,7 @@ export class ForgeViewpoint {
       dynoSplats.packedSplats = accumulator.splats;
 
       await reader.renderReadback({
-        renderer: this.forge.renderer,
+        renderer: this.spark.renderer,
         reader: doubleSortReader,
         count: Math.ceil(numSplats / 2),
         readback: this.readback,
@@ -595,7 +595,7 @@ export class ForgeViewpoint {
       };
     } else {
       if (!displayed && accumulator !== this.display.accumulator) {
-        this.forge.releaseAccumulator(this.display.accumulator);
+        this.spark.releaseAccumulator(this.display.accumulator);
         this.display.accumulator = accumulator;
       }
 
@@ -611,8 +611,8 @@ export class ForgeViewpoint {
       }
       this.orderingFreelist.free(oldOrdering);
     }
-    if (this.forge.viewpoint === this) {
-      this.forge.prepareViewpoint(this);
+    if (this.spark.viewpoint === this) {
+      this.spark.prepareViewpoint(this);
     }
   }
 
@@ -632,7 +632,7 @@ export class ForgeViewpoint {
   } | null = null;
 
   private static makeSorter() {
-    if (!ForgeViewpoint.dynos) {
+    if (!SparkViewpoint.dynos) {
       const dynoSortRadial = new DynoBool({ value: true });
       const dynoOrigin = new DynoVec3({ value: new THREE.Vector3() });
       const dynoDirection = new DynoVec3({ value: new THREE.Vector3() });
@@ -676,7 +676,7 @@ export class ForgeViewpoint {
         },
       );
 
-      ForgeViewpoint.dynos = {
+      SparkViewpoint.dynos = {
         dynoSortRadial,
         dynoOrigin,
         dynoDirection,
@@ -687,7 +687,7 @@ export class ForgeViewpoint {
         doubleSortReader,
       };
     }
-    return ForgeViewpoint.dynos;
+    return SparkViewpoint.dynos;
   }
 }
 

@@ -1,27 +1,27 @@
 <p align="center">
 
-  ![Forge logo](https://github.com/user-attachments/assets/d9cec150-8ca1-47f4-b7d9-4782aa629166#gh-dark-mode-only)
-  ![Forge logo](https://github.com/user-attachments/assets/adb2f0d7-df30-49e5-be7f-75c14f008735#gh-light-mode-only)
+  ![Spark logo](https://github.com/user-attachments/assets/d9cec150-8ca1-47f4-b7d9-4782aa629166#gh-dark-mode-only)
+  ![Spark logo](https://github.com/user-attachments/assets/adb2f0d7-df30-49e5-be7f-75c14f008735#gh-light-mode-only)
 
   <h3 align="center">An advanced 3D Gaussian Splatting renderer for THREE.js</h3>
   <div align="center">
 
   [Features](#features) -
   [Getting Started](#getting-started) -
-  <a href="https://forge.dev/">Documentation</a> -
-  <a href="https://forge.dev/">FAQ</a>
+  <a href="https://sparkjs.dev/">Documentation</a> -
+  <a href="https://sparkjs.dev/">FAQ</a>
   </div>
   </p>
 
    <div align="center">
 
-  [![License](https://img.shields.io/badge/license-MIT-%23d43e4c)](https://github.com/forge-gfx/forge/blob/main/LICENSE)
-  [![npm version](https://img.shields.io/npm/v/forge?color=d43e4c)](https://www.npmjs.com/package/forge)
+  [![License](https://img.shields.io/badge/license-MIT-%23d43e4c)](https://github.com/sparkjs-dev/spark/blob/main/LICENSE)
+  [![npm version](https://img.shields.io/npm/v/@sparkjs-dev/spark?color=d43e4c)](https://www.npmjs.com/package/@sparkjs-dev/spark)
 
   </div>
 
 <p>
-  <a href="https://forge.dev" target="_blank">
+  <a href="https://sparkjs.dev" target="_blank">
     <picture>
     </picture>
   </a>
@@ -38,7 +38,7 @@
 - Real-time splat color editing, displacement, and skeletal animation
 - Shader graph system to dynamically create/edit splats on the GPU
 
-Check out all the [examples](https://forge.dev/examples/)
+Check out all the [examples](https://sparkjs.dev/examples/)
 
 ## Getting Started
 
@@ -53,13 +53,13 @@ Copy the following code into an `index.html` file.
   {
     "imports": {
       "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.174.0/three.module.js",
-      "@forge-gfx/forge": "https://forge.dev/releases/forge/0.1.0/forge.module.js"
+      "@sparkjs-dev/spark": "https://sparkjs.dev/releases/spark/0.2.0/spark.module.js"
     }
   }
 </script>
 <script type="module">
   import * as THREE from "three";
-  import { SplatMesh } from "@forge-gfx/forge";
+  import { SplatMesh } from "@sparkjs-dev/spark";
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -67,7 +67,7 @@ Copy the following code into an `index.html` file.
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement)
 
-  const splatURL = "https://forge.dev/assets/splats/butterfly.spz";
+  const splatURL = "https://sparkjs.dev/assets/splats/butterfly.spz";
   const butterfly = new SplatMesh({ url: splatURL });
   butterfly.quaternion.set(1, 0, 0, 0);
   butterfly.position.set(0, 0, -3);
@@ -82,7 +82,7 @@ Copy the following code into an `index.html` file.
 
 ### Web Editor
 
-Remix the [glitch starter template](https://glitch.com/edit/#!/forge-dev)
+Remix the [glitch starter template](https://glitch.com/edit/#!/sparkjs-dev)
 
 ### CDN
 
@@ -91,7 +91,7 @@ Remix the [glitch starter template](https://glitch.com/edit/#!/forge-dev)
   {
     "imports": {
       "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.174.0/three.module.js",
-      "forge": "https://forge.dev/releases/forge/0.1.0/forge.module.js"
+      "@sparkjs-dev/spark": "https://sparkjs.dev/releases/spark/0.2.0/spark.module.js"
      }
   }
 </script>
@@ -100,26 +100,26 @@ Remix the [glitch starter template](https://glitch.com/edit/#!/forge-dev)
 ### NPM
 
 ```shell
-npm install @forge-gfx/forge
+npm install @sparkjs-dev/spark
 ```
 
 ## Run Examples locally
 
 Install [Rust](https://www.rust-lang.org/tools/install) if it's not already installed in your machine.
 
-Next, build Forge by running:
+Next, build Spark by running:
 ```
 npm install
 npm run build
 ```
-This will first build the Rust Wasm component (can be invoked via `npm run build:wasm`), then Forge itself (`npm run build`).
+This will first build the Rust Wasm component (can be invoked via `npm run build:wasm`), then Spark itself (`npm run build`).
 
 The examples fetch assets from a remote URL. This step is optional, but offline development and faster loading times are possible if you download and cache the assets files locally with the following command:
 ```
 npm run assets:download
 ```
 
-Once you've built Forge and optionally downloaded the assets, you can now run the examples:
+Once you've built Spark and optionally downloaded the assets, you can now run the examples:
 ```
 npm start
 ```
@@ -183,7 +183,7 @@ Edit markdown in `/docs` directory
 npm run docs
 ```
 
-### Build Forge website
+### Build Spark website
 
 Build the static site and docs in a `site` directory.
 
@@ -197,9 +197,9 @@ You can run any static server in the `site` directory but for convenience you ca
 npm run site:serve
 ```
 
-### Deploy Forge website
+### Deploy Spark website
 
-The following command will generate a static site from the `docs` directory and push it to the [repo](https://github.com/forge-gfx/forge-gfx.github.io) that hosts the site via `gh-pages`
+The following command will generate a static site from the `docs` directory and push it to the [repo](https://github.com/sparkjs-dev/sparkjs-dev.github.io) that hosts the site via `gh-pages`
 
 ```
 npm run site:deploy

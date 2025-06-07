@@ -2,7 +2,7 @@
 
 <head>
   <meta charset="utf-8">
-  <title>Forge • Environment Mapping</title>
+  <title>Spark • Environment Mapping</title>
   <style>
     body {
       margin: 0;
@@ -33,13 +33,13 @@
       "imports": {
         "three": "/examples/js/vendor/three/build/three.module.js",
         "three/addons/": "/examples/js/vendor/three/examples/jsm/",
-        "@forge-gfx/forge": "/dist/forge.module.js"
+        "@sparkjs-dev/spark": "/dist/spark.module.js"
       }
     }
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { SplatMesh, ForgeControls, ForgeRenderer } from "@forge-gfx/forge";
+    import { SplatMesh, SparkControls, SparkRenderer } from "@sparkjs-dev/spark";
     import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
@@ -51,8 +51,8 @@
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement)
 
-    // Explicitly create a ForgeRenderer to render environment maps
-    const forge = new ForgeRenderer({ renderer });
+    // Explicitly create a SparkRenderer to render environment maps
+    const spark = new SparkRenderer({ renderer });
 
     const splatURL = await getAssetFileURL("fireplace.spz");
     const background = new SplatMesh({ url: splatURL });
@@ -88,7 +88,7 @@
       // Make sure we only launch async renderEnvMap once
       if (!renderedEnvMap) {
         renderedEnvMap = true;
-        forge.renderEnvMap({
+        spark.renderEnvMap({
           scene,
           // World center to render from
           worldCenter: duck.position,

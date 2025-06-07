@@ -20,5 +20,5 @@ if (-not (Get-Command wasm-pack -ErrorAction SilentlyContinue)) {
 }
 
 # Change directory and build using wasm-pack
-Set-Location -Path "./forge-internal-rs"
+Set-Location -Path "./spark-internal-rs"
 wasm-pack build --target web

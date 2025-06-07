@@ -2,7 +2,7 @@
 
 ## Quick Start
 
-Copy and paste code below in an `index.html` file or remix in the [Web Playground](https://glitch.com/edit/#!/forge-dev)
+Copy and paste code below in an `index.html` file or remix in the [Web Playground](https://glitch.com/edit/#!/sparkjs-dev)
 
 ```html
 <style> body {margin: 0;} </style>
@@ -10,13 +10,13 @@ Copy and paste code below in an `index.html` file or remix in the [Web Playgroun
   {
     "imports": {
       "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.174.0/three.module.js",
-      "@forge-gfx/forge": "https://forge.dev/releases/forge/0.1.0/forge.module.js"
+      "@sparkjs-dev/spark": "https://sparkjs.dev/releases/spark/0.2.0/spark.module.js"
     }
   }
 </script>
 <script type="module">
   import * as THREE from "three";
-  import { SplatMesh } from "@forge-gfx/forge";
+  import { SplatMesh } from "@sparkjs-dev/spark";
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -24,7 +24,7 @@ Copy and paste code below in an `index.html` file or remix in the [Web Playgroun
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement)
 
-  const splatURL = "https://forge.dev/assets/splats/butterfly.spz";
+  const splatURL = "https://sparkjs.dev/assets/splats/butterfly.spz";
   const butterfly = new SplatMesh({ url: splatURL });
   butterfly.quaternion.set(1, 0, 0, 0);
   butterfly.position.set(0, 0, -3);
@@ -39,11 +39,11 @@ Copy and paste code below in an `index.html` file or remix in the [Web Playgroun
 ## Install with NPM
 
 ```shell
-npm install @forge-gfx/forge
+npm install @sparkjs-dev/spark
 ```
-## Develop and contribute to Forge
+## Develop and contribute to Spark
 
-Build Forge (It requires [Rust](https://www.rust-lang.org/tools/install) installed in your machine)
+Build Spark (It requires [Rust](https://www.rust-lang.org/tools/install) installed in your machine)
 ```
 npm install
 npm run dev
@@ -53,10 +53,10 @@ This will run a Web server at [http://localhost:8080/](http://localhost:8080/) w
 
 ## Table of Contents
 
-- [Forge Overview](overview.md)
+- [Spark Overview](overview.md)
 - [System Design](system-design.md)
-- [ForgeRenderer](forge-renderer.md)
-- [ForgeViewpoint](forge-viewpoint.md)
+- [SparkRenderer](spark-renderer.md)
+- [SparkViewpoint](spark-viewpoint.md)
 - [SplatMesh](splat-mesh.md)
 - [PackedSplats](packed-splats.md)
 - [Loading Gsplats](loading-splats.md)

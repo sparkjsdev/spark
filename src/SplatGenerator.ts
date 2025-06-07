@@ -139,7 +139,7 @@ export class SplatTransformer {
 }
 
 // SplatGenerator is an Object3D that can be placed anywhere in the scene
-// to generate Gsplats into the world for ForgeRenderer. All Gsplats from
+// to generate Gsplats into the world for SparkRenderer. All Gsplats from
 // SplatGenerators across the scene will be accumulated into a single
 // SplatAccumulator, which are sorted and rendered together.
 //

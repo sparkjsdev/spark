@@ -1,6 +1,6 @@
 # Dyno Standard Library
 
-The Forge `dyno` system provides a standard library of `Dyno` blocks that cover most of the built-in functions in GLSL ES 3.0, including data conversion, logic, math, trigonometry, linear algebra, texture lookups, transforms, managing uniform variables, hashing & RNG, and of course managing splat data.
+The Spark `dyno` system provides a standard library of `Dyno` blocks that cover most of the built-in functions in GLSL ES 3.0, including data conversion, logic, math, trigonometry, linear algebra, texture lookups, transforms, managing uniform variables, hashing & RNG, and of course managing splat data.
 
 We use the convention of PascalCase for the names of the `Dyno` classes, and camelCase for the names of equivalent helper functions that are more ergonomic to use. For example, you can equivalently write:
 ```typescript
@@ -157,7 +157,7 @@ The following math functions follow standard GLSL ES 3.0 semantics, for example 
 
 ## Uniform variables
 
-Constant values and literals in `dyno` programs should not be changed often because it incurs a recompilation. To have a variable that can be changed every frame, you can declare a "uniform". The base class for uniforms provided by Forge is `DynoUniform`, which importantly contains a type, current value, and update function.
+Constant values and literals in `dyno` programs should not be changed often because it incurs a recompilation. To have a variable that can be changed every frame, you can declare a "uniform". The base class for uniforms provided by Spark is `DynoUniform`, which importantly contains a type, current value, and update function.
 
 To update a uniform, simply assign a new value to the `value` property of the uniform. Alternatively, you can construct a `DynoUniform` with an `update` function that is called for each execution. This function can either update `value` directly, or return any non-`undefined` value to have it updated.
 
@@ -193,7 +193,7 @@ Use the following helper functions for more ergonomic creation of uniforms.
 
 ## Hashing & Random number generation
 
-When a `dyno` program executes, each invocation for a given splat/index is effectively run in parallel, separate from the rest. In order to incorporate randomness into a `dyno` program, you must use the inputs available to the program, which is often just the `index` of the splat itself. Forge provides functions to hash any scalar or vector (integer or float) into 1-4 components of either a uint32 or float, using the PCG random number generator.
+When a `dyno` program executes, each invocation for a given splat/index is effectively run in parallel, separate from the rest. In order to incorporate randomness into a `dyno` program, you must use the inputs available to the program, which is often just the `index` of the splat itself. Spark provides functions to hash any scalar or vector (integer or float) into 1-4 components of either a uint32 or float, using the PCG random number generator.
 
 | **Function** | **Description** |
 |----------|-------------|
@@ -211,7 +211,7 @@ When a `dyno` program executes, each invocation for a given splat/index is effec
 
 ## Splat data
 
-Forge makes it easier to work with splat data by defining the GLSL struct `Gsplat` which contains the following fields:
+Spark makes it easier to work with splat data by defining the GLSL struct `Gsplat` which contains the following fields:
 
 | **Field** | **Type** | **Description** |
 |----------|-------------|-------------|

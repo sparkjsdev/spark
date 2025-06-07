@@ -1,16 +1,16 @@
 {
-  "name": "@forge-gfx/forge",
-  "version": "0.1.0",
+  "name": "@sparkjs-dev/spark",
+  "version": "0.2.0",
   "description": "An advanced 3D Gaussian Splatting renderer for THREE.js",
-  "homepage": "https://forge.dev/",
+  "homepage": "https://sparkjs.dev/",
   "type": "module",
-  "main": "./dist/forge.cjs.js",
-  "module": "./dist/forge.module.js",
+  "main": "./dist/spark.cjs.js",
+  "module": "./dist/spark.module.js",
   "exports": {
     ".": {
       "types": "./dist/types/index.d.ts",
-      "import": "./dist/forge.module.js",
-      "require": "./dist/forge.cjs.js"
+      "import": "./dist/spark.module.js",
+      "require": "./dist/spark.cjs.js"
     }
   },
   "scripts": {
@@ -22,7 +22,7 @@
     "build:production": "vite build --mode production",
     "build:wasm": "node rust/build_wasm.js",
     "build:watch": "onchange 'src/**/*.{ts,glsl}' -- npm run build:dev",
-    "clean": "rm -rf dist/ && rm -rf node_modules/ && rm -rf rust/target/ && rm -rf rust/forge-internal-rs/pkg/ && npm run assets:clean",
+    "clean": "rm -rf dist/ && rm -rf node_modules/ && rm -rf rust/target/ && rm -rf rust/spark-internal-rs/pkg/ && npm run assets:clean",
     "dev": "npm run build:dev && (vite --host & npm run build:watch)",
     "docs": "node scripts/clean-site-files.js && node scripts/copy-site-files.js && mkdocs serve",
     "format": "biome format .",
@@ -38,7 +38,7 @@
     "start": "npm run dev",
     "test": "node --no-warnings --loader ts-node/esm --test test/**/*.test.ts"
   },
-  "repository": "forge-fgx/forge",
+  "repository": "sparkjs-dev/spark",
   "files": ["dist"],
   "license": "MIT",
   "devDependencies": {
@@ -57,7 +57,7 @@
   },
   "dependencies": {
     "fflate": "^0.8.2",
-    "forge-internal-rs": "file:rust/forge-internal-rs/pkg"
+    "spark-internal-rs": "file:rust/spark-internal-rs/pkg"
   },
   "keywords": ["3d", "three.js", "gsplats", "3dgs", "gaussian", "splats"]
 }

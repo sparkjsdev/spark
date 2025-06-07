@@ -1,6 +1,6 @@
 # Procedural Splats
 
-Forge makes it easy to create Gaussian splat collections procedurally, and includes some splat constructors that are useful for common tasks like creating a grid or text made of splats. The example "Procedural Splats" puts some of these to use in a scene.
+Spark makes it easy to create Gaussian splat collections procedurally, and includes some splat constructors that are useful for common tasks like creating a grid or text made of splats. The example "Procedural Splats" puts some of these to use in a scene.
 
 ## Adding splats to a collection
 
@@ -55,7 +55,7 @@ scene.add(mesh);
 ## Grid
 
 ```javascript
-import { constructGrid } from "@forge-gfx/forge";
+import { constructGrid } from "@sparkjs-dev/spark";
 
 const grid = new SplatMesh({
   constructSplats: (splats) => constructGrid({
@@ -90,7 +90,7 @@ scene.add(grid);
 ## XYZ axis
 
 ```javascript
-import { constructAxes } from "@forge-gfx/forge";
+import { constructAxes } from "@sparkjs-dev/spark";
 
 const axes = new SplatMesh({
   constructSplats: (splats) => constructAxes({ splats }),
@@ -118,7 +118,7 @@ scene.add(axes);
 ## Splat sphere
 
 ```javascript
-import { constructSpherePoints } from "@forge-gfx/forge";
+import { constructSpherePoints } from "@sparkjs-dev/spark";
 
 const sphere = new SplatMesh({
   constructSplats: (splats) => constructSpherePoints({

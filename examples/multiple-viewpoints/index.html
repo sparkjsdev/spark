@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Forge • Multiple Viewpoints</title>
+  <title>Spark • Multiple Viewpoints</title>
   <link rel="stylesheet" href="style.css">
 </head>
 
@@ -18,13 +18,13 @@
       "imports": {
         "three": "/examples/js/vendor/three/build/three.module.js",
         "three/addons/": "/examples/js/vendor/three/examples/jsm/",
-        "@forge-gfx/forge": "/dist/forge.module.js"
+        "@sparkjs-dev/spark": "/dist/spark.module.js"
       }
     }
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { ForgeRenderer, ForgeViewpoint, SplatMesh } from "@forge-gfx/forge";
+    import { SparkRenderer, SparkViewpoint, SplatMesh } from "@sparkjs-dev/spark";
 
     import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
@@ -37,8 +37,8 @@
     renderer.setSize(window.innerWidth, window.innerHeight - header_height);
     document.body.appendChild(renderer.domElement)
 
-    // Explicitly create a ForgeRenderer in the scene to spawn new viewpoints
-    const forge = new ForgeRenderer({ renderer });
+    // Explicitly create a SparkRenderer in the scene to spawn new viewpoints
+    const spark = new SparkRenderer({ renderer });
 
     const splatURL = await getAssetFileURL("butterfly.spz");
     const butterfly = new SplatMesh({ url: splatURL });
@@ -52,7 +52,7 @@
       const height = 240;
       const screen = new THREE.Mesh(
         new THREE.PlaneGeometry(0.5 * camera.near, 0.5 * camera.near * height / width),
-        new THREE.MeshBasicMaterial({ map: ForgeViewpoint.EMPTY_TEXTURE }),
+        new THREE.MeshBasicMaterial({ map: SparkViewpoint.EMPTY_TEXTURE }),
       );
       screen.position.set(screenPos.x, screenPos.y, -1).multiplyScalar(camera.near);
       scene.add(screen);
@@ -88,7 +88,7 @@
 
       // Spawn a new viewpoint that auto-updates its sort order, double
       // buffered in case the texture is used recursively in the scene
-      const viewpoint = forge.newViewpoint({
+      const viewpoint = spark.newViewpoint({
         autoUpdate: true,
         camera: viewCamera,
         target: { width, height, doubleBuffer: true },

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Forge • Procedural Splats</title>
+  <title>Spark • Procedural Splats</title>
   <style>
     body {
       margin: 0;
@@ -16,13 +16,13 @@
     {
       "imports": {
         "three": "/examples/js/vendor/three/build/three.module.js",
-        "@forge-gfx/forge": "/dist/forge.module.js"
+        "@sparkjs-dev/spark": "/dist/spark.module.js"
       }
     }
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { ForgeControls, SplatMesh, constructGrid, constructAxes, textSplats, imageSplats } from "@forge-gfx/forge";
+    import { SparkControls, SplatMesh, constructGrid, constructAxes, textSplats, imageSplats } from "@sparkjs-dev/spark";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
     const scene = new THREE.Scene();
@@ -114,7 +114,7 @@
     image.position.set(-0.5, -1, -2);
     scene.add(image);
 
-    const controls = new ForgeControls({ canvas: renderer.domElement });
+    const controls = new SparkControls({ canvas: renderer.domElement });
 
     renderer.setAnimationLoop(function animate(time) {
       controls.update(camera);

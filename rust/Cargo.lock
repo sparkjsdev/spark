@@ -27,16 +27,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "43da5946c66ffcc7745f48db692ffbb10a83bfe0afd96235c5c2a4fb23994929"
 
 [[package]]
-name = "forge-internal-rs"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "half",
- "js-sys",
- "wasm-bindgen",
-]
-
-[[package]]
 name = "half"
 version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -91,6 +81,16 @@ name = "rustversion"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eded382c5f5f786b989652c49544c4877d9f015cc22e145a5ea8ea66c2921cd2"
+
+[[package]]
+name = "spark-internal-rs"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "half",
+ "js-sys",
+ "wasm-bindgen",
+]
 
 [[package]]
 name = "syn"

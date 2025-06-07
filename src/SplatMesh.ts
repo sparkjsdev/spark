@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-import init_wasm, { raycast_splats } from "forge-internal-rs";
+import init_wasm, { raycast_splats } from "spark-internal-rs";
 import { PackedSplats } from "./PackedSplats";
 import { type RgbaArray, readRgbaArray } from "./RgbaArray";
 import { SplatEdit, SplatEditSdf, SplatEdits } from "./SplatEdit";
@@ -389,7 +389,7 @@ export class SplatMesh extends SplatGenerator {
     this.constructGenerator(this.context);
   }
 
-  // This is called automatically by ForgeRenderer and you should not have to
+  // This is called automatically by SparkRenderer and you should not have to
   // call it. It updates parameters for the generated pipeline and calls
   // updateGenerator() if the pipeline needs to change.
   update({

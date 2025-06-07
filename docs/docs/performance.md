@@ -13,7 +13,7 @@ Each splat incurs overhead in transforming it via SplatAccumulator for sorting a
 
 ## `maxStdDev`
 
-Adjust `ForgeRenderer.maxStdDev` (either directly on `ForgeRenderer` or via constructor options) to a value less than the default `Math.sqrt(8)`. This limits the extent of the Gaussian fall-off, which by default is approx 2.8. For VR a good value is `Math.sqrt(5)`, which is perceptually very similar to the default.
+Adjust `SparkRenderer.maxStdDev` (either directly on `SparkRenderer` or via constructor options) to a value less than the default `Math.sqrt(8)`. This limits the extent of the Gaussian fall-off, which by default is approx 2.8. For VR a good value is `Math.sqrt(5)`, which is perceptually very similar to the default.
 
 ## `THREE.WebGLRenderer.antialias`
 
@@ -21,4 +21,4 @@ When constructing a `THREE.WebGLRenderer` you should set `antialias: false` (def
 
 ## `renderer.setPixelRatio(window.devicePixelRatio)`
 
-Although `ForgeRenderer` is designed to work with any `devicePixelRatio`, it may impact performance due to the increased number of pixels to render and blend. If your scene consists of mostly splats, consider whether you have enough splats to justify the high DPI rendering.
+Although `SparkRenderer` is designed to work with any `devicePixelRatio`, it may impact performance due to the increased number of pixels to render and blend. If your scene consists of mostly splats, consider whether you have enough splats to justify the high DPI rendering.

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Forge • Hello World</title>
+  <title>Spark • Hello World</title>
   <style>
     body {
       margin: 0;
@@ -16,13 +16,13 @@
     {
       "imports": {
         "three": "/examples/js/vendor/three/build/three.module.js",
-        "@forge-gfx/forge": "/dist/forge.module.js"
+        "@sparkjs-dev/spark": "/dist/spark.module.js"
       }
     }
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { SplatMesh } from "@forge-gfx/forge";
+    import { SplatMesh } from "@sparkjs-dev/spark";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
     const scene = new THREE.Scene();

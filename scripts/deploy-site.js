@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import { rm } from "node:fs/promises";
 import path from "node:path";
 
-const siteRemoteURL = "git@github.com:forge-gfx/forge-gfx.github.io.git";
+const siteRemoteURL = "git@github.com:sparkjs-dev/sparkjs-dev.github.io.git";
 const siteRepoDir = "site-repo";
 const siteBuild = "site";
 
@@ -64,5 +64,5 @@ run("git merge --ff-only origin/main", { cwd: siteRepoDir });
 await emptyDirectory(siteRepoDir);
 await copyDir(siteBuild, siteRepoDir);
 run("git add .", { cwd: siteRepoDir });
-run('git commit -m "Update Forge site"', { cwd: siteRepoDir });
+run('git commit -m "Update Spark site"', { cwd: siteRepoDir });
 run("git push origin main", { cwd: siteRepoDir });

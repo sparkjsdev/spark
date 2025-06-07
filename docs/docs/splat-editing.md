@@ -1,6 +1,6 @@
 # Splat Editing
 
-Forge provides the ability to apply "edits" to splats as part of the standard `SplatMesh` pipeline. These edits take the form of a sequence of operations, applied one at a time to the set of splats in its `packedSplats`. Each operation evaluates a 7-dimensional field (RGBA and XYZ displacement) at each splat's center point in space that derives from 1 or more Signed Distance Field shapes (such as spheres, boxes, planes, etc.), blended together and across inside-outside boundaries.
+Spark provides the ability to apply "edits" to splats as part of the standard `SplatMesh` pipeline. These edits take the form of a sequence of operations, applied one at a time to the set of splats in its `packedSplats`. Each operation evaluates a 7-dimensional field (RGBA and XYZ displacement) at each splat's center point in space that derives from 1 or more Signed Distance Field shapes (such as spheres, boxes, planes, etc.), blended together and across inside-outside boundaries.
 
 The result is a an RGBA,XYZ value for each splat, which combined with SplatEditRgbaBlendMode.MULTIPLY/SET_RGB/ADD_RGBA can be used to create special effects. For example, simulating simple lighting can be done with MULTIPLY or ADD_RGBA to light up or adjust the color in regions of space, using spheres for point light sources or infinite cone for a spotlight. Using MULTIPLY with opacity=0 can be used to delete splats from a region of space. The splats can also be displaced in space using the XYZ values, and adjusted each frame to create smooth deformations in space.
 

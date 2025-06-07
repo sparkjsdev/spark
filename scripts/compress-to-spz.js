@@ -6,7 +6,7 @@ import path from "node:path";
 import { URL } from "node:url";
 
 // Import directly from source to avoid worker system
-import { transcodeSpz } from "../dist/forge.module.js";
+import { transcodeSpz } from "../dist/spark.module.js";
 
 async function main() {
   const args = process.argv.slice(2);
