@@ -6,6 +6,7 @@
   "type": "module",
   "main": "./dist/spark.cjs.js",
   "module": "./dist/spark.module.js",
+  "types": "./dist/types/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/types/index.d.ts",
