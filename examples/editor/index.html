@@ -468,11 +468,14 @@
     const normalColor = dyno.dynoBool(false);
     gui.add(normalColor, "value").name("Normal color").onChange(() => updateFrameSplats());
 
+    gui.add(spark, "maxStdDev", 0.1, 3.0, 0.01).name("Max Gsplat stddev").listen();
+    gui.add(spark, "falloff", 0, 1, 0.01).name("Gaussian falloff").listen();
+    gui.add(spark, "preBlurAmount", 0, 2, 0.1).name("Blur amount (no AA)");
+    gui.add(spark, "blurAmount", 0, 2, 0.1).name("Blur amount (AA)");
+
     const splatsFolder = secondGui.addFolder("Files");
 
     const editFolder = gui.addFolder("Edit Splats").close();
-    editFolder.add(spark, "maxStdDev", 0.1, 3.0, 0.01).name("Max Gsplat stddev").listen();
-    editFolder.add(spark, "falloff", 0, 1, 0.01).name("Gaussian falloff").listen();
 
     function updateFrameSplats() {
       frame.children.forEach((child) => {
