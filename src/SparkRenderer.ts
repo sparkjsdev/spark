@@ -43,19 +43,19 @@ let hasSparkRenderer = false;
 
 let sparkRendererInstance: SparkRenderer;
 
-function containsSplatMesh(object3D) {
+function containsSplatMesh(object3D: THREE.Object3D) {
   let hasSplatMesh = false;
   if (object3D instanceof SplatMesh) {
     return true;
   }
-  object3D.traverse((child) => {
+  object3D.traverse((child: THREE.Object3D) => {
     hasSplatMesh = hasSplatMesh || child instanceof SplatMesh;
   });
   return hasSplatMesh;
 }
 
 const sceneAdd = THREE.Scene.prototype.add;
-THREE.Scene.prototype.add = function (object) {
+THREE.Scene.prototype.add = function (object: THREE.Object3D) {
   hasSplatMesh = hasSplatMesh || containsSplatMesh(object);
   hasSparkRenderer = hasSparkRenderer || object instanceof SparkRenderer;
   sceneAdd.call(this, object);
@@ -63,7 +63,9 @@ THREE.Scene.prototype.add = function (object) {
 };
 
 const sceneOnBeforeRender = THREE.Scene.prototype.onBeforeRender;
-THREE.Scene.prototype.onBeforeRender = function (renderer) {
+THREE.Scene.prototype.onBeforeRender = function (
+  renderer: THREE.WebGLRenderer,
+) {
   if (!hasSplatMesh) {
     return;
   }
