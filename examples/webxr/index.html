@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark • WebXR</title>
+  <style>
+    body {
+      margin: 0;
+    }
+  </style>
+</head>
+
+<body>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/examples/js/vendor/three/build/three.module.js",
+        "@sparkjsdev/spark": "/dist/spark.module.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { SparkRenderer, SplatMesh, SplatEdit, SplatEditRgbaBlendMode, SplatEditSdf, SplatEditSdfType, VRButton, XrHands } from "@sparkjsdev/spark";
+    import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement)
+
+    // Make a local frame of reference that we can move to control
+    // the camera, or as a frame of reference in WebXR mode
+    const localFrame = new THREE.Group();
+    scene.add(localFrame);
+
+    // Lower the splat rendering width to sqrt(5) std devs for more performance
+    const spark = new SparkRenderer({ renderer, maxStdDev: Math.sqrt(5) });
+    localFrame.add(spark);
+    localFrame.add(camera);
+
+    const splatURL = await getAssetFileURL("valley.spz");
+    const background = new SplatMesh({ url: splatURL });
+    background.quaternion.set(1, 0, 0, 0);
+    background.scale.setScalar(0.5);
+    scene.add(background);
+
+    const vrButton = VRButton.createButton(renderer, {
+      optionalFeatures: ["hand-tracking"],
+    });
+    let xrHands = null;
+    if (vrButton) {
+        // WebXR is available, so show the button
+        document.body.appendChild(vrButton);
+
+        xrHands = new XrHands();
+        const handMesh = xrHands.makeGhostMesh();
+        handMesh.editable = false;
+        localFrame.add(handMesh);
+    }
+
+    // Create a layer of color edits to apply to editable splats
+    const edit = new SplatEdit({
+      rgbaBlendMode: SplatEditRgbaBlendMode.ADD_RGBA,
+      sdfSmooth: 0.02,
+      softEdge: 0.02,
+    });
+    localFrame.add(edit);
+    const sdfs = new Map();
+
+    let lastCameraPos = new THREE.Vector3(0, 0, 0);
+
+    renderer.setAnimationLoop(function animate(time, xrFrame) {
+      // This is a hack to make a "local" frame work reliably across
+      // Quest 3 and Vision Pro. Any big discontinuity in the camera
+      // results in a reverse shift of the local frame to compensate.
+      if (lastCameraPos.distanceTo(camera.position) > 0.5) {
+        localFrame.position.copy(camera.position).multiplyScalar(-1);
+      }
+      lastCameraPos.copy(camera.position);
+
+      if (xrHands) {
+        // Updates the xrHands object with coordinates
+        // and also updates ghost mesh
+        xrHands.update({ xr: renderer.xr, xrFrame });
+
+        // Create interactor SDFs for each hand tip
+        for (const hand of ["left", "right"]) {
+          for (const [index, tip] of ["t3", "i4", "m4", "r4", "p4"].entries()) {
+            // Make a sphere SDF for each hand tip with different colors
+            const key = `${hand}-${tip}`;
+            if (!sdfs.has(key)) {
+              const sdf = new SplatEditSdf({
+                type: SplatEditSdfType.SPHERE,
+                radius: 0.03,
+                color: new THREE.Color(
+                  (index % 5 < 3) ? 1 : 0,
+                  (index % 5 % 2),
+                  ((index % 5) > 1) ? 1 : 0
+                ),
+                opacity: 0,
+              });
+              sdfs.set(key, sdf);
+            }
+
+            const sdf = sdfs.get(key);
+            // Make each SDF wobble in different directions
+            sdf.displace.set(
+              0.01 * Math.sin(time * 0.007 + index * 1),
+              0.01 * Math.sin(time * 0.002 + index * 2),
+              0.01 * Math.sin(time * 0.009 + index * 3),
+            );
+
+            if (xrHands.hands[hand] && xrHands.hands[hand][tip]) {
+              // Make the SDF follow the hand tips
+              sdf.position.copy(xrHands.hands[hand][tip].position);
+              edit.add(sdf);
+            } else {
+              // Remove the SDF when the hand is not detected
+              edit.remove(sdf);
+            }
+          }
+        }
+      }
+
+      renderer.render(scene, camera);
+    });
+  </script>
+</body>
+
+</html>

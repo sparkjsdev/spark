@@ -375,10 +375,7 @@ export class SparkRenderer extends THREE.Mesh {
           // In WebXR mode we are called multiple times, once for each eye,
           // so use their average to compute the sort center.
           const cameras = renderer.xr.getCamera().cameras;
-          this.defaultCameras = [
-            cameras[0].matrixWorld,
-            cameras[1].matrixWorld,
-          ];
+          this.defaultCameras = cameras.map((camera) => camera.matrixWorld);
           this.defaultView.viewToWorld =
             averageOriginToWorlds(this.defaultCameras) ?? new THREE.Matrix4();
         }

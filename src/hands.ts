@@ -240,8 +240,6 @@ export class XrHands {
       onFrame: () => {
         let splatIndex = 0;
         for (const handedness of HANDS) {
-          const active = this.values[`${handedness}MiddleThumb`];
-
           const xrHand = this.hands[handedness];
           for (const [index, segment] of JOINT_SEGMENTS.entries()) {
             for (let i = 1; i < segment.length; ++i) {
@@ -274,8 +272,6 @@ export class XrHands {
                   if (handedness === "right") {
                     color.set(1 - color.r, 1 - color.g, 1 - color.b);
                   }
-
-                  color.lerp(WHITE, active);
                   opacity = 0.75;
                 }
                 mesh.packedSplats.setSplat(
@@ -294,6 +290,7 @@ export class XrHands {
         mesh.packedSplats.numSplats = splatIndex;
         mesh.packedSplats.needsUpdate = true;
         mesh.numSplats = splatIndex;
+        mesh.updateVersion();
       },
     });
     return mesh;

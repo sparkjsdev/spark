@@ -98,5 +98,9 @@
   "arrow.glb": {
     "url": "https://sparkjs.dev/assets/models/arrow.glb",
     "directory": "models"
+  },
+  "valley.spz": {
+    "url": "https://sparkjs.dev/assets/splats/valley.spz",
+    "directory": "splats"
   }
 }

@@ -208,7 +208,9 @@ export class SplatEdit extends THREE.Object3D {
     if (this.sdfs == null) {
       this.sdfs = [];
     }
-    this.sdfs.push(sdf);
+    if (!this.sdfs.includes(sdf)) {
+      this.sdfs.push(sdf);
+    }
   }
 
   removeSdf(sdf: SplatEditSdf) {
