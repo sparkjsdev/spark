@@ -70,6 +70,13 @@ export const hashVec4 = <T extends ValueTypes>(
 ): DynoVal<"vec4"> => {
   return new HashVec4({ value });
 };
+export const normalizedDepth = (
+  z: DynoVal<"float">,
+  zNear: DynoVal<"float">,
+  zFar: DynoVal<"float">,
+): DynoVal<"float"> => {
+  return new NormalizedDepth({ z, zNear, zFar }).outputs.depth;
+};
 
 export class DynoRemapIndex
   extends Dyno<{ from: "int"; to: "int"; index: "int" }, { index: "int" }>
@@ -402,5 +409,33 @@ export class HashVec4<T extends ValueTypes>
   }
   dynoOut(): DynoValue<"vec4"> {
     return new DynoOutput(this, "hash");
+  }
+}
+
+export class NormalizedDepth
+  extends Dyno<
+    { z: "float"; zNear: "float"; zFar: "float" },
+    { depth: "float" }
+  >
+  implements HasDynoOut<"float">
+{
+  constructor({
+    z,
+    zNear,
+    zFar,
+  }: { z: DynoVal<"float">; zNear: DynoVal<"float">; zFar: DynoVal<"float"> }) {
+    super({
+      inTypes: { z: "float", zNear: "float", zFar: "float" },
+      outTypes: { depth: "float" },
+      inputs: { z, zNear, zFar },
+      statements: ({ inputs, outputs }) => [
+        `float clamped = clamp(${inputs.z}, ${inputs.zNear}, ${inputs.zFar});`,
+        `${outputs.depth} = (log2(clamped + 1.0) - log2(${inputs.zNear} + 1.0)) / (log2(${inputs.zFar} + 1.0) - log2(${inputs.zNear} + 1.0));`,
+      ],
+    });
+  }
+
+  dynoOut(): DynoValue<"float"> {
+    return new DynoOutput(this, "depth");
   }
 }

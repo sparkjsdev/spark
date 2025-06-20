@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark • Debug Coloring</title>
+  <style>
+    body {
+      margin: 0;
+    }
+    canvas {
+      touch-action: none;
+    }
+  </style>
+</head>
+
+<body>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/examples/js/vendor/three/build/three.module.js",
+        "@sparkjsdev/spark": "/dist/spark.module.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { SplatMesh, PackedSplats, dyno, modifiers } from "@sparkjsdev/spark";
+    import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement)
+
+    let splatURL = await getAssetFileURL("butterfly.spz");
+    const butterfly = new SplatMesh({ url: splatURL });
+    butterfly.scale.setScalar(0.5);
+    butterfly.quaternion.set(1, 0, 0, 0);
+    butterfly.position.set(-0.5, 0, -1.5);
+    modifiers.setWorldNormalColor(butterfly);
+    scene.add(butterfly);
+
+    splatURL = await getAssetFileURL("butterfly-ai.spz");
+    const butterfly2 = new SplatMesh({ url: splatURL });
+    butterfly2.quaternion.set(1, 0, 0, 0);
+    butterfly2.position.set(0.5, 0, -1.5);
+    modifiers.setDepthColor(butterfly2, 1, 2, true);
+    scene.add(butterfly2);
+
+    renderer.setAnimationLoop(function animate(time) {
+      butterfly.rotation.y += 0.01;
+      butterfly2.rotation.x += 0.01;
+      renderer.render(scene, camera);
+    });
+  </script>
+</body>
+
+</html>
