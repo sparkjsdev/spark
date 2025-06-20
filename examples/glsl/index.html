@@ -41,6 +41,17 @@
     butterfly.position.set(0, 0, -1.5);
     scene.add(butterfly);
 
+    // A Gsplat type is defined in GLSL in src/dyno/splats.ts as follows:
+    // struct Gsplat {
+    //   vec3 center;
+    //   uint flags;
+    //   vec3 scales;
+    //   int index;
+    //   vec4 quaternion;
+    //   vec4 rgba;
+    // };
+    // const uint GSPLAT_FLAG_ACTIVE = 1u << 0u;
+
     // Inject GLSL color shader into world-space SplatMesh modifier
     butterfly.worldModifier = new dyno.Dyno({
         inTypes: { gsplat: dyno.Gsplat },
