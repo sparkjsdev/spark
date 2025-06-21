@@ -12,6 +12,7 @@ const DEFAULT_ROTATE_INERTIA = 0.15;
 const DEFAULT_MOVE_INERTIA = 0.15;
 const DEFAULT_STICK_THRESHOLD = 0.1;
 const DEFAULT_FPS_ROTATE_SPEED = 2.0;
+const DEFAULT_POINTER_ROLL_SCALE = 1.0;
 
 // Time limit for double-finger press (pinch etc)
 const DUAL_PRESS_MS = 200;
@@ -352,6 +353,7 @@ export class PointerControls {
   reverseScroll: boolean;
   moveInertia: number;
   rotateInertia: number;
+  pointerRollScale: number;
   // Enable/disable controls updates
   enable = true;
 
@@ -404,6 +406,8 @@ export class PointerControls {
     moveInertia,
     // Inertia factor for rotation (default: DEFAULT_ROTATE_INERTIA)
     rotateInertia,
+    // Pointer rolling scale factor (default: DEFAULT_POINTER_ROLL_SCALE)
+    pointerRollScale,
     // Callback for double press events (default: () => {})
     doublePress,
   }: {
@@ -418,6 +422,7 @@ export class PointerControls {
     reverseScroll?: boolean;
     moveInertia?: number;
     rotateInertia?: number;
+    pointerRollScale?: number;
     doublePress?: ({
       position,
       intervalMs,
@@ -434,6 +439,7 @@ export class PointerControls {
     this.reverseScroll = reverseScroll ?? false;
     this.moveInertia = moveInertia ?? DEFAULT_MOVE_INERTIA;
     this.rotateInertia = rotateInertia ?? DEFAULT_ROTATE_INERTIA;
+    this.pointerRollScale = pointerRollScale ?? DEFAULT_POINTER_ROLL_SCALE;
 
     this.doublePress = doublePress ?? (() => {});
     this.doublePressLimitMs = DOUBLE_PRESS_LIMIT_MS;
@@ -617,7 +623,7 @@ export class PointerControls {
           Math.atan(motionOrtho[0] / (-0.5 * deltaDist)),
           Math.atan(motionOrtho[1] / (0.5 * deltaDist)),
         ];
-        const rotate = 0.5 * (angles[0] + angles[1]);
+        const rotate = 0.5 * (angles[0] + angles[1]) * this.pointerRollScale;
         const eulers = new THREE.Euler().setFromQuaternion(
           control.quaternion,
           "YXZ",
