@@ -115,6 +115,10 @@ export type SparkRendererOptions = {
   // to correctly account for "blurring" when anti-aliasing. Typically 0.3
   // (equivalent to approx 0.5 pixel radius) in scenes trained with anti-aliasing.
   blurAmount?: number;
+  // Depth-of-field distance to focal plane
+  focalDistance?: number;
+  // Full-width angle of aperture opening (in radians), default 0.0 to disable
+  apertureAngle?: number;
   // Modulate Gaussian kernel falloff. 0 means "no falloff, flat shading",
   // while 1 is the normal Gaussian kernel. (default: 1.0)
   falloff?: number;
@@ -140,6 +144,8 @@ export class SparkRenderer extends THREE.Mesh {
   enable2DGS: boolean;
   preBlurAmount: number;
   blurAmount: number;
+  focalDistance: number;
+  apertureAngle: number;
   falloff: number;
   clipXY: number;
 
@@ -241,6 +247,8 @@ export class SparkRenderer extends THREE.Mesh {
     this.enable2DGS = options.enable2DGS ?? true;
     this.preBlurAmount = options.preBlurAmount ?? 0.0;
     this.blurAmount = options.blurAmount ?? 0.3;
+    this.focalDistance = options.focalDistance ?? 0.0;
+    this.apertureAngle = options.apertureAngle ?? 0.0;
     this.falloff = options.falloff ?? 1.0;
     this.clipXY = options.clipXY ?? 1.4;
 
@@ -287,6 +295,10 @@ export class SparkRenderer extends THREE.Mesh {
       preBlurAmount: { value: 0.0 },
       // Add to 2D splat covariance diagonal and adjust opacity (anti-aliasing)
       blurAmount: { value: 0.3 },
+      // Depth-of-field distance to focal plane
+      focalDistance: { value: 0.0 },
+      // Full-width angle of aperture opening (in radians)
+      apertureAngle: { value: 0.0 },
       // Modulate Gaussian kernal falloff. 0 means "no falloff, flat shading",
       // 1 is normal e^-x^2 falloff.
       falloff: { value: 1.0 },
@@ -424,6 +436,8 @@ export class SparkRenderer extends THREE.Mesh {
     this.uniforms.enable2DGS.value = this.enable2DGS;
     this.uniforms.preBlurAmount.value = this.preBlurAmount;
     this.uniforms.blurAmount.value = this.blurAmount;
+    this.uniforms.focalDistance.value = this.focalDistance;
+    this.uniforms.apertureAngle.value = this.apertureAngle;
     this.uniforms.falloff.value = this.falloff;
     this.uniforms.clipXY.value = this.clipXY;
 

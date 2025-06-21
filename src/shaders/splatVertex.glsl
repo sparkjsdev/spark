@@ -22,6 +22,8 @@ uniform bool debugFlag;
 uniform bool enable2DGS;
 uniform float blurAmount;
 uniform float preBlurAmount;
+uniform float focalDistance;
+uniform float apertureAngle;
 uniform float clipXY;
 
 uniform usampler2DArray packedSplats;
@@ -135,10 +137,21 @@ void main() {
     a += preBlurAmount;
     d += preBlurAmount;
 
+    float fullBlurAmount = blurAmount;
+    if ((focalDistance > 0.0) && (apertureAngle > 0.0)) {
+        float focusRadius = MAX_PIXEL_RADIUS;
+        if (viewCenter.z < 0.0) {
+            float focusBlur = abs((-viewCenter.z - focalDistance) / viewCenter.z);
+            float apertureRadius = focal.x * tan(0.5 * apertureAngle);
+            focusRadius = focusBlur * apertureRadius;
+        }
+        fullBlurAmount = clamp(sqr(focusRadius), blurAmount, sqr(MAX_PIXEL_RADIUS));
+    }
+
     // Do convolution with a 0.5-pixel Gaussian for anti-aliasing: sqrt(0.3) ~= 0.5
     float detOrig = a * d - b * b;
-    a += blurAmount;
-    d += blurAmount;
+    a += fullBlurAmount;
+    d += fullBlurAmount;
     float det = a * d - b * b;
 
     // Compute anti-aliasing intensity scaling factor

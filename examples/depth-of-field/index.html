@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark • Depth of Field</title>
+  <style>
+    body {
+      margin: 0;
+    }
+    canvas {
+      touch-action: none;
+    }
+  </style>
+</head>
+
+<body>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/examples/js/vendor/three/build/three.module.js",
+        "lil-gui": "/examples/js/vendor/lil-gui/dist/lil-gui.esm.js",
+        "@sparkjsdev/spark": "/dist/spark.module.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { SparkRenderer, SplatMesh, SparkControls } from "@sparkjsdev/spark";
+    import GUI from "lil-gui";
+    import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement)
+
+    const spark = new SparkRenderer({
+        renderer,
+        apertureAngle: 0.02,
+        focalDistance: 5.0,
+        enable2DGS: false,
+    });
+    scene.add(spark);
+
+    const gui = new GUI({ title: "DoF settings" });
+    gui.add(spark, "focalDistance", 0.1, 15, 0.1);
+    gui.add(spark, "apertureAngle", 0.0, 0.01 * Math.PI, 0.001);
+
+    const splatURL = await getAssetFileURL("valley.spz");
+    const background = new SplatMesh({ url: splatURL });
+    background.quaternion.set(1, 0, 0, 0);
+    background.scale.setScalar(0.5);
+    scene.add(background);
+
+    const controls = new SparkControls({ canvas: renderer.domElement });
+    renderer.setAnimationLoop(function animate(time) {
+      controls.update(camera);
+      renderer.render(scene, camera);
+    });
+  </script>
+</body>
+
+</html>
