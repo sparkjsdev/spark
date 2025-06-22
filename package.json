@@ -58,6 +58,8 @@
     "spark-internal-rs": "file:rust/spark-internal-rs/pkg"
   },
   "dependencies": {
+    "codemirror": "6.0.2",
+    "codemirror-lang-glsl": "0.5.0",
     "fflate": "^0.8.2"
   },
   "keywords": ["3d", "three.js", "gsplats", "3dgs", "gaussian", "splats"]

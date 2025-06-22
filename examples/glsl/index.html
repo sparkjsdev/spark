@@ -12,10 +12,34 @@
     canvas {
       touch-action: none;
     }
+    #codemirror {
+      position: fixed;
+      width: 100%;
+      bottom: 0;
+    }
   </style>
 </head>
 
 <body>
+  <div id="codemirror"></div>
+
+  <script id="glsl" type="x-shader/x-fragment">
+    // A Gsplat type is defined in GLSL in src/dyno/splats.ts as follows:
+    // struct Gsplat {
+    //   vec3 center;
+    //   uint flags;
+    //   vec3 scales;
+    //   int index;
+    //   vec4 quaternion;
+    //   vec4 rgba;
+    // };
+    //const uint GSPLAT_FLAG_ACTIVE = 1u << 0u;
+    void mainObjectModifier(inout Gsplat splat, float time) {
+      float r = length(splat.center);
+      splat.center *= 0.9 + 0.1 * sin(r * 15.0 + time * 3.0);
+    }
+  </script>
+
   <script type="importmap">
     {
       "imports": {
@@ -24,10 +48,23 @@
       }
     }
   </script>
+
   <script type="module">
     import * as THREE from "three";
     import { SparkControls, SplatMesh, dyno } from "@sparkjsdev/spark";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+
+    import { basicSetup } from "codemirror";
+    import { EditorView } from "@codemirror/view";
+    import { glsl } from "codemirror-lang-glsl";
+
+    const editor = new EditorView({
+      doc: dyno.unindent(document.querySelector('#glsl').textContent),
+      parent: document.querySelector('#codemirror'),
+      extensions: [basicSetup, glsl()],
+    });
+
+    window.editor = editor;
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -40,17 +77,6 @@
     butterfly.quaternion.set(1, 0, 0, 0);
     butterfly.position.set(0, 0, -1.5);
     scene.add(butterfly);
-
-    // A Gsplat type is defined in GLSL in src/dyno/splats.ts as follows:
-    // struct Gsplat {
-    //   vec3 center;
-    //   uint flags;
-    //   vec3 scales;
-    //   int index;
-    //   vec4 quaternion;
-    //   vec4 rgba;
-    // };
-    // const uint GSPLAT_FLAG_ACTIVE = 1u << 0u;
 
     // Inject GLSL color shader into world-space SplatMesh modifier
     butterfly.worldModifier = new dyno.Dyno({
@@ -86,20 +112,11 @@
           inTypes: { gsplat: dyno.Gsplat, t: "float" },
           outTypes: { gsplat: dyno.Gsplat },
           globals: () => [
-            dyno.unindent(`
-              float warpRadial(float r, float t) {
-                return r * (1.0 + 0.1 * sin(r * 15.0 + t * 3.0));
-              }
-              vec3 warp(vec3 pos, float t) {
-                float r = length(pos);
-                float newR = warpRadial(r, t);
-                return pos * (newR / r);
-              }
-            `)
+            dyno.unindent(editor.state.doc.toString())
           ],
           statements: ({ inputs, outputs }) => dyno.unindentLines(`
             ${outputs.gsplat} = ${inputs.gsplat};
-            ${outputs.gsplat}.center = warp(${inputs.gsplat}.center, ${inputs.t});
+            mainObjectModifier(${outputs.gsplat}, ${inputs.t});
           `),
         });
         // Apply the GLSL block with appropriate inputs and return the output
@@ -118,6 +135,11 @@
 
       controls.update(camera);
       renderer.render(scene, camera);
+    });
+
+    editor.dom.addEventListener('focusout', (e) => {
+      console.log('Updating user GLSL...');
+      butterfly.updateGenerator();
     });
   </script>
 </body>
