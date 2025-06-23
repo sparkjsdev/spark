@@ -35,6 +35,8 @@ const spark = new SparkRenderer({
   enable2DGS?: boolean;
   preBlurAmount?: number;
   blurAmount?: number;
+  focalDistance?: number;
+  apertureAngle?: number;
   falloff?: number;
   clipXY?: number;
   view?: SparkViewpointOptions;
@@ -54,9 +56,11 @@ const spark = new SparkRenderer({
 | **preUpdate**     | Controls whether to update the splats before or after rendering. For WebXR this *must* be false in order to complete rendering as soon as possible. (default: `false`)
 | **originDistance** | Distance threshold for `SparkRenderer` movement triggering a splat update at the new origin. (default: `1.0`) This can be useful when your `SparkRenderer` is a child of your camera and you want to retain high precision coordinates near the camera.
 | **maxStdDev**     | Maximum standard deviations from the center to render Gaussians. Values `Math.sqrt(5)`..`Math.sqrt(9)` produce good results and can be tweaked for performance. (default: `Math.sqrt(8)`)
-| **enable2DGS**    | Enable 2D Gaussian splatting rendering ability. When this mode is enabled, any `scale` x/y/z component that is exactly `0` (minimum quantized value) results in the other two non-zero axes being interpreted as an oriented 2D Gaussian Splat instead of the usual approximate projected 3DGS Z-slice. When reading PLY files, scale values less than e^-20 will be interpreted as `0`. (default: `true`)
+| **enable2DGS**    | Enable 2D Gaussian splatting rendering ability. When this mode is enabled, any `scale` x/y/z component that is exactly `0` (minimum quantized value) results in the other two non-zero axes being interpreted as an oriented 2D Gaussian Splat instead of the usual approximate projected 3DGS Z-slice. When reading PLY files, scale values less than e^-20 will be interpreted as `0`. (default: `false`)
 | **preBlurAmount** | Scalar value to add to 2D splat covariance diagonal, effectively blurring + enlarging splats. In scenes trained without the splat anti-aliasing tweak this value was typically 0.3, but with anti-aliasing it is 0.0 (default: `0.0`)
 | **blurAmount**    | Scalar value to add to 2D splat covariance diagonal, with opacity adjustment to correctly account for "blurring" when anti-aliasing. Typically 0.3 (equivalent to approx 0.5 pixel radius) in scenes trained with anti-aliasing.
+| **focalDistance** | Depth-of-field distance to focal plane (default: `0.0`)
+| **apertureAngle** | Full-width angle of aperture opening from pinhole camera origin in radians (default: `0.0` to disable)
 | **falloff**       | Modulate Gaussian kernel falloff. 0 means "no falloff, flat shading", while 1 is the normal Gaussian kernel. (default: `1.0`)
 | **clipXY**        | X/Y clipping boundary factor for splat centers against view frustum. 1.0 clips any centers that are exactly out of bounds (but the splat's entire projection may still be in bounds), while 1.4 clips centers that are 40% beyond the bounds. (default: `1.4`)
 | **view**          | Configures the `SparkViewpointOptions` for the default `SparkViewpoint` associated with this `SparkRenderer`. Notable option: `sortRadial` (sort by radial distance or Z-depth)

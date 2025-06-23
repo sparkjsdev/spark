@@ -105,7 +105,7 @@ export type SparkRendererOptions = {
   // any scale x/y/z component that is exactly 0 (minimum quantized value) results
   // in the other two non-0 axis being interpreted as an oriented 2D Gaussian Splat,
   // rather instead of the usual projected 3DGS Z-slice. When reading PLY files,
-  // scale values less than e^-20 will be interpreted as 0. (default: true)
+  // scale values less than e^-20 will be interpreted as 0. (default: false)
   enable2DGS?: boolean;
   // Scalar value to add to 2D splat covariance diagonal, effectively blurring +
   // enlarging splats. In scenes trained without the Gsplat anti-aliasing tweak
@@ -244,7 +244,7 @@ export class SparkRenderer extends THREE.Mesh {
     this.preUpdate = options.preUpdate ?? false;
     this.originDistance = options.originDistance ?? 1;
     this.maxStdDev = options.maxStdDev ?? Math.sqrt(8.0);
-    this.enable2DGS = options.enable2DGS ?? true;
+    this.enable2DGS = options.enable2DGS ?? false;
     this.preBlurAmount = options.preBlurAmount ?? 0.0;
     this.blurAmount = options.blurAmount ?? 0.3;
     this.focalDistance = options.focalDistance ?? 0.0;
