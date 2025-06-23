@@ -717,9 +717,9 @@ const defineEvaluateSH2 = unindent(`
     )) / 127.0;
 
     return sh2_0 * (1.0925484 * viewDir.x * viewDir.y)
-      + sh2_1 * (1.0925484 * viewDir.y * viewDir.z)
+      + sh2_1 * (-1.0925484 * viewDir.y * viewDir.z)
       + sh2_2 * (0.3153915 * (2.0 * viewDir.z * viewDir.z - viewDir.x * viewDir.x - viewDir.y * viewDir.y))
-      + sh2_3 * (1.0925484 * viewDir.x * viewDir.z)
+      + sh2_3 * (-1.0925484 * viewDir.x * viewDir.z)
       + sh2_4 * (0.5462742 * (viewDir.x * viewDir.x - viewDir.y * viewDir.y));
   }
 `);
