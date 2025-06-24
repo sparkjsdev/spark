@@ -143,7 +143,8 @@ export function decodeKsplat(
       (section.getUint32(24, true) ||
         KSPLAT_COMPRESSION[compressionLevel]?.scaleRange) ??
       1;
-    // const fullBucketCount = section.getUint32(32, true);
+    const fullBucketCount = section.getUint32(32, true);
+    const fullBucketSplats = fullBucketCount * bucketSize;
     const partiallyFilledBucketCount = section.getUint32(36, true);
     const bucketsMetaDataSizeBytes = partiallyFilledBucketCount * 4;
     const bucketsStorageSizeBytes =
@@ -201,6 +202,11 @@ export function decodeKsplat(
       bucketsBase,
       bucketCount * 3,
     );
+    const partiallyFilledBucketLengths = new Uint32Array(
+      fileBytes.buffer,
+      sectionBase,
+      partiallyFilledBucketCount,
+    );
 
     function getSh(splatOffset: number, component: number) {
       if (compressionLevel === 0) {
@@ -226,9 +232,24 @@ export function decodeKsplat(
       );
     }
 
+    let partialBucketIndex = fullBucketCount;
+    let partialBucketBase = fullBucketSplats;
+
     for (let i = 0; i < sectionSplatCount; ++i) {
       const splatOffset = i * bytesPerSplat;
-      const bucketIndex = Math.floor(i / bucketSize);
+
+      let bucketIndex: number;
+      if (i < fullBucketSplats) {
+        bucketIndex = Math.floor(i / bucketSize);
+      } else {
+        const bucketLength =
+          partiallyFilledBucketLengths[partialBucketIndex - fullBucketCount];
+        if (i >= partialBucketBase + bucketLength) {
+          partialBucketIndex += 1;
+          partialBucketBase += bucketLength;
+        }
+        bucketIndex = partialBucketIndex;
+      }
 
       const x =
         compressionLevel === 0
@@ -372,7 +393,8 @@ export function unpackKsplat(fileBytes: Uint8Array): {
       (section.getUint32(24, true) ||
         KSPLAT_COMPRESSION[compressionLevel]?.scaleRange) ??
       1;
-    // const fullBucketCount = section.getUint32(32, true);
+    const fullBucketCount = section.getUint32(32, true);
+    const fullBucketSplats = fullBucketCount * bucketSize;
     const partiallyFilledBucketCount = section.getUint32(36, true);
     const bucketsMetaDataSizeBytes = partiallyFilledBucketCount * 4;
     const bucketsStorageSizeBytes =
@@ -430,6 +452,11 @@ export function unpackKsplat(fileBytes: Uint8Array): {
       bucketsBase,
       bucketCount * 3,
     );
+    const partiallyFilledBucketLengths = new Uint32Array(
+      fileBytes.buffer,
+      sectionBase,
+      partiallyFilledBucketCount,
+    );
 
     function getSh(splatOffset: number, component: number) {
       if (compressionLevel === 0) {
@@ -455,9 +482,24 @@ export function unpackKsplat(fileBytes: Uint8Array): {
       );
     }
 
+    let partialBucketIndex = fullBucketCount;
+    let partialBucketBase = fullBucketSplats;
+
     for (let i = 0; i < sectionSplatCount; ++i) {
       const splatOffset = i * bytesPerSplat;
-      const bucketIndex = Math.floor(i / bucketSize);
+
+      let bucketIndex: number;
+      if (i < fullBucketSplats) {
+        bucketIndex = Math.floor(i / bucketSize);
+      } else {
+        const bucketLength =
+          partiallyFilledBucketLengths[partialBucketIndex - fullBucketCount];
+        if (i >= partialBucketBase + bucketLength) {
+          partialBucketIndex += 1;
+          partialBucketBase += bucketLength;
+        }
+        bucketIndex = partialBucketIndex;
+      }
 
       const x =
         compressionLevel === 0
