@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark • Splat Transitions</title>
+  <style>
+    html, body {
+      margin: 0;
+      height: 100%;
+      width: 100%;
+      background-color: black;
+    }
+  </style>
+</head>
+<body>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/examples/js/vendor/three/build/three.module.js",
+        "lil-gui": "/examples/js/vendor/lil-gui/dist/lil-gui.esm.js",
+        "@sparkjsdev/spark": "/dist/spark.module.js"
+      }
+    }
+  </script>
+  <script type="module">
+
+
+    import {
+      dyno,
+      SparkControls,
+      SparkRenderer,
+      SplatMesh,
+    } from "@sparkjsdev/spark";
+    import * as THREE from "three";
+    import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+
+    const TEST_ASSET_A = await getAssetFileURL("branzino-amarin.spz");
+    const TEST_ASSET_B = await getAssetFileURL("pad-thai.spz");
+
+    function contractionDyno() {
+      // t is assumed to be in [0, 1], any retiming should be done before this function.
+      // fade_in is a boolean that indicates whether the splat is fading in or out.
+      return new dyno.Dyno({
+        inTypes: { gsplat: dyno.Gsplat, t: "float", fade_in: "bool" },
+        outTypes: { gsplat: dyno.Gsplat },
+        globals: () => [
+          dyno.unindent(`
+          float radius = 0.5;
+          float churn = 0.05;
+          float targetScale = 0.01;
+          vec3 targetCenterOffset = vec3(0.0, 0.5, 0.0);
+          vec3 eps = vec3(0.0, 0.0, 0.001);
+
+          
+          vec3 applyCenter(vec3 center, float t) {
+              vec3 dir = normalize(center + eps - targetCenterOffset);
+            vec3 targetCenter = dir * radius + targetCenterOffset;
+            if (t < 0.25) {
+              return center;
+            } else if (t < 0.45) {
+              return mix(center, targetCenter, pow((t - 0.25) * 5.0, 4.0));
+            } else if (t < 0.55) {
+                float angle = (t - 0.45) * 10.0 * 2.0 * 3.14159265358979323846;
+              vec3 rotvec = vec3(sin(angle), 0.0, cos(angle));
+              return targetCenter+ cross(-dir, rotvec) * churn;
+            } else if (t < 0.75) {
+              return mix(targetCenter, center, pow((t - 0.55) * 5.0, 4.0));
+            } else {
+              return center;
+            }
+          }
+            
+          vec3 applyScale(vec3 scales, float t) {
+            vec3 targetScales = targetScale * vec3(1.0, 1.0, 1.0);
+            if (t < 0.25) {
+              return scales;
+            } else if (t < 0.45) {
+              return mix(scales, targetScales, pow((t - 0.25) * 5.0, 4.0));
+            } else if (t < 0.55) {
+              return targetScales;
+            } else if (t < 0.75) {
+              return mix(targetScales, scales, pow((t - 0.55) * 5.0, 4.0));
+            } else {
+              return scales;
+            }
+          }
+
+          float applyOpacity(float opacity, float t, bool fade_in) {
+            if (fade_in) {
+              if (t < 0.48) {
+                return 0.0;
+              } else if (t < 0.52) {
+                return mix(0.0, opacity, (t - 0.48) * 25.0);
+              } else {
+                return opacity;
+              }
+            } else {
+              if (t < 0.4) {
+                return opacity;
+              } else if (t < 0.6) {
+                return mix(opacity, 0.0, (t - 0.4) * 5.0);
+              } else {
+                return 0.0;
+              }
+            }
+          }
+          `)
+        ],
+        statements: ({ inputs, outputs }) => dyno.unindentLines(`
+          ${outputs.gsplat} = ${inputs.gsplat};
+          ${outputs.gsplat}.center = applyCenter(${inputs.gsplat}.center, ${inputs.t});
+          ${outputs.gsplat}.scales = applyScale(${inputs.gsplat}.scales, ${inputs.t});
+          ${outputs.gsplat}.rgba.a = applyOpacity(${inputs.gsplat}.rgba.a, ${inputs.t}, ${inputs.fade_in});
+        `),
+      });
+    }
+
+    function getTransitionModifier(time, offset, period) {
+      const contraction = contractionDyno();
+      return dyno.dynoBlock(
+        { gsplat: dyno.Gsplat },
+        { gsplat: dyno.Gsplat },
+        ({ gsplat }) => {
+          const normalized_time = dyno.add(dyno.div(time, period), offset);
+          // 2x to handle wraparound
+          const fade_in = dyno.lessThan(dyno.mod(normalized_time, dyno.dynoFloat(2.0)), dyno.dynoFloat(1.0));
+          const retime = dyno.mod(normalized_time, dyno.dynoFloat(1.0));
+          gsplat = contraction.apply({ gsplat, t: retime, fade_in }).gsplat;
+          return { gsplat };
+        },
+      );
+    }
+
+    function morphableSplatMesh(
+      url,
+      time,
+      offset,
+      period,
+    ) {
+      const splatMesh = new SplatMesh({
+        url: url,
+        worldModifier: getTransitionModifier(time, offset, period),
+        onFrame: ({ mesh, time }) => {
+          mesh.rotation.y = 0.05 * time;
+          mesh.needsUpdate = true;
+        }
+      });
+      splatMesh.updateGenerator();
+      return splatMesh;
+    }
+
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(new THREE.Color(0x000000), 1);
+    document.body.appendChild(renderer.domElement)
+
+    const scene = new THREE.Scene();
+    const spark = new SparkRenderer({
+      renderer,
+    });
+    scene.add(spark);
+
+    const camera = new THREE.PerspectiveCamera(
+      50,
+      window.innerWidth / window.innerHeight,
+      0.01,
+      2000,
+    );
+    camera.position.set(0, 5, 5); // Move camera back to see the scene
+    camera.lookAt(0, 0, 0);
+    scene.add(camera);
+    const sparkControls = new SparkControls({ canvas: renderer.domElement });
+    function handleResize() {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      renderer.setSize(width, height, false);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    }
+
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    const time = dyno.dynoFloat(0.0);
+
+    async function loadInitialScene() {
+      console.log("Loading initial scene...");
+      const period = dyno.dynoFloat(1.0);
+
+      const splat_mesh_a = morphableSplatMesh(
+        TEST_ASSET_A,
+        time,
+        dyno.dynoFloat(0.0), //offset
+        period,
+      );
+      const splat_mesh_b = morphableSplatMesh(
+        TEST_ASSET_B,
+        time,
+        dyno.dynoFloat(1.0), //offset
+        period,
+      );
+      splat_mesh_a.quaternion.set(1, 0, 0, 0);
+      splat_mesh_b.quaternion.set(1, 0, 0, 0);
+      scene.add(splat_mesh_a);
+      scene.add(splat_mesh_b);
+    }
+    await loadInitialScene();
+
+    console.log("Starting render loop");
+
+    // Animation loop
+    renderer.setAnimationLoop((raw_time) => {
+      sparkControls.update(camera);
+      renderer.render(scene, camera);
+      time.value = raw_time * 0.00025;
+    });
+  </script>
+</body>
+</html>
