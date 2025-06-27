@@ -84,6 +84,7 @@ export class Readback {
       this.target.texture.format = THREE.RGBAFormat;
       this.target.texture.type = THREE.UnsignedByteType;
       this.target.texture.internalFormat = "RGBA8";
+      this.target.scissorTest = true;
     }
   }
 
@@ -129,27 +130,21 @@ export class Readback {
 
   private saveRenderState(renderer: THREE.WebGLRenderer) {
     return {
-      xrPresenting: renderer.xr.isPresenting,
+      xrEnabled: renderer.xr.enabled,
       autoClear: renderer.autoClear,
-      scissorTest: renderer.getScissorTest(),
-      pixelRatio: renderer.getPixelRatio(),
     };
   }
 
   private resetRenderState(
     renderer: THREE.WebGLRenderer,
     state: {
-      xrPresenting: boolean;
+      xrEnabled: boolean;
       autoClear: boolean;
-      scissorTest: boolean;
-      pixelRatio: number;
     },
   ) {
     renderer.setRenderTarget(null);
-    renderer.setPixelRatio(state.pixelRatio);
-    renderer.xr.isPresenting = state.xrPresenting;
+    renderer.xr.enabled = state.xrEnabled;
     renderer.autoClear = state.autoClear;
-    renderer.setScissorTest(state.scissorTest);
   }
 
   private process({
@@ -182,12 +177,10 @@ export class Readback {
       material.uniforms.targetLayer.value = layer;
 
       // Render the desired portion of the layer
-      renderer.setPixelRatio(1);
+      this.target.scissor.set(0, 0, SPLAT_TEX_WIDTH, layerYEnd);
       renderer.setRenderTarget(this.target, layer);
-      renderer.xr.isPresenting = false;
+      renderer.xr.enabled = false;
       renderer.autoClear = false;
-      renderer.setScissorTest(true);
-      renderer.setScissor(0, 0, SPLAT_TEX_WIDTH, layerYEnd);
       renderer.render(Readback.scene, Readback.camera);
 
       baseIndex += SPLAT_TEX_WIDTH * layerYEnd;
@@ -234,7 +227,6 @@ export class Readback {
         Math.ceil((this.count - layerBase) / SPLAT_TEX_WIDTH),
       );
 
-      renderer.setPixelRatio(1);
       renderer.setRenderTarget(this.target, layer);
 
       // Compute the subarray that this layer of readback corresponds to

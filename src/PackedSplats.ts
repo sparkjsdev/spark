@@ -364,6 +364,7 @@ export class PackedSplats {
     this.target.texture.format = THREE.RGBAIntegerFormat;
     this.target.texture.type = THREE.UnsignedIntType;
     this.target.texture.internalFormat = "RGBA32UI";
+    this.target.scissorTest = true;
     return true;
   }
 
@@ -510,27 +511,21 @@ export class PackedSplats {
 
   private saveRenderState(renderer: THREE.WebGLRenderer) {
     return {
-      xrPresenting: renderer.xr.isPresenting,
+      xrEnabled: renderer.xr.enabled,
       autoClear: renderer.autoClear,
-      scissorTest: renderer.getScissorTest(),
-      pixelRatio: renderer.getPixelRatio(),
     };
   }
 
   private resetRenderState(
     renderer: THREE.WebGLRenderer,
     state: {
-      xrPresenting: boolean;
+      xrEnabled: boolean;
       autoClear: boolean;
-      scissorTest: boolean;
-      pixelRatio: number;
     },
   ) {
     renderer.setRenderTarget(null);
-    renderer.setPixelRatio(state.pixelRatio);
-    renderer.xr.isPresenting = state.xrPresenting;
+    renderer.xr.enabled = state.xrEnabled;
     renderer.autoClear = state.autoClear;
-    renderer.setScissorTest(state.scissorTest);
   }
 
   // Executes a dyno program specified by generator which is any DynoBlock that
@@ -582,17 +577,15 @@ export class PackedSplats {
       );
 
       // Render the desired portion of the layer
-      renderer.setPixelRatio(1);
-      renderer.setRenderTarget(this.target, layer);
-      renderer.xr.isPresenting = false;
-      renderer.autoClear = false;
-      renderer.setScissorTest(true);
-      renderer.setScissor(
+      this.target.scissor.set(
         0,
         layerYStart,
         SPLAT_TEX_WIDTH,
         layerYEnd - layerYStart,
       );
+      renderer.setRenderTarget(this.target, layer);
+      renderer.xr.enabled = false;
+      renderer.autoClear = false;
       renderer.render(PackedSplats.scene, PackedSplats.camera);
 
       base += SPLAT_TEX_WIDTH * (layerYEnd - layerYStart);
