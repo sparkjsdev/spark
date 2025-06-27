@@ -68,7 +68,7 @@
     import * as THREE from "three";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
     import { GUI } from "lil-gui";
-    import { constructGrid, SparkControls, SparkRenderer, SplatMesh, textSplats, dyno, transcodeSpz } from "@sparkjsdev/spark";
+    import { constructGrid, SparkControls, SparkRenderer, SplatMesh, textSplats, dyno, transcodeSpz, isPcSogs } from "@sparkjsdev/spark";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
     const scene = new THREE.Scene();
@@ -154,7 +154,7 @@
             loadFiles(urls);
             guiOptions.loadFromText = ""; // Clear after loading
           } else {
-            alert("No valid URLs found in text. URLs must start with http:// or https:// and end with .ply, .spz, .splat, or .ksplat");
+            alert("No valid URLs found in text. URLs must start with http:// or https:// and end with .ply, .spz, .splat, .ksplat, or .json");
           }
         }
       },
@@ -357,6 +357,7 @@
         try {
           let fileBytes;
           let fileName;
+          let url = null;
 
           // Check if splatFile is a URL string or a File object
           if (typeof splatFile === "string") {
@@ -365,6 +366,10 @@
             fileBytes = new Uint8Array(await fetchWithProgress(splatFile));
             // Extract filename from URL
             fileName = splatFile.split("/").pop().split("?")[0] || "downloaded-file";
+
+            if (isPcSogs(fileBytes)) {
+              url = splatFile;
+            }
           } else {
             // It's a File object
             fileBytes = new Uint8Array(await splatFile.arrayBuffer());
@@ -375,14 +380,18 @@
             writeOptions.filename = fileName.split(".")[0];
           }
 
-          const splatMesh = new SplatMesh({ fileBytes: fileBytes.slice(), fileName });
+          const init = url ? { url } : { fileBytes: fileBytes.slice(), fileName };
+          const splatMesh = new SplatMesh(init);
           const translate = guiOptions.loadOffset * index
           splatMesh.position.set(translate, 0.5 * translate, 0.1 * translate);
           splatMesh.enableWorldToView = true;
           splatMesh.worldModifier = makeWorldModifier(splatMesh);
           await splatMesh.initialized;
 
-          inputs.push({ fileBytes, pathOrUrl: fileName, object: splatMesh });
+          if (!url) {
+            // PC SOGS transcode not supported yet
+            inputs.push({ fileBytes, pathOrUrl: fileName, object: splatMesh });
+          }
           frame.add(splatMesh);
           console.log(`Loaded ${fileName} with ${splatMesh.numSplats} splats`);
 
@@ -659,7 +668,7 @@
 
     // Parse URLs from text (handles single URLs, multiple lines, mixed content)
     function parseURLsFromText(text) {
-      const supportedExtensions = [".ply", ".spz", ".splat", ".ksplat"];
+      const supportedExtensions = [".ply", ".spz", ".splat", ".ksplat", ".json"];
       const urls = [];
 
       // Split by lines, commas, and semicolons

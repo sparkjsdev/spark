@@ -263,15 +263,17 @@
       loadSplatFile(event.target.files[0]);
     };
 
-    var loadedSplat;
     async function loadSplatFile(splatFile) {
-      const reader = new FileReader();
       fileBytes = new Uint8Array(await splatFile.arrayBuffer());
       fileName = splatFile.name;
+      setSplatFile({ fileBytes: fileBytes.slice(), fileName });
+    }
 
+    var loadedSplat;
+    function setSplatFile(init) {
       if (loadedSplat) { scene.remove(loadedSplat); }
 
-      loadedSplat = new SplatMesh({ fileBytes: fileBytes.slice(), fileName });
+      loadedSplat = new SplatMesh(init);
       loadedSplat.quaternion.set(1, 0, 0, 0);
       scene.add(loadedSplat);
 
@@ -289,12 +291,7 @@
       fileName = splatURL.split("/").pop().split("?")[0];
       document.querySelector('.container').classList.add('hidden');
       document.querySelector('.canvas-container').classList.remove('invisible');
-      fetch(splatURL)
-        .then(res => res.blob())
-        .then(blob => {
-          loadSplatFile(blob);
-        })
-        .catch(err => console.error('Download failed:', err));
+      setSplatFile({ url: splatURL });
     }
 
     const urlFormEl = document.querySelector('.url-form');

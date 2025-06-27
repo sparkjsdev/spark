@@ -58,6 +58,7 @@
     "spark-internal-rs": "file:rust/spark-internal-rs/pkg"
   },
   "dependencies": {
+    "@jsquash/webp": "^1.5.0",
     "fflate": "^0.8.2"
   },
   "keywords": ["3d", "three.js", "gsplats", "3dgs", "gaussian", "splats"]

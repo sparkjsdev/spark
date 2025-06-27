@@ -504,6 +504,23 @@ export function setPackedSplatQuat(
   packedSplats[i4 + 3] = (packedSplats[i4 + 3] & 0x00ffffff) | (uQuatZ << 24);
 }
 
+// Encode the RGBA color in the packedSplats Uint32Array, leaving other fields alone.
+export function setPackedSplatRgba(
+  packedSplats: Uint32Array,
+  index: number,
+  r: number,
+  g: number,
+  b: number,
+  a: number,
+) {
+  const uR = floatToUint8(r);
+  const uG = floatToUint8(g);
+  const uB = floatToUint8(b);
+  const uA = floatToUint8(a);
+  const i4 = index * 4;
+  packedSplats[i4] = uR | (uG << 8) | (uB << 16) | (uA << 24);
+}
+
 // Encode the RGB color in the packedSplats Uint32Array, leaving other fields alone.
 export function setPackedSplatRgb(
   packedSplats: Uint32Array,

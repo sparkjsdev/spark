@@ -8,6 +8,7 @@ export {
   unpackSplats,
   SplatFileType,
   getSplatFileType,
+  isPcSogs,
 } from "./SplatLoader";
 export { PlyReader } from "./ply";
 export { SpzReader, SpzWriter, transcodeSpz } from "./spz";
