@@ -418,16 +418,7 @@ export class SparkRenderer extends THREE.Mesh {
       );
     } else {
       // Rendering to the canvas or WebXR
-      const renderSize = renderer.getSize(this.uniforms.renderSize.value);
-      if (renderSize.x === 1 && renderSize.y === 1) {
-        // WebXR mode on Apple Vision Pro returns 1x1 when presenting.
-        // Use a different means to figure out the render size.
-        const baseLayer = renderer.xr.getSession()?.renderState.baseLayer;
-        if (baseLayer) {
-          renderSize.x = baseLayer.framebufferWidth;
-          renderSize.y = baseLayer.framebufferHeight;
-        }
-      }
+      renderer.getDrawingBufferSize(this.uniforms.renderSize.value);
     }
 
     // Update uniforms from instance properties
