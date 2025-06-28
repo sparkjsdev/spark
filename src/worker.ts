@@ -1,13 +1,9 @@
 import init_wasm, { sort_splats } from "spark-internal-rs";
 import type { TranscodeSpzInput } from "./SplatLoader";
 import { unpackAntiSplat } from "./antisplat";
-import {
-  SCALE_MIN,
-  SPLAT_TEX_HEIGHT,
-  SPLAT_TEX_WIDTH,
-  WASM_SPLAT_SORT,
-} from "./defines";
+import { SCALE_MIN, WASM_SPLAT_SORT } from "./defines";
 import { unpackKsplat } from "./ksplat";
+import { unpackPcSogs } from "./pcsogs";
 import { PlyReader } from "./ply";
 import { SpzReader, transcodeSpz } from "./spz";
 import {
@@ -77,6 +73,20 @@ async function onMessage(event: MessageEvent) {
       case "decodeKsplat": {
         const { fileBytes } = args as { fileBytes: Uint8Array };
         const decoded = unpackKsplat(fileBytes);
+        result = {
+          id,
+          numSplats: decoded.numSplats,
+          packedArray: decoded.packedArray,
+          extra: decoded.extra,
+        };
+        break;
+      }
+      case "decodePcSogs": {
+        const { fileBytes, extraFiles } = args as {
+          fileBytes: Uint8Array;
+          extraFiles: Record<string, ArrayBuffer>;
+        };
+        const decoded = await unpackPcSogs(fileBytes, extraFiles);
         result = {
           id,
           numSplats: decoded.numSplats,

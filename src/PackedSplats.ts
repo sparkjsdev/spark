@@ -1,7 +1,7 @@
 import * as THREE from "three";
 
 import type { GsplatGenerator } from "./SplatGenerator";
-import { type SplatFileType, unpackSplats } from "./SplatLoader";
+import { type SplatFileType, SplatLoader, unpackSplats } from "./SplatLoader";
 import { SPLAT_TEX_HEIGHT, SPLAT_TEX_WIDTH } from "./defines";
 import {
   DynoProgram,
@@ -120,20 +120,12 @@ export class PackedSplats {
   }
 
   async asyncInitialize(options: PackedSplatsOptions) {
-    let { url, fileBytes, construct } = options;
+    const { url, fileBytes, construct } = options;
     if (url) {
-      fileBytes = await fetch(url).then(async (response) => {
-        if (!response.ok) {
-          throw new Error(
-            `${response.status} "${response.statusText}" fetching URL: ${url}`,
-          );
-        }
-        const arrayBuffer = await response.arrayBuffer();
-        return arrayBuffer;
-      });
-    }
-
-    if (fileBytes) {
+      const loader = new SplatLoader();
+      loader.packedSplats = this;
+      await loader.loadAsync(url);
+    } else if (fileBytes) {
       const unpacked = await unpackSplats({
         input: fileBytes,
         fileType: options.fileType,
@@ -141,6 +133,7 @@ export class PackedSplats {
       });
       this.initialize(unpacked);
     }
+
     if (construct) {
       const maybePromise = construct(this);
       // If construct returns a promise, wait for it to complete

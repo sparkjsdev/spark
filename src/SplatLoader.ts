@@ -14,6 +14,7 @@ import { decompressPartialGzip, getTextureSize } from "./utils";
 export class SplatLoader extends Loader {
   fileLoader: FileLoader;
   fileType?: SplatFileType;
+  packedSplats?: PackedSplats;
 
   constructor(manager?: LoadingManager) {
     super(manager);
@@ -37,12 +38,61 @@ export class SplatLoader extends Loader {
       async (response) => {
         if (onLoad) {
           const input = response as ArrayBuffer;
-          const decoded = await unpackSplats({
-            input,
-            fileType: this.fileType,
-            pathOrUrl: url,
-          });
-          onLoad(new PackedSplats(decoded));
+          const extraFiles: Record<string, ArrayBuffer> = {};
+          const promises = [];
+          let fileType = this.fileType;
+
+          try {
+            const pcSogsJson = tryPcSogs(input);
+            if (this.fileType === SplatFileType.PCSOGS) {
+              if (pcSogsJson === undefined) {
+                throw new Error("Invalid PC SOGS file");
+              }
+            }
+
+            if (pcSogsJson !== undefined) {
+              fileType = SplatFileType.PCSOGS;
+              for (const key of ["means", "scales", "quats", "sh0", "shN"]) {
+                const prop = pcSogsJson[key as keyof PcSogsJson];
+                if (prop) {
+                  const files = prop.files;
+                  for (const file of files) {
+                    const fileUrl = new URL(file, url).toString();
+                    this.manager.itemStart(fileUrl);
+                    const promise = this.loadExtra(fileUrl)
+                      .then((data) => {
+                        extraFiles[file] = data;
+                      })
+                      .catch((error) => {
+                        this.manager.itemError(fileUrl);
+                        throw error;
+                      })
+                      .finally(() => {
+                        this.manager.itemEnd(fileUrl);
+                      });
+                    promises.push(promise);
+                  }
+                }
+              }
+            }
+
+            await Promise.all(promises);
+            const decoded = await unpackSplats({
+              input,
+              extraFiles,
+              fileType,
+              pathOrUrl: url,
+            });
+
+            if (this.packedSplats) {
+              this.packedSplats.initialize(decoded);
+              onLoad(this.packedSplats);
+            } else {
+              onLoad(new PackedSplats(decoded));
+            }
+          } catch (error) {
+            onError?.(error);
+          }
         }
       },
       onProgress,
@@ -66,6 +116,17 @@ export class SplatLoader extends Loader {
     });
   }
 
+  async loadExtra(url: string): Promise<ArrayBuffer> {
+    return new Promise((resolve, reject) => {
+      this.fileLoader.load(
+        url,
+        (response) => resolve(response as ArrayBuffer),
+        undefined,
+        (error) => reject(error),
+      );
+    });
+  }
+
   parse(packedSplats: PackedSplats): SplatMesh {
     return new SplatMesh({ packedSplats });
   }
@@ -76,6 +137,7 @@ export enum SplatFileType {
   SPZ = "spz",
   SPLAT = "splat",
   KSPLAT = "ksplat",
+  PCSOGS = "pcsogs",
 }
 
 export function getSplatFileType(
@@ -133,12 +195,96 @@ export function getSplatFileTypeFromPath(
   return undefined;
 }
 
+export type PcSogsJson = {
+  means: {
+    shape: number[];
+    dtype: string;
+    mins: number[];
+    maxs: number[];
+    files: string[];
+  };
+  scales: {
+    shape: number[];
+    dtype: string;
+    mins: number[];
+    maxs: number[];
+    files: string[];
+  };
+  quats: { shape: number[]; dtype: string; encoding?: string; files: string[] };
+  sh0: {
+    shape: number[];
+    dtype: string;
+    mins: number[];
+    maxs: number[];
+    files: string[];
+  };
+  shN: {
+    shape: number[];
+    dtype: string;
+    mins: number;
+    maxs: number;
+    quantization: number;
+    files: string[];
+  };
+};
+
+export function isPcSogs(input: ArrayBuffer | Uint8Array | string): boolean {
+  // Returns true if the input seems to be a valid PC SOGS file
+  return tryPcSogs(input) !== undefined;
+}
+
+export function tryPcSogs(
+  input: ArrayBuffer | Uint8Array | string,
+): PcSogsJson | undefined {
+  // Try to parse input as SOGS JSON and see if it's valid
+  try {
+    let text: string;
+    if (typeof input === "string") {
+      text = input;
+    } else {
+      const fileBytes =
+        input instanceof ArrayBuffer ? new Uint8Array(input) : input;
+      if (fileBytes.length > 65536) {
+        // Should be only a few KB, definitely not a SOGS JSON file
+        return undefined;
+      }
+      text = new TextDecoder().decode(fileBytes);
+    }
+
+    const json = JSON.parse(text);
+    if (!json || typeof json !== "object" || Array.isArray(json)) {
+      return undefined;
+    }
+    for (const key of ["means", "scales", "quats", "sh0"]) {
+      if (
+        !json[key] ||
+        typeof json[key] !== "object" ||
+        Array.isArray(json[key])
+      ) {
+        return undefined;
+      }
+      if (!json[key].shape || !json[key].files) {
+        return undefined;
+      }
+      if (key !== "quats" && (!json[key].mins || !json[key].maxs)) {
+        return undefined;
+      }
+    }
+    // This is probably a PC SOGS file
+    return json as PcSogsJson;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function unpackSplats({
   input,
+  extraFiles,
   fileType,
   pathOrUrl,
 }: {
   input: Uint8Array | ArrayBuffer;
+  extraFiles?: Record<string, ArrayBuffer>;
   fileType?: SplatFileType;
   pathOrUrl?: string;
 }): Promise<{
@@ -201,7 +347,7 @@ export async function unpackSplats({
         return { packedArray, numSplats };
       });
     }
-    case SplatFileType.KSPLAT:
+    case SplatFileType.KSPLAT: {
       return await withWorker(async (worker) => {
         const { packedArray, numSplats, extra } = (await worker.call(
           "decodeKsplat",
@@ -213,6 +359,20 @@ export async function unpackSplats({
         };
         return { packedArray, numSplats, extra };
       });
+    }
+    case SplatFileType.PCSOGS: {
+      return await withWorker(async (worker) => {
+        const { packedArray, numSplats, extra } = (await worker.call(
+          "decodePcSogs",
+          { fileBytes, extraFiles },
+        )) as {
+          packedArray: Uint32Array;
+          numSplats: number;
+          extra: Record<string, unknown>;
+        };
+        return { packedArray, numSplats, extra };
+      });
+    }
     default: {
       throw new Error(`Unknown splat file type: ${splatFileType}`);
     }
