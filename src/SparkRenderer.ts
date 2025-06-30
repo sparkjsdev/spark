@@ -148,6 +148,17 @@ export class SparkRenderer extends THREE.Mesh {
   apertureAngle: number;
   falloff: number;
   clipXY: number;
+  renderScale = 1.0;
+
+  splatTexture: null | {
+    enable?: boolean;
+    texture?: THREE.Data3DTexture;
+    multiply?: THREE.Matrix2;
+    add?: THREE.Vector2;
+    near?: number;
+    far?: number;
+    mid?: number;
+  } = null;
 
   time?: number;
   deltaTime?: number;
@@ -197,6 +208,8 @@ export class SparkRenderer extends THREE.Mesh {
     far: number;
   } | null = null;
   private static pmrem: THREE.PMREMGenerator | null = null;
+
+  static EMPTY_SPLAT_TEXTURE = new THREE.Data3DTexture();
 
   constructor(options: SparkRendererOptions) {
     const uniforms = SparkRenderer.makeUniforms();
@@ -281,6 +294,9 @@ export class SparkRenderer extends THREE.Mesh {
     const uniforms = {
       // Size of render viewport in pixels
       renderSize: { value: new THREE.Vector2() },
+      // Near and far plane distances
+      near: { value: 0.1 },
+      far: { value: 1000.0 },
       // Total number of Gsplats in packedSplats to render
       numSplats: { value: 0 },
       // SplatAccumulator to view transformation quaternion
@@ -304,6 +320,22 @@ export class SparkRenderer extends THREE.Mesh {
       falloff: { value: 1.0 },
       // Clip Gsplats that are clipXY times beyond the +-1 frustum bounds
       clipXY: { value: 1.4 },
+      // Debug renderSize scale factor
+      renderScale: { value: 1.0 },
+      // Enable splat texture rendering
+      splatTexEnable: { value: false },
+      // Splat texture to render
+      splatTexture: { type: "t", value: SparkRenderer.EMPTY_SPLAT_TEXTURE },
+      // Splat texture UV transform (multiply)
+      splatTexMul: { value: new THREE.Matrix2() },
+      // Splat texture UV transform (add)
+      splatTexAdd: { value: new THREE.Vector2() },
+      // Splat texture near plane distance
+      splatTexNear: { value: 0.1 },
+      // Splat texture far plane distance
+      splatTexFar: { value: 1000.0 },
+      // Splat texture mid plane distance, or 0.0 to disable
+      splatTexMid: { value: 0.0 },
       // Gsplat collection to render
       packedSplats: { type: "t", value: PackedSplats.getEmpty() },
       // Time in seconds for time-based effects
@@ -433,6 +465,11 @@ export class SparkRenderer extends THREE.Mesh {
     }
 
     // Update uniforms from instance properties
+    const typedCamera = camera as
+      | THREE.PerspectiveCamera
+      | THREE.OrthographicCamera;
+    this.uniforms.near.value = typedCamera.near;
+    this.uniforms.far.value = typedCamera.far;
     this.uniforms.encodeLinear.value = viewpoint.encodeLinear;
     this.uniforms.maxStdDev.value = this.maxStdDev;
     this.uniforms.enable2DGS.value = this.enable2DGS;
@@ -442,6 +479,36 @@ export class SparkRenderer extends THREE.Mesh {
     this.uniforms.apertureAngle.value = this.apertureAngle;
     this.uniforms.falloff.value = this.falloff;
     this.uniforms.clipXY.value = this.clipXY;
+    this.uniforms.renderScale.value = this.renderScale;
+
+    if (this.splatTexture) {
+      const { enable, texture, multiply, add, near, far, mid } =
+        this.splatTexture;
+      if (enable && texture) {
+        this.uniforms.splatTexEnable.value = true;
+        this.uniforms.splatTexture.value = texture;
+        if (multiply) {
+          this.uniforms.splatTexMul.value.fromArray(multiply.elements);
+        } else {
+          this.uniforms.splatTexMul.value.set(
+            0.5 / this.maxStdDev,
+            0,
+            0,
+            0.5 / this.maxStdDev,
+          );
+        }
+        this.uniforms.splatTexAdd.value.set(add?.x ?? 0.5, add?.y ?? 0.5);
+        this.uniforms.splatTexNear.value = near ?? this.uniforms.near.value;
+        this.uniforms.splatTexFar.value = far ?? this.uniforms.far.value;
+        this.uniforms.splatTexMid.value = mid ?? 0.0;
+      } else {
+        this.uniforms.splatTexEnable.value = false;
+        this.uniforms.splatTexture.value = SparkRenderer.EMPTY_SPLAT_TEXTURE;
+      }
+    } else {
+      this.uniforms.splatTexEnable.value = false;
+      this.uniforms.splatTexture.value = SparkRenderer.EMPTY_SPLAT_TEXTURE;
+    }
 
     // Calculate the transform from the accumulator to the current camera
     const accumToWorld =

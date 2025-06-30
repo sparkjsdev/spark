@@ -113,7 +113,7 @@
     const gui = new GUI({
       title: "Settings",
       container: document.getElementById("main-gui")
-    }).close();
+    });
     const secondGui = new GUI({
       title: "Splats",
       container: document.getElementById("second-gui")
@@ -134,7 +134,7 @@
     };
 
     const guiOptions = {
-      highDevicePixel: false,
+      highDevicePixel: true,
       stats: false,
       resetOnLoad: true,
       loadOffset: 0,
@@ -462,30 +462,55 @@
         controls.pointerControls.reverseSwipe = value;
       });
 
-    gui.add(guiOptions, "highDevicePixel").name("High DPI").onChange((value) => {
+    function setHighDpi(value) {
       renderer.setPixelRatio(value ? window.devicePixelRatio : 1);
       const width = canvas.clientWidth;
       const height = canvas.clientHeight;
       renderer.setSize(width, height, false);
       console.log("Render size", canvas.width, canvas.height);
+    }
+    setHighDpi(guiOptions.highDevicePixel);
+
+    gui.add(guiOptions, "highDevicePixel").name("High DPI").onChange((value) => {
+      setHighDpi(value);
     });
     gui.add(guiOptions, "stats").name("Show frame stats").onChange((value) => {
       stats.dom.style.display = value ? "block" : "none";
     });
     gui.add(spark.defaultView, "sortRadial").name("Radial sort").listen();
     gui.add(grid, "opacity", 0, 1, 0.01).name("Grid opacity").listen();
+    gui.add({
+      logFocalDistance: 0.0,
+    }, "logFocalDistance", -2, 2, 0.01).name("Ln(Focal distance)").onChange((value) => {
+      spark.focalDistance = Math.exp(value);
+    });
+    gui.add(spark, "apertureAngle", 0, 0.01 * Math.PI, 0.001).name("Aperture angle").listen();
 
+    const debugFolder = gui.addFolder("Debug").close();
     const normalColor = dyno.dynoBool(false);
-    gui.add(normalColor, "value").name("Normal color").onChange(() => updateFrameSplats());
+    debugFolder.add(normalColor, "value").name("Normal color").onChange(() => updateFrameSplats());
 
-    gui.add(spark, "maxStdDev", 0.1, 3.0, 0.01).name("Max Gsplat stddev").listen();
-    gui.add(spark, "falloff", 0, 1, 0.01).name("Gaussian falloff").listen();
-    gui.add(spark, "preBlurAmount", 0, 2, 0.1).name("Blur amount (no AA)");
-    gui.add(spark, "blurAmount", 0, 2, 0.1).name("Blur amount (AA)");
+    debugFolder.add(spark, "maxStdDev", 0.1, 3.0, 0.01).name("Max Gsplat stddev").listen();
+    debugFolder.add(spark, "falloff", 0, 1, 0.01).name("Gaussian falloff").listen();
+    debugFolder.add(spark, "preBlurAmount", 0, 2, 0.1).name("Blur amount (no AA)").listen();
+    debugFolder.add(spark, "blurAmount", 0, 2, 0.1).name("Blur amount (AA)").listen();
+    debugFolder.add({
+      nonAA: () => {
+        spark.preBlurAmount = 0.3;
+        spark.blurAmount = 0.0;
+      },
+    }, "nonAA").name("Non-AA preset");
+    debugFolder.add({
+      AA: () => {
+        spark.preBlurAmount = 0.0;
+        spark.blurAmount = 0.3;
+      },
+    }, "AA").name("AA preset");
+    debugFolder.add(spark, "renderScale", 0.1, 2.0, 0.1).name("Render scale");
 
     const splatsFolder = secondGui.addFolder("Files");
 
-    const editFolder = gui.addFolder("Edit Splats").close();
+    const clipFolder = gui.addFolder("Clip Splats").close();
 
     function updateFrameSplats() {
       frame.children.forEach((child) => {
@@ -502,13 +527,13 @@
     const clipMaxY = dyno.dynoFloat(5);
     const clipMinZ = dyno.dynoFloat(-5);
     const clipMaxZ = dyno.dynoFloat(5);
-    editFolder.add(clipEnable, "value").name("Enable clip").onChange(() => updateFrameSplats());
-    editFolder.add(clipMinX, "value", -5, 5, 0.01).name("Min X").onChange(() => updateFrameSplats());
-    editFolder.add(clipMaxX, "value", -5, 5, 0.01).name("Max X").onChange(() => updateFrameSplats());
-    editFolder.add(clipMinY, "value", -5, 5, 0.01).name("Min Y").onChange(() => updateFrameSplats());
-    editFolder.add(clipMaxY, "value", -5, 5, 0.01).name("Max Y").onChange(() => updateFrameSplats());
-    editFolder.add(clipMinZ, "value", -5, 5, 0.01).name("Min Z").onChange(() => updateFrameSplats());
-    editFolder.add(clipMaxZ, "value", -5, 5, 0.01).name("Max Z").onChange(() => updateFrameSplats());
+    clipFolder.add(clipEnable, "value").name("Enable clip").onChange(() => updateFrameSplats());
+    clipFolder.add(clipMinX, "value", -50, 50, 0.01).name("Min X").onChange(() => updateFrameSplats());
+    clipFolder.add(clipMaxX, "value", -50, 50, 0.01).name("Max X").onChange(() => updateFrameSplats());
+    clipFolder.add(clipMinY, "value", -50, 50, 0.01).name("Min Y").onChange(() => updateFrameSplats());
+    clipFolder.add(clipMaxY, "value", -50, 50, 0.01).name("Max Y").onChange(() => updateFrameSplats());
+    clipFolder.add(clipMinZ, "value", -50, 50, 0.01).name("Min Z").onChange(() => updateFrameSplats());
+    clipFolder.add(clipMaxZ, "value", -50, 50, 0.01).name("Max Z").onChange(() => updateFrameSplats());
 
     function makeWorldModifier(mesh) {
       const context = mesh.context;
@@ -548,7 +573,7 @@
       });
     }
 
-    const writeFolder = secondGui.addFolder("Write Gsplats").close();
+    const exportFolder = secondGui.addFolder("Export Gsplats").close();
     const writeOptions = {
       filename: "gsplats",
       trimOpacity: true,
@@ -591,12 +616,12 @@
         URL.revokeObjectURL(url);
       },
     };
-    writeFolder.add(writeOptions, "filename").name("Filename").listen();
-    writeFolder.add(writeOptions, "trimOpacity").name("Trim low opacity");
-    writeFolder.add(writeOptions, "trimOpacityThreshold").name("Trim opacity <= 0..1");
-    writeFolder.add(writeOptions, "maxSh", 0, 3, 1).name("Max spherical harmonics");
-    writeFolder.add(writeOptions, "fractionalBits", 6, 24, 1).name("Fractional bits");
-    writeFolder.add(writeOptions, "writeSpz").name("Create .spz and download");
+    exportFolder.add(writeOptions, "filename").name("Filename").listen();
+    exportFolder.add(writeOptions, "trimOpacity").name("Trim low opacity");
+    exportFolder.add(writeOptions, "trimOpacityThreshold").name("Trim opacity <= 0..1");
+    exportFolder.add(writeOptions, "maxSh", 0, 3, 1).name("Max spherical harmonics");
+    exportFolder.add(writeOptions, "fractionalBits", 6, 24, 1).name("Fractional bits");
+    exportFolder.add(writeOptions, "writeSpz").name("Create .spz and download");
 
     function makeInstructions() {
       const instructions = textSplats({
