@@ -68,7 +68,7 @@
     import * as THREE from "three";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
     import { GUI } from "lil-gui";
-    import { constructGrid, SparkControls, SparkRenderer, SplatMesh, textSplats, dyno, transcodeSpz, isPcSogs } from "@sparkjsdev/spark";
+    import { constructGrid, SparkControls, SparkRenderer, SplatMesh, textSplats, dyno, transcodeSpz, isMobile, isPcSogs } from "@sparkjsdev/spark";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
     const scene = new THREE.Scene();
@@ -134,7 +134,7 @@
     };
 
     const guiOptions = {
-      highDevicePixel: true,
+      highDevicePixel: !isMobile(),
       stats: false,
       resetOnLoad: true,
       loadOffset: 0,
