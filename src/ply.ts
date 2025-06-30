@@ -326,12 +326,6 @@ export class PlyReader {
         max_scale_x,
         max_scale_y,
         max_scale_z,
-        min_r,
-        min_g,
-        min_b,
-        max_r,
-        max_g,
-        max_b,
       } = element.properties;
       if (
         !min_x ||
@@ -345,13 +339,7 @@ export class PlyReader {
         !min_scale_z ||
         !max_scale_x ||
         !max_scale_y ||
-        !max_scale_z ||
-        !min_r ||
-        !min_g ||
-        !min_b ||
-        !max_r ||
-        !max_g ||
-        !max_b
+        !max_scale_z
       ) {
         throw new Error("Missing PLY chunk properties");
       }
@@ -490,11 +478,16 @@ export class PlyReader {
         );
 
         const r =
-          (((packed_color >>> 24) & 255) / 255) * (max_r - min_r) + min_r;
+          (((packed_color >>> 24) & 255) / 255) *
+            ((max_r ?? 1) - (min_r ?? 0)) +
+          (min_r ?? 0);
         const g =
-          (((packed_color >>> 16) & 255) / 255) * (max_g - min_g) + min_g;
+          (((packed_color >>> 16) & 255) / 255) *
+            ((max_g ?? 1) - (min_g ?? 0)) +
+          (min_g ?? 0);
         const b =
-          (((packed_color >>> 8) & 255) / 255) * (max_b - min_b) + min_b;
+          (((packed_color >>> 8) & 255) / 255) * ((max_b ?? 1) - (min_b ?? 0)) +
+          (min_b ?? 0);
         const opacity = (packed_color & 255) / 255;
 
         splatCallback(
@@ -919,10 +912,10 @@ type SSChunk = {
   max_scale_x: number;
   max_scale_y: number;
   max_scale_z: number;
-  min_r: number;
-  min_g: number;
-  min_b: number;
-  max_r: number;
-  max_g: number;
-  max_b: number;
+  min_r?: number;
+  min_g?: number;
+  min_b?: number;
+  max_r?: number;
+  max_g?: number;
+  max_b?: number;
 };
