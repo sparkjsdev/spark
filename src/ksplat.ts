@@ -332,6 +332,19 @@ export function decodeKsplat(
       );
 
       if (sphericalHarmonicsDegree >= 1 && sh1) {
+        for (const [i, key] of sh1Index.entries()) {
+          sh1[i] = getSh(splatOffset, key);
+        }
+        if (sh2) {
+          for (const [i, key] of sh2Index.entries()) {
+            sh2[i] = getSh(splatOffset, key);
+          }
+        }
+        if (sh3) {
+          for (const [i, key] of sh3Index.entries()) {
+            sh3[i] = getSh(splatOffset, key);
+          }
+        }
         shCallback?.(i, sh1, sh2, sh3);
       }
     }
