@@ -102,5 +102,13 @@
   "valley.spz": {
     "url": "https://sparkjs.dev/assets/splats/valley.spz",
     "directory": "splats"
+  },
+  "star.png": {
+    "url": "https://sparkjs.dev/assets/images/star.png",
+    "directory": "images"
+  },
+  "heart.png": {
+    "url": "https://sparkjs.dev/assets/images/heart.png",
+    "directory": "images"
   }
 }

@@ -38,15 +38,29 @@
     document.body.appendChild(renderer.domElement)
 
     const spark = new SparkRenderer({
-        renderer,
-        apertureAngle: 0.02,
-        focalDistance: 5.0,
+      renderer,
+      apertureAngle: 0.02,
+      focalDistance: 5.0,
     });
     scene.add(spark);
 
+    const apertureSize = {
+      apertureSize: 0.1,
+    };
+    function updateApertureAngle() {
+      if (spark.focalDistance > 0) {
+        spark.apertureAngle = 2 * Math.atan(0.5 * apertureSize.apertureSize / spark.focalDistance);
+      } else {
+        spark.apertureAngle = 0.0;
+      }
+    }
+    updateApertureAngle();
+
     const gui = new GUI({ title: "DoF settings" });
-    gui.add(spark, "focalDistance", 0.1, 15, 0.1);
-    gui.add(spark, "apertureAngle", 0.0, 0.01 * Math.PI, 0.001);
+    gui.add(spark, "focalDistance", 0, 15, 0.01).name("Focal plane dist")
+      .onChange(updateApertureAngle);
+    gui.add(apertureSize, "apertureSize", 0, 0.4, 0.01).name("Aperture size")
+      .onChange(updateApertureAngle);
 
     const splatURL = await getAssetFileURL("valley.spz");
     const background = new SplatMesh({ url: splatURL });

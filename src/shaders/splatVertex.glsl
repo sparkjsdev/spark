@@ -25,6 +25,7 @@ uniform float preBlurAmount;
 uniform float focalDistance;
 uniform float apertureAngle;
 uniform float clipXY;
+uniform float renderScale;
 
 uniform usampler2DArray packedSplats;
 
@@ -111,7 +112,8 @@ void main() {
     mat3 cov3D = RS * transpose(RS);
 
     // Compute the Jacobian of the splat's projection at its center
-    vec2 focal = 0.5 * renderSize * vec2(projectionMatrix[0][0], projectionMatrix[1][1]);
+    vec2 scaledRenderSize = renderSize * renderScale;
+    vec2 focal = 0.5 * scaledRenderSize * vec2(projectionMatrix[0][0], projectionMatrix[1][1]);
     float invZ = 1.0 / viewCenter.z;
     vec2 J1 = focal * invZ;
     vec2 J2 = -(J1 * viewCenter.xy) * invZ;
@@ -175,7 +177,7 @@ void main() {
 
     // Compute the NDC coordinates for the ellipsoid's diagonal axes.
     vec2 pixelOffset = eigenVec1 * scale1 + eigenVec2 * scale2;
-    vec2 ndcOffset = (2.0 / renderSize) * pixelOffset;
+    vec2 ndcOffset = (2.0 / scaledRenderSize) * pixelOffset;
     vec3 ndc = vec3(ndcCenter.xy + ndcOffset, ndcCenter.z);
 
     vRgba = rgba;
