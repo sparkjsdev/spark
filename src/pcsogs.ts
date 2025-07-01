@@ -1,4 +1,3 @@
-import { decode as decodeWebp } from "@jsquash/webp";
 import type { PcSogsJson } from "./SplatLoader";
 import {
   computeMaxSplats,
@@ -149,9 +148,56 @@ export async function unpackPcSogs(
   return { packedArray, numSplats, extra };
 }
 
+// WebGL context for reading raw pixel data of WebP images
+let offscreenGlContext: WebGL2RenderingContext | null = null;
+
 async function decodeImage(fileBytes: ArrayBuffer) {
-  const { data: rgba, width, height } = await decodeWebp(fileBytes);
-  return { rgba, width, height };
+  if (!offscreenGlContext) {
+    const canvas = new OffscreenCanvas(1, 1);
+    offscreenGlContext = canvas.getContext("webgl2");
+    if (!offscreenGlContext) {
+      throw new Error("Failed to create WebGL2 context");
+    }
+  }
+
+  const imageBlob = new Blob([fileBytes]);
+  const bitmap = await createImageBitmap(imageBlob, {
+    premultiplyAlpha: "none",
+  });
+
+  const gl = offscreenGlContext;
+  const texture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bitmap);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+
+  const framebuffer = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+  gl.framebufferTexture2D(
+    gl.FRAMEBUFFER,
+    gl.COLOR_ATTACHMENT0,
+    gl.TEXTURE_2D,
+    texture,
+    0,
+  );
+
+  const data = new Uint8Array(bitmap.width * bitmap.height * 4);
+  gl.readPixels(
+    0,
+    0,
+    bitmap.width,
+    bitmap.height,
+    gl.RGBA,
+    gl.UNSIGNED_BYTE,
+    data,
+  );
+
+  gl.deleteTexture(texture);
+  gl.deleteFramebuffer(framebuffer);
+
+  return { rgba: data, width: bitmap.width, height: bitmap.height };
 }
 
 async function decodeImageRgba(fileBytes: ArrayBuffer) {
