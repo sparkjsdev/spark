@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark • Multiple Viewpoints HUD</title>
+  <style>
+    body {
+      margin: 0;
+    }
+  </style>
+</head>
+
+<body>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/examples/js/vendor/three/build/three.module.js",
+        "@sparkjsdev/spark": "/dist/spark.module.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { SplatMesh, SparkRenderer } from "@sparkjsdev/spark";
+    import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+    import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js'
+    import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+    import { Sky } from 'three/addons/objects/Sky.js';
+    import ViewpointWidget from './ViewpointWidget.js';
+
+    let spark, scene, camera, controls, ui, renderer;
+    let viewpointWidgets, viewpointColors;
+
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    renderer = new THREE.WebGLRenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    spark = new SparkRenderer({ renderer: renderer });
+    scene.add(camera);
+    camera.add(spark);
+    document.body.appendChild(renderer.domElement)
+
+    const splatURL = await getAssetFileURL("butterfly.spz");
+    const butterfly = new SplatMesh({ url: splatURL });
+    butterfly.quaternion.set(1, 0, 0, 0);
+    butterfly.position.set(0, 0, -3);
+    scene.add(butterfly);
+
+    // Add UI
+    ui = new GUI();
+
+    // Add sky
+    initSky(scene);
+
+    // Add orbit controls for easy camera manipulation
+    controls = initControls(camera, renderer);
+
+    // create viewpoints
+    viewpointWidgets = [
+      new ViewpointWidget(spark, scene, renderer, new THREE.Vector3(0, -3, -3), butterfly.position, { x: 20, y: 20, w: 360, h: 360 }),
+      new ViewpointWidget(spark, scene, renderer, new THREE.Vector3(0, 3, -3), butterfly.position, { x: 20, y: window.innerHeight - 20 - 360, w: 360, h: 360 }),
+      new ViewpointWidget(spark, scene, renderer, new THREE.Vector3(3, 0, -3), butterfly.position, { x: window.innerWidth - 20 - 360, y: 20, w: 360, h: 360 }),
+    ]
+
+    // init helpers
+    initHelpers(scene);
+
+    // resize windows
+    window.addEventListener('resize', updateCamera, false);
+
+    renderer.setAnimationLoop(function animate(time) {
+      controls.update();
+      render();
+      butterfly.rotation.y += 0.01;  
+      renderer.clearDepth();
+      for (let i = 0; i < viewpointWidgets.length; i++) {
+        viewpointWidgets[i].render();
+      }
+
+    });
+
+    function initControls(camera, renderer) {
+      const controls = new OrbitControls(camera, renderer.domElement);
+      camera.position.set(0, 0, 3);
+      const cameraFolder = ui.addFolder('Camera');
+      cameraFolder.add(camera, 'fov', 30, 120).name('FOV').onChange(updateCamera);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.05;
+      controls.update();
+      return controls;
+    }
+
+    function updateCamera() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+
+      if (viewpointWidgets) {
+        for (let i = 0; i < viewpointWidgets.length; i++) {
+          viewpointWidgets[i].resize();
+        }
+      }
+    }
+
+    function initSky(scene) {
+      let sky, sun;
+      sky = new Sky();
+      sky.scale.setScalar(450000);
+      scene.add(sky);
+      sky.name = "sky";
+      sun = new THREE.Vector3();
+
+      const effectController = {
+        turbidity: 1,
+        rayleigh: 2,
+        mieCoefficient: 0.008,
+        mieDirectionalG: 0.0,
+        elevation: 3.9,
+        azimuth: 160,
+        exposure: renderer.toneMappingExposure
+      };
+
+      function guiChanged() {
+        const uniforms = sky.material.uniforms;
+        uniforms['turbidity'].value = effectController.turbidity;
+        uniforms['rayleigh'].value = effectController.rayleigh;
+        uniforms['mieCoefficient'].value = effectController.mieCoefficient;
+        uniforms['mieDirectionalG'].value = effectController.mieDirectionalG;
+        const phi = THREE.MathUtils.degToRad(90 - effectController.elevation);
+        const theta = THREE.MathUtils.degToRad(effectController.azimuth);
+        sun.setFromSphericalCoords(1, phi, theta);
+        uniforms['sunPosition'].value.copy(sun);
+        renderer.toneMappingExposure = effectController.exposure;
+        render();
+      }
+
+      // GUI: sky folder
+      const skyFolder = ui.addFolder('Sky');
+      skyFolder.add(effectController, 'turbidity', 0.0, 20.0, 0.1).onChange(guiChanged);
+      skyFolder.add(effectController, 'rayleigh', 0.0, 4, 0.001).onChange(guiChanged);
+      skyFolder.add(effectController, 'mieCoefficient', 0.0, 0.1, 0.001).onChange(guiChanged);
+      skyFolder.add(effectController, 'mieDirectionalG', 0.0, 1, 0.001).onChange(guiChanged);
+      skyFolder.add(effectController, 'elevation', 0, 90, 0.1).onChange(guiChanged);
+      skyFolder.add(effectController, 'azimuth', - 180, 180, 0.1).onChange(guiChanged);
+      skyFolder.add(effectController, 'exposure', 0, 1, 0.0001).onChange(guiChanged);
+
+      guiChanged();
+    }
+
+    function initHelpers(scene, enableCoordinate = false, enableCamera = false) {
+      const helperFolder = ui.addFolder('Helpers');
+
+      const axesHelper = new THREE.AxesHelper(1);
+      scene.add(axesHelper);
+      if (!enableCoordinate) {
+        axesHelper.visible = false;
+      }
+      helperFolder.add(axesHelper, 'visible').name('Axes Helper').onChange(render);
+
+      if (!viewpointColors) {
+        // Define colors for the camera of viewpoint widgets
+        viewpointColors = [];
+        for (let i = 0; i < viewpointWidgets.length; i++) {
+          viewpointColors.push(new THREE.Color(Math.random(), Math.random(), Math.random()));
+        }
+      }
+
+      const cameraHelper = new THREE.CameraHelper(camera);
+      cameraHelper.geometry.setDrawRange(0, 32);
+      scene.add(cameraHelper);
+      if (!enableCamera) {
+        cameraHelper.visible = false;
+      }
+      helperFolder.add(cameraHelper, 'visible').name('Camera Helper').onChange(render);
+      for (let i = 0; i < viewpointWidgets.length; i++) {
+        const viewpointCameraHelper = new THREE.CameraHelper(viewpointWidgets[i].camera);
+        viewpointCameraHelper.geometry.setDrawRange(0, 32);
+        viewpointCameraHelper.material.color = viewpointColors[i];
+        scene.add(viewpointCameraHelper);
+        if (!enableCamera) {
+          viewpointCameraHelper.visible = false;
+        }
+        helperFolder.add(viewpointCameraHelper, 'visible').name('Viewpoint Helper ' + i).onChange(render);
+      }
+    }
+
+    function render() {
+      renderer.render(scene, camera);
+    }
+
+  </script>
+</body>
+
+</html>
