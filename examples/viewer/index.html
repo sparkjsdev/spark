@@ -287,11 +287,18 @@
     if (splatURL) { loadSplatURL(splatURL); }
 
 
-    function loadSplatURL(splatURL) {
+    async function loadSplatURL(splatURL) {
       fileName = splatURL.split("/").pop().split("?")[0];
       document.querySelector('.container').classList.add('hidden');
       document.querySelector('.canvas-container').classList.remove('invisible');
-      setSplatFile({ url: splatURL });
+      const response = await fetch(splatURL);
+      if (response.ok) {
+        fileBytes = new Uint8Array(await response.arrayBuffer());
+        setSplatFile({ fileBytes: fileBytes.slice(), fileName });
+      } else {
+        console.error("Failed to load splat file from URL:", splatURL);
+        return;
+      }
     }
 
     const urlFormEl = document.querySelector('.url-form');
