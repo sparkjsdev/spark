@@ -6,7 +6,7 @@ import { withWorker } from "./splatWorker";
 import { decompressPartialGzip, getTextureSize } from "./utils";
 
 // SplatLoader implements the THREE.Loader interface and supports loading a variety
-// of differeng Gsplat file formats. Formats .PLY and .SPZ can be auto-detected
+// of different Gsplat file formats. Formats .PLY and .SPZ can be auto-detected
 // from the file contents, while .SPLAT and .KSPLAT require either having the
 // appropriate file extension as part of the path, or it can be explicitly set
 // in the loader using the fileType property.
@@ -27,20 +27,29 @@ export class SplatLoader extends Loader {
     onProgress?: (event: ProgressEvent) => void,
     onError?: (error: unknown) => void,
   ) {
-    this.fileLoader.setResponseType("arraybuffer");
-    this.fileLoader.setCrossOrigin(this.crossOrigin);
-    this.fileLoader.setWithCredentials(this.withCredentials);
-    this.fileLoader.setPath(this.path);
-    this.fileLoader.setResourcePath(this.resourcePath);
-    this.fileLoader.setRequestHeader(this.requestHeader);
-    this.fileLoader.load(
-      url,
-      async (response) => {
+    const resolvedURL = this.manager.resolveURL(
+      (this.path ?? "") + (url ?? ""),
+    );
+
+    // create request
+    const req = new Request(resolvedURL, {
+      headers: new Headers(this.requestHeader),
+      credentials: this.withCredentials ? "include" : "same-origin",
+    });
+
+    let fileType = this.fileType;
+
+    fetch(req)
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(
+            `${response.status} "${response.statusText}" fetching URL: ${resolvedURL}`,
+          );
+        }
         if (onLoad) {
-          const input = response as ArrayBuffer;
+          const input = await response.arrayBuffer();
           const extraFiles: Record<string, ArrayBuffer> = {};
           const promises = [];
-          let fileType = this.fileType;
 
           try {
             const pcSogsJson = tryPcSogs(input);
@@ -57,7 +66,7 @@ export class SplatLoader extends Loader {
                 if (prop) {
                   const files = prop.files;
                   for (const file of files) {
-                    const fileUrl = new URL(file, url).toString();
+                    const fileUrl = new URL(file, resolvedURL).toString();
                     this.manager.itemStart(fileUrl);
                     const promise = this.loadExtra(fileUrl)
                       .then((data) => {
@@ -81,7 +90,7 @@ export class SplatLoader extends Loader {
               input,
               extraFiles,
               fileType,
-              pathOrUrl: url,
+              pathOrUrl: resolvedURL,
             });
 
             if (this.packedSplats) {
@@ -94,10 +103,15 @@ export class SplatLoader extends Loader {
             onError?.(error);
           }
         }
-      },
-      onProgress,
-      onError,
-    );
+      })
+      .catch((error) => {
+        onError?.(error);
+      })
+      .finally(() => {
+        this.manager.itemEnd(resolvedURL);
+      });
+
+    this.manager.itemStart(resolvedURL);
   }
 
   async loadAsync(
