@@ -9,6 +9,7 @@
     "ignoreUnknown": false,
     "ignore": [
       "dist/*",
+      "examples/assets/",
       "examples/showcase/hello-gsplat",
       "rust/target",
       "rust/spark-internal-rs/pkg",
