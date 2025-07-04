@@ -94,17 +94,28 @@
           border: none;
         }
 
-        .code-button {
+        .action-buttons {
           position: fixed;
           bottom: 16px;
           right: 16px;
+          display: flex;
+          flex-direction: row;
+          gap: 12px;
+          z-index: 999;
+        }
+
+        .action-button {
           padding: 12px;
           border-radius: 50%;
-          margin-bottom: 0px;
           background-color: #D43E4C;
           opacity: .9;
-          z-index: 999;
           box-shadow: 0 0 4px rgba(0, 0, 0, .15);
+          text-decoration: none;
+          transition: opacity 0.2s ease;
+        }
+
+        .action-button:hover {
+          opacity: 1;
         }
 
         .example-link {
@@ -242,10 +253,16 @@
 
           const iframe = document.querySelector('.example-frame');
           const codeButton = document.querySelector('.code-button');
+          const fullPageButton = document.querySelector('.fullpage-button');
+          
           iframe.src = path;
-
+          
           if (codeButton) {
             codeButton.href = `https://github.com/sparkjsdev/spark/blob/main${path}`;
+          }
+          
+          if (fullPageButton) {
+            fullPageButton.href = path;
           }
           
           document.querySelectorAll('.example-link').forEach(link => {
@@ -263,8 +280,22 @@
         function loadExamples() {
           const panel = document.querySelector('.panel');
           const iframe = document.querySelector('.example-frame');
+          
+          const actionButtons = document.createElement('div');
+          actionButtons.classList.add('action-buttons');
+          
+          const fullPageButton = document.createElement('a');
+          fullPageButton.classList.add('action-button', 'fullpage-button');
+          fullPageButton.target = '_blank';
+          fullPageButton.title = 'Open this example in full page';
+          fullPageButton.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" style="display:block;">
+              <path fill="none" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6m10 0l-9 9m3-9h6v6"/>
+            </svg>
+          `;
+          
           const codeButton = document.createElement('a');
-          codeButton.classList.add('code-button');
+          codeButton.classList.add('action-button', 'code-button');
           codeButton.target = '_blank';
           codeButton.title = 'View source code for this example on GitHub';
           codeButton.innerHTML = `
@@ -272,7 +303,10 @@
               <path fill="none" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m9 8l-4 4l4 4m6-8l4 4l-4 4"/>
             </svg>
           `;
-          document.body.appendChild(codeButton);
+
+          actionButtons.appendChild(fullPageButton);
+          actionButtons.appendChild(codeButton);
+          document.body.appendChild(actionButtons);
 
           const initialExample = getExampleFromHash();
           setActiveExample(initialExample);
