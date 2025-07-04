@@ -34,7 +34,6 @@
           left: 0px;
           width: var(--panel-width);
           height: 100%;
-          overflow: auto;
           border-right: var(--border-style);
           display: flex;
           flex-direction: column;
@@ -48,6 +47,7 @@
           align-items: center;
           justify-content: center;
           padding: 0 1rem;
+          flex-shrink: 0;
         }
 
         .header .logo {
@@ -72,6 +72,12 @@
         .header a .logo, .mobile-header a .logo {
           height: 1.25rem;
           display: block;
+        }
+
+        .examples-container {
+          flex: 1;
+          overflow-y: auto;
+          overflow-x: hidden;
         }
 
         .content {
@@ -167,12 +173,13 @@
             right: -100%;
             left: auto;
             width: 70%;
-            height: 100%;
+            height: calc(100vh - 4rem);
             transform: none;
             transition: right 0.3s ease-in-out;
             z-index: 1001;
             background: #D43E4C;
             border-left: var(--border-style);
+            overflow-y: auto;
           }
 
           .mobile-panel.active {
@@ -205,6 +212,54 @@
         }
       </style>
       <script>
+        const exampleMap = {
+          'hello-world': '/examples/hello-world/index.html',
+          'envmap': '/examples/envmap/index.html',
+          'interactivity': '/examples/interactivity/index.html',
+          'multiple-splats': '/examples/multiple-splats/index.html',
+          'multiple-viewpoints': '/examples/multiple-viewpoints/index.html',
+          'procedural-splats': '/examples/procedural-splats/index.html',
+          'raycasting': '/examples/raycasting/index.html',
+          'dynamic-lighting': '/examples/dynamic-lighting/index.html',
+          'particle-animation': '/examples/particle-animation/index.html',
+          'particle-simulation': '/examples/particle-simulation/index.html',
+          'webxr': '/examples/webxr/index.html',
+          'glsl': '/examples/glsl/index.html',
+          'debug-color': '/examples/debug-color/index.html',
+          'depth-of-field': '/examples/depth-of-field/index.html',
+          'splat-texture': '/examples/splat-texture/index.html',
+          'editor': '/examples/editor/index.html'
+        };
+
+        function getExampleFromHash() {
+          const hash = window.location.hash.substring(1);
+          return hash || 'hello-world';
+        }
+
+        function setActiveExample(exampleKey) {
+          const path = exampleMap[exampleKey];
+          if (!path) return;
+
+          const iframe = document.querySelector('.example-frame');
+          const codeButton = document.querySelector('.code-button');
+          iframe.src = path;
+
+          if (codeButton) {
+            codeButton.href = `https://github.com/sparkjsdev/spark/blob/main${path}`;
+          }
+          
+          document.querySelectorAll('.example-link').forEach(link => {
+            link.classList.remove('active');
+            if (link.getAttribute('data-example') === exampleKey) {
+              link.classList.add('active');
+            }
+          });
+          
+          if (window.location.hash.substring(1) !== exampleKey) {
+            history.replaceState(null, null, `#${exampleKey}`);
+          }
+        }
+
         function loadExamples() {
           const panel = document.querySelector('.panel');
           const iframe = document.querySelector('.example-frame');
@@ -219,23 +274,20 @@
           `;
           document.body.appendChild(codeButton);
 
-          const initialLink = panel.querySelector('.example-link.active');
-          if (initialLink) {
-            const path = initialLink.getAttribute('href');
-            iframe.src = path;
-            codeButton.href = `https://github.com/sparkjsdev/spark/blob/main${path}`;
-          }
+          const initialExample = getExampleFromHash();
+          setActiveExample(initialExample);
 
           panel.querySelectorAll('.example-link').forEach((link) => {
             link.addEventListener('click', (e) => {
               e.preventDefault();
-              const path = link.getAttribute('href');
-              iframe.src = path;
-
-              document.querySelectorAll('.example-link').forEach(l => l.classList.remove('active'));
-              link.classList.add('active');
-              codeButton.href = `https://github.com/sparkjsdev/spark/blob/main/${path.substring(1)}`;
+              const exampleKey = link.getAttribute('data-example');
+              setActiveExample(exampleKey);
             });
+          });
+
+          window.addEventListener('hashchange', () => {
+            const exampleKey = getExampleFromHash();
+            setActiveExample(exampleKey);
           });
         }
 
@@ -264,7 +316,7 @@
           copyLinks();
 
           const observer = new MutationObserver(copyLinks);
-          observer.observe(panel, { childList: true });
+          observer.observe(panel, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
 
           document.body.appendChild(mobilePanel);
 
@@ -287,144 +339,120 @@
             }
           });
 
-        overlay.addEventListener('click', closeMenu);
+          overlay.addEventListener('click', closeMenu);
 
-        mobilePanel.querySelectorAll('.example-link').forEach(link => {
-          link.addEventListener('click', (e) => {
-            e.preventDefault();
-            const path = link.getAttribute('href');
-
-            iframe.src = path;
-
-            document.querySelectorAll('.example-link').forEach(l => l.classList.remove('active'));
-            link.classList.add('active');
-
-            const example = link.getAttribute('data-source');
-            if (example) {
-              codeButton.href = example;
+          mobilePanel.addEventListener('click', (e) => {
+            const link = e.target.closest('.example-link');
+            if (link) {
+              e.preventDefault();
+              const exampleKey = link.getAttribute('data-example');
+              setActiveExample(exampleKey);
+              closeMenu();
             }
-
-            closeMenu();
           });
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+          loadExamples();
+          setupMobileMenu();
         });
-
-        mobilePanel.addEventListener('click', (e) => {
-          const link = e.target.closest('.example-link');
-
-          if (link) {
-            e.preventDefault();
-            const path = link.getAttribute('href');
-            iframe.src = path;
-
-            document.querySelectorAll('.example-link').forEach(l => l.classList.remove('active'));
-            link.classList.add('active');
-            panel.querySelector(`[href="${path}"]`)?.classList.add('active');
-
-            codeButton.href = `https://github.com/sparkjsdev/spark/blob/main${path}`;
-            closeMenu();
-          }
-        });
-      }
-
-      document.addEventListener('DOMContentLoaded', () => {
-        loadExamples();
-        setupMobileMenu();
-      });
-    </script>
-  </head>
-  <body>
-    <div class="overlay"></div>
-    <div class="mobile-header">
-      <div class="logo-section">
-        <a class="logo" href="/">
-          <svg>
-            <use xlink:href="#spark-logo" />
+      </script>
+    </head>
+    <body>
+      <div class="overlay"></div>
+      <div class="mobile-header">
+        <div class="logo-section">
+          <a class="logo" href="/">
+            <svg>
+              <use xlink:href="#spark-logo" />
+            </svg>
+          </a>
+          <!-- <span class="title">EXAMPLES</span> -->
+        </div>
+        <div class="hamburger">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M3 12H21" stroke="white" stroke-width="2" stroke-linecap="round"/>
+            <path d="M3 6H21" stroke="white" stroke-width="2" stroke-linecap="round"/>
+            <path d="M3 18H21" stroke="white" stroke-width="2" stroke-linecap="round"/>
           </svg>
-        </a>
-        <!-- <span class="title">EXAMPLES</span> -->
+        </div>
       </div>
-      <div class="hamburger">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M3 12H21" stroke="white" stroke-width="2" stroke-linecap="round"/>
-          <path d="M3 6H21" stroke="white" stroke-width="2" stroke-linecap="round"/>
-          <path d="M3 18H21" stroke="white" stroke-width="2" stroke-linecap="round"/>
-        </svg>
+      <div class="panel">
+        <div class="header">
+          <a class="logo" href="/">
+            <svg style="width: 100%; height: 100%;">
+              <use xlink:href="#spark-logo" style="position: absolute; width: 100%; height: 100%;"/>
+            </svg>
+          </a>
+          <span class="title">EXAMPLES</span>
+        </div>
+        <div class="examples-container">
+          <a href="#hello-world" data-example="hello-world" class="example-link">Hello World</a>
+          <a href="#envmap" data-example="envmap" class="example-link">Environment Map</a>
+          <a href="#interactivity" data-example="interactivity" class="example-link">Interactivity</a>
+          <a href="#multiple-splats" data-example="multiple-splats" class="example-link">Multiple Splats</a>
+          <a href="#multiple-viewpoints" data-example="multiple-viewpoints" class="example-link">Multiple Viewpoints</a>
+          <a href="#procedural-splats" data-example="procedural-splats" class="example-link">Procedural Splats</a>
+          <a href="#raycasting" data-example="raycasting" class="example-link">Raycasting</a>
+          <a href="#dynamic-lighting" data-example="dynamic-lighting" class="example-link">Dynamic Lighting</a>
+          <a href="#particle-animation" data-example="particle-animation" class="example-link">Particle Animation</a>
+          <a href="#particle-simulation" data-example="particle-simulation" class="example-link">Particle Simulation</a>
+          <a href="#webxr" data-example="webxr" class="example-link">WebXR</a>
+          <a href="#glsl" data-example="glsl" class="example-link">GLSL Shaders</a>
+          <a href="#debug-color" data-example="debug-color" class="example-link">Debug Coloring</a>
+          <a href="#depth-of-field" data-example="depth-of-field" class="example-link">Depth of Field</a>
+          <a href="#splat-texture" data-example="splat-texture" class="example-link">Splat Texture</a>
+          <a href="#editor" data-example="editor" class="example-link">Editor</a>
+        </div>
       </div>
-    </div>
-    <div class="panel">
-      <div class="header">
-        <a class="logo" href="/">
-          <svg style="width: 100%; height: 100%;">
-            <use xlink:href="#spark-logo" style="position: absolute; width: 100%; height: 100%;"/>
-          </svg>
-        </a>
-        <span class="title">EXAMPLES</span>
+      <div class="content">
+        <iframe class="example-frame" src=""></iframe>
       </div>
-      <a href="/examples/hello-world/index.html" class="example-link active">Hello World</a>
-      <a href="/examples/envmap/index.html" class="example-link">Environment Map</a>
-      <a href="/examples/interactivity/index.html" class="example-link">Interactivity</a>
-      <a href="/examples/multiple-splats/index.html" class="example-link">Multiple Splats</a>
-      <a href="/examples/multiple-viewpoints/index.html" class="example-link">Multiple Viewpoints</a>
-      <a href="/examples/procedural-splats/index.html" class="example-link">Procedural Splats</a>
-      <a href="/examples/raycasting/index.html" class="example-link">Raycasting</a>
-      <a href="/examples/dynamic-lighting/index.html" class="example-link">Dynamic Lighting</a>
-      <a href="/examples/particle-animation/index.html" class="example-link">Particle Animation</a>
-      <a href="/examples/particle-simulation/index.html" class="example-link">Particle Simulation</a>
-      <a href="/examples/webxr/index.html" class="example-link">WebXR</a>
-      <a href="/examples/glsl/index.html" class="example-link">GLSL Shaders</a>
-      <a href="/examples/debug-color/index.html" class="example-link">Debug Coloring</a>
-      <a href="/examples/depth-of-field/index.html" class="example-link">Depth of Field</a>
-      <a href="/examples/splat-texture/index.html" class="example-link">Splat Texture</a>
-      <a href="/examples/editor/index.html" class="example-link">Editor</a>
-    </div>
-    <div class="content">
-      <iframe class="example-frame" src=""></iframe>
-    </div>
-    <svg style="display: none" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <symbol id="spark-logo" viewBox="0 0 530 250" fill="none">
-          <path
-               d="M40.3564 215.311C45.3883 215.311 49.1623 214.583 51.6782 213.126C54.1942 211.67 55.4521 209.286 55.4521 205.976C55.4521 203.725 54.8563 201.937 53.6645 200.613C52.4727 199.289 50.354 197.964 47.3084 196.64L26.2539 186.907C18.4412 183.332 12.4161 178.565 8.17872 172.606C3.94132 166.647 1.82263 157.974 1.82263 146.586C1.82263 132.02 5.59656 121.162 13.1444 114.011C20.8247 106.728 33.4707 103.02 51.0823 102.888C58.3653 102.888 64.9863 103.219 70.9451 103.881C76.904 104.543 81.671 105.271 85.2463 106.066C88.8216 106.728 90.6093 107.059 90.6093 107.059L86.6367 139.038C86.6367 139.038 84.9815 138.84 81.671 138.442C78.493 138.045 74.5204 137.714 69.7533 137.449C64.9863 137.052 60.3516 136.853 55.8494 136.853C51.0823 136.853 47.4408 137.582 44.9249 139.038C42.5413 140.362 41.3496 142.944 41.3496 146.785C41.3496 148.903 42.2765 150.691 44.1304 152.148C45.9842 153.472 48.5664 154.862 51.8768 156.319L68.7602 163.668C77.7647 167.641 84.3194 172.606 88.4244 178.565C92.5293 184.392 94.5818 192.734 94.5818 203.592C94.5818 218.291 90.7417 229.612 83.0614 237.558C75.3811 245.503 62.7352 249.541 45.1235 249.674C36.3839 249.674 28.2401 249.078 20.6923 247.886C13.1444 246.827 6.45728 245.569 0.630859 244.112L4.60342 212.133C4.60342 212.133 6.19244 212.398 9.37048 212.928C12.6809 213.457 17.0508 213.987 22.4799 214.517C27.9091 215.046 33.8679 215.311 40.3564 215.311Z"
-               fill="black"
-               id="path264"
-               style="fill:#ffffff" />
+      <svg style="display: none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <symbol id="spark-logo" viewBox="0 0 530 250" fill="none">
             <path
-               d="M105.441 247.688L105.283 104.676H151.721C163.639 104.676 173.504 106.331 181.317 109.641C189.13 112.819 194.956 118.248 198.796 125.929C202.636 133.609 204.556 144.07 204.556 157.312C204.556 175.586 200.187 188.761 191.447 196.839C182.707 204.916 169.466 208.955 151.721 208.955H144.174V247.688H105.441ZM144.174 180.551C150.53 180.551 155.231 178.83 158.276 175.387C161.454 171.944 163.043 165.787 163.043 156.915C163.043 150.161 162.447 145.063 161.256 141.62C160.196 138.177 158.276 135.86 155.495 134.668C152.847 133.344 149.073 132.682 144.174 132.682V180.551Z"
-               fill="black"
-               id="path266"
-               style="fill:#ffffff" />
-            <path
-               d="M240.887 228.421L237.113 247.688H195.6L226.418 114.017L183.707 76.5293L265.17 96.9426L244.641 123.649L283.517 121.162L310.804 247.688H269.688L265.914 228.421H240.887ZM244.859 197.633H261.743L253.4 145.593L244.859 197.633Z"
-               fill="black"
-               id="path268"
-               style="fill:#ffffff" />
-            <path
-               d="M359.88 104.676C371.533 104.676 381.266 106.198 389.079 109.244C396.891 112.157 402.718 117.123 406.558 124.141C410.53 131.027 412.517 140.495 412.517 152.545C412.517 162.609 410.994 170.885 407.948 177.373C404.903 183.729 400.268 188.828 394.044 192.668L418.277 247.688H375.175L359.483 201.209H353.127V247.688H314.395V125.135L341.069 131.557L318.133 104.676H359.88ZM353.127 174.593C359.218 174.593 363.72 173.07 366.634 170.024C369.547 166.978 371.003 161.616 371.003 153.935C371.003 147.844 370.474 143.342 369.414 140.429C368.355 137.383 366.501 135.33 363.853 134.271C361.337 133.212 357.762 132.682 353.127 132.682V174.593Z"
-               fill="black"
-               id="path270"
-               style="fill:#ffffff" />
-            <path
-               d="M428.21 104.676H466.942V162.079L488.195 104.676H529.907L503.291 173.997L528.517 247.688H486.805L466.942 187.106V247.688H428.21V104.676Z"
-               fill="black"
-               id="path272"
-               style="fill:#ffffff" />
-            <path
-               fill-rule="evenodd"
-               clip-rule="evenodd"
-               d="M309.449 81.6439L327.348 19.5389L375.544 0.839203L348.827 48.8799L309.449 81.6439Z"
-               fill="black"
-               id="path274"
-               style="fill:#ffffff" />
-            <path
-               fill-rule="evenodd"
-               clip-rule="evenodd"
-               d="M268.575 30.8712L282.27 79.3501L253.733 52.8261L268.575 30.8712Z"
-               fill="black"
-               id="path276"
-               style="fill:#ffffff" />
-        </symbol>
-      </defs>
-      <use href="#spark-logo"/>
-    </svg>
-  </body>
+                 d="M40.3564 215.311C45.3883 215.311 49.1623 214.583 51.6782 213.126C54.1942 211.67 55.4521 209.286 55.4521 205.976C55.4521 203.725 54.8563 201.937 53.6645 200.613C52.4727 199.289 50.354 197.964 47.3084 196.64L26.2539 186.907C18.4412 183.332 12.4161 178.565 8.17872 172.606C3.94132 166.647 1.82263 157.974 1.82263 146.586C1.82263 132.02 5.59656 121.162 13.1444 114.011C20.8247 106.728 33.4707 103.02 51.0823 102.888C58.3653 102.888 64.9863 103.219 70.9451 103.881C76.904 104.543 81.671 105.271 85.2463 106.066C88.8216 106.728 90.6093 107.059 90.6093 107.059L86.6367 139.038C86.6367 139.038 84.9815 138.84 81.671 138.442C78.493 138.045 74.5204 137.714 69.7533 137.449C64.9863 137.052 60.3516 136.853 55.8494 136.853C51.0823 136.853 47.4408 137.582 44.9249 139.038C42.5413 140.362 41.3496 142.944 41.3496 146.785C41.3496 148.903 42.2765 150.691 44.1304 152.148C45.9842 153.472 48.5664 154.862 51.8768 156.319L68.7602 163.668C77.7647 167.641 84.3194 172.606 88.4244 178.565C92.5293 184.392 94.5818 192.734 94.5818 203.592C94.5818 218.291 90.7417 229.612 83.0614 237.558C75.3811 245.503 62.7352 249.541 45.1235 249.674C36.3839 249.674 28.2401 249.078 20.6923 247.886C13.1444 246.827 6.45728 245.569 0.630859 244.112L4.60342 212.133C4.60342 212.133 6.19244 212.398 9.37048 212.928C12.6809 213.457 17.0508 213.987 22.4799 214.517C27.9091 215.046 33.8679 215.311 40.3564 215.311Z"
+                 fill="black"
+                 id="path264"
+                 style="fill:#ffffff" />
+              <path
+                 d="M105.441 247.688L105.283 104.676H151.721C163.639 104.676 173.504 106.331 181.317 109.641C189.13 112.819 194.956 118.248 198.796 125.929C202.636 133.609 204.556 144.07 204.556 157.312C204.556 175.586 200.187 188.761 191.447 196.839C182.707 204.916 169.466 208.955 151.721 208.955H144.174V247.688H105.441ZM144.174 180.551C150.53 180.551 155.231 178.83 158.276 175.387C161.454 171.944 163.043 165.787 163.043 156.915C163.043 150.161 162.447 145.063 161.256 141.62C160.196 138.177 158.276 135.86 155.495 134.668C152.847 133.344 149.073 132.682 144.174 132.682V180.551Z"
+                 fill="black"
+                 id="path266"
+                 style="fill:#ffffff" />
+              <path
+                 d="M240.887 228.421L237.113 247.688H195.6L226.418 114.017L183.707 76.5293L265.17 96.9426L244.641 123.649L283.517 121.162L310.804 247.688H269.688L265.914 228.421H240.887ZM244.859 197.633H261.743L253.4 145.593L244.859 197.633Z"
+                 fill="black"
+                 id="path268"
+                 style="fill:#ffffff" />
+              <path
+                 d="M359.88 104.676C371.533 104.676 381.266 106.198 389.079 109.244C396.891 112.157 402.718 117.123 406.558 124.141C410.53 131.027 412.517 140.495 412.517 152.545C412.517 162.609 410.994 170.885 407.948 177.373C404.903 183.729 400.268 188.828 394.044 192.668L418.277 247.688H375.175L359.483 201.209H353.127V247.688H314.395V125.135L341.069 131.557L318.133 104.676H359.88ZM353.127 174.593C359.218 174.593 363.72 173.07 366.634 170.024C369.547 166.978 371.003 161.616 371.003 153.935C371.003 147.844 370.474 143.342 369.414 140.429C368.355 137.383 366.501 135.33 363.853 134.271C361.337 133.212 357.762 132.682 353.127 132.682V174.593Z"
+                 fill="black"
+                 id="path270"
+                 style="fill:#ffffff" />
+              <path
+                 d="M428.21 104.676H466.942V162.079L488.195 104.676H529.907L503.291 173.997L528.517 247.688H486.805L466.942 187.106V247.688H428.21V104.676Z"
+                 fill="black"
+                 id="path272"
+                 style="fill:#ffffff" />
+              <path
+                 fill-rule="evenodd"
+                 clip-rule="evenodd"
+                 d="M309.449 81.6439L327.348 19.5389L375.544 0.839203L348.827 48.8799L309.449 81.6439Z"
+                 fill="black"
+                 id="path274"
+                 style="fill:#ffffff" />
+              <path
+                 fill-rule="evenodd"
+                 clip-rule="evenodd"
+                 d="M268.575 30.8712L282.27 79.3501L253.733 52.8261L268.575 30.8712Z"
+                 fill="black"
+                 id="path276"
+                 style="fill:#ffffff" />
+          </symbol>
+        </defs>
+        <use href="#spark-logo"/>
+      </svg>
+    </body>
 </html>
