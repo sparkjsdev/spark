@@ -485,6 +485,8 @@
       spark.focalDistance = Math.exp(value);
     });
     gui.add(spark, "apertureAngle", 0, 0.01 * Math.PI, 0.001).name("Aperture angle").listen();
+    scene.background = new THREE.Color(0, 0, 0);
+    gui.addColor(scene, "background").name("Background color").listen();
 
     const debugFolder = gui.addFolder("Debug").close();
     const normalColor = dyno.dynoBool(false);
