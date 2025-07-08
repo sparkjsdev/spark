@@ -1,4 +1,6 @@
-import type { PcSogsJson } from "./SplatLoader";
+import { decode as decodeWebp } from "@jsquash/webp";
+import { unzip } from "fflate";
+import { type PcSogsJson, tryPcSogsZip } from "./SplatLoader";
 import {
   computeMaxSplats,
   encodeSh1Rgb,
@@ -11,14 +13,13 @@ import {
 } from "./utils";
 
 export async function unpackPcSogs(
-  fileBytes: Uint8Array,
+  json: PcSogsJson,
   extraFiles: Record<string, ArrayBuffer>,
 ): Promise<{
   packedArray: Uint32Array;
   numSplats: number;
   extra: Record<string, unknown>;
 }> {
-  const json = JSON.parse(new TextDecoder().decode(fileBytes)) as PcSogsJson;
   if (json.quats.encoding !== "quaternion_packed") {
     throw new Error("Unsupported quaternion encoding");
   }
@@ -148,59 +149,67 @@ export async function unpackPcSogs(
   return { packedArray, numSplats, extra };
 }
 
-// WebGL context for reading raw pixel data of WebP images
-let offscreenGlContext: WebGL2RenderingContext | null = null;
-
 async function decodeImage(fileBytes: ArrayBuffer) {
-  if (!offscreenGlContext) {
-    const canvas = new OffscreenCanvas(1, 1);
-    offscreenGlContext = canvas.getContext("webgl2");
-    if (!offscreenGlContext) {
-      throw new Error("Failed to create WebGL2 context");
-    }
-  }
-
-  const imageBlob = new Blob([fileBytes]);
-  const bitmap = await createImageBitmap(imageBlob, {
-    premultiplyAlpha: "none",
-  });
-
-  const gl = offscreenGlContext;
-  const texture = gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D, texture);
-  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bitmap);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-
-  const framebuffer = gl.createFramebuffer();
-  gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
-  gl.framebufferTexture2D(
-    gl.FRAMEBUFFER,
-    gl.COLOR_ATTACHMENT0,
-    gl.TEXTURE_2D,
-    texture,
-    0,
-  );
-
-  const data = new Uint8Array(bitmap.width * bitmap.height * 4);
-  gl.readPixels(
-    0,
-    0,
-    bitmap.width,
-    bitmap.height,
-    gl.RGBA,
-    gl.UNSIGNED_BYTE,
-    data,
-  );
-
-  gl.deleteTexture(texture);
-  gl.deleteFramebuffer(framebuffer);
-
-  return { rgba: data, width: bitmap.width, height: bitmap.height };
+  const { data: rgba, width, height } = await decodeWebp(fileBytes);
+  return { rgba, width, height };
 }
 
 async function decodeImageRgba(fileBytes: ArrayBuffer) {
   const { rgba } = await decodeImage(fileBytes);
   return rgba;
+}
+
+export async function unpackPcSogsZip(fileBytes: Uint8Array): Promise<{
+  packedArray: Uint32Array;
+  numSplats: number;
+  extra: Record<string, unknown>;
+}> {
+  const nameJson = tryPcSogsZip(fileBytes);
+  if (!nameJson) {
+    throw new Error("Invalid PC SOGS zip file");
+  }
+  const { name, json } = nameJson;
+  // Find path prefix, will be -1 if no / or \
+  const lastSlash = name.lastIndexOf("/");
+  const lastBackslash = name.lastIndexOf("\\");
+  const prefix = name.slice(0, Math.max(lastSlash, lastBackslash) + 1);
+
+  const fileMap = new Map<string, string>();
+  const refFiles = [
+    ...json.means.files,
+    ...json.scales.files,
+    ...json.quats.files,
+    ...json.sh0.files,
+    ...(json.shN?.files ?? []),
+  ];
+  for (const file of refFiles) {
+    fileMap.set(prefix + file, file);
+  }
+
+  const unzipped = await new Promise<Record<string, ArrayBuffer>>(
+    (resolve, reject) => {
+      unzip(
+        fileBytes,
+        {
+          filter: ({ name }) => {
+            return fileMap.has(name);
+          },
+        },
+        (err, files) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve(files);
+          }
+        },
+      );
+    },
+  );
+
+  const extraFiles: Record<string, ArrayBuffer> = {};
+  for (const [full, name] of fileMap.entries()) {
+    extraFiles[name] = unzipped[full];
+  }
+
+  return await unpackPcSogs(json, extraFiles);
 }

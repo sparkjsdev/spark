@@ -1,3 +1,4 @@
+import { unzipSync } from "fflate";
 import { FileLoader, Loader, type LoadingManager } from "three";
 import { PackedSplats } from "./PackedSplats";
 import { SplatMesh } from "./SplatMesh";
@@ -138,6 +139,7 @@ export enum SplatFileType {
   SPLAT = "splat",
   KSPLAT = "ksplat",
   PCSOGS = "pcsogs",
+  PCSOGSZIP = "pcsogszip",
 }
 
 export function getSplatFileType(
@@ -155,6 +157,14 @@ export function getSplatFileType(
       return SplatFileType.SPZ;
     }
     // Unknown Gzipped file type
+    return undefined;
+  }
+  if (view.getUint32(0, true) === 0x04034b50) {
+    // PKZip file
+    if (tryPcSogsZip(fileBytes)) {
+      return SplatFileType.PCSOGSZIP;
+    }
+    // Unknown PKZip file type
     return undefined;
   }
   // Unknown file type
@@ -218,7 +228,7 @@ export type PcSogsJson = {
     maxs: number[];
     files: string[];
   };
-  shN: {
+  shN?: {
     shape: number[];
     dtype: string;
     mins: number;
@@ -272,6 +282,37 @@ export function tryPcSogs(
     }
     // This is probably a PC SOGS file
     return json as PcSogsJson;
+  } catch {
+    return undefined;
+  }
+}
+
+export function tryPcSogsZip(
+  input: ArrayBuffer | Uint8Array,
+): { name: string; json: PcSogsJson } | undefined {
+  try {
+    const fileBytes =
+      input instanceof ArrayBuffer ? new Uint8Array(input) : input;
+    let metaFilename: string | null = null;
+
+    const unzipped = unzipSync(fileBytes, {
+      filter: ({ name }) => {
+        const filename = name.split(/[\\/]/).pop() as string;
+        if (filename === "meta.json") {
+          metaFilename = name;
+          return true;
+        }
+        return false;
+      },
+    });
+    if (!metaFilename) {
+      return undefined;
+    }
+    const json = tryPcSogs(unzipped[metaFilename]);
+    if (!json) {
+      return undefined;
+    }
+    return { name: metaFilename, json };
   } catch {
     return undefined;
   }
@@ -365,6 +406,19 @@ export async function unpackSplats({
         const { packedArray, numSplats, extra } = (await worker.call(
           "decodePcSogs",
           { fileBytes, extraFiles },
+        )) as {
+          packedArray: Uint32Array;
+          numSplats: number;
+          extra: Record<string, unknown>;
+        };
+        return { packedArray, numSplats, extra };
+      });
+    }
+    case SplatFileType.PCSOGSZIP: {
+      return await withWorker(async (worker) => {
+        const { packedArray, numSplats, extra } = (await worker.call(
+          "decodePcSogsZip",
+          { fileBytes },
         )) as {
           packedArray: Uint32Array;
           numSplats: number;
