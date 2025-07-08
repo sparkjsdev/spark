@@ -603,7 +603,8 @@ export class SparkRenderer extends THREE.Mesh {
     }, new Map<SplatGenerator, GeneratorMapping>());
 
     // Traverse visible scene to find all SplatGenerators and global SplatEdits
-    const { generators, globalEdits } = this.compileScene(scene);
+    const { generators, visibleGenerators, globalEdits } =
+      this.compileScene(scene);
 
     // Let all SplatGenerators run their frameUpdate() method
     for (const object of generators) {
@@ -616,11 +617,14 @@ export class SparkRenderer extends THREE.Mesh {
       });
     }
 
+    const visibleGenHash = new Set(visibleGenerators.map((g) => g.uuid));
+
     // Make sure we have new version numbers for any objects with either
     // generator or numSplats that have changed since the last frame.
     for (const object of generators) {
       const current = activeMapping.get(object);
-      const numSplats = object.generator ? object.numSplats : 0;
+      const isVisible = object.generator && visibleGenHash.has(object.uuid);
+      const numSplats = isVisible ? object.numSplats : 0;
       if (
         object.generator !== current?.generator ||
         numSplats !== current?.count
@@ -665,7 +669,7 @@ export class SparkRenderer extends THREE.Mesh {
       // Compute an ordering of the generators with the rough goal
       // of keeping unchanging generators near the front to minimize
       // the number of Gsplats that need to be regenerated.
-      const sorted = generators
+      const sorted = visibleGenerators
         .map((g, gIndex): [number, number, SplatGenerator] => {
           const lastGen = activeMapping.get(g);
           // If no previous generator, sort by absolute version, which will
@@ -748,14 +752,24 @@ export class SparkRenderer extends THREE.Mesh {
 
   private compileScene(scene: THREE.Scene): {
     generators: SplatGenerator[];
+    visibleGenerators: SplatGenerator[];
     globalEdits: SplatEdit[];
   } {
     // Take a snapshot of the SplatGenerators and SplatEdits in the scene
     // to be used to run an update.
     const generators: SplatGenerator[] = [];
+    // Collect all SplatGenerators, even if not visible, because we want to
+    // be able to call their update functions every frame.
     scene.traverse((node) => {
       if (node instanceof SplatGenerator) {
         generators.push(node);
+      }
+    });
+
+    const visibleGenerators: SplatGenerator[] = [];
+    scene.traverseVisible((node) => {
+      if (node instanceof SplatGenerator) {
+        visibleGenerators.push(node);
       }
     });
 
@@ -772,7 +786,11 @@ export class SparkRenderer extends THREE.Mesh {
         }
       }
     });
-    return { generators, globalEdits: Array.from(globalEdits) };
+    return {
+      generators,
+      visibleGenerators,
+      globalEdits: Array.from(globalEdits),
+    };
   }
 
   // Renders out the scene to an environment map that can be used for
