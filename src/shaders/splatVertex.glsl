@@ -113,7 +113,7 @@ void main() {
 
     // Compute the Jacobian of the splat's projection at its center
     vec2 scaledRenderSize = renderSize * renderScale;
-    vec2 focal = 0.5 * scaledRenderSize * vec2(projectionMatrix[0][0], projectionMatrix[1][1]);
+    vec2 focal = scaledRenderSize * vec2(projectionMatrix[0][0], projectionMatrix[1][1]);
     float invZ = 1.0 / viewCenter.z;
     vec2 J1 = focal * invZ;
     vec2 J2 = -(J1 * viewCenter.xy) * invZ;
@@ -177,7 +177,7 @@ void main() {
 
     // Compute the NDC coordinates for the ellipsoid's diagonal axes.
     vec2 pixelOffset = eigenVec1 * scale1 + eigenVec2 * scale2;
-    vec2 ndcOffset = (2.0 / scaledRenderSize) * pixelOffset;
+    vec2 ndcOffset = pixelOffset / scaledRenderSize;
     vec3 ndc = vec3(ndcCenter.xy + ndcOffset, ndcCenter.z);
 
     vRgba = rgba;
