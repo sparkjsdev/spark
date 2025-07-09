@@ -141,7 +141,10 @@
 
 @media screen and (max-width: 30em) {
   .md-header {
-    padding-inline: 0;
+    padding-inline: 10px;
+  }
+  .md-header__button {
+    padding: 0.2rem;
   }
 }
 
