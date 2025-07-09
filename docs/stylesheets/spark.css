@@ -173,3 +173,14 @@
     margin-right: 0;
   }
 }
+
+
+header .header__menu-toggle {
+  color: inherit;
+  display: none;
+}
+@media screen and (max-width: 76.234375em) {
+  header .header__menu-toggle {
+    display: inline;
+  }
+}

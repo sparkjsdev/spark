@@ -5,9 +5,11 @@ theme:
   favicon: assets/images/favicon.png
   custom_dir: docs/overrides
   features:
-      - content.code.copy
+    - content.code.copy
 extra_css:
   - stylesheets/spark.css
+extra_javascript:
+  - javascript/menu-toggle.js
 nav:
   - Home: index.md
   - Getting Started: docs/index.md
