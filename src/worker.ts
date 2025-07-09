@@ -1,4 +1,5 @@
 import init_wasm, { sort_splats } from "spark-internal-rs";
+import wasmURL from "spark-internal-rs/spark_internal_rs_bg.wasm?url";
 import type { PcSogsJson, TranscodeSpzInput } from "./SplatLoader";
 import { unpackAntiSplat } from "./antisplat";
 import { SCALE_MIN, WASM_SPLAT_SORT } from "./defines";
@@ -441,8 +442,9 @@ function bufferMessage(event: MessageEvent) {
 async function initialize() {
   // Hold any messages received while initializing
   self.addEventListener("message", bufferMessage);
-
-  await init_wasm();
+  const response = await fetch(wasmURL);
+  const wasmBytes = new Uint8Array(await response.arrayBuffer());
+  await init_wasm({ wasm: wasmBytes });
 
   self.removeEventListener("message", bufferMessage);
   self.addEventListener("message", onMessage);

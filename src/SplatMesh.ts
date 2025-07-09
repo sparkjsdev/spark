@@ -1,6 +1,7 @@
 import * as THREE from "three";
 
 import init_wasm, { raycast_splats } from "spark-internal-rs";
+import wasmURL from "spark-internal-rs/spark_internal_rs_bg.wasm?url";
 import { PackedSplats } from "./PackedSplats";
 import { type RgbaArray, readRgbaArray } from "./RgbaArray";
 import { SplatEdit, SplatEditSdf, SplatEdits } from "./SplatEdit";
@@ -252,7 +253,9 @@ export class SplatMesh extends SplatGenerator {
   static dynoTime = new DynoFloat({ value: 0 });
 
   static async staticInitialize() {
-    await init_wasm();
+    const response = await fetch(wasmURL);
+    const wasmBytes = new Uint8Array(await response.arrayBuffer());
+    await init_wasm({ wasm: wasmBytes });
     SplatMesh.isStaticInitialized = true;
   }
 
