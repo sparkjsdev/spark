@@ -97,17 +97,13 @@ export async function unpackPcSogs(
   }
 
   if (json.shN) {
-
     const useSH3 = json.shN.shape[1] >= 48 - 3;
     const useSH2 = json.shN.shape[1] >= 27 - 3;
     const useSH1 = json.shN.shape[1] >= 12 - 3;
 
-    if(useSH1)
-      extra.sh1 = new Uint32Array(numSplats * 2);
-    if(useSH2)
-      extra.sh2 = new Uint32Array(numSplats * 4);
-    if(useSH3)
-      extra.sh3 = new Uint32Array(numSplats * 4);
+    if (useSH1) extra.sh1 = new Uint32Array(numSplats * 2);
+    if (useSH2) extra.sh2 = new Uint32Array(numSplats * 4);
+    if (useSH3) extra.sh3 = new Uint32Array(numSplats * 4);
 
     const sh1 = new Float32Array(9);
     const sh2 = new Float32Array(15);
@@ -125,45 +121,40 @@ export async function unpackPcSogs(
       const offset = row * centroids.width + col;
 
       for (let d = 0; d < 3; ++d) {
-        
-        if(useSH1) {
+        if (useSH1) {
           for (let k = 0; k < 3; ++k) {
             sh1[k * 3 + d] =
-            json.shN.mins +
-            ((json.shN.maxs - json.shN.mins) *
-              centroids.rgba[(offset + k) * 4 + d]) /
-              255;
+              json.shN.mins +
+              ((json.shN.maxs - json.shN.mins) *
+                centroids.rgba[(offset + k) * 4 + d]) /
+                255;
           }
         }
 
-        if(useSH2) {
+        if (useSH2) {
           for (let k = 0; k < 5; ++k) {
             sh2[k * 3 + d] =
-            json.shN.mins +
-            ((json.shN.maxs - json.shN.mins) *
-              centroids.rgba[(offset + 3 + k) * 4 + d]) /
-              255;
+              json.shN.mins +
+              ((json.shN.maxs - json.shN.mins) *
+                centroids.rgba[(offset + 3 + k) * 4 + d]) /
+                255;
           }
         }
 
-        if(useSH3) {
+        if (useSH3) {
           for (let k = 0; k < 7; ++k) {
             sh3[k * 3 + d] =
-            json.shN.mins +
-            ((json.shN.maxs - json.shN.mins) *
-              centroids.rgba[(offset + 8 + k) * 4 + d]) /
-              255;
+              json.shN.mins +
+              ((json.shN.maxs - json.shN.mins) *
+                centroids.rgba[(offset + 8 + k) * 4 + d]) /
+                255;
           }
         }
       }
 
-      if(useSH1)
-        encodeSh1Rgb(extra.sh1 as Uint32Array, i, sh1);
-      if(useSH2)
-        encodeSh2Rgb(extra.sh2 as Uint32Array, i, sh2);
-      if(useSH3)
-        encodeSh3Rgb(extra.sh3 as Uint32Array, i, sh3);
-    
+      if (useSH1) encodeSh1Rgb(extra.sh1 as Uint32Array, i, sh1);
+      if (useSH2) encodeSh2Rgb(extra.sh2 as Uint32Array, i, sh2);
+      if (useSH3) encodeSh3Rgb(extra.sh3 as Uint32Array, i, sh3);
     }
   }
 
