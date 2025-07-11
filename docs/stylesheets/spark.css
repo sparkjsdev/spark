@@ -139,19 +139,24 @@
   max-width: 600px;
 }
 
+@media screen and (max-width: 30em) {
+  .md-header {
+    padding-inline: 10px;
+  }
+  .md-header__button {
+    padding: 0.2rem;
+  }
+}
+
 @media screen and (max-width: 60em) {
   .feature-list {
     font-size: 0.8rem;
   }
 
   .md-custom-header-right {
+    gap: 0.5rem;
     margin-left: 0;
     margin-right: 0;
-  }
-
-  .icon-discord,
-  .icon-github {
-    margin-right: 1rem;
   }
 
   .icon-discord {
@@ -171,5 +176,16 @@
   [dir=ltr] .md-header__title {
     margin-left: 0;
     margin-right: 0;
+  }
+}
+
+
+header .header__menu-toggle {
+  color: inherit;
+  display: none;
+}
+@media screen and (max-width: 76.234375em) {
+  header .header__menu-toggle {
+    display: inline;
   }
 }
