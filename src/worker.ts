@@ -1,7 +1,7 @@
 import init_wasm, { sort_splats } from "spark-internal-rs";
 import type { PcSogsJson, TranscodeSpzInput } from "./SplatLoader";
 import { unpackAntiSplat } from "./antisplat";
-import { SCALE_MIN, WASM_SPLAT_SORT } from "./defines";
+import { WASM_SPLAT_SORT } from "./defines";
 import { unpackKsplat } from "./ksplat";
 import { unpackPcSogs, unpackPcSogsZip } from "./pcsogs";
 import { PlyReader } from "./ply";
@@ -193,8 +193,6 @@ async function unpackPly({
   const numSplats = ply.numSplats;
 
   const extra: Record<string, unknown> = {};
-  // Anything below this is considered zero and can be rendered as 2DGS
-  const ZERO_CUTOFF = Math.exp(-20);
 
   ply.parseSplats(
     (
@@ -220,9 +218,9 @@ async function unpackPly({
         x,
         y,
         z,
-        scaleX < ZERO_CUTOFF ? 0 : Math.max(SCALE_MIN, scaleX),
-        scaleY < ZERO_CUTOFF ? 0 : Math.max(SCALE_MIN, scaleY),
-        scaleZ < ZERO_CUTOFF ? 0 : Math.max(SCALE_MIN, scaleZ),
+        scaleX,
+        scaleY,
+        scaleZ,
         quatX,
         quatY,
         quatZ,

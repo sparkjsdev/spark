@@ -2,7 +2,7 @@ use half::f16;
 
 const MIN_OPACITY: f32 = 0.1;
 
-pub const LN_SCALE_MIN: f32 = -9.0;
+pub const LN_SCALE_MIN: f32 = -12.0;
 pub const LN_SCALE_MAX: f32 = 9.0;
 pub const LN_RESCALE: f32 = (LN_SCALE_MAX - LN_SCALE_MIN) / 254.0; // 1..=255
 

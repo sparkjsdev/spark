@@ -1,6 +1,6 @@
 # PackedSplats
 
-A `PackedSplats` is a collection of Gaussian splats, packed into a format that takes exactly 16 bytes per splat to maximize memory and cache efficiency. The `center` xyz coordinates are encoded as float16 (3 x 2 bytes), `scale` xyz as 3 x uint8 that encode a log scale from e^-9 to e^9, `rgba` as 4 x uint8, and quaternion encoded via axis+angle using 2 x uint8 for octahedral encoding of the axis direction and a uint8 to encode rotation amount from 0..Pi.
+A `PackedSplats` is a collection of Gaussian splats, packed into a format that takes exactly 16 bytes per splat to maximize memory and cache efficiency. The `center` xyz coordinates are encoded as float16 (3 x 2 bytes), `scale` xyz as 3 x uint8 that encode a log scale from e^-12 to e^9, `rgba` as 4 x uint8, and quaternion encoded via axis+angle using 2 x uint8 for octahedral encoding of the axis direction and a uint8 to encode rotation amount from 0..Pi.
 
 ## Creating a `PackedSplats`
 
@@ -115,7 +115,7 @@ The center x/y/z components are encoded as float16, which provides 10 bits of ma
 
 ### Splat scales encoding
 
-The XYZ scales are encoded independently using the following mapping: Any scale values below e^-20 are interpreted as "true zero" scale, and encoded as `uint8(0)`. Any other values quantized by computing `ln(scale_xyz)`, mapping the range e^-9..e^9 to uint8 values 1..255, rounding, and clamping. This logarithmic scale range can encode values from 0.0001 up to 8K in scale, with approximately 7% steps between discrete sizes, and has minimal impact on perceptible visual quality.
+The XYZ scales are encoded independently using the following mapping: Any scale values below e^-30 are interpreted as "true zero" scale, and encoded as `uint8(0)`. Any other values quantized by computing `ln(scale_xyz)`, mapping the range e^-12..e^9 to uint8 values 1..255, rounding, and clamping. This logarithmic scale range can encode values from 0.0001 up to 8K in scale, with approximately 7% steps between discrete sizes, and has minimal impact on perceptible visual quality.
 
 ### Splat orientation encoding
 

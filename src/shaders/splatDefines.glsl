@@ -1,4 +1,4 @@
-const float LN_SCALE_MIN = -9.0;
+const float LN_SCALE_MIN = -12.0;
 const float LN_SCALE_MAX = 9.0;
 const float LN_RESCALE = (LN_SCALE_MAX - LN_SCALE_MIN) / 254.0; // 1..=255
 

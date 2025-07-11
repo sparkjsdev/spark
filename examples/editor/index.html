@@ -143,6 +143,7 @@
       orbit: false,
       reversePointerDir: false,
       reversePointerSlide: false,
+      backgroundColor: "#000000",
       openFiles: () => {
         fileInput.click();
       },
@@ -485,8 +486,10 @@
       spark.focalDistance = Math.exp(value);
     });
     gui.add(spark, "apertureAngle", 0, 0.01 * Math.PI, 0.001).name("Aperture angle").listen();
-    scene.background = new THREE.Color(0, 0, 0);
-    gui.addColor(scene, "background").name("Background color").listen();
+    scene.background = new THREE.Color(guiOptions.backgroundColor);
+    gui.addColor(guiOptions, "backgroundColor").name("Background color").onChange((value) => {
+      scene.background.set(value);
+    });
 
     const debugFolder = gui.addFolder("Debug").close();
     const normalColor = dyno.dynoBool(false);

@@ -6,6 +6,7 @@ import * as THREE from "three";
 import {
   LN_RESCALE,
   LN_SCALE_MIN,
+  SCALE_ZERO,
   SPLAT_TEX_HEIGHT,
   SPLAT_TEX_MIN_HEIGHT,
   SPLAT_TEX_WIDTH,
@@ -370,32 +371,32 @@ export function setPackedSplat(
 
   // Allow scales below LN_SCALE_MIN to be encoded as 0, which signifies a 2DGS
   const uScaleX =
-    scaleX === 0.0
+    scaleX < SCALE_ZERO
       ? 0
       : Math.min(
           255,
           Math.max(
-            0,
+            1,
             Math.round((Math.log(scaleX) - LN_SCALE_MIN) / LN_RESCALE) + 1,
           ),
         );
   const uScaleY =
-    scaleY === 0.0
+    scaleY < SCALE_ZERO
       ? 0
       : Math.min(
           255,
           Math.max(
-            0,
+            1,
             Math.round((Math.log(scaleY) - LN_SCALE_MIN) / LN_RESCALE) + 1,
           ),
         );
   const uScaleZ =
-    scaleZ === 0.0
+    scaleZ < SCALE_ZERO
       ? 0
       : Math.min(
           255,
           Math.max(
-            0,
+            1,
             Math.round((Math.log(scaleZ) - LN_SCALE_MIN) / LN_RESCALE) + 1,
           ),
         );
@@ -441,32 +442,32 @@ export function setPackedSplatScales(
 ) {
   // Allow scales below LN_SCALE_MIN to be encoded as 0, which signifies a 2DGS
   const uScaleX =
-    scaleX === 0.0
+    scaleX < SCALE_ZERO
       ? 0
       : Math.min(
           255,
           Math.max(
-            0,
+            1,
             Math.round((Math.log(scaleX) - LN_SCALE_MIN) / LN_RESCALE) + 1,
           ),
         );
   const uScaleY =
-    scaleY === 0.0
+    scaleY < SCALE_ZERO
       ? 0
       : Math.min(
           255,
           Math.max(
-            0,
+            1,
             Math.round((Math.log(scaleY) - LN_SCALE_MIN) / LN_RESCALE) + 1,
           ),
         );
   const uScaleZ =
-    scaleZ === 0.0
+    scaleZ < SCALE_ZERO
       ? 0
       : Math.min(
           255,
           Math.max(
-            0,
+            1,
             Math.round((Math.log(scaleZ) - LN_SCALE_MIN) / LN_RESCALE) + 1,
           ),
         );

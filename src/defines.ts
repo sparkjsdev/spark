@@ -4,11 +4,14 @@
 // If these values are changed, the corresponding values in splatDefines.glsl
 // must also be updated to match.
 
-export const LN_SCALE_MIN = -9.0;
+export const LN_SCALE_MIN = -12.0;
 export const LN_SCALE_MAX = 9.0;
 export const LN_RESCALE = (LN_SCALE_MAX - LN_SCALE_MIN) / 254.0; // 1..=255
 export const SCALE_MIN = Math.exp(LN_SCALE_MIN);
 export const SCALE_MAX = Math.exp(LN_SCALE_MAX);
+
+export const LN_SCALE_ZERO = -30.0;
+export const SCALE_ZERO = Math.exp(LN_SCALE_ZERO);
 
 // Gsplats are stored in textures that are 2^11 x 2^11 x up to 2^11
 // Most WebGL2 implementations support 2D textures up to 2^12 x 2^12 (max 16M Gsplats)

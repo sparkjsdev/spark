@@ -105,7 +105,7 @@ export type SparkRendererOptions = {
   // any scale x/y/z component that is exactly 0 (minimum quantized value) results
   // in the other two non-0 axis being interpreted as an oriented 2D Gaussian Splat,
   // rather instead of the usual projected 3DGS Z-slice. When reading PLY files,
-  // scale values less than e^-20 will be interpreted as 0. (default: false)
+  // scale values less than e^-30 will be interpreted as 0. (default: false)
   enable2DGS?: boolean;
   // Scalar value to add to 2D splat covariance diagonal, effectively blurring +
   // enlarging splats. In scenes trained without the Gsplat anti-aliasing tweak

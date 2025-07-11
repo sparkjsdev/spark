@@ -51,7 +51,7 @@ export type PackedSplatsOptions = {
 // A PackedSplats is a collection of Gaussian splats, packed into a format that
 // takes exactly 16 bytes per Gsplat to maximize memory and cache efficiency.
 // The center xyz coordinates are encoded as float16 (3 x 2 bytes), scale xyz
-// as 3 x uint8 that encode a log scale from e^-9 to e^9, rgba as 4 x uint8,
+// as 3 x uint8 that encode a log scale from e^-12 to e^9, rgba as 4 x uint8,
 // and quaternion encoded via axis+angle using 2 x uint8 for octahedral encoding
 // of the axis direction and a uint8 to encode rotation amount from 0..Pi.
 
