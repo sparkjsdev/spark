@@ -36,13 +36,6 @@
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
 
-    const spark = new SparkRenderer({
-      renderer,
-      blurAmount: 0.3,
-    });
-
-    scene.add(spark);
-
     const splatURL = await getAssetFileURL("sutro.zip");
     const sutroTower = new SplatMesh({ url: splatURL });
     sutroTower.quaternion.set(1, 0, 0, 0);
