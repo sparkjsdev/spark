@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<html>
 
 <head>
   <meta charset="utf-8">
@@ -34,7 +35,7 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { SplatMesh } from "@sparkjsdev/spark";
+    import { SplatMesh, PackedSplats } from "@sparkjsdev/spark";
     import { EXRLoader } from "three/addons/loaders/EXRLoader.js";
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
@@ -49,16 +50,17 @@
     renderer.setClearColor(new THREE.Color(0xFFFFFF), 1);
     document.body.appendChild(renderer.domElement)
 
+    let splatURL = await getAssetFileURL("butterfly-ai.spz");
+    const butterflySplats = new PackedSplats({ url: splatURL });
     const butterflies = [];
     for (let i = 0; i < 6; i++) {
-      let splatURL = await getAssetFileURL("butterfly-ai.spz");
-      const splat = new SplatMesh({ url: splatURL });
+      const splat = new SplatMesh({ packedSplats: butterflySplats });
       splat.quaternion.set(1, 0, 0, 0);
       scene.add(splat);
       butterflies.push(splat);
     }
 
-    let splatURL = await getAssetFileURL("cat.spz");
+    splatURL = await getAssetFileURL("cat.spz");
     const cat = new SplatMesh({ url: splatURL });
     cat.quaternion.set(1, 0, 0, 0);
     cat.scale.setScalar(0.5);

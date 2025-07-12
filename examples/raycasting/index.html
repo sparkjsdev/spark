@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<html>
 
 <head>
   <meta charset="utf-8">
@@ -47,8 +48,9 @@
     const NUM_ROBOTS = 5;
     const robots = [];
     const splatURL = await getAssetFileURL("robot-head.spz");
+    const packedSplats = new PackedSplats({ url: splatURL });
     for (let i = 0; i < NUM_ROBOTS; i++) {
-      const robot = new SplatMesh({ url: splatURL });
+      const robot = new SplatMesh({ packedSplats });
       robot.rotation.x = Math.PI;
       robot.scale.setScalar(0.2);
       robot.position.set(0, 0, i);

@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<html>
 
 <head>
   <meta charset="utf-8">
@@ -39,7 +40,7 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { SplatMesh, SparkRenderer } from "@sparkjsdev/spark";
+    import { SplatMesh, SparkRenderer, PackedSplats } from "@sparkjsdev/spark";
     import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
@@ -55,13 +56,14 @@
     const spark = new SparkRenderer({ renderer });
 
     const splatURL = await getAssetFileURL("fireplace.spz");
-    const background = new SplatMesh({ url: splatURL });
+    const packedSplats = new PackedSplats({ url: splatURL });
+    const background = new SplatMesh({ packedSplats });
     background.quaternion.set(1, 0, 0, 0);
     background.position.set(0.5, 0, -1);
     background.scale.setScalar(0.5);
     scene.add(background);
 
-    const background2 = new SplatMesh({ url: splatURL });
+    const background2 = new SplatMesh({ packedSplats });
     background2.quaternion.set(1, 0, 0, 0);
     background2.rotation.y = Math.PI;
     background2.position.set(-0.5, 0, 0.0);
@@ -81,6 +83,7 @@
     scene.add(duck);
 
     let lastTime;
+    let renderedEnvMap = false;
     renderer.setAnimationLoop(function animate(time) {
       const deltaTime = time - (lastTime || time);
       lastTime = time;
