@@ -39,6 +39,7 @@ const spark = new SparkRenderer({
   apertureAngle?: number;
   falloff?: number;
   clipXY?: number;
+  focalAdjustment?: number;
   view?: SparkViewpointOptions;
 });
 ```
@@ -63,6 +64,7 @@ const spark = new SparkRenderer({
 | **apertureAngle** | Full-width angle of aperture opening from pinhole camera origin in radians (default: `0.0` to disable)
 | **falloff**       | Modulate Gaussian kernel falloff. 0 means "no falloff, flat shading", while 1 is the normal Gaussian kernel. (default: `1.0`)
 | **clipXY**        | X/Y clipping boundary factor for splat centers against view frustum. 1.0 clips any centers that are exactly out of bounds (but the splat's entire projection may still be in bounds), while 1.4 clips centers that are 40% beyond the bounds. (default: `1.4`)
+| **focalAdjustment** | Parameter to adjust projected splat scale calculation to match other renderers, similar to the same parameter in the MKellogg 3DGS renderer. Higher values will tend to sharpen the splats. A value 2.0 can be used to match the behavior of the PlayCanvas renderer.  (default: `1.0`)
 | **view**          | Configures the `SparkViewpointOptions` for the default `SparkViewpoint` associated with this `SparkRenderer`. Notable option: `sortRadial` (sort by radial distance or Z-depth)
 
 ## `newViewpoint(options: SparkViewpointOptions)`

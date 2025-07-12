@@ -126,6 +126,11 @@ export type SparkRendererOptions = {
   // 1.0 clips any centers that are exactly out of bounds, while 1.4 clips
   // centers that are 40% beyond the bounds. (default: 1.4)
   clipXY?: number;
+  // Parameter to adjust projected splat scale calculation to match other renderers,
+  // similar to the same parameter in the MKellogg 3DGS renderer. Higher values will
+  // tend to sharpen the splats. A value 2.0 can be used to match the behavior of
+  // the PlayCanvas renderer. (default: 1.0)
+  focalAdjustment?: number;
   // Configures the SparkViewpointOptions for the default SparkViewpoint
   // associated with this SparkRenderer. Notable option: sortRadial (sort by
   // radial distance or Z-depth)
@@ -148,7 +153,7 @@ export class SparkRenderer extends THREE.Mesh {
   apertureAngle: number;
   falloff: number;
   clipXY: number;
-  renderScale = 1.0;
+  focalAdjustment: number;
 
   splatTexture: null | {
     enable?: boolean;
@@ -264,6 +269,7 @@ export class SparkRenderer extends THREE.Mesh {
     this.apertureAngle = options.apertureAngle ?? 0.0;
     this.falloff = options.falloff ?? 1.0;
     this.clipXY = options.clipXY ?? 1.4;
+    this.focalAdjustment = options.focalAdjustment ?? 1.0;
 
     this.active = new SplatAccumulator();
     this.accumulatorCount = 1;
@@ -321,7 +327,7 @@ export class SparkRenderer extends THREE.Mesh {
       // Clip Gsplats that are clipXY times beyond the +-1 frustum bounds
       clipXY: { value: 1.4 },
       // Debug renderSize scale factor
-      renderScale: { value: 1.0 },
+      focalAdjustment: { value: 1.0 },
       // Enable splat texture rendering
       splatTexEnable: { value: false },
       // Splat texture to render
@@ -479,7 +485,7 @@ export class SparkRenderer extends THREE.Mesh {
     this.uniforms.apertureAngle.value = this.apertureAngle;
     this.uniforms.falloff.value = this.falloff;
     this.uniforms.clipXY.value = this.clipXY;
-    this.uniforms.renderScale.value = this.renderScale;
+    this.uniforms.focalAdjustment.value = this.focalAdjustment;
 
     if (this.splatTexture) {
       const { enable, texture, multiply, add, near, far, mid } =

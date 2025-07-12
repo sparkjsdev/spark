@@ -25,7 +25,7 @@ uniform float preBlurAmount;
 uniform float focalDistance;
 uniform float apertureAngle;
 uniform float clipXY;
-uniform float renderScale;
+uniform float focalAdjustment;
 
 uniform usampler2DArray packedSplats;
 
@@ -112,7 +112,7 @@ void main() {
     mat3 cov3D = RS * transpose(RS);
 
     // Compute the Jacobian of the splat's projection at its center
-    vec2 scaledRenderSize = renderSize * renderScale;
+    vec2 scaledRenderSize = renderSize * focalAdjustment;
     vec2 focal = 0.5 * scaledRenderSize * vec2(projectionMatrix[0][0], projectionMatrix[1][1]);
     float invZ = 1.0 / viewCenter.z;
     vec2 J1 = focal * invZ;
