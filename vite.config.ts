@@ -90,6 +90,9 @@ export default defineConfig(({ mode }) => {
     },
 
     worker: {
+      rollupOptions: {
+        treeshake: "smallest",
+      },
       plugins: () => [
         glsl({
           include: ["**/*.glsl"],
