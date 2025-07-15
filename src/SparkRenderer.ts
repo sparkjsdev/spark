@@ -78,62 +78,101 @@ THREE.Scene.prototype.onBeforeRender = function (
 };
 
 export type SparkRendererOptions = {
-  // Pass in your THREE.WebGLRenderer instance so Spark can perform work
-  // outside the usual render loop. Should be created with antialias: false
-  // (default setting) as WebGL anti-aliasing doesn't improve Gaussian Splatting
-  // rendering and significantly reduces performance.
+  /**
+   * Pass in your THREE.WebGLRenderer instance so Spark can perform work
+   * outside the usual render loop. Should be created with antialias: false
+   * (default setting) as WebGL anti-aliasing doesn't improve Gaussian Splatting
+   * rendering and significantly reduces performance.
+   */
   renderer: THREE.WebGLRenderer;
-  // Pass in a THREE.Clock to synchronize time-based effects across different
-  // systems. Alternatively, you can set the SparkRenderer properties time and
-  // deltaTime directly. (default: new THREE.Clock)
+  /**
+   * Pass in a THREE.Clock to synchronize time-based effects across different
+   * systems. Alternatively, you can set the SparkRenderer properties time and
+   * deltaTime directly. (default: new THREE.Clock)
+   */
   clock?: THREE.Clock;
-  // Controls whether to check and automatically update Gsplat collection after
-  // each frame render. (default: true)
+  /**
+   * Controls whether to check and automatically update Gsplat collection after
+   * each frame render.
+   * @default true
+   */
   autoUpdate?: boolean;
-  // Controls whether to update the Gsplats before or after rendering. For WebXR
-  // this must be false in order to complete rendering as soon as possible.
-  // (default: false)
+  /**
+   * Controls whether to update the Gsplats before or after rendering. For WebXR
+   * this must be false in order to complete rendering as soon as possible.
+   * @default false
+   */
   preUpdate?: boolean;
-  // Distance threshold for SparkRenderer movement triggering a Gsplat update at
-  // the new origin. (default: 1.0)
+  /**
+   * Distance threshold for SparkRenderer movement triggering a Gsplat update at
+   * the new origin.
+   * @default 1.0
+   */
   originDistance?: number;
-  // Maximum standard deviations from the center to render Gaussians. Values
-  // Math.sqrt(5)..Math.sqrt(8) produce good results and can be tweaked for
-  // performance. (default: Math.sqrt(8))
+  /**
+   * Maximum standard deviations from the center to render Gaussians. Values
+   * Math.sqrt(5)..Math.sqrt(8) produce good results and can be tweaked for
+   * performance.
+   * @default Math.sqrt(8)
+   */
   maxStdDev?: number;
-  // Enable 2D Gaussian splatting rendering ability. When this mode is enabled,
-  // any scale x/y/z component that is exactly 0 (minimum quantized value) results
-  // in the other two non-0 axis being interpreted as an oriented 2D Gaussian Splat,
-  // rather instead of the usual projected 3DGS Z-slice. When reading PLY files,
-  // scale values less than e^-30 will be interpreted as 0. (default: false)
+  /**
+   * Enable 2D Gaussian splatting rendering ability. When this mode is enabled,
+   * any scale x/y/z component that is exactly 0 (minimum quantized value) results
+   * in the other two non-0 axis being interpreted as an oriented 2D Gaussian Splat,
+   * rather instead of the usual projected 3DGS Z-slice. When reading PLY files,
+   * scale values less than e^-30 will be interpreted as 0.
+   * @default false
+   */
   enable2DGS?: boolean;
-  // Scalar value to add to 2D splat covariance diagonal, effectively blurring +
-  // enlarging splats. In scenes trained without the Gsplat anti-aliasing tweak
-  // this value was typically 0.3, but with anti-aliasing it is 0.0 (default: 0.0)
+  /**
+   * Scalar value to add to 2D splat covariance diagonal, effectively blurring +
+   * enlarging splats. In scenes trained without the Gsplat anti-aliasing tweak
+   * this value was typically 0.3, but with anti-aliasing it is 0.0
+   * @default 0.0
+   */
   preBlurAmount?: number;
-  // Scalar value to add to 2D splat covarianve diagonal, with opacity adjustment
-  // to correctly account for "blurring" when anti-aliasing. Typically 0.3
-  // (equivalent to approx 0.5 pixel radius) in scenes trained with anti-aliasing.
+  /**
+   * Scalar value to add to 2D splat covarianve diagonal, with opacity adjustment
+   * to correctly account for "blurring" when anti-aliasing. Typically 0.3
+   * (equivalent to approx 0.5 pixel radius) in scenes trained with anti-aliasing.
+   */
   blurAmount?: number;
-  // Depth-of-field distance to focal plane
+  /**
+   * Depth-of-field distance to focal plane
+   */
   focalDistance?: number;
-  // Full-width angle of aperture opening (in radians), default 0.0 to disable
+  /**
+   * Full-width angle of aperture opening (in radians), 0.0 to disable
+   * @default 0.0
+   */
   apertureAngle?: number;
-  // Modulate Gaussian kernel falloff. 0 means "no falloff, flat shading",
-  // while 1 is the normal Gaussian kernel. (default: 1.0)
+  /**
+   * Modulate Gaussian kernel falloff. 0 means "no falloff, flat shading",
+   * while 1 is the normal Gaussian kernel.
+   * @default 1.0
+   */
   falloff?: number;
-  // X/Y clipping boundary factor for Gsplat centers against view frustum.
-  // 1.0 clips any centers that are exactly out of bounds, while 1.4 clips
-  // centers that are 40% beyond the bounds. (default: 1.4)
+  /**
+   * X/Y clipping boundary factor for Gsplat centers against view frustum.
+   * 1.0 clips any centers that are exactly out of bounds, while 1.4 clips
+   * centers that are 40% beyond the bounds.
+   * @default 1.4
+   */
   clipXY?: number;
-  // Parameter to adjust projected splat scale calculation to match other renderers,
-  // similar to the same parameter in the MKellogg 3DGS renderer. Higher values will
-  // tend to sharpen the splats. A value 2.0 can be used to match the behavior of
-  // the PlayCanvas renderer. (default: 1.0)
+  /**
+   * Parameter to adjust projected splat scale calculation to match other renderers,
+   * similar to the same parameter in the MKellogg 3DGS renderer. Higher values will
+   * tend to sharpen the splats. A value 2.0 can be used to match the behavior of
+   * the PlayCanvas renderer.
+   * @default 1.0
+   */
   focalAdjustment?: number;
-  // Configures the SparkViewpointOptions for the default SparkViewpoint
-  // associated with this SparkRenderer. Notable option: sortRadial (sort by
-  // radial distance or Z-depth)
+  /**
+   * Configures the SparkViewpointOptions for the default SparkViewpoint
+   * associated with this SparkRenderer. Notable option: sortRadial (sort by
+   * radial distance or Z-depth)
+   */
   view?: SparkViewpointOptions;
 };
 
