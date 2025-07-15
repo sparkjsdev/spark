@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 
 import type { GsplatGenerator } from "./SplatGenerator";
 import { type SplatFileType, SplatLoader, unpackSplats } from "./SplatLoader";
@@ -498,7 +499,7 @@ export class PackedSplats {
 
     // Prepare and update our material we'll use to render the Gsplats
     const material = program.prepareMaterial();
-    PackedSplats.mesh.material = material;
+    PackedSplats.fullScreenQuad.material = material;
     return { program, material };
   }
 
@@ -579,7 +580,7 @@ export class PackedSplats {
       renderer.setRenderTarget(this.target, layer);
       renderer.xr.enabled = false;
       renderer.autoClear = false;
-      renderer.render(PackedSplats.scene, PackedSplats.camera);
+      PackedSplats.fullScreenQuad.render(renderer);
 
       base += SPLAT_TEX_WIDTH * (layerYEnd - layerYStart);
     }
@@ -593,14 +594,10 @@ export class PackedSplats {
   // Cache for GsplatGenerator programs
   static generatorProgram = new Map<GsplatGenerator, DynoProgram>();
 
-  // Static Three.js objects for pseudo-compute shader rendering
-  static geometry = new THREE.PlaneGeometry(2, 2);
-  static mesh = new THREE.Mesh(
-    PackedSplats.geometry,
+  // Static full-screen quad for pseudo-compute shader rendering
+  static fullScreenQuad = new FullScreenQuad(
     new THREE.RawShaderMaterial({ visible: false }),
   );
-  static scene = new THREE.Scene().add(PackedSplats.mesh);
-  static camera = new THREE.Camera();
 }
 
 // You can use a PackedSplats as a dyno block using the function

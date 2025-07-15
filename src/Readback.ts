@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 
 import { SPLAT_TEX_HEIGHT, SPLAT_TEX_WIDTH } from "./defines";
 import { type Dyno, OutputRgba8, dynoBlock } from "./dyno";
@@ -124,7 +125,7 @@ export class Readback {
     }
 
     const material = program.prepareMaterial();
-    Readback.mesh.material = material;
+    Readback.fullScreenQuad.material = material;
     return { program, material };
   }
 
@@ -181,7 +182,7 @@ export class Readback {
       renderer.setRenderTarget(this.target, layer);
       renderer.xr.enabled = false;
       renderer.autoClear = false;
-      renderer.render(Readback.scene, Readback.camera);
+      Readback.fullScreenQuad.render(renderer);
 
       baseIndex += SPLAT_TEX_WIDTH * layerYEnd;
     }
@@ -330,12 +331,8 @@ export class Readback {
   // Cache for Rgba8Readback programs
   static readbackProgram = new Map<Rgba8Readback, DynoProgram>();
 
-  // Static Three.js objects for pseudo-compute shader rendering
-  static geometry = new THREE.PlaneGeometry(2, 2);
-  static mesh = new THREE.Mesh(
-    Readback.geometry,
+  // Static full-screen quad for pseudo-compute shader rendering
+  static fullScreenQuad = new FullScreenQuad(
     new THREE.RawShaderMaterial({ visible: false }),
   );
-  static scene = new THREE.Scene().add(Readback.mesh);
-  static camera = new THREE.Camera();
 }
