@@ -337,7 +337,7 @@ export class FreeList<T, Args> {
 // logarithmic uint8, rotation as three uint8s representing rotation axis and angle,
 // and RGBA as 4xuint8.
 export function setPackedSplat(
-  packedSplats: Uint32Array,
+  packedSplats: [Uint32Array, Uint32Array],
   index: number,
   x: number,
   y: number,
@@ -354,10 +354,10 @@ export function setPackedSplat(
   g: number,
   b: number,
 ) {
-  const uR = floatToUint8(r);
-  const uG = floatToUint8(g);
-  const uB = floatToUint8(b);
-  const uA = floatToUint8(opacity);
+  const uR = Math.max(0, Math.min(65535, Math.round(r * 255)));
+  const uG = Math.max(0, Math.min(65535, Math.round(g * 255)));
+  const uB = Math.max(0, Math.min(65535, Math.round(b * 255)));
+  const uA = Math.max(0, Math.min(65535, Math.round(opacity * 255)));
 
   // Alternate internal encodings commented out below.
   const uQuat = encodeQuatOctXy88R8(
@@ -365,9 +365,6 @@ export function setPackedSplat(
   );
   // const uQuat = encodeQuatXyz888(new THREE.Quaternion(quatX, quatY, quatZ, quatW));
   // const uQuat = encodeQuatEulerXyz888(new THREE.Quaternion(quatX, quatY, quatZ, quatW));
-  const uQuatX = uQuat & 0xff;
-  const uQuatY = (uQuat >>> 8) & 0xff;
-  const uQuatZ = (uQuat >>> 16) & 0xff;
 
   // Allow scales below LN_SCALE_MIN to be encoded as 0, which signifies a 2DGS
   const uScaleX =
@@ -401,40 +398,36 @@ export function setPackedSplat(
           ),
         );
 
-  const uCenterX = toHalf(x);
-  const uCenterY = toHalf(y);
-  const uCenterZ = toHalf(z);
-
   // Encode the splat as 4 consecutive Uint32 elements
   const i4 = index * 4;
-  packedSplats[i4] = uR | (uG << 8) | (uB << 16) | (uA << 24);
-  packedSplats[i4 + 1] = uCenterX | (uCenterY << 16);
-  packedSplats[i4 + 2] = uCenterZ | (uQuatX << 16) | (uQuatY << 24);
-  packedSplats[i4 + 3] =
-    uScaleX | (uScaleY << 8) | (uScaleZ << 16) | (uQuatZ << 24);
+  packedSplats[0][i4] = floatBitsToUint(x);
+  packedSplats[0][i4 + 1] = floatBitsToUint(y);
+  packedSplats[0][i4 + 2] = floatBitsToUint(z);
+  packedSplats[0][i4 + 3] = uScaleX | (uScaleY << 8) | (uScaleZ << 16);
+  packedSplats[1][i4] = uR | (uG << 16);
+  packedSplats[1][i4 + 1] = uB | (uA << 16);
+  packedSplats[1][i4 + 2] = uQuat;
+  packedSplats[1][i4 + 3] = 0;
 }
 
 // Encode the center coordinates x,y,z in the packedSplats Uint32Array,
 // leaving all other fields as is.
 export function setPackedSplatCenter(
-  packedSplats: Uint32Array,
+  packedSplats: [Uint32Array, Uint32Array],
   index: number,
   x: number,
   y: number,
   z: number,
 ) {
-  const uCenterX = toHalf(x);
-  const uCenterY = toHalf(y);
-  const uCenterZ = toHalf(z);
-
   const i4 = index * 4;
-  packedSplats[i4 + 1] = uCenterX | (uCenterY << 16);
-  packedSplats[i4 + 2] = uCenterZ | (packedSplats[i4 + 2] & 0xffff0000);
+  packedSplats[0][i4] = floatBitsToUint(x);
+  packedSplats[0][i4 + 1] = floatBitsToUint(y);
+  packedSplats[0][i4 + 2] = floatBitsToUint(z);
 }
 
 // Encode the scales x,y,z in the packedSplats Uint32Array, leaving all other fields as is.
 export function setPackedSplatScales(
-  packedSplats: Uint32Array,
+  packedSplats: [Uint32Array, Uint32Array],
   index: number,
   scaleX: number,
   scaleY: number,
@@ -473,17 +466,13 @@ export function setPackedSplatScales(
         );
 
   const i4 = index * 4;
-  packedSplats[i4 + 3] =
-    uScaleX |
-    (uScaleY << 8) |
-    (uScaleZ << 16) |
-    (packedSplats[i4 + 3] & 0xff000000);
+  packedSplats[0][i4 + 3] = uScaleX | (uScaleY << 8) | (uScaleZ << 16);
 }
 
 // Encode the rotation quatX, quatY, quatZ, quatW in the packedSplats Uint32Array,
 // leaving all other fields as is.
 export function setPackedSplatQuat(
-  packedSplats: Uint32Array,
+  packedSplats: [Uint32Array, Uint32Array],
   index: number,
   quatX: number,
   quatY: number,
@@ -495,60 +484,57 @@ export function setPackedSplatQuat(
   );
   // const uQuat = encodeQuatXyz888(new THREE.Quaternion(quatX, quatY, quatZ, quatW));
   // const uQuat = encodeQuatEulerXyz888(new THREE.Quaternion(quatX, quatY, quatZ, quatW));
-  const uQuatX = uQuat & 0xff;
-  const uQuatY = (uQuat >>> 8) & 0xff;
-  const uQuatZ = (uQuat >>> 16) & 0xff;
 
   const i4 = index * 4;
-  packedSplats[i4 + 2] =
-    (packedSplats[i4 + 2] & 0x0000ffff) | (uQuatX << 16) | (uQuatY << 24);
-  packedSplats[i4 + 3] = (packedSplats[i4 + 3] & 0x00ffffff) | (uQuatZ << 24);
+  packedSplats[1][i4 + 2] = uQuat;
 }
 
 // Encode the RGBA color in the packedSplats Uint32Array, leaving other fields alone.
 export function setPackedSplatRgba(
-  packedSplats: Uint32Array,
+  packedSplats: [Uint32Array, Uint32Array],
   index: number,
   r: number,
   g: number,
   b: number,
   a: number,
 ) {
-  const uR = floatToUint8(r);
-  const uG = floatToUint8(g);
-  const uB = floatToUint8(b);
-  const uA = floatToUint8(a);
+  const uR = Math.max(0, Math.min(65535, Math.round(r * 255)));
+  const uG = Math.max(0, Math.min(65535, Math.round(g * 255)));
+  const uB = Math.max(0, Math.min(65535, Math.round(b * 255)));
+  const uA = Math.max(0, Math.min(65535, Math.round(a * 255)));
+
   const i4 = index * 4;
-  packedSplats[i4] = uR | (uG << 8) | (uB << 16) | (uA << 24);
+  packedSplats[1][i4] = uR | (uG << 16);
+  packedSplats[1][i4 + 1] = uB | (uA << 16);
 }
 
 // Encode the RGB color in the packedSplats Uint32Array, leaving other fields alone.
 export function setPackedSplatRgb(
-  packedSplats: Uint32Array,
+  packedSplats: [Uint32Array, Uint32Array],
   index: number,
   r: number,
   g: number,
   b: number,
 ) {
-  const uR = floatToUint8(r);
-  const uG = floatToUint8(g);
-  const uB = floatToUint8(b);
+  const uR = Math.max(0, Math.min(65535, Math.round(r * 255)));
+  const uG = Math.max(0, Math.min(65535, Math.round(g * 255)));
+  const uB = Math.max(0, Math.min(65535, Math.round(b * 255)));
 
   const i4 = index * 4;
-  packedSplats[i4] =
-    uR | (uG << 8) | (uB << 16) | (packedSplats[i4] & 0xff000000);
+  packedSplats[1][i4] = uR | (uG << 16);
+  packedSplats[1][i4 + 1] = uB | (packedSplats[1][i4 + 1] & 0xffff0000);
 }
 
 // Encode the opacity in the packedSplats Uint32Array, leaving other fields alone.
 export function setPackedSplatOpacity(
-  packedSplats: Uint32Array,
+  packedSplats: [Uint32Array, Uint32Array],
   index: number,
   opacity: number,
 ) {
-  const uA = floatToUint8(opacity);
+  const uA = Math.max(0, Math.min(65535, Math.round(opacity * 255)));
 
   const i4 = index * 4;
-  packedSplats[i4] = (packedSplats[i4] & 0x00ffffff) | (uA << 24);
+  packedSplats[1][i4 + 1] = (packedSplats[1][i4 + 1] & 0x0000ffff) | (uA << 16);
 }
 
 const packedCenter = new THREE.Vector3();
@@ -566,7 +552,7 @@ const packedFields = {
 // Unpack all components of a PackedSplat from the packedSplats Uint32Array into
 // THREE.js vector objects. The returned objects will be reused each call.
 export function unpackSplat(
-  packedSplats: Uint32Array,
+  packedSplats: [Uint32Array, Uint32Array],
   index: number,
 ): {
   center: THREE.Vector3;
@@ -579,21 +565,19 @@ export function unpackSplat(
   const result = packedFields;
 
   const i4 = index * 4;
-  const word0 = packedSplats[i4];
-  const word1 = packedSplats[i4 + 1];
-  const word2 = packedSplats[i4 + 2];
-  const word3 = packedSplats[i4 + 3];
+  const word0 = packedSplats[0][i4];
+  const word1 = packedSplats[0][i4 + 1];
+  const word2 = packedSplats[0][i4 + 2];
+  const word3 = packedSplats[0][i4 + 3];
+  const word4 = packedSplats[1][i4];
+  const word5 = packedSplats[1][i4 + 1];
+  const word6 = packedSplats[1][i4 + 2];
+  const word7 = packedSplats[1][i4 + 3];
 
-  result.color.set(
-    (word0 & 0xff) / 255,
-    ((word0 >>> 8) & 0xff) / 255,
-    ((word0 >>> 16) & 0xff) / 255,
-  );
-  result.opacity = ((word0 >>> 24) & 0xff) / 255;
   result.center.set(
-    fromHalf(word1 & 0xffff),
-    fromHalf((word1 >>> 16) & 0xffff),
-    fromHalf(word2 & 0xffff),
+    uintBitsToFloat(word0),
+    uintBitsToFloat(word1),
+    uintBitsToFloat(word2),
   );
 
   const uScalesX = word3 & 0xff;
@@ -606,8 +590,14 @@ export function unpackSplat(
   result.scales.z =
     uScalesZ === 0 ? 0.0 : Math.exp(LN_SCALE_MIN + (uScalesZ - 1) * LN_RESCALE);
 
-  const uQuat = ((word2 >>> 16) & 0xffff) | ((word3 >>> 8) & 0xff0000);
-  decodeQuatOctXy88R8(uQuat, result.quaternion);
+  result.color.set(
+    (word4 & 0xffff) / 255,
+    ((word4 >>> 16) & 0xffff) / 255,
+    (word5 & 0xffff) / 255,
+  );
+  result.opacity = ((word5 >>> 16) & 0xffff) / 255;
+
+  decodeQuatOctXy88R8(word6 & 0xffffff, result.quaternion);
   // decodeQuatXyz888(uQuat, result.quaternion);
   // decodeQuatEulerXyz888(uQuat, result.quaternion);
 

@@ -66,5 +66,5 @@ void main() {
     if (encodeLinear) {
         rgba.rgb = srgbToLinear(rgba.rgb);
     }
-    fragColor = rgba;
+    fragColor = vec4(rgba.rgb * rgba.a, rgba.a);
 }

@@ -537,7 +537,7 @@ export class SplatMesh extends SplatGenerator {
       near,
       far,
       this.packedSplats.numSplats,
-      this.packedSplats.packedArray,
+      this.packedSplats.packedArray[0], // FIXME
       RAYCAST_ELLIPSOID,
     );
 

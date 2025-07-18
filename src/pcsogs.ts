@@ -15,7 +15,7 @@ export async function unpackPcSogs(
   json: PcSogsJson,
   extraFiles: Record<string, ArrayBuffer>,
 ): Promise<{
-  packedArray: Uint32Array;
+  packedArray: [Uint32Array, Uint32Array];
   numSplats: number;
   extra: Record<string, unknown>;
 }> {
@@ -25,7 +25,10 @@ export async function unpackPcSogs(
 
   const numSplats = json.means.shape[0];
   const maxSplats = computeMaxSplats(numSplats);
-  const packedArray = new Uint32Array(maxSplats * 4);
+  const packedArray: [Uint32Array, Uint32Array] = [
+    new Uint32Array(maxSplats * 4),
+    new Uint32Array(maxSplats * 4),
+  ];
   const extra: Record<string, unknown> = {};
 
   const meansPromise = Promise.all([
@@ -249,7 +252,7 @@ async function decodeImageRgba(fileBytes: ArrayBuffer) {
 }
 
 export async function unpackPcSogsZip(fileBytes: Uint8Array): Promise<{
-  packedArray: Uint32Array;
+  packedArray: [Uint32Array, Uint32Array];
   numSplats: number;
   extra: Record<string, unknown>;
 }> {

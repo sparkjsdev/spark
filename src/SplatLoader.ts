@@ -402,7 +402,7 @@ export async function unpackSplats({
   fileType?: SplatFileType;
   pathOrUrl?: string;
 }): Promise<{
-  packedArray: Uint32Array;
+  packedArray: [Uint32Array, Uint32Array];
   numSplats: number;
   extra?: Record<string, unknown>;
 }> {
@@ -422,13 +422,19 @@ export async function unpackSplats({
       await ply.parseHeader();
       const numSplats = ply.numSplats;
       const maxSplats = getTextureSize(numSplats).maxSplats;
-      const args = { fileBytes, packedArray: new Uint32Array(maxSplats * 4) };
+      const args = {
+        fileBytes,
+        packedArray: [
+          new Uint32Array(maxSplats * 4),
+          new Uint32Array(maxSplats * 4),
+        ],
+      };
       return await withWorker(async (worker) => {
         const { packedArray, numSplats, extra } = (await worker.call(
           "unpackPly",
           args,
         )) as {
-          packedArray: Uint32Array;
+          packedArray: [Uint32Array, Uint32Array];
           numSplats: number;
           extra: Record<string, unknown>;
         };
@@ -443,7 +449,7 @@ export async function unpackSplats({
             fileBytes,
           },
         )) as {
-          packedArray: Uint32Array;
+          packedArray: [Uint32Array, Uint32Array];
           numSplats: number;
           extra: Record<string, unknown>;
         };
@@ -457,7 +463,7 @@ export async function unpackSplats({
           {
             fileBytes,
           },
-        )) as { packedArray: Uint32Array; numSplats: number };
+        )) as { packedArray: [Uint32Array, Uint32Array]; numSplats: number };
         return { packedArray, numSplats };
       });
     }
@@ -467,7 +473,7 @@ export async function unpackSplats({
           "decodeKsplat",
           { fileBytes },
         )) as {
-          packedArray: Uint32Array;
+          packedArray: [Uint32Array, Uint32Array];
           numSplats: number;
           extra: Record<string, unknown>;
         };
@@ -480,7 +486,7 @@ export async function unpackSplats({
           "decodePcSogs",
           { fileBytes, extraFiles },
         )) as {
-          packedArray: Uint32Array;
+          packedArray: [Uint32Array, Uint32Array];
           numSplats: number;
           extra: Record<string, unknown>;
         };
@@ -493,7 +499,7 @@ export async function unpackSplats({
           "decodePcSogsZip",
           { fileBytes },
         )) as {
-          packedArray: Uint32Array;
+          packedArray: [Uint32Array, Uint32Array];
           numSplats: number;
           extra: Record<string, unknown>;
         };

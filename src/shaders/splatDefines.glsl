@@ -203,14 +203,7 @@ vec4 decodeQuatOctXy88R8(uint encoded) {
 // }
 
 // Pack a Gsplat into a uvec4
-uvec4 packSplat(vec3 center, vec3 scales, vec4 quaternion, vec4 rgba) {
-    uvec4 uRgba = uvec4(round(clamp(rgba * 255.0, 0.0, 255.0)));
-
-    uint uQuat = encodeQuatOctXy88R8(quaternion);
-    // uint uQuat = encodeQuatXyz888(quaternion);
-    // uint uQuat = encodeQuatEulerXyz888(quaternion);
-    uvec3 uQuat3 = uvec3(uQuat & 0xffu, (uQuat >> 8u) & 0xffu, (uQuat >> 16u) & 0xffu);
-
+uvec4[2] packSplat(vec3 center, vec3 scales, vec4 quaternion, vec4 rgba) {
     // Encode scales in three uint8s, where 0=>0.0 and 1..=255 stores log scale
     uvec3 uScales = uvec3(
         (scales.x == 0.0) ? 0u : uint(round(clamp((log(scales.x) - LN_SCALE_MIN) / LN_RESCALE, 0.0, 254.0))) + 1u,
@@ -218,25 +211,30 @@ uvec4 packSplat(vec3 center, vec3 scales, vec4 quaternion, vec4 rgba) {
         (scales.z == 0.0) ? 0u : uint(round(clamp((log(scales.z) - LN_SCALE_MIN) / LN_RESCALE, 0.0, 254.0))) + 1u
     );
 
-    // Pack it all into 4 x uint32
-    uint word0 = uRgba.r | (uRgba.g << 8u) | (uRgba.b << 16u) | (uRgba.a << 24u);
-    uint word1 = packHalf2x16(center.xy);
-    uint word2 = packHalf2x16(vec2(center.z, 0.0)) | (uQuat3.x << 16u) | (uQuat3.y << 24u);
-    uint word3 = uScales.x | (uScales.y << 8u) | (uScales.z << 16u) | (uQuat3.z << 24u);
-    return uvec4(word0, word1, word2, word3);
+    uvec4 uRgba = uvec4(round(clamp(rgba * 255.0, 0.0, 65535.0)));
+
+    uint uQuat = encodeQuatOctXy88R8(quaternion);
+
+    return uvec4[2](
+        uvec4(
+            floatBitsToUint(center),
+            uScales.x | (uScales.y << 8u) | (uScales.z << 16u)
+        ),
+        uvec4(
+            uRgba.r | (uRgba.g << 16u),
+            uRgba.b | (uRgba.a << 16u),
+            uQuat,
+            0u
+        )
+    );
 }
 
 // Unpack a Gsplat from a uvec4
-void unpackSplat(uvec4 packed, out vec3 center, out vec3 scales, out vec4 quaternion, out vec4 rgba) {
-    uint word0 = packed.x, word1 = packed.y, word2 = packed.z, word3 = packed.w;
+void unpackSplat(uvec4[2] packed, out vec3 center, out vec3 scales, out vec4 quaternion, out vec4 rgba) {
+    uint word0 = packed[0].x, word1 = packed[0].y, word2 = packed[0].z, word3 = packed[0].w,
+        word4 = packed[1].x, word5 = packed[1].y, word6 = packed[1].z, word7 = packed[1].w;
 
-    uvec4 uRgba = uvec4(word0 & 0xffu, (word0 >> 8u) & 0xffu, (word0 >> 16u) & 0xffu, (word0 >> 24u) & 0xffu);
-    rgba = vec4(uRgba) / 255.0;
-
-    center = vec4(
-        unpackHalf2x16(word1),
-        unpackHalf2x16(word2 & 0xffffu)
-    ).xyz;
+    center = uintBitsToFloat(packed[0].xyz);
 
     uvec3 uScales = uvec3(word3 & 0xffu, (word3 >> 8u) & 0xffu, (word3 >> 16u) & 0xffu);
     scales = vec3(
@@ -245,8 +243,10 @@ void unpackSplat(uvec4 packed, out vec3 center, out vec3 scales, out vec4 quater
         (uScales.z == 0u) ? 0.0 : exp(LN_SCALE_MIN + float(uScales.z - 1u) * LN_RESCALE)
     );
 
+    uvec4 uRgba = uvec4(word4 & 0xffffu, (word4 >> 16u) & 0xffffu, word5 & 0xffffu, (word5 >> 16u) & 0xffffu);
+    rgba = vec4(uRgba) / 255.0;
 
-    uint uQuat = ((word2 >> 16u) & 0xFFFFu) | ((word3 >> 8u) & 0xFF0000u);
+    uint uQuat = word6 & 0xFFFFFFu;
     quaternion = decodeQuatOctXy88R8(uQuat);
     // quaternion = decodeQuatXyz888(uQuat);
     // quaternion = decodeQuatEulerXyz888(uQuat);

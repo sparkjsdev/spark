@@ -6,7 +6,7 @@ import {
   getSplatFileType,
   getSplatFileTypeFromPath,
 } from "./SplatLoader";
-import { GunzipReader, fromHalf, unpackSplat } from "./utils";
+import { GunzipReader, fromHalf } from "./utils";
 
 import { decodeAntiSplat } from "./antisplat";
 import { decodeKsplat } from "./ksplat";

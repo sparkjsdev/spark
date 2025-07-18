@@ -117,6 +117,7 @@ export const defineGsplat = unindent(`
 export const definePackedSplats = unindent(`
   struct PackedSplats {
     usampler2DArray texture;
+    usampler2DArray texture2;
     int numSplats;
   };
 `);
@@ -137,9 +138,12 @@ export class NumPackedSplats extends UnaryOp<
 }
 
 const defineReadPackedSplat = unindent(`
-  bool readPackedSplat(usampler2DArray texture, int numSplats, int index, out Gsplat gsplat) {
+  bool readPackedSplat(usampler2DArray texture, usampler2DArray texture2, int numSplats, int index, out Gsplat gsplat) {
     if ((index >= 0) && (index < numSplats)) {
-      uvec4 packed = texelFetch(texture, splatTexCoord(index), 0);
+      uvec4[2] packed = uvec4[2](
+        texelFetch(texture, splatTexCoord(index), 0),
+        texelFetch(texture2, splatTexCoord(index), 0)
+      );
       unpackSplat(packed, gsplat.center, gsplat.scales, gsplat.quaternion, gsplat.rgba);
       return true;
     } else {
@@ -173,7 +177,7 @@ export class ReadPackedSplat
         let statements: string[];
         if (packedSplats && index) {
           statements = unindentLines(`
-            if (readPackedSplat(${packedSplats}.texture, ${packedSplats}.numSplats, ${index}, ${gsplat})) {
+            if (readPackedSplat(${packedSplats}.texture, ${packedSplats}.texture2, ${packedSplats}.numSplats, ${index}, ${gsplat})) {
               bool zeroSize = all(equal(${gsplat}.scales, vec3(0.0, 0.0, 0.0)));
               ${gsplat}.flags = zeroSize ? 0u : GSPLAT_FLAG_ACTIVE;
             } else {

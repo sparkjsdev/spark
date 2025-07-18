@@ -12,7 +12,7 @@ import {
   outputPackedSplat,
 } from "./dyno";
 import { TPackedSplats, definePackedSplats } from "./dyno/splats";
-import computeUvec4Template from "./shaders/computeUvec4.glsl";
+import computeUvec4x2Template from "./shaders/computeUvec4x2.glsl";
 import { getTextureSize, setPackedSplat, unpackSplat } from "./utils";
 
 // Initialize a PackedSplats collection from source data via
@@ -38,7 +38,7 @@ export type PackedSplatsOptions = {
   maxSplats?: number;
   // Use provided packed data array, where each 4 consecutive uint32 values
   // encode one "packed" Gsplat. (default: undefined)
-  packedArray?: Uint32Array;
+  packedArray?: [Uint32Array, Uint32Array];
   // Override number of splats in packed array to use only a subset.
   // (default: length of packed array / 4)
   numSplats?: number;
@@ -59,7 +59,7 @@ export type PackedSplatsOptions = {
 export class PackedSplats {
   maxSplats = 0;
   numSplats = 0;
-  packedArray: Uint32Array | null = null;
+  packedArray: [Uint32Array, Uint32Array] | null = null;
   extra: Record<string, unknown>;
 
   initialized: Promise<PackedSplats>;
@@ -68,7 +68,7 @@ export class PackedSplats {
   // Either target or source will be non-null, depending on whether the PackedSplats
   // is being used as a data source or generated to.
   target: THREE.WebGLArrayRenderTarget | null = null;
-  source: THREE.DataArrayTexture | null = null;
+  source: THREE.DataArrayTexture[] | null = null;
   // Set to true if source packedArray is updated to have it upload to GPU
   needsUpdate = true;
 
@@ -106,7 +106,7 @@ export class PackedSplats {
       // Calculate number of horizontal texture rows that could fit in array.
       // A properly initialized packedArray should already take into account the
       // width and height of the texture and be rounded up with padding.
-      this.maxSplats = Math.floor(this.packedArray.length / 4);
+      this.maxSplats = Math.floor(this.packedArray[0].length / 4);
       this.maxSplats =
         Math.floor(this.maxSplats / SPLAT_TEX_WIDTH) * SPLAT_TEX_WIDTH;
       this.numSplats = Math.min(
@@ -152,7 +152,8 @@ export class PackedSplats {
       this.target = null;
     }
     if (this.source) {
-      this.source.dispose();
+      this.source[0].dispose();
+      this.source[1].dispose();
       this.source = null;
     }
   }
@@ -163,22 +164,26 @@ export class PackedSplats {
   // Typically you don't need to call this, because calling this.setSplat(index, ...)
   // and this.pushSplat(...) will automatically call ensureSplats() so we have
   // enough splats.
-  ensureSplats(numSplats: number): Uint32Array {
+  ensureSplats(numSplats: number): [Uint32Array, Uint32Array] {
     const targetSize =
       numSplats <= this.maxSplats
         ? this.maxSplats
         : // Grow exponentially to avoid frequent reallocations
           Math.max(numSplats, 2 * this.maxSplats);
-    const currentSize = !this.packedArray ? 0 : this.packedArray.length / 4;
+    const currentSize = !this.packedArray ? 0 : this.packedArray[0].length / 4;
 
     if (!this.packedArray || targetSize > currentSize) {
       this.maxSplats = getTextureSize(targetSize).maxSplats;
-      const newArray = new Uint32Array(this.maxSplats * 4);
+      const newArrays: [Uint32Array, Uint32Array] = [
+        new Uint32Array(this.maxSplats * 4),
+        new Uint32Array(this.maxSplats * 4),
+      ];
       if (this.packedArray) {
         // Copy over existing data
-        newArray.set(this.packedArray);
+        newArrays[0].set(this.packedArray[0]);
+        newArrays[1].set(this.packedArray[1]);
       }
-      this.packedArray = newArray;
+      this.packedArray = newArrays;
     }
     return this.packedArray;
   }
@@ -188,7 +193,7 @@ export class PackedSplats {
     let wordsPerSplat: number;
     let key: string;
     if (level === 0) {
-      return this.ensureSplats(numSplats);
+      return this.ensureSplats(numSplats)[0]; // FIXME
     }
     if (level === 1) {
       // 3 x 3 uint7 = 63 bits = 2 uint32
@@ -359,6 +364,7 @@ export class PackedSplats {
     this.target.texture.type = THREE.UnsignedIntType;
     this.target.texture.internalFormat = "RGBA32UI";
     this.target.scissorTest = true;
+    this.target.textures = [this.target.texture, this.target.texture.clone()];
     return true;
   }
 
@@ -372,7 +378,7 @@ export class PackedSplats {
     let maxSplats = 0;
     const mapping = splatCounts.map((numSplats) => {
       const base = maxSplats;
-      // Generation happens in horizonal row chunks, so round up to full width
+      // Generation happens in horizontal row chunks, so round up to full width
       const rounded = Math.ceil(numSplats / SPLAT_TEX_WIDTH) * SPLAT_TEX_WIDTH;
       maxSplats += rounded;
       return { base, count: numSplats };
@@ -382,10 +388,10 @@ export class PackedSplats {
 
   // Returns a THREE.DataArrayTexture representing the PackedSplats content as
   // a Uint32x4 data array texture (2048 x 2048 x depth in size)
-  getTexture(): THREE.DataArrayTexture {
+  getTexture(): THREE.DataArrayTexture[] {
     if (this.target) {
       // Return the render target's texture
-      return this.target.texture;
+      return this.target.textures;
     }
     if (this.source || this.packedArray) {
       // Update source texture if needed and return
@@ -397,7 +403,7 @@ export class PackedSplats {
   }
 
   // Check if source texture needs to be created/updated
-  private maybeUpdateSource(): THREE.DataArrayTexture {
+  private maybeUpdateSource(): THREE.DataArrayTexture[] {
     if (!this.packedArray) {
       throw new Error("No packed splats");
     }
@@ -406,32 +412,55 @@ export class PackedSplats {
       this.needsUpdate = false;
 
       if (this.source) {
-        const { width, height, depth } = this.source.image;
+        const { width, height, depth } = this.source[0].image;
         if (this.maxSplats !== width * height * depth) {
           // The existing source texture isn't the right size, so dispose it
-          this.source.dispose();
+          this.source[0].dispose();
+          this.source[1].dispose();
           this.source = null;
         }
       }
       if (!this.source) {
         // Allocate a new source texture of the right size
         const { width, height, depth } = getTextureSize(this.maxSplats);
-        this.source = new THREE.DataArrayTexture(
-          this.packedArray,
+        const sourceTexture = new THREE.DataArrayTexture(
+          this.packedArray[0],
           width,
           height,
           depth,
         );
-        this.source.format = THREE.RGBAIntegerFormat;
-        this.source.type = THREE.UnsignedIntType;
-        this.source.internalFormat = "RGBA32UI";
-        this.source.needsUpdate = true;
-      } else if (this.packedArray.buffer !== this.source.image.data.buffer) {
-        // The source texture is the right size, update the data
-        this.source.image.data = new Uint8Array(this.packedArray.buffer);
+        sourceTexture.format = THREE.RGBAIntegerFormat;
+        sourceTexture.type = THREE.UnsignedIntType;
+        sourceTexture.internalFormat = "RGBA32UI";
+        sourceTexture.needsUpdate = true;
+
+        const sourceTexture2 = new THREE.DataArrayTexture(
+          this.packedArray[1],
+          width,
+          height,
+          depth,
+        );
+        sourceTexture2.format = THREE.RGBAIntegerFormat;
+        sourceTexture2.type = THREE.UnsignedIntType;
+        sourceTexture2.internalFormat = "RGBA32UI";
+        sourceTexture2.needsUpdate = true;
+
+        this.source = [sourceTexture, sourceTexture2];
+      } else {
+        if (this.packedArray[0].buffer !== this.source[0].image.data.buffer) {
+          this.source[0].image.data = new Uint8Array(
+            this.packedArray[0].buffer,
+          );
+        }
+        if (this.packedArray[1].buffer !== this.source[1].image.data.buffer) {
+          this.source[1].image.data = new Uint8Array(
+            this.packedArray[1].buffer,
+          );
+        }
       }
       // Indicate to Three.js that the source texture needs to be uploaded to the GPU
-      this.source.needsUpdate = true;
+      this.source[0].needsUpdate = true;
+      this.source[1].needsUpdate = true;
     }
     return this.source;
   }
@@ -440,7 +469,7 @@ export class PackedSplats {
 
   // Can be used where you need an uninitialized THREE.DataArrayTexture like
   // a uniform you will update with the result of this.getTexture() later.
-  static getEmpty(): THREE.DataArrayTexture {
+  static getEmpty(): THREE.DataArrayTexture[] {
     if (!PackedSplats.emptySource) {
       const { width, height, depth, maxSplats } = getTextureSize(1);
       const emptyArray = new Uint32Array(maxSplats * 4);
@@ -455,7 +484,7 @@ export class PackedSplats {
       PackedSplats.emptySource.internalFormat = "RGBA32UI";
       PackedSplats.emptySource.needsUpdate = true;
     }
-    return PackedSplats.emptySource;
+    return [PackedSplats.emptySource, PackedSplats.emptySource];
   }
 
   // Get a program and THREE.RawShaderMaterial for a given GsplatGenerator,
@@ -479,7 +508,7 @@ export class PackedSplats {
       );
       if (!PackedSplats.programTemplate) {
         PackedSplats.programTemplate = new DynoProgramTemplate(
-          computeUvec4Template,
+          computeUvec4x2Template,
         );
       }
       // Create a program from the template and graph
@@ -615,6 +644,7 @@ export class DynoPackedSplats extends DynoUniform<
   "packedSplats",
   {
     texture: THREE.DataArrayTexture;
+    texture2: THREE.DataArrayTexture;
     numSplats: number;
   }
 > {
@@ -626,12 +656,15 @@ export class DynoPackedSplats extends DynoUniform<
       type: TPackedSplats,
       globals: () => [definePackedSplats],
       value: {
-        texture: PackedSplats.getEmpty(),
+        texture: PackedSplats.getEmpty()[0],
+        texture2: PackedSplats.getEmpty()[1],
         numSplats: 0,
       },
       update: (value) => {
         value.texture =
-          this.packedSplats?.getTexture() ?? PackedSplats.getEmpty();
+          this.packedSplats?.getTexture()?.[0] ?? PackedSplats.getEmpty()[0];
+        value.texture2 =
+          this.packedSplats?.getTexture()?.[1] ?? PackedSplats.getEmpty()[1];
         value.numSplats = this.packedSplats?.numSplats ?? 0;
         return value;
       },

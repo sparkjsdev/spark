@@ -28,6 +28,7 @@ uniform float clipXY;
 uniform float focalAdjustment;
 
 uniform usampler2DArray packedSplats;
+uniform usampler2DArray packedSplats2;
 
 void main() {
     // Default to outside the frustum so it's discarded if we return early
@@ -46,7 +47,10 @@ void main() {
         (splatIndex >> SPLAT_TEX_WIDTH_BITS) & SPLAT_TEX_HEIGHT_MASK,
         splatIndex >> SPLAT_TEX_LAYER_BITS
     );
-    uvec4 packed = texelFetch(packedSplats, texCoord, 0);
+    uvec4[2] packed = uvec4[2](
+        texelFetch(packedSplats, texCoord, 0),
+        texelFetch(packedSplats2, texCoord, 0)
+    );
 
     vec3 center, scales;
     vec4 quaternion, rgba;

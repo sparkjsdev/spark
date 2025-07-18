@@ -265,6 +265,7 @@ export class SparkRenderer extends THREE.Mesh {
       uniforms,
       transparent: true,
       blending: THREE.NormalBlending,
+      premultipliedAlpha: true,
       depthTest: true,
       depthWrite: false,
       side: THREE.DoubleSide,
@@ -382,7 +383,8 @@ export class SparkRenderer extends THREE.Mesh {
       // Splat texture mid plane distance, or 0.0 to disable
       splatTexMid: { value: 0.0 },
       // Gsplat collection to render
-      packedSplats: { type: "t", value: PackedSplats.getEmpty() },
+      packedSplats: { type: "t", value: PackedSplats.getEmpty()[0] },
+      packedSplats2: { type: "t", value: PackedSplats.getEmpty()[1] },
       // Time in seconds for time-based effects
       time: { value: 0 },
       // Delta time in seconds since last frame
@@ -577,12 +579,14 @@ export class SparkRenderer extends THREE.Mesh {
     if (this.viewpoint.display) {
       const { accumulator, geometry } = this.viewpoint.display;
       this.uniforms.numSplats.value = accumulator.splats.numSplats;
-      this.uniforms.packedSplats.value = accumulator.splats.getTexture();
+      this.uniforms.packedSplats.value = accumulator.splats.getTexture()[0];
+      this.uniforms.packedSplats2.value = accumulator.splats.getTexture()[1];
       this.geometry = geometry;
     } else {
       // No Gsplats to display for this viewpoint yet
       this.uniforms.numSplats.value = 0;
-      this.uniforms.packedSplats.value = PackedSplats.getEmpty();
+      this.uniforms.packedSplats.value = PackedSplats.getEmpty()[0];
+      this.uniforms.packedSplats2.value = PackedSplats.getEmpty()[1];
       this.geometry = EMPTY_GEOMETRY;
     }
   }

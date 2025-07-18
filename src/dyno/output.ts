@@ -30,13 +30,18 @@ export class OutputPackedSplat
         if (gsplat) {
           return unindentLines(`
             if (isGsplatActive(${gsplat}.flags)) {
-              ${output} = packSplat(${gsplat}.center, ${gsplat}.scales, ${gsplat}.quaternion, ${gsplat}.rgba);
+              uvec4[2] packed = packSplat(${gsplat}.center, ${gsplat}.scales, ${gsplat}.quaternion, ${gsplat}.rgba);
+              ${output} = packed[0];
+              ${output}2 = packed[1];
             } else {
               ${output} = uvec4(0u, 0u, 0u, 0u);
+              ${output}2 = uvec4(0u, 0u, 0u, 0u);
             }
           `);
         }
-        return [`${output} = uvec4(0u, 0u, 0u, 0u);`];
+        return [
+          `${output} = uvec4(0u, 0u, 0u, 0u); ${output}2 = uvec4(0u, 0u, 0u, 0u);`,
+        ];
       },
     });
   }
