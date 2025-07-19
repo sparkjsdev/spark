@@ -23,6 +23,7 @@ const viewpoint = spark.newViewpoint({
   sortCoorient?: boolean;
   depthBias?: number;
   sort360?: boolean;
+  sort32?: boolean;
 });
 ```
 
@@ -44,6 +45,7 @@ const viewpoint = spark.newViewpoint({
 | **sortCoorient**  | View direction dot product threshold for re-sorting splats. For `sortRadial: true` it defaults to 0.99 while `sortRadial: false` uses 0.999 because it is more sensitive to view direction. (default: `0.99` if `sortRadial` else `0.999`)
 | **depthBias**     | Constant added to Z-depth to bias values into the positive range for `sortRadial: false`, but also used for culling splats "well behind" the viewpoint origin (default: `1.0`)
 | **sort360**       | Set this to true if rendering a 360 to disable "behind the viewpoint" culling during sorting. This is set automatically when rendering 360 envMaps using the `SparkRenderer.renderEnvMap()` utility function. (default: `false`)
+| **sort32**        | Set this to true to sort with float32 precision with two-pass sort. (default: `false`)
 
 ## `dispose()`
 
