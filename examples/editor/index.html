@@ -487,6 +487,8 @@
       stats.dom.style.display = value ? "block" : "none";
     });
     gui.add(spark.defaultView, "sortRadial").name("Radial sort").listen();
+    spark.defaultView.sort32 = true;
+    gui.add(spark.defaultView, "sort32").name("Float32 sort").listen();
     gui.add(grid, "opacity", 0, 1, 0.01).name("Grid opacity").listen();
     gui.add({
       logFocalDistance: 0.0,
