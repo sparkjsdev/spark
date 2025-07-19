@@ -18,6 +18,7 @@ import {
   dyno,
   dynoBlock,
   dynoConst,
+  floatBitsToUint,
   mul,
   packHalf2x16,
   readPackedSplat,
@@ -117,6 +118,11 @@ export type SparkViewpointOptions = {
    * @default false
    */
   sort360?: boolean;
+  /*
+   * Set this to true to sort with float32 precision with two-pass sort.
+   * @default true
+   */
+  sort32?: boolean;
 };
 
 // A SparkViewpoint is created from and tied to a SparkRenderer, and represents
@@ -149,6 +155,7 @@ export class SparkViewpoint {
   sortCoorient?: boolean;
   depthBias?: number;
   sort360?: boolean;
+  sort32?: boolean;
 
   display: {
     accumulator: SplatAccumulator;
@@ -164,7 +171,8 @@ export class SparkViewpoint {
   } | null = null;
   private sortingCheck = false;
 
-  private readback: Uint16Array = new Uint16Array(0);
+  private readback16: Uint16Array = new Uint16Array(0);
+  private readback32: Uint32Array = new Uint32Array(0);
   private orderingFreelist: FreeList<Uint32Array, number>;
 
   constructor(options: SparkViewpointOptions & { spark: SparkRenderer }) {
@@ -209,6 +217,7 @@ export class SparkViewpoint {
     this.sortCoorient = options.sortCoorient;
     this.depthBias = options.depthBias;
     this.sort360 = options.sort360;
+    this.sort32 = options.sort32;
 
     this.orderingFreelist = new FreeList({
       allocate: (maxSplats) => new Uint32Array(maxSplats),
@@ -557,6 +566,7 @@ export class SparkViewpoint {
       const {
         reader,
         doubleSortReader,
+        sort32Reader,
         dynoSortRadial,
         dynoOrigin,
         dynoDirection,
@@ -564,8 +574,16 @@ export class SparkViewpoint {
         dynoSort360,
         dynoSplats,
       } = SparkViewpoint.makeSorter();
-      const halfMaxSplats = Math.ceil(maxSplats / 2);
-      this.readback = reader.ensureBuffer(halfMaxSplats, this.readback);
+      const sort32 = this.sort32 ?? false;
+      let readback: Uint16Array | Uint32Array;
+      if (sort32) {
+        this.readback32 = reader.ensureBuffer(maxSplats, this.readback32);
+        readback = this.readback32;
+      } else {
+        const halfMaxSplats = Math.ceil(maxSplats / 2);
+        this.readback16 = reader.ensureBuffer(halfMaxSplats, this.readback16);
+        readback = this.readback16;
+      }
 
       const worldToOrigin = accumulator.toWorld.clone().invert();
       const viewToOrigin = viewToWorld.clone().premultiply(worldToOrigin);
@@ -581,25 +599,33 @@ export class SparkViewpoint {
       dynoSort360.value = this.sort360 ?? false;
       dynoSplats.packedSplats = accumulator.splats;
 
+      const sortReader = sort32 ? sort32Reader : doubleSortReader;
+      const count = sort32 ? numSplats : Math.ceil(numSplats / 2);
       await reader.renderReadback({
         renderer: this.spark.renderer,
-        reader: doubleSortReader,
-        count: Math.ceil(numSplats / 2),
-        readback: this.readback,
+        reader: sortReader,
+        count,
+        readback,
       });
 
       const result = (await withWorker(async (worker) => {
-        return worker.call("sortDoubleSplats", {
+        const rpcName = sort32 ? "sort32Splats" : "sortDoubleSplats";
+        return worker.call(rpcName, {
+          maxSplats,
           numSplats,
-          readback: this.readback,
+          readback,
           ordering,
         });
       })) as {
-        readback: Uint16Array;
+        readback: Uint16Array | Uint32Array;
         ordering: Uint32Array;
         activeSplats: number;
       };
-      this.readback = result.readback;
+      if (sort32) {
+        this.readback32 = result.readback as Uint32Array;
+      } else {
+        this.readback16 = result.readback as Uint16Array;
+      }
       ordering = result.ordering;
       activeSplats = result.activeSplats;
     }
@@ -669,6 +695,7 @@ export class SparkViewpoint {
     dynoSplats: DynoPackedSplats;
     reader: Readback;
     doubleSortReader: DynoBlock<{ index: "int" }, { rgba8: "vec4" }>;
+    sort32Reader: DynoBlock<{ index: "int" }, { rgba8: "vec4" }>;
   } | null = null;
 
   private static makeSorter() {
@@ -716,6 +743,28 @@ export class SparkViewpoint {
         },
       );
 
+      const sort32Reader = dynoBlock(
+        { index: "int" },
+        { rgba8: "vec4" },
+        ({ index }) => {
+          if (!index) {
+            throw new Error("No index");
+          }
+          const sortParams = {
+            sortRadial: dynoSortRadial,
+            sortOrigin: dynoOrigin,
+            sortDirection: dynoDirection,
+            sortDepthBias: dynoDepthBias,
+            sort360: dynoSort360,
+          };
+
+          const gsplat = readPackedSplat(dynoSplats, index);
+          const metric = computeSortMetric({ gsplat, ...sortParams });
+          const rgba8 = uintToRgba8(floatBitsToUint(metric));
+          return { rgba8 };
+        },
+      );
+
       SparkViewpoint.dynos = {
         dynoSortRadial,
         dynoOrigin,
@@ -725,6 +774,7 @@ export class SparkViewpoint {
         dynoSplats,
         reader,
         doubleSortReader,
+        sort32Reader,
       };
     }
     return SparkViewpoint.dynos;
