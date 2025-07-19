@@ -134,11 +134,8 @@ async function onMessage(event: MessageEvent) {
           readback: Uint16Array;
           ordering: Uint32Array;
         };
-        result = {
-          id,
-          readback,
-          ordering,
-        };
+        // Benchmark sort
+        // benchmarkSort(numSplats, readback, ordering);
         if (WASM_SPLAT_SORT) {
           result = {
             id,
@@ -178,6 +175,39 @@ async function onMessage(event: MessageEvent) {
     { id, result, error },
     { transfer: getArrayBuffers(result) },
   );
+}
+
+function benchmarkSort(
+  numSplats: number,
+  readback: Uint16Array,
+  ordering: Uint32Array,
+) {
+  if (numSplats > 0) {
+    const WARMUP = 10;
+    for (let i = 0; i < WARMUP; ++i) {
+      const activeSplats = sort_splats(numSplats, readback, ordering);
+      const results = sortDoubleSplats({ numSplats, readback, ordering });
+    }
+
+    const TIMING_SAMPLES = 1000;
+    let start: number;
+
+    start = performance.now();
+    for (let i = 0; i < TIMING_SAMPLES; ++i) {
+      const activeSplats = sort_splats(numSplats, readback, ordering);
+    }
+    const wasmTime = (performance.now() - start) / TIMING_SAMPLES;
+
+    start = performance.now();
+    for (let i = 0; i < TIMING_SAMPLES; ++i) {
+      const results = sortDoubleSplats({ numSplats, readback, ordering });
+    }
+    const jsTime = (performance.now() - start) / TIMING_SAMPLES;
+
+    console.log(
+      `JS: ${jsTime} ms, WASM: ${wasmTime} ms, numSplats: ${numSplats}`,
+    );
+  }
 }
 
 async function unpackPly({
