@@ -10,6 +10,7 @@ import {
   SplatTransformer,
 } from "./SplatGenerator";
 import type { SplatFileType } from "./SplatLoader";
+import { SplatTree } from "./SplatTree";
 import type { SplatSkinning } from "./SplatSkinning";
 import {
   DynoFloat,
@@ -150,7 +151,10 @@ export class SplatMesh extends SplatGenerator {
 
   // Maximum Spherical Harmonics level to use. Call updateGenerator()
   // after changing. (default: 3)
-  maxSh = 3;
+  maxSh = 3; // maximum spherical harmonics level
+  splatTree: SplatTree | null = null; // splat tree
+  baseSplatTree: SplatTree | null = null; // base splat tree
+  disposed: boolean = false; // whether the mesh is disposed
 
   constructor(options: SplatMeshOptions = {}) {
     const transform = new SplatTransformer();
@@ -293,10 +297,149 @@ export class SplatMesh extends SplatGenerator {
     this.packedSplats.forEachSplat(callback);
   }
 
+  /**
+   * Retrieves the color and opacity of a specific splat
+   * @param index - The index of the splat to retrieve color from
+   * @param out - Output vector to store the color (RGBA format)
+   * @returns The output vector containing the splat's color and opacity
+   */
+  getSplatColor(index: number, out: THREE.Vector4) {
+    const splat = this.packedSplats.getSplat(index);
+    out.set(splat.color.r, splat.color.g, splat.color.b, splat.opacity);
+    return out;
+  }
+
+  /**
+   * Retrieves the scale and rotation (quaternion) of a specific splat
+   * @param index - The index of the splat to retrieve scale and rotation from
+   * @param out - Output vector to store the scale (x, y, z components)
+   * @param out2 - Output quaternion to store the rotation
+   * @returns The output vector containing the splat's scale
+   */
+  getSplatScaleAndRotation(index: number, out: THREE.Vector3, out2: THREE.Quaternion) {
+    const splat = this.packedSplats.getSplat(index);
+    out.set(splat.scales.x, splat.scales.y, splat.scales.z);
+    out2.set(splat.quaternion.x, splat.quaternion.y, splat.quaternion.z, splat.quaternion.w);
+    return out;
+  }
+
+  /**
+   * Gets the total number of splats in the mesh
+   * @returns The total count of splats
+   */
+  getSplatCount() {
+    return this.packedSplats.numSplats;
+  }
+
+  /**
+   * Gets the scene index for a specific splat
+   * Currently returns 0 as a default implementation
+   * @param index - The index of the splat
+   * @returns The scene index (always 0 in this implementation)
+   */
+  getSceneIndexForSplat(index: number) {
+    return 0;
+  }
+
+  /**
+   * Gets the current scene object
+   * @returns The current SplatMesh instance as the scene
+   */
+  getScene() {
+    return this;
+  }
+
+
+  // get splat center
+  getSplatCenter(index: number, out: THREE.Vector3) {
+    const splat = this.packedSplats.getSplat(index);
+    out.set(splat.center.x, splat.center.y, splat.center.z);
+    // out.applyMatrix4(this.matrixWorld); // add world transform
+    return out;
+  }
+
+
+  // build octree for splat mesh
+  // minAlphas: the minimum alpha value for each scene
+  // onSplatTreeIndexesUpload: callback function to upload splat tree indexes
+  // onSplatTreeConstruction: callback function to construct splat tree
+  // If you do scaling, rotation, or translation after building, you need to rebuild
+  buildSplatTree(
+    minAlphas: number[] = [],
+    onSplatTreeIndexesUpload?: Function,
+    onSplatTreeConstruction?: Function
+  ): Promise<void> {
+    return new Promise((resolve) => {
+      this.disposeSplatTree();
+      this.baseSplatTree = new SplatTree(8, 2000);
+      const buildStartTime = performance.now();
+      const splatColor = new THREE.Vector4();
+      this.baseSplatTree.processSplatMesh(
+        this,
+        (splatIndex: number) => {
+          this.getSplatColor(splatIndex, splatColor);
+          const sceneIndex = this.getSceneIndexForSplat(splatIndex);
+          const minAlpha = minAlphas[sceneIndex] || 0.1;
+          return splatColor.w >= minAlpha;
+        },
+        (isUploading: boolean) => {
+          onSplatTreeIndexesUpload?.(isUploading);
+        },
+        (isBuilding: boolean) => {
+          onSplatTreeConstruction?.(isBuilding);
+        }
+      ).then(() => {
+        const buildTime = performance.now() - buildStartTime;
+        console.log('SplatTree build: ' + buildTime + ' ms');
+        if (this.disposed) {
+          resolve(void 0);
+        } else {
+          this.splatTree = this.baseSplatTree;
+          this.baseSplatTree = null;
+
+          let leavesWithVertices = 0;
+          let avgSplatCount = 0;
+          let maxSplatCount = 0;
+          let nodeCount = 0;
+
+          this.splatTree?.visitLeaves((node: any) => {
+            const nodeSplatCount = node.data.indexes.length;
+            if (nodeSplatCount > 0) {
+              avgSplatCount += nodeSplatCount;
+              maxSplatCount = Math.max(maxSplatCount, nodeSplatCount);
+              nodeCount++;
+              leavesWithVertices++;
+            }
+          });
+          console.log(`SplatTree leaves: ${this.splatTree?.countLeaves()}`);
+          console.log(`SplatTree leaves with splats:${leavesWithVertices}`);
+          avgSplatCount = avgSplatCount / nodeCount;
+          console.log(`Avg splat count per node: ${avgSplatCount}`);
+          console.log(`Total splat count: ${this.getSplatCount()}`);
+          resolve(void 0);
+        }
+      });
+    });
+  }
+
+
+  disposeSplatTree() {
+    if (this.splatTree) {
+      this.splatTree.dispose();
+      this.splatTree = null;
+    }
+    if (this.baseSplatTree) {
+      this.baseSplatTree.dispose();
+      this.baseSplatTree = null;
+    }
+    this.disposed = true;
+  }
+
   // Call this when you are finished with the SplatMesh and want to free
   // any buffers it holds (via packedSplats).
   dispose() {
     this.packedSplats.dispose();
+    this.disposeSplatTree();
   }
 
   constructGenerator(context: SplatMeshContext) {

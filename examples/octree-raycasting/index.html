@@ -1,0 +1,444 @@
+
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark • Multiple Splats</title>
+  <style>
+    body {
+      margin: 0;
+    }
+
+    a,
+    footer {
+      color: #797979
+    }
+
+    footer {
+      position: absolute;
+      margin: 10px;
+      bottom: 0;
+    }
+  </style>
+</head>
+
+<body>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/examples/js/vendor/three/build/three.module.js",
+        "three/addons/": "/examples/js/vendor/three/examples/jsm/",
+        "@sparkjsdev/spark": "/dist/spark.module.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js';
+    import { SplatMesh, PackedSplats } from "@sparkjsdev/spark";
+    import { EXRLoader } from "three/addons/loaders/EXRLoader.js";
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+
+    const params = {
+      displayHelper: false,
+      useOctree: true,
+    };
+    let mouse = new THREE.Vector2();
+
+    const scene = new THREE.Scene();
+    const raycaster = new THREE.Raycaster();
+    const octreeBoxesHelper = new THREE.Group();
+    octreeBoxesHelper.visible=false;
+    scene.add(octreeBoxesHelper);
+    const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(-30, 20, 30);
+    camera.lookAt(0, 0, 0);
+
+    const sphereCollisionGeometry = new THREE.SphereGeometry( 0.1, 32, 32 );
+	  const sphereCollisionMaterial = new THREE.MeshBasicMaterial( { color: 0xffff00, opacity: 0.9, transparent: true } );
+    const sphereCollision = new THREE.Mesh( sphereCollisionGeometry, sphereCollisionMaterial );
+    sphereCollision.visible = false;
+    scene.add( sphereCollision );
+
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(new THREE.Color(0x000000), 1);
+    document.body.appendChild(renderer.domElement)
+
+    const wooblesSplatURL = await getAssetFileURL("woobles.spz");
+    const woobles = new SplatMesh({ url: wooblesSplatURL });
+    woobles.quaternion.set(1, 0, 0, 0);
+    woobles.scale.setScalar(10);
+    woobles.position.set(0, 0, 0);
+    scene.add(woobles);
+
+    woobles.initialized.then(() => {
+      buildOctree(woobles);
+    });
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 0, 0);
+    controls.minDistance = 0.3;
+    controls.maxDistance = 200;
+    controls.update();
+
+    function buildOctree(splatMesh) {
+
+      splatMesh.buildSplatTree([0.1],(isUploading) => {   
+            if (!isUploading) {
+              console.log("uploading octree indexes...");
+            } else {
+              console.log("octree indexes uploaded.");
+            }
+          },
+          (isBuilding) => {
+            if (!isBuilding) {
+              console.log("building octree...");
+            } else {
+              console.log("octree built.");
+            }
+          }
+        ).then(() => {
+          splatMesh.updateMatrixWorld();
+            const matrixWorld = splatMesh.matrixWorld;
+        
+            const {sceneMax, sceneMin} = splatMesh.baseSplatTree?.subTrees[0];
+            const minWorld = new THREE.Vector3(sceneMin.x, sceneMin.y, sceneMin.z).applyMatrix4(matrixWorld);
+            const maxWorld = new THREE.Vector3(sceneMax.x, sceneMax.y, sceneMax.z).applyMatrix4(matrixWorld);
+        
+            function fixBox3MinMax(v1, v2) {
+                return {
+                    min: new THREE.Vector3(
+                        Math.min(v1.x, v2.x),
+                        Math.min(v1.y, v2.y),
+                        Math.min(v1.z, v2.z)
+                    ),
+                    max: new THREE.Vector3(
+                        Math.max(v1.x, v2.x),
+                        Math.max(v1.y, v2.y),
+                        Math.max(v1.z, v2.z)
+                    )
+                };
+            }
+            const {min, max} = fixBox3MinMax(minWorld, maxWorld);
+            const box = new THREE.Box3(min, max);
+        
+            const helper = new THREE.Box3Helper(box, 0xffff00);
+            octreeBoxesHelper.add(helper);
+            splatMesh.baseSplatTree?.subTrees.forEach((SplatSubTree) => {
+                SplatSubTree.nodesWithIndexes.forEach((node) => {
+                    const {max,min} = node;
+                    const minWorld = new THREE.Vector3(min.x, min.y, min.z).applyMatrix4(matrixWorld);
+                    const maxWorld = new THREE.Vector3(max.x, max.y, max.z).applyMatrix4(matrixWorld);
+                    const {min:fixMin,max:fixMax} = fixBox3MinMax(minWorld, maxWorld);
+                    const box = new THREE.Box3(
+                        new THREE.Vector3(fixMin.x, fixMin.y, fixMin.z),
+                        new THREE.Vector3(fixMax.x, fixMax.y, fixMax.z)
+                    );
+                    const helper = new THREE.Box3Helper(box, 0xffff00);
+                    octreeBoxesHelper.add(helper);
+                });
+            });
+          })
+    }
+
+
+    THREE.Ray.prototype.boxContainsPoint = function(box, point, epsilon) {
+      return point.x < box.min.x - epsilon || point.x > box.max.x + epsilon ||
+              point.y < box.min.y - epsilon || point.y > box.max.y + epsilon ||
+              point.z < box.min.z - epsilon || point.z > box.max.z + epsilon ? false : true;
+
+    };
+
+    THREE.Ray.prototype.intersectSplastBox = function(box, outHit) {
+      const planeIntersectionPoint = new THREE.Vector3();
+      const originArray = [ this.origin.x, this.origin.y, this.origin.z ];
+      const directionArray = [ this.direction.x, this.direction.y, this.direction.z ];
+      const planeIntersectionPointArray = [ 0, 0, 0 ]; 
+
+      if ( this.boxContainsPoint( box, this.origin, 0.0001 ) ) {
+
+        if ( outHit ) {
+
+          outHit.origin.copy( this.origin );
+          outHit.normal.set( 0, 0, 0 );
+          outHit.distance = - 1;
+
+        }
+
+        return true;
+
+      }
+
+      for ( let i = 0; i < 3; i ++ ) {
+
+        if ( directionArray[ i ] === 0.0 ) continue;
+
+        const hitNormal = new THREE.Vector3(0, 1, 0);
+        const extremeVec = directionArray[ i ] < 0 ? box.max : box.min;
+        const multiplier = - Math.sign( directionArray[ i ] );
+        planeIntersectionPointArray[ 0 ] = i === 0 ? extremeVec.x : i === 1 ? extremeVec.y : extremeVec.z;
+
+        const toSide = planeIntersectionPointArray[ 0 ] - originArray[ i ];
+
+        if ( toSide * multiplier < 0 ) {
+
+          const idx1 = ( i + 1 ) % 3;
+          const idx2 = ( i + 2 ) % 3;
+
+          planeIntersectionPointArray[ 2 ] = directionArray[ idx1 ] / directionArray[ i ] * toSide + originArray[ idx1 ];
+          planeIntersectionPointArray[ 1 ] = directionArray[ idx2 ] / directionArray[ i ] * toSide + originArray[ idx2 ];
+
+          planeIntersectionPoint.set(
+            planeIntersectionPointArray[ i ],
+            planeIntersectionPointArray[ idx2 ],
+            planeIntersectionPointArray[ idx1 ]
+          );
+
+          if ( this.boxContainsPoint( box, planeIntersectionPoint, 0.0001 ) ) {
+
+            if ( outHit ) {
+
+              outHit.origin.copy( planeIntersectionPoint );
+              outHit.normal.copy( hitNormal ).multiplyScalar( multiplier );
+              outHit.distance = planeIntersectionPoint.sub( this.origin ).length();
+
+            }
+
+            return true;
+
+          }
+
+        }
+
+      }
+
+      return false;
+    };
+
+    THREE.Ray.prototype.intersectSplatSphere = function(center, radius, outHit) {
+      const toSphereCenterVec = new THREE.Vector3();
+
+      toSphereCenterVec.copy( center ).sub( this.origin );
+      const toClosestApproach = toSphereCenterVec.dot( this.direction );
+      const toClosestApproachSq = toClosestApproach * toClosestApproach;
+      const toSphereCenterSq = toSphereCenterVec.dot( toSphereCenterVec );
+      const diffSq = toSphereCenterSq - toClosestApproachSq;
+      const radiusSq = radius * radius;
+
+      if ( diffSq > radiusSq ) return false;
+
+      const thc = Math.sqrt( radiusSq - diffSq );
+      const t0 = toClosestApproach - thc;
+      const t1 = toClosestApproach + thc;
+
+      if ( t1 < 0 ) return false;
+      const t = t0 < 0 ? t1 : t0;
+
+      if ( outHit ) {
+
+        outHit.origin.copy( this.origin ).addScaledVector( this.direction, t );
+        outHit.normal.copy( outHit.origin ).sub( center ).normalize();
+        outHit.distance = t;
+
+      }
+
+      return true;
+    };
+
+    class Hit {
+      constructor() {
+        this.origin = new THREE.Vector3();
+        this.normal = new THREE.Vector3();
+        this.distance = 0;
+        this.splatIndex = 0;
+      }
+
+      set(origin, normal, distance, splatIndex) {
+        this.origin.copy(origin);
+        this.normal.copy(normal);
+        this.distance = distance;
+        this.splatIndex = splatIndex;
+      }
+
+      clone() {
+        const hitClone = new Hit();
+        hitClone.origin.copy(this.origin);
+        hitClone.normal.copy(this.normal);
+        hitClone.distance = this.distance;
+        hitClone.splatIndex = this.splatIndex;
+        return hitClone;
+      }
+    }
+
+
+    function intersectSplatMesh(splatMesh, outHits = []) {
+      const splatTree = splatMesh.baseSplatTree;
+      const toLocal = new THREE.Matrix4();
+      const fromLocal = new THREE.Matrix4();
+      const sceneTransform = new THREE.Matrix4();
+      const localRay = new THREE.Ray();
+      const tempPoint = new THREE.Vector3();
+
+      if (!splatTree) return;
+
+      for (let s = 0; s < splatTree.subTrees.length; s++) {
+        const subTree = splatTree.subTrees[s];
+
+        fromLocal.copy(splatMesh.matrixWorld);
+        toLocal.copy(fromLocal).invert();
+
+        localRay.origin.copy(raycaster.ray.origin).applyMatrix4(toLocal);
+        localRay.direction
+          .copy(raycaster.ray.origin)
+          .add(raycaster.ray.direction);
+        localRay.direction.applyMatrix4(toLocal).sub(localRay.origin).normalize();
+
+        const outHitsForSubTree = [];
+
+        if (subTree.rootNode) {
+          castRayAtSplatTreeNode(localRay, splatTree, subTree.rootNode, outHitsForSubTree);
+        }
+
+        outHitsForSubTree.forEach(hit => {
+          if (!hit.object) {
+            hit.object = splatMesh;
+          }
+
+          hit.origin.applyMatrix4(fromLocal);
+          hit.normal.applyMatrix4(fromLocal).normalize();
+          hit.distance = tempPoint.copy(hit.origin).sub(raycaster.ray.origin).length();
+          hit.object.rayLevel = 0;
+
+          outHits.push(hit);
+        });
+      }
+
+    return outHits;
+  }
+
+
+   function castRayAtSplatTreeNode(ray, splatTree, node, outHits = []) {
+      const tempColor = new THREE.Vector4();
+      const tempCenter = new THREE.Vector3();
+      const tempScale = new THREE.Vector3();
+      const tempRotation = new THREE.Quaternion();
+      const tempHit = new Hit();
+      const scaleEpsilon = 0.0000001;
+
+      const origin = new THREE.Vector3(0, 0, 0);
+      const uniformScaleMatrix = new THREE.Matrix4();
+      const scaleMatrix = new THREE.Matrix4();
+      const rotationMatrix = new THREE.Matrix4();
+      const toSphereSpace = new THREE.Matrix4();
+      const fromSphereSpace = new THREE.Matrix4();
+      const tempRay = new THREE.Ray();
+
+      if (!ray.intersectSplastBox(node.boundingBox)) {
+        return;
+      }
+
+      if (node.data && node.data.indexes && node.data.indexes.length > 0) {
+        for (let i = 0; i < node.data.indexes.length; i++) {
+          const splatGlobalIndex = node.data.indexes[i];
+          const splatSceneIndex = splatTree.splatMesh.getSceneIndexForSplat(splatGlobalIndex);
+          const splatScene = splatTree.splatMesh.getScene(splatSceneIndex);
+          if (!splatScene.visible) continue;
+
+          splatTree.splatMesh.getSplatColor(splatGlobalIndex, tempColor);
+          splatTree.splatMesh.getSplatCenter(splatGlobalIndex, tempCenter);
+          splatTree.splatMesh.getSplatScaleAndRotation(splatGlobalIndex, tempScale, tempRotation);
+
+          if (
+            tempScale.x <= scaleEpsilon ||
+            tempScale.y <= scaleEpsilon
+      
+          ) {
+            continue;
+          }
+
+            let radius = tempScale.x + tempScale.y;
+            const componentCount = 2;
+            radius /= componentCount;
+            if (ray.intersectSplatSphere(tempCenter, radius, tempHit)) {
+              const hitClone = tempHit.clone();
+              hitClone.splatIndex = splatGlobalIndex;
+              outHits.push(hitClone);
+            }
+        }
+      }
+
+      if (node.children && node.children.length > 0) {
+        for (let child of node.children) {
+          castRayAtSplatTreeNode(ray, splatTree, child, outHits);
+        }
+      }
+
+      return outHits;
+    }
+
+    window.addEventListener( 'pointermove', ( event ) => {
+          if ( !woobles  ) {
+            return;
+          }
+
+          mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+          mouse.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
+          
+          raycaster.setFromCamera( mouse, camera );
+
+          const startTime = window.performance.now();
+          
+          if ( params.useOctree ) {
+            const outHits = [];
+            intersectSplatMesh(woobles, outHits);
+            console.log("outHit",outHits)
+            
+            if ( outHits.length > 0 ) {
+              const closestHit = outHits.reduce((closest, current) => 
+                current.distance < closest.distance ? current : closest
+              );
+              
+              sphereCollision.position.copy( closestHit.origin );
+              sphereCollision.visible = true;
+            
+               } else {
+              sphereCollision.visible = false;
+            }
+          } else {
+            const intersects = raycaster.intersectObject( woobles, true );
+            
+            const hit = intersects[ 0 ];
+            
+            if ( hit ) {
+              sphereCollision.position.copy( hit.point );
+              sphereCollision.visible = true;
+            } else {
+              sphereCollision.visible = false;
+            }
+          }
+          
+          const delta = window.performance.now() - startTime;
+          
+          console.log(`${delta.toFixed(2)}ms`);
+          
+    }, false );
+
+
+    const gui = new GUI();
+    gui.add( params, 'displayHelper' ).onChange( v => {
+      octreeBoxesHelper.visible = v;
+    });
+    gui.add( params, 'useOctree' )
+
+    renderer.setAnimationLoop(function animate(time) {
+      controls.update();
+      renderer.render(scene, camera);
+    });
+  </script>
+</body>
+
+</html>
