@@ -8,6 +8,7 @@ uniform float near;
 uniform float far;
 uniform bool encodeLinear;
 uniform float maxStdDev;
+uniform float minAlpha;
 uniform bool disableFalloff;
 uniform float falloff;
 
@@ -60,7 +61,7 @@ void main() {
 
     rgba.a *= mix(1.0, exp(-0.5 * z), falloff);
 
-    if (rgba.a < MIN_ALPHA) {
+    if (rgba.a < minAlpha) {
         discard;
     }
     if (encodeLinear) {

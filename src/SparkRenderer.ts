@@ -117,6 +117,16 @@ export type SparkRendererOptions = {
    */
   maxStdDev?: number;
   /**
+   * Maximum pixel radius for splat rendering.
+   * @default 512.0
+   */
+  maxPixelRadius?: number;
+  /**
+   * Minimum alpha value for splat rendering.
+   * @default 0.5 * (1.0 / 255.0)
+   */
+  minAlpha?: number;
+  /**
    * Enable 2D Gaussian splatting rendering ability. When this mode is enabled,
    * any scale x/y/z component that is exactly 0 (minimum quantized value) results
    * in the other two non-0 axis being interpreted as an oriented 2D Gaussian Splat,
@@ -185,6 +195,8 @@ export class SparkRenderer extends THREE.Mesh {
   preUpdate: boolean;
   originDistance: number;
   maxStdDev: number;
+  maxPixelRadius: number;
+  minAlpha: number;
   enable2DGS: boolean;
   preBlurAmount: number;
   blurAmount: number;
@@ -301,6 +313,8 @@ export class SparkRenderer extends THREE.Mesh {
     this.preUpdate = options.preUpdate ?? false;
     this.originDistance = options.originDistance ?? 1;
     this.maxStdDev = options.maxStdDev ?? Math.sqrt(8.0);
+    this.maxPixelRadius = options.maxPixelRadius ?? 512.0;
+    this.minAlpha = options.minAlpha ?? 0.5 * (1.0 / 255.0);
     this.enable2DGS = options.enable2DGS ?? false;
     this.preBlurAmount = options.preBlurAmount ?? 0.0;
     this.blurAmount = options.blurAmount ?? 0.3;
@@ -350,6 +364,10 @@ export class SparkRenderer extends THREE.Mesh {
       renderToViewPos: { value: new THREE.Vector3() },
       // Maximum distance (in stddevs) from Gsplat center to render
       maxStdDev: { value: 1.0 },
+      // Maximum pixel radius for splat rendering
+      maxPixelRadius: { value: 512.0 },
+      // Minimum alpha value for splat rendering
+      minAlpha: { value: 0.5 * (1.0 / 255.0) },
       // Enable interpreting 0-thickness Gsplats as 2DGS
       enable2DGS: { value: false },
       // Add to projected 2D splat covariance diagonal (thickens and brightens)
@@ -517,6 +535,8 @@ export class SparkRenderer extends THREE.Mesh {
     this.uniforms.far.value = typedCamera.far;
     this.uniforms.encodeLinear.value = viewpoint.encodeLinear;
     this.uniforms.maxStdDev.value = this.maxStdDev;
+    this.uniforms.maxPixelRadius.value = this.maxPixelRadius;
+    this.uniforms.minAlpha.value = this.minAlpha;
     this.uniforms.enable2DGS.value = this.enable2DGS;
     this.uniforms.preBlurAmount.value = this.preBlurAmount;
     this.uniforms.blurAmount.value = this.blurAmount;

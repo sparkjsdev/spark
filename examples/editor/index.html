@@ -480,8 +480,6 @@
       stats.dom.style.display = value ? "block" : "none";
     });
     gui.add(spark.defaultView, "sortRadial").name("Radial sort").listen();
-    spark.defaultView.sort32 = true;
-    gui.add(spark.defaultView, "sort32").name("Float32 sort").listen();
     gui.add(grid, "opacity", 0, 1, 0.01).name("Grid opacity").listen();
     gui.add({
       logFocalDistance: 0.0,
@@ -515,6 +513,10 @@
       },
     }, "AA").name("AA preset");
     debugFolder.add(spark, "focalAdjustment", 0.1, 2.0, 0.1).name("Tweak focalAdjustment");
+    spark.defaultView.sort32 = true;
+    debugFolder.add(spark.defaultView, "sort32").name("Float32 sort").listen();
+    debugFolder.add(spark, "maxPixelRadius", 1, 1024, 1).name("Max pixel radius").listen();
+    debugFolder.add(spark, "minAlpha", 0, 1, 0.001).name("Min alpha").listen();
 
     const splatsFolder = secondGui.addFolder("Files");
 

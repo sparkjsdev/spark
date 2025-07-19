@@ -16,9 +16,11 @@ uniform uint numSplats;
 uniform vec4 renderToViewQuat;
 uniform vec3 renderToViewPos;
 uniform float maxStdDev;
+uniform float maxPixelRadius;
 uniform float time;
 uniform float deltaTime;
 uniform bool debugFlag;
+uniform float minAlpha;
 uniform bool enable2DGS;
 uniform float blurAmount;
 uniform float preBlurAmount;
@@ -52,7 +54,7 @@ void main() {
     vec4 quaternion, rgba;
     unpackSplat(packed, center, scales, quaternion, rgba);
 
-    if (rgba.a < MIN_ALPHA) {
+    if (rgba.a < minAlpha) {
         return;
     }
     bvec3 zeroScales = equal(scales, vec3(0.0));
@@ -141,13 +143,13 @@ void main() {
 
     float fullBlurAmount = blurAmount;
     if ((focalDistance > 0.0) && (apertureAngle > 0.0)) {
-        float focusRadius = MAX_PIXEL_RADIUS;
+        float focusRadius = maxPixelRadius;
         if (viewCenter.z < 0.0) {
             float focusBlur = abs((-viewCenter.z - focalDistance) / viewCenter.z);
             float apertureRadius = focal.x * tan(0.5 * apertureAngle);
             focusRadius = focusBlur * apertureRadius;
         }
-        fullBlurAmount = clamp(sqr(focusRadius), blurAmount, sqr(MAX_PIXEL_RADIUS));
+        fullBlurAmount = clamp(sqr(focusRadius), blurAmount, sqr(maxPixelRadius));
     }
 
     // Do convolution with a 0.5-pixel Gaussian for anti-aliasing: sqrt(0.3) ~= 0.5
@@ -159,7 +161,7 @@ void main() {
     // Compute anti-aliasing intensity scaling factor
     float blurAdjust = sqrt(max(0.0, detOrig / det));
     rgba.a *= blurAdjust;
-    if (rgba.a < MIN_ALPHA) {
+    if (rgba.a < minAlpha) {
         return;
     }
 
@@ -172,8 +174,8 @@ void main() {
     vec2 eigenVec1 = normalize(vec2((abs(b) < 0.001) ? 1.0 : b, eigen1 - a));
     vec2 eigenVec2 = vec2(eigenVec1.y, -eigenVec1.x);
 
-    float scale1 = position.x * min(MAX_PIXEL_RADIUS, maxStdDev * sqrt(eigen1));
-    float scale2 = position.y * min(MAX_PIXEL_RADIUS, maxStdDev * sqrt(eigen2));
+    float scale1 = position.x * min(maxPixelRadius, maxStdDev * sqrt(eigen1));
+    float scale2 = position.y * min(maxPixelRadius, maxStdDev * sqrt(eigen2));
 
     // Compute the NDC coordinates for the ellipsoid's diagonal axes.
     vec2 pixelOffset = eigenVec1 * scale1 + eigenVec2 * scale2;
