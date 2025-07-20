@@ -123,6 +123,11 @@ export type SparkViewpointOptions = {
    * @default true
    */
   sort32?: boolean;
+  /*
+   * Set this to true to enable sort-free stochastic splat rendering.
+   * @default false
+   */
+  stochastic?: boolean;
 };
 
 // A SparkViewpoint is created from and tied to a SparkRenderer, and represents
@@ -156,6 +161,7 @@ export class SparkViewpoint {
   depthBias?: number;
   sort360?: boolean;
   sort32?: boolean;
+  stochastic: boolean;
 
   display: {
     accumulator: SplatAccumulator;
@@ -218,6 +224,7 @@ export class SparkViewpoint {
     this.depthBias = options.depthBias;
     this.sort360 = options.sort360;
     this.sort32 = options.sort32;
+    this.stochastic = options.stochastic ?? false;
 
     this.orderingFreelist = new FreeList({
       allocate: (maxSplats) => new Uint32Array(maxSplats),

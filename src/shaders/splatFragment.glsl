@@ -7,8 +7,11 @@ precision highp int;
 uniform float near;
 uniform float far;
 uniform bool encodeLinear;
+uniform float time;
+uniform bool debugFlag;
 uniform float maxStdDev;
 uniform float minAlpha;
+uniform bool stochastic;
 uniform bool disableFalloff;
 uniform float falloff;
 
@@ -67,10 +70,28 @@ void main() {
     if (encodeLinear) {
         rgba.rgb = srgbToLinear(rgba.rgb);
     }
-    
-    #ifdef PREMULTIPLIED_ALPHA
-        fragColor = vec4(rgba.rgb * rgba.a, rgba.a);
-    #else
-        fragColor = rgba;
-    #endif
+
+    if (stochastic) {
+        uint uTime = floatBitsToUint(time);
+        uvec2 coord = uvec2(gl_FragCoord.xy);
+        uint state = uTime + 0x9e3779b9u * coord.x + 0x85ebca6bu * coord.y;
+        state = state * 747796405u + 2891336453u;
+        uint hash = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+        hash = (hash >> 22u) ^ hash;
+        float rand = float(hash) / 4294967295.0;
+        // rand *= 2.0;
+        if (rand < rgba.a) {
+            fragColor = vec4(rgba.rgb, 1.0);
+            // gl_FragDepth = gl_FragCoord.z;
+            // fragColor = vec4(rgba.r, 0.0, 0.0, 1.0);
+        } else {
+            discard;
+        }
+    } else {
+        #ifdef PREMULTIPLIED_ALPHA
+            fragColor = vec4(rgba.rgb * rgba.a, rgba.a);
+        #else
+            fragColor = rgba;
+        #endif
+    }
 }
