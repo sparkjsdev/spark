@@ -390,6 +390,8 @@ export class SparkRenderer extends THREE.Mesh {
       maxPixelRadius: { value: 512.0 },
       // Minimum alpha value for splat rendering
       minAlpha: { value: 0.5 * (1.0 / 255.0) },
+      // Enable stochastic splat rendering
+      stochastic: { value: false },
       // Enable interpreting 0-thickness Gsplats as 2DGS
       enable2DGS: { value: false },
       // Add to projected 2D splat covariance diagonal (thickens and brightens)
@@ -565,6 +567,7 @@ export class SparkRenderer extends THREE.Mesh {
     this.uniforms.maxStdDev.value = this.maxStdDev;
     this.uniforms.maxPixelRadius.value = this.maxPixelRadius;
     this.uniforms.minAlpha.value = this.minAlpha;
+    this.uniforms.stochastic.value = viewpoint.stochastic;
     this.uniforms.enable2DGS.value = this.enable2DGS;
     this.uniforms.preBlurAmount.value = this.preBlurAmount;
     this.uniforms.blurAmount.value = this.blurAmount;
@@ -633,6 +636,8 @@ export class SparkRenderer extends THREE.Mesh {
         accumulator.splats.splatEncoding?.lnScaleMax ?? LN_SCALE_MAX,
       );
       this.geometry = geometry;
+      this.material.transparent = !this.viewpoint.stochastic;
+      this.material.depthWrite = this.viewpoint.stochastic;
     } else {
       // No Gsplats to display for this viewpoint yet
       this.uniforms.numSplats.value = 0;
