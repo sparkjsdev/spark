@@ -1,3 +1,4 @@
+import type { SplatEncoding } from "./PackedSplats";
 import { computeMaxSplats, setPackedSplat } from "./utils";
 
 export function decodeAntiSplat(
@@ -65,7 +66,10 @@ export function decodeAntiSplat(
   }
 }
 
-export function unpackAntiSplat(fileBytes: Uint8Array): {
+export function unpackAntiSplat(
+  fileBytes: Uint8Array,
+  splatEncoding: SplatEncoding,
+): {
   packedArray: Uint32Array;
   numSplats: number;
 } {
@@ -113,6 +117,7 @@ export function unpackAntiSplat(fileBytes: Uint8Array): {
         r,
         g,
         b,
+        splatEncoding,
       );
     },
   );

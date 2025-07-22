@@ -1,4 +1,5 @@
 import init_wasm, { sort_splats, sort32_splats } from "spark-internal-rs";
+import type { SplatEncoding } from "./PackedSplats";
 import type { PcSogsJson, TranscodeSpzInput } from "./SplatLoader";
 import { unpackAntiSplat } from "./antisplat";
 import { WASM_SPLAT_SORT } from "./defines";
@@ -37,11 +38,16 @@ async function onMessage(event: MessageEvent) {
   try {
     switch (name) {
       case "unpackPly": {
-        const { packedArray, fileBytes } = args as {
+        const { packedArray, fileBytes, splatEncoding } = args as {
           packedArray: Uint32Array;
           fileBytes: Uint8Array;
+          splatEncoding: SplatEncoding;
         };
-        const decoded = await unpackPly({ packedArray, fileBytes });
+        const decoded = await unpackPly({
+          packedArray,
+          fileBytes,
+          splatEncoding,
+        });
         result = {
           id,
           numSplats: decoded.numSplats,
@@ -51,8 +57,11 @@ async function onMessage(event: MessageEvent) {
         break;
       }
       case "decodeSpz": {
-        const { fileBytes } = args as { fileBytes: Uint8Array };
-        const decoded = unpackSpz(fileBytes);
+        const { fileBytes, splatEncoding } = args as {
+          fileBytes: Uint8Array;
+          splatEncoding: SplatEncoding;
+        };
+        const decoded = unpackSpz(fileBytes, splatEncoding);
         result = {
           id,
           numSplats: decoded.numSplats,
@@ -62,8 +71,11 @@ async function onMessage(event: MessageEvent) {
         break;
       }
       case "decodeAntiSplat": {
-        const { fileBytes } = args as { fileBytes: Uint8Array };
-        const decoded = unpackAntiSplat(fileBytes);
+        const { fileBytes, splatEncoding } = args as {
+          fileBytes: Uint8Array;
+          splatEncoding: SplatEncoding;
+        };
+        const decoded = unpackAntiSplat(fileBytes, splatEncoding);
         result = {
           id,
           numSplats: decoded.numSplats,
@@ -72,8 +84,11 @@ async function onMessage(event: MessageEvent) {
         break;
       }
       case "decodeKsplat": {
-        const { fileBytes } = args as { fileBytes: Uint8Array };
-        const decoded = unpackKsplat(fileBytes);
+        const { fileBytes, splatEncoding } = args as {
+          fileBytes: Uint8Array;
+          splatEncoding: SplatEncoding;
+        };
+        const decoded = unpackKsplat(fileBytes, splatEncoding);
         result = {
           id,
           numSplats: decoded.numSplats,
@@ -83,14 +98,15 @@ async function onMessage(event: MessageEvent) {
         break;
       }
       case "decodePcSogs": {
-        const { fileBytes, extraFiles } = args as {
+        const { fileBytes, extraFiles, splatEncoding } = args as {
           fileBytes: Uint8Array;
           extraFiles: Record<string, ArrayBuffer>;
+          splatEncoding: SplatEncoding;
         };
         const json = JSON.parse(
           new TextDecoder().decode(fileBytes),
         ) as PcSogsJson;
-        const decoded = await unpackPcSogs(json, extraFiles);
+        const decoded = await unpackPcSogs(json, extraFiles, splatEncoding);
         result = {
           id,
           numSplats: decoded.numSplats,
@@ -100,8 +116,11 @@ async function onMessage(event: MessageEvent) {
         break;
       }
       case "decodePcSogsZip": {
-        const { fileBytes } = args as { fileBytes: Uint8Array };
-        const decoded = await unpackPcSogsZip(fileBytes);
+        const { fileBytes, splatEncoding } = args as {
+          fileBytes: Uint8Array;
+          splatEncoding: SplatEncoding;
+        };
+        const decoded = await unpackPcSogsZip(fileBytes, splatEncoding);
         result = {
           id,
           numSplats: decoded.numSplats,
@@ -281,7 +300,12 @@ function benchmarkSort(
 async function unpackPly({
   packedArray,
   fileBytes,
-}: { packedArray: Uint32Array; fileBytes: Uint8Array }): Promise<{
+  splatEncoding,
+}: {
+  packedArray: Uint32Array;
+  fileBytes: Uint8Array;
+  splatEncoding: SplatEncoding;
+}): Promise<{
   packedArray: Uint32Array;
   numSplats: number;
   extra: Record<string, unknown>;
@@ -327,6 +351,7 @@ async function unpackPly({
         r,
         g,
         b,
+        splatEncoding,
       );
     },
     (index, sh1, sh2, sh3) => {
@@ -334,19 +359,19 @@ async function unpackPly({
         if (!extra.sh1) {
           extra.sh1 = new Uint32Array(numSplats * 2);
         }
-        encodeSh1Rgb(extra.sh1 as Uint32Array, index, sh1);
+        encodeSh1Rgb(extra.sh1 as Uint32Array, index, sh1, splatEncoding);
       }
       if (sh2) {
         if (!extra.sh2) {
           extra.sh2 = new Uint32Array(numSplats * 4);
         }
-        encodeSh2Rgb(extra.sh2 as Uint32Array, index, sh2);
+        encodeSh2Rgb(extra.sh2 as Uint32Array, index, sh2, splatEncoding);
       }
       if (sh3) {
         if (!extra.sh3) {
           extra.sh3 = new Uint32Array(numSplats * 4);
         }
-        encodeSh3Rgb(extra.sh3 as Uint32Array, index, sh3);
+        encodeSh3Rgb(extra.sh3 as Uint32Array, index, sh3, splatEncoding);
       }
     },
   );
@@ -354,7 +379,10 @@ async function unpackPly({
   return { packedArray, numSplats, extra };
 }
 
-function unpackSpz(fileBytes: Uint8Array): {
+function unpackSpz(
+  fileBytes: Uint8Array,
+  splatEncoding: SplatEncoding,
+): {
   packedArray: Uint32Array;
   numSplats: number;
   extra: Record<string, unknown>;
@@ -373,10 +401,17 @@ function unpackSpz(fileBytes: Uint8Array): {
       setPackedSplatOpacity(packedArray, index, alpha);
     },
     (index, r, g, b) => {
-      setPackedSplatRgb(packedArray, index, r, g, b);
+      setPackedSplatRgb(packedArray, index, r, g, b, splatEncoding);
     },
     (index, scaleX, scaleY, scaleZ) => {
-      setPackedSplatScales(packedArray, index, scaleX, scaleY, scaleZ);
+      setPackedSplatScales(
+        packedArray,
+        index,
+        scaleX,
+        scaleY,
+        scaleZ,
+        splatEncoding,
+      );
     },
     (index, quatX, quatY, quatZ, quatW) => {
       setPackedSplatQuat(packedArray, index, quatX, quatY, quatZ, quatW);
@@ -386,19 +421,19 @@ function unpackSpz(fileBytes: Uint8Array): {
         if (!extra.sh1) {
           extra.sh1 = new Uint32Array(numSplats * 2);
         }
-        encodeSh1Rgb(extra.sh1 as Uint32Array, index, sh1);
+        encodeSh1Rgb(extra.sh1 as Uint32Array, index, sh1, splatEncoding);
       }
       if (sh2) {
         if (!extra.sh2) {
           extra.sh2 = new Uint32Array(numSplats * 4);
         }
-        encodeSh2Rgb(extra.sh2 as Uint32Array, index, sh2);
+        encodeSh2Rgb(extra.sh2 as Uint32Array, index, sh2, splatEncoding);
       }
       if (sh3) {
         if (!extra.sh3) {
           extra.sh3 = new Uint32Array(numSplats * 4);
         }
-        encodeSh3Rgb(extra.sh3 as Uint32Array, index, sh3);
+        encodeSh3Rgb(extra.sh3 as Uint32Array, index, sh3, splatEncoding);
       }
     },
   );

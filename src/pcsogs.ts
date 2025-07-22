@@ -1,4 +1,5 @@
 import { unzip } from "fflate";
+import type { SplatEncoding } from "./PackedSplats";
 import { type PcSogsJson, tryPcSogsZip } from "./SplatLoader";
 import {
   computeMaxSplats,
@@ -14,6 +15,7 @@ import {
 export async function unpackPcSogs(
   json: PcSogsJson,
   extraFiles: Record<string, ArrayBuffer>,
+  splatEncoding: SplatEncoding,
 ): Promise<{
   packedArray: Uint32Array;
   numSplats: number;
@@ -72,6 +74,7 @@ export async function unpackPcSogs(
           Math.exp(x),
           Math.exp(y),
           Math.exp(z),
+          splatEncoding,
         );
       }
     },
@@ -116,7 +119,7 @@ export async function unpackPcSogs(
         const g = SH_C0 * dc1 + 0.5;
         const b = SH_C0 * dc2 + 0.5;
         const a = 1.0 / (1.0 + Math.exp(-opa));
-        setPackedSplatRgba(packedArray, i, r, g, b, a);
+        setPackedSplatRgba(packedArray, i, r, g, b, a, splatEncoding);
       }
     },
   );
@@ -178,9 +181,12 @@ export async function unpackPcSogs(
           }
         }
 
-        if (useSH1) encodeSh1Rgb(extra.sh1 as Uint32Array, i, sh1);
-        if (useSH2) encodeSh2Rgb(extra.sh2 as Uint32Array, i, sh2);
-        if (useSH3) encodeSh3Rgb(extra.sh3 as Uint32Array, i, sh3);
+        if (useSH1)
+          encodeSh1Rgb(extra.sh1 as Uint32Array, i, sh1, splatEncoding);
+        if (useSH2)
+          encodeSh2Rgb(extra.sh2 as Uint32Array, i, sh2, splatEncoding);
+        if (useSH3)
+          encodeSh3Rgb(extra.sh3 as Uint32Array, i, sh3, splatEncoding);
       }
     });
     promises.push(shNPromise);
@@ -248,7 +254,10 @@ async function decodeImageRgba(fileBytes: ArrayBuffer) {
   return rgba;
 }
 
-export async function unpackPcSogsZip(fileBytes: Uint8Array): Promise<{
+export async function unpackPcSogsZip(
+  fileBytes: Uint8Array,
+  splatEncoding: SplatEncoding,
+): Promise<{
   packedArray: Uint32Array;
   numSplats: number;
   extra: Record<string, unknown>;
@@ -300,5 +309,5 @@ export async function unpackPcSogsZip(fileBytes: Uint8Array): Promise<{
     extraFiles[name] = unzipped[full];
   }
 
-  return await unpackPcSogs(json, extraFiles);
+  return await unpackPcSogs(json, extraFiles, splatEncoding);
 }

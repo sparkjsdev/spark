@@ -1,6 +1,6 @@
 import { unzipSync } from "fflate";
 import { FileLoader, Loader, type LoadingManager } from "three";
-import { PackedSplats } from "./PackedSplats";
+import { PackedSplats, type SplatEncoding } from "./PackedSplats";
 import { SplatMesh } from "./SplatMesh";
 import { PlyReader } from "./ply";
 import { withWorker } from "./splatWorker";
@@ -396,11 +396,13 @@ export async function unpackSplats({
   extraFiles,
   fileType,
   pathOrUrl,
+  splatEncoding,
 }: {
   input: Uint8Array | ArrayBuffer;
   extraFiles?: Record<string, ArrayBuffer>;
   fileType?: SplatFileType;
   pathOrUrl?: string;
+  splatEncoding?: SplatEncoding;
 }): Promise<{
   packedArray: Uint32Array;
   numSplats: number;
@@ -422,7 +424,11 @@ export async function unpackSplats({
       await ply.parseHeader();
       const numSplats = ply.numSplats;
       const maxSplats = getTextureSize(numSplats).maxSplats;
-      const args = { fileBytes, packedArray: new Uint32Array(maxSplats * 4) };
+      const args = {
+        fileBytes,
+        packedArray: new Uint32Array(maxSplats * 4),
+        splatEncoding,
+      };
       return await withWorker(async (worker) => {
         const { packedArray, numSplats, extra } = (await worker.call(
           "unpackPly",
@@ -441,6 +447,7 @@ export async function unpackSplats({
           "decodeSpz",
           {
             fileBytes,
+            splatEncoding,
           },
         )) as {
           packedArray: Uint32Array;
@@ -456,6 +463,7 @@ export async function unpackSplats({
           "decodeAntiSplat",
           {
             fileBytes,
+            splatEncoding,
           },
         )) as { packedArray: Uint32Array; numSplats: number };
         return { packedArray, numSplats };
@@ -465,7 +473,7 @@ export async function unpackSplats({
       return await withWorker(async (worker) => {
         const { packedArray, numSplats, extra } = (await worker.call(
           "decodeKsplat",
-          { fileBytes },
+          { fileBytes, splatEncoding },
         )) as {
           packedArray: Uint32Array;
           numSplats: number;
@@ -478,7 +486,7 @@ export async function unpackSplats({
       return await withWorker(async (worker) => {
         const { packedArray, numSplats, extra } = (await worker.call(
           "decodePcSogs",
-          { fileBytes, extraFiles },
+          { fileBytes, extraFiles, splatEncoding },
         )) as {
           packedArray: Uint32Array;
           numSplats: number;
@@ -491,7 +499,7 @@ export async function unpackSplats({
       return await withWorker(async (worker) => {
         const { packedArray, numSplats, extra } = (await worker.call(
           "decodePcSogsZip",
-          { fileBytes },
+          { fileBytes, splatEncoding },
         )) as {
           packedArray: Uint32Array;
           numSplats: number;

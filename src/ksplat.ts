@@ -1,3 +1,4 @@
+import type { SplatEncoding } from "./PackedSplats";
 import {
   computeMaxSplats,
   encodeSh1Rgb,
@@ -352,7 +353,10 @@ export function decodeKsplat(
   }
 }
 
-export function unpackKsplat(fileBytes: Uint8Array): {
+export function unpackKsplat(
+  fileBytes: Uint8Array,
+  splatEncoding: SplatEncoding,
+): {
   packedArray: Uint32Array;
   numSplats: number;
   extra: Record<string, unknown>;
@@ -593,6 +597,7 @@ export function unpackKsplat(fileBytes: Uint8Array): {
         r,
         g,
         b,
+        splatEncoding,
       );
 
       if (sphericalHarmonicsDegree >= 1) {
@@ -603,7 +608,7 @@ export function unpackKsplat(fileBytes: Uint8Array): {
           for (const [i, key] of sh1Index.entries()) {
             sh1[i] = getSh(splatOffset, key);
           }
-          encodeSh1Rgb(extra.sh1 as Uint32Array, i, sh1);
+          encodeSh1Rgb(extra.sh1 as Uint32Array, i, sh1, splatEncoding);
         }
         if (sh2) {
           if (!extra.sh2) {
@@ -612,7 +617,7 @@ export function unpackKsplat(fileBytes: Uint8Array): {
           for (const [i, key] of sh2Index.entries()) {
             sh2[i] = getSh(splatOffset, key);
           }
-          encodeSh2Rgb(extra.sh2 as Uint32Array, i, sh2);
+          encodeSh2Rgb(extra.sh2 as Uint32Array, i, sh2, splatEncoding);
         }
         if (sh3) {
           if (!extra.sh3) {
@@ -621,7 +626,7 @@ export function unpackKsplat(fileBytes: Uint8Array): {
           for (const [i, key] of sh3Index.entries()) {
             sh3[i] = getSh(splatOffset, key);
           }
-          encodeSh3Rgb(extra.sh3 as Uint32Array, i, sh3);
+          encodeSh3Rgb(extra.sh3 as Uint32Array, i, sh3, splatEncoding);
         }
       }
     }
