@@ -172,6 +172,7 @@
             box.expandByPoint(c);
           });
           const localCenter = box.getCenter(new THREE.Vector3());
+          localCenter.y = -localCenter.y;
           return localCenter.add(m.position);
         });
 
