@@ -1,6 +1,10 @@
 import { unzipSync } from "fflate";
 import { FileLoader, Loader, type LoadingManager } from "three";
-import { PackedSplats, type SplatEncoding } from "./PackedSplats";
+import {
+  DEFAULT_SPLAT_ENCODING,
+  PackedSplats,
+  type SplatEncoding,
+} from "./PackedSplats";
 import { SplatMesh } from "./SplatMesh";
 import { PlyReader } from "./ply";
 import { withWorker } from "./splatWorker";
@@ -110,11 +114,14 @@ export class SplatLoader extends Loader {
 
         await Promise.all(promises);
         if (onLoad) {
+          const splatEncoding =
+            this.packedSplats?.splatEncoding ?? DEFAULT_SPLAT_ENCODING;
           const decoded = await unpackSplats({
             input,
             extraFiles,
             fileType,
             pathOrUrl: resolvedURL,
+            splatEncoding,
           });
 
           if (this.packedSplats) {

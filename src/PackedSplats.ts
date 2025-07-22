@@ -35,7 +35,7 @@ export type SplatEncoding = {
   sh3Max?: number;
 };
 
-export const DEFAULT_SPLAT_RANGES: SplatEncoding = {
+export const DEFAULT_SPLAT_ENCODING: SplatEncoding = {
   rgbMin: 0,
   rgbMax: 1,
   lnScaleMin: LN_SCALE_MIN,
@@ -222,7 +222,7 @@ export class PackedSplats {
         input: fileBytes,
         fileType: options.fileType,
         pathOrUrl: options.fileName ?? url,
-        splatEncoding: options.splatEncoding ?? DEFAULT_SPLAT_RANGES,
+        splatEncoding: options.splatEncoding ?? DEFAULT_SPLAT_ENCODING,
       });
       this.initialize(unpacked);
     }

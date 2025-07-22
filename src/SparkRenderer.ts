@@ -1,7 +1,7 @@
 import * as THREE from "three";
 
 import {
-  DEFAULT_SPLAT_RANGES,
+  DEFAULT_SPLAT_ENCODING,
   PackedSplats,
   type SplatEncoding,
 } from "./PackedSplats";
@@ -350,7 +350,7 @@ export class SparkRenderer extends THREE.Mesh {
     this.falloff = options.falloff ?? 1.0;
     this.clipXY = options.clipXY ?? 1.4;
     this.focalAdjustment = options.focalAdjustment ?? 1.0;
-    this.splatEncoding = options.splatEncoding ?? { ...DEFAULT_SPLAT_RANGES };
+    this.splatEncoding = options.splatEncoding ?? { ...DEFAULT_SPLAT_ENCODING };
 
     this.active = new SplatAccumulator();
     this.accumulatorCount = 1;

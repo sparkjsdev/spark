@@ -2,7 +2,7 @@ import * as THREE from "three";
 
 import init_wasm, { raycast_splats } from "spark-internal-rs";
 import {
-  DEFAULT_SPLAT_RANGES,
+  DEFAULT_SPLAT_ENCODING,
   PackedSplats,
   type SplatEncoding,
 } from "./PackedSplats";
@@ -193,7 +193,7 @@ export class SplatMesh extends SplatGenerator {
 
     this.packedSplats = options.packedSplats ?? new PackedSplats();
     this.packedSplats.splatEncoding = options.splatEncoding ?? {
-      ...DEFAULT_SPLAT_RANGES,
+      ...DEFAULT_SPLAT_ENCODING,
     };
     this.numSplats = this.packedSplats.numSplats;
     this.editable = options.editable ?? true;
