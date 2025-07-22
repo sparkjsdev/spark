@@ -4,7 +4,7 @@ use js_sys::{Float32Array, Uint16Array, Uint32Array};
 use wasm_bindgen::prelude::*;
 
 mod sort;
-use sort::{sort_internal, SortBuffers};
+use sort::{sort_internal, SortBuffers, sort32_internal, Sort32Buffers};
 
 mod raycast;
 use raycast::{raycast_ellipsoids, raycast_spheres};
@@ -13,6 +13,7 @@ const RAYCAST_BUFFER_COUNT: u32 = 65536;
 
 thread_local! {
     static SORT_BUFFERS: RefCell<SortBuffers> = RefCell::new(SortBuffers::default());
+    static SORT32_BUFFERS: RefCell<Sort32Buffers> = RefCell::new(Sort32Buffers::default());
     static RAYCAST_BUFFER: RefCell<Vec<u32>> = RefCell::new(vec![0; RAYCAST_BUFFER_COUNT as usize * 4]);
 }
 
@@ -28,6 +29,35 @@ pub fn sort_splats(
         sub_readback.copy_to(&mut buffers.readback[..num_splats as usize]);
 
         let active_splats = match sort_internal(buffers, num_splats as usize) {
+            Ok(active_splats) => active_splats,
+            Err(err) => {
+                wasm_bindgen::throw_str(&format!("{}", err));
+            }
+        };
+
+        if active_splats > 0 {
+            // Copy out ordering result
+            let subarray = &buffers.ordering[..active_splats as usize];
+            ordering.subarray(0, active_splats).copy_from(&subarray);
+        }
+        active_splats
+    });
+
+    active_splats
+}
+
+#[wasm_bindgen]
+pub fn sort32_splats(
+    num_splats: u32, readback: Uint32Array, ordering: Uint32Array,
+) -> u32 {
+    let max_splats = readback.length() as usize;
+
+    let active_splats = SORT32_BUFFERS.with_borrow_mut(|buffers| {
+        buffers.ensure_size(max_splats);
+        let sub_readback = readback.subarray(0, num_splats);
+        sub_readback.copy_to(&mut buffers.readback[..num_splats as usize]);
+
+        let active_splats = match sort32_internal(buffers, max_splats, num_splats as usize) {
             Ok(active_splats) => active_splats,
             Err(err) => {
                 wasm_bindgen::throw_str(&format!("{}", err));

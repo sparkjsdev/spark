@@ -91,6 +91,7 @@ export type SparkViewpointOptions = {
      * @default false
      */
     sort360?: boolean;
+    sort32?: boolean;
 };
 export declare class SparkViewpoint {
     spark: SparkRenderer;
@@ -110,6 +111,7 @@ export declare class SparkViewpoint {
     sortCoorient?: boolean;
     depthBias?: number;
     sort360?: boolean;
+    sort32?: boolean;
     display: {
         accumulator: SplatAccumulator;
         viewToWorld: THREE.Matrix4;
@@ -118,7 +120,8 @@ export declare class SparkViewpoint {
     private sorting;
     private pending;
     private sortingCheck;
-    private readback;
+    private readback16;
+    private readback32;
     private orderingFreelist;
     constructor(options: SparkViewpointOptions & {
         spark: SparkRenderer;
