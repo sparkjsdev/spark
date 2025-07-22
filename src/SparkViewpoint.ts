@@ -569,7 +569,9 @@ export class SparkViewpoint {
     let activeSplats = 0;
     let ordering = this.orderingFreelist.alloc(maxSplats);
 
-    if (numSplats > 0) {
+    if (this.stochastic) {
+      activeSplats = numSplats;
+    } else if (numSplats > 0) {
       const {
         reader,
         doubleSortReader,
