@@ -10,6 +10,7 @@ attribute uint splatIndex;
 out vec4 vRgba;
 out vec2 vSplatUv;
 out vec3 vNdc;
+flat out uint vSplatIndex;
 
 uniform vec2 renderSize;
 uniform uint numSplats;
@@ -21,6 +22,7 @@ uniform float time;
 uniform float deltaTime;
 uniform bool debugFlag;
 uniform float minAlpha;
+uniform bool stochastic;
 uniform bool enable2DGS;
 uniform float blurAmount;
 uniform float preBlurAmount;
@@ -39,16 +41,25 @@ void main() {
     if (uint(gl_InstanceID) >= numSplats) {
         return;
     }
-    if (splatIndex == 0xffffffffu) {
-        // Special value reserved for "no splat"
-        return;
-    }
 
-    ivec3 texCoord = ivec3(
-        splatIndex & SPLAT_TEX_WIDTH_MASK,
-        (splatIndex >> SPLAT_TEX_WIDTH_BITS) & SPLAT_TEX_HEIGHT_MASK,
-        splatIndex >> SPLAT_TEX_LAYER_BITS
-    );
+    ivec3 texCoord;
+    if (stochastic) {
+        texCoord = ivec3(
+            uint(gl_InstanceID) & SPLAT_TEX_WIDTH_MASK,
+            (uint(gl_InstanceID) >> SPLAT_TEX_WIDTH_BITS) & SPLAT_TEX_HEIGHT_MASK,
+            (uint(gl_InstanceID) >> SPLAT_TEX_LAYER_BITS)
+        );
+    } else {
+        if (splatIndex == 0xffffffffu) {
+            // Special value reserved for "no splat"
+            return;
+        }
+        texCoord = ivec3(
+            splatIndex & SPLAT_TEX_WIDTH_MASK,
+            (splatIndex >> SPLAT_TEX_WIDTH_BITS) & SPLAT_TEX_HEIGHT_MASK,
+            splatIndex >> SPLAT_TEX_LAYER_BITS
+        );
+    }
     uvec4 packed = texelFetch(packedSplats, texCoord, 0);
 
     vec3 center, scales;
@@ -84,6 +95,9 @@ void main() {
     if (abs(clipCenter.x) > clip || abs(clipCenter.y) > clip) {
         return;
     }
+
+    // Record the splat index for entropy
+    vSplatIndex = splatIndex;
 
     // Compute view space quaternion of splat
     vec4 viewQuaternion = quatQuat(renderToViewQuat, quaternion);

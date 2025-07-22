@@ -260,6 +260,7 @@ export class SparkRenderer extends THREE.Mesh {
   private lastUpdateTime: number | null = null;
   // List of cameras used for the current viewpoint (for WebXR)
   private defaultCameras: THREE.Matrix4[] = [];
+  private lastStochastic: boolean | null = null;
 
   // Should be set to the defaultView, but can be temporarily changed to another
   // viewpoint using prepareViewpoint() for rendering from a different viewpoint.
@@ -533,6 +534,10 @@ export class SparkRenderer extends THREE.Mesh {
       this.uniforms.deltaTime.value = deltaTime;
       // Alternating debug flag that can aid in visual debugging
       this.uniforms.debugFlag.value = (performance.now() / 1000.0) % 2.0 < 1.0;
+
+      // if (viewpoint.stochastic) {
+      //   (this.geometry as SplatGeometry).instanceCount = this.uniforms.numSplats.value;
+      // }
     }
 
     if (viewpoint.target) {
@@ -576,6 +581,13 @@ export class SparkRenderer extends THREE.Mesh {
     this.uniforms.falloff.value = this.falloff;
     this.uniforms.clipXY.value = this.clipXY;
     this.uniforms.focalAdjustment.value = this.focalAdjustment;
+
+    if (this.lastStochastic !== !viewpoint.stochastic) {
+      this.lastStochastic = !viewpoint.stochastic;
+      this.material.transparent = !viewpoint.stochastic;
+      this.material.depthWrite = viewpoint.stochastic;
+      this.material.needsUpdate = true;
+    }
 
     if (this.splatTexture) {
       const { enable, texture, multiply, add, near, far, mid } =
@@ -638,6 +650,7 @@ export class SparkRenderer extends THREE.Mesh {
       this.geometry = geometry;
       this.material.transparent = !this.viewpoint.stochastic;
       this.material.depthWrite = this.viewpoint.stochastic;
+      this.material.needsUpdate = true;
     } else {
       // No Gsplats to display for this viewpoint yet
       this.uniforms.numSplats.value = 0;
