@@ -527,7 +527,8 @@ function sortDoubleSplats({
 }
 
 const DEPTH_INFINITY_F32 = 0x7f800000;
-let bucket16: Uint32Array | null = null;
+let bucket16lo: Uint32Array | null = null;
+let bucket16hi: Uint32Array | null = null;
 let scratchSplats: Uint32Array | null = null;
 
 // two-pass radix sort (base 65536) of 32-bit keys in readback,
@@ -546,29 +547,36 @@ function sort32Splats({
   const BASE = 1 << 16; // 65536
 
   // allocate once
-  if (!bucket16) {
-    bucket16 = new Uint32Array(BASE);
+  if (!bucket16lo) {
+    bucket16lo = new Uint32Array(BASE);
+  }
+  if (!bucket16hi) {
+    bucket16hi = new Uint32Array(BASE);
   }
   if (!scratchSplats || scratchSplats.length < maxSplats) {
     scratchSplats = new Uint32Array(maxSplats);
   }
 
-  //
-  // ——— Pass #1: bucket by inv(lo 16 bits) ———
-  //
-  bucket16.fill(0);
+  // tally low and high buckets
+  bucket16lo.fill(0);
+  bucket16hi.fill(0);
   for (let i = 0; i < numSplats; ++i) {
     const key = readback[i];
     if (key < DEPTH_INFINITY_F32) {
       const inv = ~key >>> 0;
-      bucket16[inv & 0xffff] += 1;
+      bucket16lo[inv & 0xffff] += 1;
+      bucket16hi[inv >>> 16] += 1;
     }
   }
+
+  //
+  // ——— Pass #1: bucket by inv(lo 16 bits) ———
+  //
   // exclusive prefix‑sum → starting offsets
   let total = 0;
   for (let b = 0; b < BASE; ++b) {
-    const c = bucket16[b];
-    bucket16[b] = total;
+    const c = bucket16lo[b];
+    bucket16lo[b] = total;
     total += c;
   }
   const activeSplats = total;
@@ -578,24 +586,18 @@ function sort32Splats({
     const key = readback[i];
     if (key < DEPTH_INFINITY_F32) {
       const inv = ~key >>> 0;
-      scratchSplats[bucket16[inv & 0xffff]++] = i;
+      scratchSplats[bucket16lo[inv & 0xffff]++] = i;
     }
   }
 
   //
   // ——— Pass #2: bucket by inv(hi 16 bits) ———
   //
-  bucket16.fill(0);
-  for (let k = 0; k < activeSplats; ++k) {
-    const idx = scratchSplats[k];
-    const inv = ~readback[idx] >>> 0;
-    bucket16[inv >>> 16] += 1;
-  }
   // exclusive prefix‑sum again
   let sum = 0;
   for (let b = 0; b < BASE; ++b) {
-    const c = bucket16[b];
-    bucket16[b] = sum;
+    const c = bucket16hi[b];
+    bucket16hi[b] = sum;
     sum += c;
   }
 
@@ -603,13 +605,13 @@ function sort32Splats({
   for (let k = 0; k < activeSplats; ++k) {
     const idx = scratchSplats[k];
     const inv = ~readback[idx] >>> 0;
-    ordering[bucket16[inv >>> 16]++] = idx;
+    ordering[bucket16hi[inv >>> 16]++] = idx;
   }
 
   // sanity‑check: the last bucket should have eaten all entries
-  if (bucket16[BASE - 1] !== activeSplats) {
+  if (bucket16hi[BASE - 1] !== activeSplats) {
     throw new Error(
-      `Expected ${activeSplats} active splats but got ${bucket16[BASE - 1]}`,
+      `Expected ${activeSplats} active splats but got ${bucket16hi[BASE - 1]}`,
     );
   }
 

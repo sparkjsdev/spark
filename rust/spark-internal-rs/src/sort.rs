@@ -76,7 +76,9 @@ pub struct Sort32Buffers {
     /// output indices
     pub ordering: Vec<u32>,
     /// bucket counts / offsets (length == RADIX_BASE)
-    pub buckets16: Vec<u32>,
+    pub buckets16lo: Vec<u32>,
+    /// bucket counts / offsets (length == RADIX_BASE)
+    pub buckets16hi: Vec<u32>,
     /// scratch space for indices
     pub scratch: Vec<u32>,
 }
@@ -93,8 +95,11 @@ impl Sort32Buffers {
         if self.scratch.len() < max_splats {
             self.scratch.resize(max_splats, 0);
         }
-        if self.buckets16.len() < RADIX_BASE {
-            self.buckets16.resize(RADIX_BASE, 0);
+        if self.buckets16lo.len() < RADIX_BASE {
+            self.buckets16lo.resize(RADIX_BASE, 0);
+        }
+        if self.buckets16hi.len() < RADIX_BASE {
+            self.buckets16hi.resize(RADIX_BASE, 0);
         }
     }
 }
@@ -109,20 +114,24 @@ pub fn sort32_internal(
     // make sure our buffers can hold `max_splats`
     buffers.ensure_size(max_splats);
 
-    let Sort32Buffers { readback, ordering, buckets16, scratch } = buffers;
+    let Sort32Buffers { readback, ordering, buckets16lo, buckets16hi, scratch } = buffers;
     let keys = &readback[..num_splats];
 
-    // ——— Pass #1: bucket by inv(low 16 bits) ———
-    buckets16.fill(0);
+    // tally low and high buckets
+    buckets16lo.fill(0);
+    buckets16hi.fill(0);
     for &key in keys.iter() {
         if key < DEPTH_INFINITY_F32 {
             let inv = !key;
-            buckets16[(inv & 0xFFFF) as usize] += 1;
+            buckets16lo[(inv & 0xFFFF) as usize] += 1;
+            buckets16hi[(inv >> 16) as usize] += 1;
         }
     }
+
+    // ——— Pass #1: bucket by inv(low 16 bits) ———
     // exclusive prefix‑sum → starting offsets
     let mut total: u32 = 0;
-    for slot in buckets16.iter_mut() {
+    for slot in buckets16lo.iter_mut() {
         let cnt = *slot;
         *slot = total;
         total = total.wrapping_add(cnt);
@@ -134,21 +143,15 @@ pub fn sort32_internal(
         if key < DEPTH_INFINITY_F32 {
             let inv = !key;
             let lo = (inv & 0xFFFF) as usize;
-            scratch[buckets16[lo] as usize] = i as u32;
-            buckets16[lo] += 1;
+            scratch[buckets16lo[lo] as usize] = i as u32;
+            buckets16lo[lo] += 1;
         }
     }
 
     // ——— Pass #2: bucket by inv(high 16 bits) ———
-    buckets16.fill(0);
-    for &idx in scratch.iter().take(active_splats as usize) {
-        let key = keys[idx as usize];
-        let inv = !key;
-        buckets16[(inv >> 16) as usize] += 1;
-    }
     // exclusive prefix‑sum again
     let mut sum: u32 = 0;
-    for slot in buckets16.iter_mut() {
+    for slot in buckets16hi.iter_mut() {
         let cnt = *slot;
         *slot = sum;
         sum = sum.wrapping_add(cnt);
@@ -158,16 +161,16 @@ pub fn sort32_internal(
         let key = keys[idx as usize];
         let inv = !key;
         let hi = (inv >> 16) as usize;
-        ordering[buckets16[hi] as usize] = idx;
-        buckets16[hi] += 1;
+        ordering[buckets16hi[hi] as usize] = idx;
+        buckets16hi[hi] += 1;
     }
 
     // sanity‑check: last bucket should have consumed all entries
-    if buckets16[RADIX_BASE - 1] != active_splats {
+    if buckets16hi[RADIX_BASE - 1] != active_splats {
         return Err(anyhow!(
             "Expected {} active splats but got {}",
             active_splats,
-            buckets16[RADIX_BASE - 1]
+            buckets16hi[RADIX_BASE - 1]
         ));
     }
 
