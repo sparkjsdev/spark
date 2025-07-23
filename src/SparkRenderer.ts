@@ -535,9 +535,10 @@ export class SparkRenderer extends THREE.Mesh {
       // Alternating debug flag that can aid in visual debugging
       this.uniforms.debugFlag.value = (performance.now() / 1000.0) % 2.0 < 1.0;
 
-      // if (viewpoint.stochastic) {
-      //   (this.geometry as SplatGeometry).instanceCount = this.uniforms.numSplats.value;
-      // }
+      if (viewpoint.display && viewpoint.stochastic) {
+        (this.geometry as SplatGeometry).instanceCount =
+          this.uniforms.numSplats.value;
+      }
     }
 
     if (viewpoint.target) {

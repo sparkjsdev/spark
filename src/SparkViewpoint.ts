@@ -571,6 +571,11 @@ export class SparkViewpoint {
 
     if (this.stochastic) {
       activeSplats = numSplats;
+      // Render all splats in order since the Z-buffer
+      // will handle ordering.
+      for (let i = 0; i < numSplats; ++i) {
+        ordering[i] = i;
+      }
     } else if (numSplats > 0) {
       const {
         reader,

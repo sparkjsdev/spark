@@ -498,11 +498,6 @@
     gui.addColor(guiOptions, "backgroundColor").name("Background color").onChange((value) => {
       scene.background.set(value);
     });
-    // spark.defaultView.stochastic = true;
-    gui.add(spark.defaultView, "stochastic").name("Stochastic sort-free").listen().onChange(() => {
-      // spark.prepareViewpoint();
-      touch();
-    });
 
     const debugFolder = gui.addFolder("Debug").close();
     const normalColor = dyno.dynoBool(false);
@@ -531,6 +526,8 @@
     debugFolder.add(spark, "minAlpha", 0, 1, 0.001).name("Min alpha").listen();
 
     debugFolder.add(spark, "premultipliedAlpha").name("Premultiplied alpha").listen();
+    debugFolder.add(spark.defaultView, "stochastic").name("Stochastic sort-free").listen().onChange(touch);
+
     const accumFolder = debugFolder.addFolder("Accumulator encoding").close();;
     accumFolder.add(spark.splatEncoding, "rgbMin", -1, 1, 0.1).name("RGB min").onChange(touch);
     accumFolder.add(spark.splatEncoding, "rgbMax", 0, 4, 0.1).name("RGB max").onChange(touch);
@@ -778,8 +775,6 @@
       const deltaTime = time - (lastTime || time);
       lastTime = time;
       stats.begin();
-
-      renderer.clear(true, true, false);
 
       if (guiOptions.autoRotate) {
         frame.rotation.y += deltaTime / 5000;
