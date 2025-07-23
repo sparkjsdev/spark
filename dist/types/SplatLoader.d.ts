@@ -1,5 +1,5 @@
 import { FileLoader, Loader, LoadingManager } from 'three';
-import { PackedSplats } from './PackedSplats';
+import { PackedSplats, SplatEncoding } from './PackedSplats';
 import { SplatMesh } from './SplatMesh';
 export declare class SplatLoader extends Loader {
     fileLoader: FileLoader;
@@ -64,11 +64,12 @@ export declare function tryPcSogsZip(input: ArrayBuffer | Uint8Array): {
     name: string;
     json: PcSogsJson;
 } | undefined;
-export declare function unpackSplats({ input, extraFiles, fileType, pathOrUrl, }: {
+export declare function unpackSplats({ input, extraFiles, fileType, pathOrUrl, splatEncoding, }: {
     input: Uint8Array | ArrayBuffer;
     extraFiles?: Record<string, ArrayBuffer>;
     fileType?: SplatFileType;
     pathOrUrl?: string;
+    splatEncoding?: SplatEncoding;
 }): Promise<{
     packedArray: Uint32Array;
     numSplats: number;

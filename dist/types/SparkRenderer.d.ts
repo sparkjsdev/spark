@@ -1,3 +1,4 @@
+import { SplatEncoding } from './PackedSplats';
 import { RgbaArray } from './RgbaArray';
 import { SparkViewpoint, SparkViewpointOptions } from './SparkViewpoint';
 import { SplatAccumulator } from './SplatAccumulator';
@@ -11,6 +12,11 @@ export type SparkRendererOptions = {
      * rendering and significantly reduces performance.
      */
     renderer: THREE.WebGLRenderer;
+    /**
+     * Whether to use premultiplied alpha when accumulating splat RGB
+     * @default true
+     */
+    premultipliedAlpha?: boolean;
     /**
      * Pass in a THREE.Clock to synchronize time-based effects across different
      * systems. Alternatively, you can set the SparkRenderer properties time and
@@ -110,13 +116,20 @@ export type SparkRendererOptions = {
      * radial distance or Z-depth)
      */
     view?: SparkViewpointOptions;
+    /**
+     * Override the default splat encoding ranges for the PackedSplats.
+     * (default: undefined)
+     */
+    splatEncoding?: SplatEncoding;
 };
 export declare class SparkRenderer extends THREE.Mesh {
     renderer: THREE.WebGLRenderer;
+    premultipliedAlpha: boolean;
     material: THREE.ShaderMaterial;
     uniforms: ReturnType<typeof SparkRenderer.makeUniforms>;
     autoUpdate: boolean;
     preUpdate: boolean;
+    needsUpdate: boolean;
     originDistance: number;
     maxStdDev: number;
     maxPixelRadius: number;
@@ -129,6 +142,7 @@ export declare class SparkRenderer extends THREE.Mesh {
     falloff: number;
     clipXY: number;
     focalAdjustment: number;
+    splatEncoding: SplatEncoding;
     splatTexture: null | {
         enable?: boolean;
         texture?: THREE.Data3DTexture;
@@ -237,11 +251,17 @@ export declare class SparkRenderer extends THREE.Mesh {
             type: string;
             value: THREE.DataArrayTexture;
         };
+        rgbMinMaxLnScaleMinMax: {
+            value: THREE.Vector4;
+        };
         time: {
             value: number;
         };
         deltaTime: {
             value: number;
+        };
+        premultipliedAlpha: {
+            value: boolean;
         };
         encodeLinear: {
             value: boolean;

@@ -39,14 +39,33 @@ export declare class FreeList<T, Args> {
     free(item: T): void;
     disposeAll(): void;
 }
-export declare function setPackedSplat(packedSplats: Uint32Array, index: number, x: number, y: number, z: number, scaleX: number, scaleY: number, scaleZ: number, quatX: number, quatY: number, quatZ: number, quatW: number, opacity: number, r: number, g: number, b: number): void;
+export declare function setPackedSplat(packedSplats: Uint32Array, index: number, x: number, y: number, z: number, scaleX: number, scaleY: number, scaleZ: number, quatX: number, quatY: number, quatZ: number, quatW: number, opacity: number, r: number, g: number, b: number, encoding?: {
+    rgbMin?: number;
+    rgbMax?: number;
+    lnScaleMin?: number;
+    lnScaleMax?: number;
+}): void;
 export declare function setPackedSplatCenter(packedSplats: Uint32Array, index: number, x: number, y: number, z: number): void;
-export declare function setPackedSplatScales(packedSplats: Uint32Array, index: number, scaleX: number, scaleY: number, scaleZ: number): void;
+export declare function setPackedSplatScales(packedSplats: Uint32Array, index: number, scaleX: number, scaleY: number, scaleZ: number, encoding?: {
+    lnScaleMin?: number;
+    lnScaleMax?: number;
+}): void;
 export declare function setPackedSplatQuat(packedSplats: Uint32Array, index: number, quatX: number, quatY: number, quatZ: number, quatW: number): void;
-export declare function setPackedSplatRgba(packedSplats: Uint32Array, index: number, r: number, g: number, b: number, a: number): void;
-export declare function setPackedSplatRgb(packedSplats: Uint32Array, index: number, r: number, g: number, b: number): void;
+export declare function setPackedSplatRgba(packedSplats: Uint32Array, index: number, r: number, g: number, b: number, a: number, encoding?: {
+    rgbMin?: number;
+    rgbMax?: number;
+}): void;
+export declare function setPackedSplatRgb(packedSplats: Uint32Array, index: number, r: number, g: number, b: number, encoding?: {
+    rgbMin?: number;
+    rgbMax?: number;
+}): void;
 export declare function setPackedSplatOpacity(packedSplats: Uint32Array, index: number, opacity: number): void;
-export declare function unpackSplat(packedSplats: Uint32Array, index: number): {
+export declare function unpackSplat(packedSplats: Uint32Array, index: number, encoding?: {
+    rgbMin?: number;
+    rgbMax?: number;
+    lnScaleMin?: number;
+    lnScaleMax?: number;
+}): {
     center: THREE.Vector3;
     scales: THREE.Vector3;
     quaternion: THREE.Quaternion;
@@ -132,9 +151,18 @@ export declare function encodeQuatEulerXyz888(q: THREE.Quaternion): number;
  * and then converting them back to Euler angles in [-π, π] and to a quaternion.
  */
 export declare function decodeQuatEulerXyz888(encoded: number, out: THREE.Quaternion): THREE.Quaternion;
-export declare function encodeSh1Rgb(sh1Array: Uint32Array, index: number, sh1Rgb: Float32Array): void;
-export declare function encodeSh2Rgb(sh2Array: Uint32Array, index: number, sh2Rgb: Float32Array): void;
-export declare function encodeSh3Rgb(sh3Array: Uint32Array, index: number, sh3Rgb: Float32Array): void;
+export declare function encodeSh1Rgb(sh1Array: Uint32Array, index: number, sh1Rgb: Float32Array, encoding?: {
+    sh1Min?: number;
+    sh1Max?: number;
+}): void;
+export declare function encodeSh2Rgb(sh2Array: Uint32Array, index: number, sh2Rgb: Float32Array, encoding?: {
+    sh2Min?: number;
+    sh2Max?: number;
+}): void;
+export declare function encodeSh3Rgb(sh3Array: Uint32Array, index: number, sh3Rgb: Float32Array, encoding?: {
+    sh3Min?: number;
+    sh3Max?: number;
+}): void;
 export declare function decompressPartialGzip(fileBytes: Uint8Array, numBytes: number): Uint8Array;
 export declare class GunzipReader {
     fileBytes: Uint8Array;
