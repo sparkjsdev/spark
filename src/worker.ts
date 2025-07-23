@@ -11,7 +11,9 @@ import {
   encodeSh1Rgb,
   encodeSh2Rgb,
   encodeSh3Rgb,
+  floatBitsToUint,
   getArrayBuffers,
+  getTextureSize,
   setPackedSplat,
   setPackedSplatCenter,
   setPackedSplatOpacity,
@@ -38,7 +40,7 @@ async function onMessage(event: MessageEvent) {
     switch (name) {
       case "unpackPly": {
         const { packedArray, fileBytes } = args as {
-          packedArray: Uint32Array;
+          packedArray: [Uint32Array, Uint32Array];
           fileBytes: Uint8Array;
         };
         const decoded = await unpackPly({ packedArray, fileBytes });
@@ -281,8 +283,11 @@ function benchmarkSort(
 async function unpackPly({
   packedArray,
   fileBytes,
-}: { packedArray: Uint32Array; fileBytes: Uint8Array }): Promise<{
-  packedArray: Uint32Array;
+}: {
+  packedArray: [Uint32Array, Uint32Array];
+  fileBytes: Uint8Array;
+}): Promise<{
+  packedArray: [Uint32Array, Uint32Array];
   numSplats: number;
   extra: Record<string, unknown>;
 }> {
@@ -355,14 +360,17 @@ async function unpackPly({
 }
 
 function unpackSpz(fileBytes: Uint8Array): {
-  packedArray: Uint32Array;
+  packedArray: [Uint32Array, Uint32Array];
   numSplats: number;
   extra: Record<string, unknown>;
 } {
   const spz = new SpzReader({ fileBytes });
   const numSplats = spz.numSplats;
   const maxSplats = computeMaxSplats(numSplats);
-  const packedArray = new Uint32Array(maxSplats * 4);
+  const packedArray: [Uint32Array, Uint32Array] = [
+    new Uint32Array(maxSplats * 4),
+    new Uint32Array(maxSplats * 4),
+  ];
   const extra: Record<string, unknown> = {};
 
   spz.parseSplats(
