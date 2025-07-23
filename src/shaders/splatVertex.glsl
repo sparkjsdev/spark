@@ -30,6 +30,7 @@ uniform float clipXY;
 uniform float focalAdjustment;
 
 uniform usampler2DArray packedSplats;
+uniform vec4 rgbMinMaxLnScaleMinMax;
 
 void main() {
     // Default to outside the frustum so it's discarded if we return early
@@ -52,7 +53,7 @@ void main() {
 
     vec3 center, scales;
     vec4 quaternion, rgba;
-    unpackSplat(packed, center, scales, quaternion, rgba);
+    unpackSplatEncoding(packed, center, scales, quaternion, rgba, rgbMinMaxLnScaleMinMax);
 
     if (rgba.a < minAlpha) {
         return;

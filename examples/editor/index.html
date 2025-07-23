@@ -69,7 +69,7 @@
     import * as THREE from "three";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
     import { GUI } from "lil-gui";
-    import { constructGrid, SparkControls, SparkRenderer, SplatMesh, textSplats, dyno, transcodeSpz, isMobile, isPcSogs } from "@sparkjsdev/spark";
+    import { constructGrid, SparkControls, SparkRenderer, SplatMesh, textSplats, dyno, transcodeSpz, isMobile, isPcSogs, LN_SCALE_MIN, LN_SCALE_MAX } from "@sparkjsdev/spark";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
     const scene = new THREE.Scene();
@@ -230,15 +230,21 @@
     applyCameraFromQuery();
 
     const cameraFolder = gui.addFolder("Camera");
-    cameraFolder.add(camera.position, "x", -10, 10, 0.01).name("X").listen();
-    cameraFolder.add(camera.position, "y", -10, 10, 0.01).name("Y").listen();
-    cameraFolder.add(camera.position, "z", -10, 10, 0.01).name("Z").listen();
-    const rotX = cameraFolder.add(camera.rotation, "x", -Math.PI, Math.PI, 0.01).name("RotateX").listen();
-    const rotY = cameraFolder.add(camera.rotation, "y", -Math.PI, Math.PI, 0.01).name("RotateY").listen();
-    const rotZ = cameraFolder.add(camera.rotation, "z", -Math.PI, Math.PI, 0.01).name("RotateZ").listen();
-    cameraFolder.add(camera, "fov", 1, 179, 1).name("Fov Y degrees").listen().onChange((value) => {
+    const cameraPose = cameraFolder.addFolder("Camera Pose");
+    cameraPose.add(camera.position, "x", -10, 10, 0.01).name("X").listen();
+    cameraPose.add(camera.position, "y", -10, 10, 0.01).name("Y").listen();
+    cameraPose.add(camera.position, "z", -10, 10, 0.01).name("Z").listen();
+    const rotX = cameraPose.add(camera.rotation, "x", -Math.PI, Math.PI, 0.01).name("RotateX").listen();
+    const rotY = cameraPose.add(camera.rotation, "y", -Math.PI, Math.PI, 0.01).name("RotateY").listen();
+    const rotZ = cameraPose.add(camera.rotation, "z", -Math.PI, Math.PI, 0.01).name("RotateZ").listen();
+    cameraPose.add(camera, "fov", 1, 179, 1).name("Fov Y degrees").listen().onChange((value) => {
       camera.updateProjectionMatrix();
     });
+    cameraPose.close();
+
+    function touch() {
+      spark.needsUpdate = true;
+    }
 
     // Progress bar functions
     const progressBar = document.getElementById('progress-bar');
@@ -383,6 +389,7 @@
           }
 
           const init = url ? { url } : { fileBytes: fileBytes.slice(), fileName };
+          init.splatEncoding = { ...splatEncoding };
           const splatMesh = new SplatMesh(init);
           const translate = guiOptions.loadOffset * index
           splatMesh.position.set(translate, 0.5 * translate, 0.1 * translate);
@@ -480,8 +487,6 @@
       stats.dom.style.display = value ? "block" : "none";
     });
     gui.add(spark.defaultView, "sortRadial").name("Radial sort").listen();
-    spark.defaultView.sort32 = true;
-    gui.add(spark.defaultView, "sort32").name("Float32 sort").listen();
     gui.add(grid, "opacity", 0, 1, 0.01).name("Grid opacity").listen();
     gui.add({
       logFocalDistance: 0.0,
@@ -519,6 +524,37 @@
     debugFolder.add(spark.defaultView, "sort32").name("Float32 sort").listen();
     debugFolder.add(spark, "maxPixelRadius", 1, 1024, 1).name("Max pixel radius").listen();
     debugFolder.add(spark, "minAlpha", 0, 1, 0.001).name("Min alpha").listen();
+
+    debugFolder.add(spark, "premultipliedAlpha").name("Premultiplied alpha").listen();
+    const accumFolder = debugFolder.addFolder("Accumulator encoding").close();;
+    accumFolder.add(spark.splatEncoding, "rgbMin", -1, 1, 0.1).name("RGB min").onChange(touch);
+    accumFolder.add(spark.splatEncoding, "rgbMax", 0, 4, 0.1).name("RGB max").onChange(touch);
+    accumFolder.add(spark.splatEncoding, "lnScaleMin", -14, -2.5, 0.1).name("Ln scale min").onChange(touch);
+    accumFolder.add(spark.splatEncoding, "lnScaleMax", -14, 14, 0.1).name("Ln scale max").onChange(touch);
+
+    const splatEncoding = {
+      rgbMin: 0.0,
+      rgbMax: 1.0,
+      lnScaleMin: LN_SCALE_MIN,
+      lnScaleMax: LN_SCALE_MAX,
+      sh1Min: -1,
+      sh1Max: 1,
+      sh2Min: -1,
+      sh2Max: 1,
+      sh3Min: -1,
+      sh3Max: 1,
+    };
+    const splatFolder = debugFolder.addFolder("SplatMesh encoding").close();
+    splatFolder.add(splatEncoding, "rgbMin", -1, 1, 0.1).name("RGB min").onChange(touch);
+    splatFolder.add(splatEncoding, "rgbMax", 0, 4, 0.1).name("RGB max").onChange(touch);
+    splatFolder.add(splatEncoding, "lnScaleMin", -14, -2.5, 0.1).name("Ln scale min").onChange(touch);
+    splatFolder.add(splatEncoding, "lnScaleMax", -14, 14, 0.1).name("Ln scale max").onChange(touch);
+    splatFolder.add(splatEncoding, "sh1Min", -6, 6, 0.1).name("SH1 min").onChange(touch);
+    splatFolder.add(splatEncoding, "sh1Max", -6, 6, 0.1).name("SH1 max").onChange(touch);
+    splatFolder.add(splatEncoding, "sh2Min", -6, 6, 0.1).name("SH2 min").onChange(touch);
+    splatFolder.add(splatEncoding, "sh2Max", -6, 6, 0.1).name("SH2 max").onChange(touch);
+    splatFolder.add(splatEncoding, "sh3Min", -6, 6, 0.1).name("SH3 min").onChange(touch);
+    splatFolder.add(splatEncoding, "sh3Max", -6, 6, 0.1).name("SH3 max").onChange(touch);
 
     const splatsFolder = secondGui.addFolder("Files");
 

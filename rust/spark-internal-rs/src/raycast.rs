@@ -2,30 +2,19 @@ use half::f16;
 
 const MIN_OPACITY: f32 = 0.1;
 
-pub const LN_SCALE_MIN: f32 = -12.0;
-pub const LN_SCALE_MAX: f32 = 9.0;
-pub const LN_RESCALE: f32 = (LN_SCALE_MAX - LN_SCALE_MIN) / 254.0; // 1..=255
-
-// pub fn encode_scale(scale: f32) -> u8 {
-//     if scale == 0.0 {
-//         0
-//     } else {
-//         // Allow scales below LN_SCALE_MIN to be encoded as 0, which signifies a 2DGS
-//         ((scale.ln() - LN_SCALE_MIN) / LN_RESCALE + 1.0).clamp(0.0, 255.0).round() as u8
-//     }
-// }
-
-pub fn decode_scale(scale: u8) -> f32 {
+pub fn decode_scale(scale: u8, ln_scale_min: f32, ln_scale_max: f32) -> f32 {
     if scale == 0 {
         0.0
     } else {
-        (LN_SCALE_MIN + (scale - 1) as f32 * LN_RESCALE).exp()
+        let ln_scale_scale = (ln_scale_max - ln_scale_min) / 254.0;
+        (ln_scale_min + (scale - 1) as f32 * ln_scale_scale).exp()
     }
 }
 
 pub fn raycast_spheres(
     buffer: &[u32], distances: &mut Vec<f32>, 
     origin: [f32; 3], dir: [f32; 3], near: f32, far: f32,
+    ln_scale_min: f32, ln_scale_max: f32,
 ) {
     let quad_a = vec3_dot(dir, dir);
 
@@ -36,7 +25,7 @@ pub fn raycast_spheres(
         }
 
         let origin = vec3_sub(origin, extract_center(packed));
-        let scale = extract_scale(packed);
+        let scale = extract_scale(packed, ln_scale_min, ln_scale_max);
         
         // Model the Gsplat as a sphere for faster approximate raycasting
         let radius = (scale[0] + scale[1] + scale[2]) / 3.0;
@@ -58,6 +47,7 @@ pub fn raycast_spheres(
 pub fn raycast_ellipsoids(
     buffer: &[u32], distances: &mut Vec<f32>, 
     origin: [f32; 3], dir: [f32; 3], near: f32, far: f32,
+    ln_scale_min: f32, ln_scale_max: f32,
 ) {
     for packed in buffer.chunks(4) {
         let opacity = ((packed[0] >> 24) as u8) as f32 / 255.0;
@@ -66,7 +56,7 @@ pub fn raycast_ellipsoids(
         }
     
         let origin = vec3_sub(origin, extract_center(packed));
-        let scale = extract_scale(packed);
+        let scale = extract_scale(packed, ln_scale_min, ln_scale_max);
         let quat = extract_quat(packed);
         let inv_quat = [-quat[0], -quat[1], -quat[2], quat[3]];
 
@@ -139,10 +129,10 @@ fn extract_center(packed: &[u32]) -> [f32; 3] {
     [x, y, z]
 }
 
-fn extract_scale(packed: &[u32]) -> [f32; 3] {
-    let scale_x = decode_scale(packed[3] as u8);
-    let scale_y = decode_scale((packed[3] >> 8) as u8);
-    let scale_z = decode_scale((packed[3] >> 16) as u8);
+fn extract_scale(packed: &[u32], ln_scale_min: f32, ln_scale_max: f32) -> [f32; 3] {
+    let scale_x = decode_scale(packed[3] as u8, ln_scale_min, ln_scale_max);
+    let scale_y = decode_scale((packed[3] >> 8) as u8, ln_scale_min, ln_scale_max);
+    let scale_z = decode_scale((packed[3] >> 16) as u8, ln_scale_min, ln_scale_max);
     [scale_x, scale_y, scale_z]
 }
 
