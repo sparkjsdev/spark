@@ -24,6 +24,7 @@ const viewpoint = spark.newViewpoint({
   depthBias?: number;
   sort360?: boolean;
   sort32?: boolean;
+  stochastic?: boolean;
 });
 ```
 
@@ -46,6 +47,7 @@ const viewpoint = spark.newViewpoint({
 | **depthBias**     | Constant added to Z-depth to bias values into the positive range for `sortRadial: false`, but also used for culling splats "well behind" the viewpoint origin (default: `1.0`)
 | **sort360**       | Set this to true if rendering a 360 to disable "behind the viewpoint" culling during sorting. This is set automatically when rendering 360 envMaps using the `SparkRenderer.renderEnvMap()` utility function. (default: `false`)
 | **sort32**        | Set this to true to sort with float32 precision with two-pass sort. (default: `false`)
+| **stochastic**    | Set this to true to enable sort-free stochastic splat rendering. (default: `false`)
 
 ## `dispose()`
 
