@@ -1,5 +1,3 @@
-use anyhow::anyhow;
-
 const DEPTH_INFINITY_F16: u32 = 0x7c00;
 const DEPTH_SIZE_F16: usize = DEPTH_INFINITY_F16 as usize + 1;
 
@@ -24,7 +22,7 @@ impl SortBuffers {
     }
 }
 
-pub fn sort_internal(buffers: &mut SortBuffers, num_splats: usize) -> anyhow::Result<u32> {
+pub fn sort_internal(buffers: &mut SortBuffers, num_splats: usize) -> Result<u32, String> {
     let SortBuffers { readback, ordering, buckets } = buffers;
     let readback = &readback[..num_splats];
 
@@ -57,7 +55,7 @@ pub fn sort_internal(buffers: &mut SortBuffers, num_splats: usize) -> anyhow::Re
 
     // Sanity check
     if buckets[0] != active_splats {
-        return Err(anyhow!(
+        return Err(format!(
             "Expected {} active splats but got {}",
             active_splats,
             buckets[0]
@@ -110,7 +108,7 @@ pub fn sort32_internal(
     buffers: &mut Sort32Buffers,
     max_splats: usize,
     num_splats: usize,
-) -> anyhow::Result<u32> {
+) -> Result<u32, String> {
     // make sure our buffers can hold `max_splats`
     buffers.ensure_size(max_splats);
 
@@ -167,7 +165,7 @@ pub fn sort32_internal(
 
     // sanity‑check: last bucket should have consumed all entries
     if buckets16hi[RADIX_BASE - 1] != active_splats {
-        return Err(anyhow!(
+        return Err(format!(
             "Expected {} active splats but got {}",
             active_splats,
             buckets16hi[RADIX_BASE - 1]
