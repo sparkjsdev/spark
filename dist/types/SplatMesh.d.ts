@@ -1,4 +1,4 @@
-import { PackedSplats } from './PackedSplats';
+import { PackedSplats, SplatEncoding } from './PackedSplats';
 import { RgbaArray } from './RgbaArray';
 import { SplatEdit } from './SplatEdit';
 import { GsplatModifier, SplatGenerator, SplatTransformer } from './SplatGenerator';
@@ -24,6 +24,7 @@ export type SplatMeshOptions = {
     }) => void;
     objectModifier?: GsplatModifier;
     worldModifier?: GsplatModifier;
+    splatEncoding?: SplatEncoding;
 };
 export type SplatMeshContext = {
     transform: SplatTransformer;

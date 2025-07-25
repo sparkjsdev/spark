@@ -4,7 +4,7 @@ import * as THREE from "three";
 // Miscellaneous utility functions for Spark
 
 import {
-  LN_RESCALE,
+  LN_SCALE_MAX,
   LN_SCALE_MIN,
   SCALE_ZERO,
   SPLAT_TEX_HEIGHT,
@@ -353,10 +353,19 @@ export function setPackedSplat(
   r: number,
   g: number,
   b: number,
+  encoding?: {
+    rgbMin?: number;
+    rgbMax?: number;
+    lnScaleMin?: number;
+    lnScaleMax?: number;
+  },
 ) {
-  const uR = floatToUint8(r);
-  const uG = floatToUint8(g);
-  const uB = floatToUint8(b);
+  const rgbMin = encoding?.rgbMin ?? 0.0;
+  const rgbMax = encoding?.rgbMax ?? 1.0;
+  const rgbRange = rgbMax - rgbMin;
+  const uR = floatToUint8((r - rgbMin) / rgbRange);
+  const uG = floatToUint8((g - rgbMin) / rgbRange);
+  const uB = floatToUint8((b - rgbMin) / rgbRange);
   const uA = floatToUint8(opacity);
 
   // Alternate internal encodings commented out below.
@@ -370,6 +379,9 @@ export function setPackedSplat(
   const uQuatZ = (uQuat >>> 16) & 0xff;
 
   // Allow scales below LN_SCALE_MIN to be encoded as 0, which signifies a 2DGS
+  const lnScaleMin = encoding?.lnScaleMin ?? LN_SCALE_MIN;
+  const lnScaleMax = encoding?.lnScaleMax ?? LN_SCALE_MAX;
+  const lnScaleScale = 254.0 / (lnScaleMax - lnScaleMin);
   const uScaleX =
     scaleX < SCALE_ZERO
       ? 0
@@ -377,7 +389,7 @@ export function setPackedSplat(
           255,
           Math.max(
             1,
-            Math.round((Math.log(scaleX) - LN_SCALE_MIN) / LN_RESCALE) + 1,
+            Math.round((Math.log(scaleX) - lnScaleMin) * lnScaleScale) + 1,
           ),
         );
   const uScaleY =
@@ -387,7 +399,7 @@ export function setPackedSplat(
           255,
           Math.max(
             1,
-            Math.round((Math.log(scaleY) - LN_SCALE_MIN) / LN_RESCALE) + 1,
+            Math.round((Math.log(scaleY) - lnScaleMin) * lnScaleScale) + 1,
           ),
         );
   const uScaleZ =
@@ -397,7 +409,7 @@ export function setPackedSplat(
           255,
           Math.max(
             1,
-            Math.round((Math.log(scaleZ) - LN_SCALE_MIN) / LN_RESCALE) + 1,
+            Math.round((Math.log(scaleZ) - lnScaleMin) * lnScaleScale) + 1,
           ),
         );
 
@@ -439,8 +451,15 @@ export function setPackedSplatScales(
   scaleX: number,
   scaleY: number,
   scaleZ: number,
+  encoding?: {
+    lnScaleMin?: number;
+    lnScaleMax?: number;
+  },
 ) {
   // Allow scales below LN_SCALE_MIN to be encoded as 0, which signifies a 2DGS
+  const lnScaleMin = encoding?.lnScaleMin ?? LN_SCALE_MIN;
+  const lnScaleMax = encoding?.lnScaleMax ?? LN_SCALE_MAX;
+  const lnScaleScale = 254.0 / (lnScaleMax - lnScaleMin);
   const uScaleX =
     scaleX < SCALE_ZERO
       ? 0
@@ -448,7 +467,7 @@ export function setPackedSplatScales(
           255,
           Math.max(
             1,
-            Math.round((Math.log(scaleX) - LN_SCALE_MIN) / LN_RESCALE) + 1,
+            Math.round((Math.log(scaleX) - lnScaleMin) * lnScaleScale) + 1,
           ),
         );
   const uScaleY =
@@ -458,7 +477,7 @@ export function setPackedSplatScales(
           255,
           Math.max(
             1,
-            Math.round((Math.log(scaleY) - LN_SCALE_MIN) / LN_RESCALE) + 1,
+            Math.round((Math.log(scaleY) - lnScaleMin) * lnScaleScale) + 1,
           ),
         );
   const uScaleZ =
@@ -468,7 +487,7 @@ export function setPackedSplatScales(
           255,
           Math.max(
             1,
-            Math.round((Math.log(scaleZ) - LN_SCALE_MIN) / LN_RESCALE) + 1,
+            Math.round((Math.log(scaleZ) - lnScaleMin) * lnScaleScale) + 1,
           ),
         );
 
@@ -513,10 +532,17 @@ export function setPackedSplatRgba(
   g: number,
   b: number,
   a: number,
+  encoding?: {
+    rgbMin?: number;
+    rgbMax?: number;
+  },
 ) {
-  const uR = floatToUint8(r);
-  const uG = floatToUint8(g);
-  const uB = floatToUint8(b);
+  const rgbMin = encoding?.rgbMin ?? 0.0;
+  const rgbMax = encoding?.rgbMax ?? 1.0;
+  const rgbRange = rgbMax - rgbMin;
+  const uR = floatToUint8((r - rgbMin) / rgbRange);
+  const uG = floatToUint8((g - rgbMin) / rgbRange);
+  const uB = floatToUint8((b - rgbMin) / rgbRange);
   const uA = floatToUint8(a);
   const i4 = index * 4;
   packedSplats[i4] = uR | (uG << 8) | (uB << 16) | (uA << 24);
@@ -529,10 +555,17 @@ export function setPackedSplatRgb(
   r: number,
   g: number,
   b: number,
+  encoding?: {
+    rgbMin?: number;
+    rgbMax?: number;
+  },
 ) {
-  const uR = floatToUint8(r);
-  const uG = floatToUint8(g);
-  const uB = floatToUint8(b);
+  const rgbMin = encoding?.rgbMin ?? 0.0;
+  const rgbMax = encoding?.rgbMax ?? 1.0;
+  const rgbRange = rgbMax - rgbMin;
+  const uR = floatToUint8((r - rgbMin) / rgbRange);
+  const uG = floatToUint8((g - rgbMin) / rgbRange);
+  const uB = floatToUint8((b - rgbMin) / rgbRange);
 
   const i4 = index * 4;
   packedSplats[i4] =
@@ -568,6 +601,12 @@ const packedFields = {
 export function unpackSplat(
   packedSplats: Uint32Array,
   index: number,
+  encoding?: {
+    rgbMin?: number;
+    rgbMax?: number;
+    lnScaleMin?: number;
+    lnScaleMax?: number;
+  },
 ): {
   center: THREE.Vector3;
   scales: THREE.Vector3;
@@ -584,10 +623,13 @@ export function unpackSplat(
   const word2 = packedSplats[i4 + 2];
   const word3 = packedSplats[i4 + 3];
 
+  const rgbMin = encoding?.rgbMin ?? 0.0;
+  const rgbMax = encoding?.rgbMax ?? 1.0;
+  const rgbRange = rgbMax - rgbMin;
   result.color.set(
-    (word0 & 0xff) / 255,
-    ((word0 >>> 8) & 0xff) / 255,
-    ((word0 >>> 16) & 0xff) / 255,
+    rgbMin + ((word0 & 0xff) / 255) * rgbRange,
+    rgbMin + (((word0 >>> 8) & 0xff) / 255) * rgbRange,
+    rgbMin + (((word0 >>> 16) & 0xff) / 255) * rgbRange,
   );
   result.opacity = ((word0 >>> 24) & 0xff) / 255;
   result.center.set(
@@ -596,15 +638,18 @@ export function unpackSplat(
     fromHalf(word2 & 0xffff),
   );
 
+  const lnScaleMin = encoding?.lnScaleMin ?? LN_SCALE_MIN;
+  const lnScaleMax = encoding?.lnScaleMax ?? LN_SCALE_MAX;
+  const lnScaleScale = (lnScaleMax - lnScaleMin) / 254.0;
   const uScalesX = word3 & 0xff;
   result.scales.x =
-    uScalesX === 0 ? 0.0 : Math.exp(LN_SCALE_MIN + (uScalesX - 1) * LN_RESCALE);
+    uScalesX === 0 ? 0.0 : Math.exp(lnScaleMin + (uScalesX - 1) * lnScaleScale);
   const uScalesY = (word3 >>> 8) & 0xff;
   result.scales.y =
-    uScalesY === 0 ? 0.0 : Math.exp(LN_SCALE_MIN + (uScalesY - 1) * LN_RESCALE);
+    uScalesY === 0 ? 0.0 : Math.exp(lnScaleMin + (uScalesY - 1) * lnScaleScale);
   const uScalesZ = (word3 >>> 16) & 0xff;
   result.scales.z =
-    uScalesZ === 0 ? 0.0 : Math.exp(LN_SCALE_MIN + (uScalesZ - 1) * LN_RESCALE);
+    uScalesZ === 0 ? 0.0 : Math.exp(lnScaleMin + (uScalesZ - 1) * lnScaleScale);
 
   const uQuat = ((word2 >>> 16) & 0xffff) | ((word3 >>> 8) & 0xff0000);
   decodeQuatOctXy88R8(uQuat, result.quaternion);
@@ -1110,11 +1155,21 @@ export function encodeSh1Rgb(
   sh1Array: Uint32Array,
   index: number,
   sh1Rgb: Float32Array,
+  encoding?: {
+    sh1Min?: number;
+    sh1Max?: number;
+  },
 ) {
+  const sh1Min = encoding?.sh1Min ?? -1;
+  const sh1Max = encoding?.sh1Max ?? 1;
+  const sh1Mid = 0.5 * (sh1Min + sh1Max);
+  const sh1Scale = 63 / (sh1Max - sh1Min);
+
   // Pack sint7 values into 2 x uint32
   const base = index * 2;
   for (let i = 0; i < 9; ++i) {
-    const value = Math.max(-63, Math.min(63, sh1Rgb[i] * 63)) & 0x7f;
+    const s = (sh1Rgb[i] - sh1Mid) * sh1Scale;
+    const value = Math.round(Math.max(-63, Math.min(63, s))) & 0x7f;
     const bitStart = i * 7;
     const bitEnd = bitStart + 7;
 
@@ -1136,30 +1191,39 @@ export function encodeSh2Rgb(
   sh2Array: Uint32Array,
   index: number,
   sh2Rgb: Float32Array,
+  encoding?: {
+    sh2Min?: number;
+    sh2Max?: number;
+  },
 ) {
+  const sh2Min = encoding?.sh2Min ?? -1;
+  const sh2Max = encoding?.sh2Max ?? 1;
+  const sh2Mid = 0.5 * (sh2Min + sh2Max);
+  const sh2Scale = 0.5 / (sh2Max - sh2Min);
+
   // Pack sint8 values into 4 x uint32
   sh2Array[index * 4 + 0] = packSint8Bytes(
-    sh2Rgb[0],
-    sh2Rgb[1],
-    sh2Rgb[2],
-    sh2Rgb[3],
+    (sh2Rgb[0] - sh2Mid) * sh2Scale,
+    (sh2Rgb[1] - sh2Mid) * sh2Scale,
+    (sh2Rgb[2] - sh2Mid) * sh2Scale,
+    (sh2Rgb[3] - sh2Mid) * sh2Scale,
   );
   sh2Array[index * 4 + 1] = packSint8Bytes(
-    sh2Rgb[4],
-    sh2Rgb[5],
-    sh2Rgb[6],
-    sh2Rgb[7],
+    (sh2Rgb[4] - sh2Mid) * sh2Scale,
+    (sh2Rgb[5] - sh2Mid) * sh2Scale,
+    (sh2Rgb[6] - sh2Mid) * sh2Scale,
+    (sh2Rgb[7] - sh2Mid) * sh2Scale,
   );
   sh2Array[index * 4 + 2] = packSint8Bytes(
-    sh2Rgb[8],
-    sh2Rgb[9],
-    sh2Rgb[10],
-    sh2Rgb[11],
+    (sh2Rgb[8] - sh2Mid) * sh2Scale,
+    (sh2Rgb[9] - sh2Mid) * sh2Scale,
+    (sh2Rgb[10] - sh2Mid) * sh2Scale,
+    (sh2Rgb[11] - sh2Mid) * sh2Scale,
   );
   sh2Array[index * 4 + 3] = packSint8Bytes(
-    sh2Rgb[12],
-    sh2Rgb[13],
-    sh2Rgb[14],
+    (sh2Rgb[12] - sh2Mid) * sh2Scale,
+    (sh2Rgb[13] - sh2Mid) * sh2Scale,
+    (sh2Rgb[14] - sh2Mid) * sh2Scale,
     0,
   );
 }
@@ -1170,11 +1234,21 @@ export function encodeSh3Rgb(
   sh3Array: Uint32Array,
   index: number,
   sh3Rgb: Float32Array,
+  encoding?: {
+    sh3Min?: number;
+    sh3Max?: number;
+  },
 ) {
+  const sh3Min = encoding?.sh3Min ?? -1;
+  const sh3Max = encoding?.sh3Max ?? 1;
+  const sh3Mid = 0.5 * (sh3Min + sh3Max);
+  const sh3Scale = 31 / (sh3Max - sh3Min);
+
   // Pack sint6 values into 4 x uint32
   const base = index * 4;
   for (let i = 0; i < 21; ++i) {
-    const value = Math.max(-31, Math.min(31, sh3Rgb[i] * 31)) & 0x3f;
+    const s = (sh3Rgb[i] - sh3Mid) * sh3Scale;
+    const value = Math.round(Math.max(-31, Math.min(31, s))) & 0x3f;
     const bitStart = i * 6;
     const bitEnd = bitStart + 6;
 
