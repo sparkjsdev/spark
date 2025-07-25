@@ -260,9 +260,6 @@ export declare class SparkRenderer extends THREE.Mesh {
         deltaTime: {
             value: number;
         };
-        premultipliedAlpha: {
-            value: boolean;
-        };
         encodeLinear: {
             value: boolean;
         };
