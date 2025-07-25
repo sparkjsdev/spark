@@ -6,7 +6,6 @@ precision highp int;
 
 uniform float near;
 uniform float far;
-uniform bool premultipliedAlpha;
 uniform bool encodeLinear;
 uniform float maxStdDev;
 uniform float minAlpha;
@@ -69,9 +68,9 @@ void main() {
         rgba.rgb = srgbToLinear(rgba.rgb);
     }
     
-    if (premultipliedAlpha) {
+    #ifdef PREMULTIPLIED_ALPHA
         fragColor = vec4(rgba.rgb * rgba.a, rgba.a);
-    } else {
+    #else
         fragColor = rgba;
-    }
+    #endif
 }

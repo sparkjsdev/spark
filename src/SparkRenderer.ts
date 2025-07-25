@@ -294,14 +294,8 @@ export class SparkRenderer extends THREE.Mesh {
       vertexShader: shaders.splatVertex,
       fragmentShader: shaders.splatFragment,
       uniforms,
+      premultipliedAlpha,
       transparent: true,
-      blending: premultipliedAlpha
-        ? THREE.CustomBlending
-        : THREE.NormalBlending,
-      blendSrc: premultipliedAlpha ? THREE.OneFactor : THREE.SrcAlphaFactor,
-      blendDst: premultipliedAlpha
-        ? THREE.OneMinusSrcAlphaFactor
-        : THREE.OneFactor,
       depthTest: true,
       depthWrite: false,
       side: THREE.DoubleSide,
@@ -435,8 +429,6 @@ export class SparkRenderer extends THREE.Mesh {
       time: { value: 0 },
       // Delta time in seconds since last frame
       deltaTime: { value: 0 },
-      // Whether to use premultiplied alpha when accumulating splat RGB
-      premultipliedAlpha: { value: true },
       // Whether to encode Gsplat with linear RGB (for environment mapping)
       encodeLinear: { value: false },
       // Debug flag that alternates each frame
@@ -531,20 +523,10 @@ export class SparkRenderer extends THREE.Mesh {
 
     if (isNewFrame) {
       // Keep these uniforms the same for both eyes if in WebXR
-      const blending = this.premultipliedAlpha
-        ? THREE.CustomBlending
-        : THREE.NormalBlending;
-      if (blending !== this.material.blending) {
-        this.material.blending = blending;
-        this.material.blendSrc = this.premultipliedAlpha
-          ? THREE.OneFactor
-          : THREE.SrcAlphaFactor;
-        this.material.blendDst = this.premultipliedAlpha
-          ? THREE.OneMinusSrcAlphaFactor
-          : THREE.OneFactor;
+      if (this.material.premultipliedAlpha !== this.premultipliedAlpha) {
+        this.material.premultipliedAlpha = this.premultipliedAlpha;
         this.material.needsUpdate = true;
       }
-      this.uniforms.premultipliedAlpha.value = this.premultipliedAlpha;
       this.uniforms.time.value = time;
       this.uniforms.deltaTime.value = deltaTime;
       // Alternating debug flag that can aid in visual debugging
