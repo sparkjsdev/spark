@@ -97,6 +97,13 @@ Creates a new splat with the provided parameters (all values in "float" space, i
 
 This method iterates over all splats in this instance's `packedSplats`, invoking the provided callback with `index: number` in `0..=(this.numSplats-1)`, `center: THREE.Vector3`, `scales: THREE.Vector3`, `quaternion: THREE.Quaternion`, `opacity: number` (0..1), and `color: THREE.Color` (rgb values in 0..1). Note that the objects passed in as `center` etc. are the same for every callback invocation: they are reused for efficiency. *Changing these values has no effect* as they are decoded/unpacked copies of the underlying data. To update the `packedSplats`, call `.packedSplats.setSplat(index, center, scales, quaternion, opacity, color)`.
 
+
+## `getBoundingBox(centers_only=true)`
+
+This method returns a `THREE.Box3` representing the axis-aligned bounding box of all splats in the mesh.
+The parameter `centers_only` (boolean, default: `true`) controls whether we calculate the bounding box using only splat center positions, or include the full extent of each splat by considering their scales and orientations. The latter gives a slightly more accurate but more computationally expensive bounding box. 
+Note that this function will raise an error if called before splats are initialized.
+
 ## `updateGenerator()`
 
 Call this whenever something changes in the splat processing pipeline, for example changing `maxSh` or updating `objectModifier` or `worldModifier`. Compiled generators are cached for efficiency and re-used when the same graph structure emerges after successive changes.
