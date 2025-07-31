@@ -166,6 +166,7 @@ export declare class SparkRenderer extends THREE.Mesh {
     private lastFrame;
     private lastUpdateTime;
     private defaultCameras;
+    private lastStochastic;
     viewpoint: SparkViewpoint;
     private pendingUpdate;
     private envViewpoint;
@@ -200,6 +201,9 @@ export declare class SparkRenderer extends THREE.Mesh {
         };
         minAlpha: {
             value: number;
+        };
+        stochastic: {
+            value: boolean;
         };
         enable2DGS: {
             value: boolean;
