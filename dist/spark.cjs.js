@@ -7268,6 +7268,50 @@ const _SplatMesh = class _SplatMesh extends SplatGenerator {
   dispose() {
     this.packedSplats.dispose();
   }
+  // Returns axis-aligned bounding box of the SplatMesh. If centers_only is true,
+  // only the centers of the splats are used to compute the bounding box.
+  // IMPORTANT: This should only be called after the SplatMesh is initialized.
+  getBoundingBox(centers_only = true) {
+    if (!this.initialized) {
+      throw new Error(
+        "Cannot get bounding box before SplatMesh is initialized"
+      );
+    }
+    const minVec = new THREE__namespace.Vector3(
+      Number.POSITIVE_INFINITY,
+      Number.POSITIVE_INFINITY,
+      Number.POSITIVE_INFINITY
+    );
+    const maxVec = new THREE__namespace.Vector3(
+      Number.NEGATIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      Number.NEGATIVE_INFINITY
+    );
+    const corners = new THREE__namespace.Vector3();
+    const signs = [-1, 1];
+    this.packedSplats.forEachSplat(
+      (_index, center, scales, quaternion, _opacity, _color) => {
+        if (centers_only) {
+          minVec.min(center);
+          maxVec.max(center);
+        } else {
+          for (const x of signs) {
+            for (const y of signs) {
+              for (const z of signs) {
+                corners.set(x * scales.x, y * scales.y, z * scales.z);
+                corners.applyQuaternion(quaternion);
+                corners.add(center);
+                minVec.min(corners);
+                maxVec.max(corners);
+              }
+            }
+          }
+        }
+      }
+    );
+    const box = new THREE__namespace.Box3(minVec, maxVec);
+    return box;
+  }
   constructGenerator(context) {
     const { transform, viewToObject, recolor } = context;
     const generator = dynoBlock(
