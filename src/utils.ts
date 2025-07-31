@@ -1163,7 +1163,7 @@ export function encodeSh1Rgb(
   const sh1Min = encoding?.sh1Min ?? -1;
   const sh1Max = encoding?.sh1Max ?? 1;
   const sh1Mid = 0.5 * (sh1Min + sh1Max);
-  const sh1Scale = 63 / (sh1Max - sh1Min);
+  const sh1Scale = 126 / (sh1Max - sh1Min);
 
   // Pack sint7 values into 2 x uint32
   const base = index * 2;
@@ -1199,7 +1199,7 @@ export function encodeSh2Rgb(
   const sh2Min = encoding?.sh2Min ?? -1;
   const sh2Max = encoding?.sh2Max ?? 1;
   const sh2Mid = 0.5 * (sh2Min + sh2Max);
-  const sh2Scale = 0.5 / (sh2Max - sh2Min);
+  const sh2Scale = 2 / (sh2Max - sh2Min);
 
   // Pack sint8 values into 4 x uint32
   sh2Array[index * 4 + 0] = packSint8Bytes(
@@ -1242,7 +1242,7 @@ export function encodeSh3Rgb(
   const sh3Min = encoding?.sh3Min ?? -1;
   const sh3Max = encoding?.sh3Max ?? 1;
   const sh3Mid = 0.5 * (sh3Min + sh3Max);
-  const sh3Scale = 31 / (sh3Max - sh3Min);
+  const sh3Scale = 62 / (sh3Max - sh3Min);
 
   // Pack sint6 values into 4 x uint32
   const base = index * 4;
