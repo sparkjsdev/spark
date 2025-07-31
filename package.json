@@ -1,6 +1,6 @@
 {
   "name": "@sparkjsdev/spark",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "An advanced 3D Gaussian Splatting renderer for THREE.js",
   "homepage": "https://sparkjs.dev/",
   "type": "module",

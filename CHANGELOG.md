@@ -1,3 +1,11 @@
+### 0.1.8 (July 31, 2025)
+
+Bug fix.
+
+### Bug fixes
+
+- Fix SH encoding scale factors (#142) (@asundqui, @mrxz, @heimeii)
+
 ### 0.1.7 (July 30, 2025)
 
 Image quality and performance improvements.

@@ -53,7 +53,7 @@ Copy the following code into an `index.html` file.
   {
     "imports": {
       "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.174.0/three.module.js",
-      "@sparkjsdev/spark": "https://sparkjs.dev/releases/spark/0.1.7/spark.module.js"
+      "@sparkjsdev/spark": "https://sparkjs.dev/releases/spark/0.1.8/spark.module.js"
     }
   }
 </script>
@@ -91,7 +91,7 @@ Remix the [glitch starter template](https://glitch.com/edit/#!/sparkjs-dev)
   {
     "imports": {
       "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.174.0/three.module.js",
-      "@sparkjsdev/spark": "https://sparkjs.dev/releases/spark/0.1.7/spark.module.js"
+      "@sparkjsdev/spark": "https://sparkjs.dev/releases/spark/0.1.8/spark.module.js"
      }
   }
 </script>
