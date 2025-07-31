@@ -230,18 +230,19 @@
     });
 
     // Handle drag and drop files.
-    const dropZoneEl = document.querySelector('.drop-zone');
+    const dropZoneEl = document.querySelector('.container');
+    const dropUIEl = document.querySelector('.drop-zone');
     const onDragover = function (e) {
       e.preventDefault();
-      dropZoneEl.classList.add('dragover');
+      dropUIEl.classList.add('dragover');
     };
     const onDragLeave = function () {
-      dropZoneEl.classList.remove('dragover');
+      dropUIEl.classList.remove('dragover');
     };
     const onDrop = function (e) {
       e.preventDefault();
-      dropZoneEl.classList.remove('dragover');
-      dropZoneEl.classList.add('drop');
+      dropUIEl.classList.remove('dragover');
+      dropUIEl.classList.add('drop');
 
       const files = e.dataTransfer.files;
       if (files.length > 0) {
