@@ -499,6 +499,10 @@ export function setPackedSplatScales(
     (packedSplats[i4 + 3] & 0xff000000);
 }
 
+// Temporary storage used in `encodeQuatOCtXy88R8` and `decodeQuatOctXy88R8` to
+// avoid allocation new Quaternions and Vector3 instances.
+const tempQuaternion = new THREE.Quaternion();
+
 // Encode the rotation quatX, quatY, quatZ, quatW in the packedSplats Uint32Array,
 // leaving all other fields as is.
 export function setPackedSplatQuat(
@@ -510,7 +514,7 @@ export function setPackedSplatQuat(
   quatW: number,
 ) {
   const uQuat = encodeQuatOctXy88R8(
-    new THREE.Quaternion(quatX, quatY, quatZ, quatW),
+    tempQuaternion.set(quatX, quatY, quatZ, quatW),
   );
   // const uQuat = encodeQuatXyz888(new THREE.Quaternion(quatX, quatY, quatZ, quatW));
   // const uQuat = encodeQuatEulerXyz888(new THREE.Quaternion(quatX, quatY, quatZ, quatW));
@@ -960,6 +964,11 @@ export function decodeQuatXyz888(
   return out;
 }
 
+// Temporary storage used in `encodeQuatOCtXy88R8` and `decodeQuatOctXy88R8` to
+// avoid allocation new Quaternions and Vector3 instances.
+const tempNormalizedQuaternion = new THREE.Quaternion();
+const tempAxis = new THREE.Vector3();
+
 /**
  * Encodes a THREE.Quaternion into a 24‐bit integer.
  *
@@ -972,7 +981,7 @@ export function decodeQuatXyz888(
  */
 export function encodeQuatOctXy88R8(q: THREE.Quaternion): number {
   // Force the minimal representation (q.w >= 0)
-  const qnorm = q.clone().normalize();
+  const qnorm = tempNormalizedQuaternion.copy(q).normalize();
   if (qnorm.w < 0) {
     qnorm.set(-qnorm.x, -qnorm.y, -qnorm.z, -qnorm.w);
   }
@@ -984,8 +993,8 @@ export function encodeQuatOctXy88R8(q: THREE.Quaternion): number {
   );
   const axis =
     xyz_norm < 1e-6
-      ? new THREE.Vector3(1, 0, 0)
-      : new THREE.Vector3(qnorm.x, qnorm.y, qnorm.z).divideScalar(xyz_norm);
+      ? tempAxis.set(1, 0, 0)
+      : tempAxis.set(qnorm.x, qnorm.y, qnorm.z).divideScalar(xyz_norm);
   // const foldAxis = (axis.z < 0);
 
   // --- Folded Octahedral Mapping (inline) ---
@@ -1036,7 +1045,7 @@ export function decodeQuatOctXy88R8(
   const t = Math.max(-f_z, 0);
   f_x += f_x >= 0 ? -t : t;
   f_y += f_y >= 0 ? -t : t;
-  const axis = new THREE.Vector3(f_x, f_y, f_z).normalize();
+  const axis = tempAxis.set(f_x, f_y, f_z).normalize();
 
   // Decode the angle: θ ∈ [0,π]
   const theta = (angleInt / 255) * Math.PI;

@@ -239,8 +239,8 @@ export class PlyReader {
       // Parse all the items in the element
       const callback = elementCallback(element) ?? (() => {});
       for (let index = 0; index < count; index++) {
-        for (const parser of parsers) {
-          parser();
+        for (let parserIndex = 0; parserIndex < parsers.length; parserIndex++) {
+          parsers[parserIndex]();
         }
         callback(index, item);
       }
@@ -296,17 +296,17 @@ export class PlyReader {
       if (!sh1) {
         throw new Error("Missing sh1");
       }
-      for (const [i, key] of sh1Props.entries()) {
-        sh1[i] = ((item[key] as number) * 8) / 255 - 4;
+      for (let i = 0; i < sh1Props.length; i++) {
+        sh1[i] = ((item[sh1Props[i]] as number) * 8) / 255 - 4;
       }
       if (sh2) {
-        for (const [i, key] of sh2Props.entries()) {
-          sh2[i] = ((item[key] as number) * 8) / 255 - 4;
+        for (let i = 0; i < sh2Props.length; i++) {
+          sh2[i] = ((item[sh2Props[i]] as number) * 8) / 255 - 4;
         }
       }
       if (sh3) {
-        for (const [i, key] of sh3Props.entries()) {
-          sh3[i] = ((item[key] as number) * 8) / 255 - 4;
+        for (let i = 0; i < sh3Props.length; i++) {
+          sh3[i] = ((item[sh3Props[i]] as number) * 8) / 255 - 4;
         }
       }
       shCallback?.(index, sh1, sh2, sh3);
