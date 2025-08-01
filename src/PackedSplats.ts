@@ -33,6 +33,7 @@ export type SplatEncoding = {
   sh2Max?: number;
   sh3Min?: number;
   sh3Max?: number;
+  maxSh?: number;
 };
 
 export const DEFAULT_SPLAT_ENCODING: SplatEncoding = {
@@ -46,6 +47,7 @@ export const DEFAULT_SPLAT_ENCODING: SplatEncoding = {
   sh2Max: 1,
   sh3Min: -1,
   sh3Max: 1,
+  maxSh: 3,
 };
 
 // Initialize a PackedSplats collection from source data via

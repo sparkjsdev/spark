@@ -1,10 +1,9 @@
 import type { SplatEncoding } from "./PackedSplats";
 import {
   computeMaxSplats,
-  encodeSh1Rgb,
-  encodeSh2Rgb,
-  encodeSh3Rgb,
+  encodeShRgb,
   fromHalf,
+  getShArrayStride,
   setPackedSplat,
 } from "./utils";
 
@@ -416,7 +415,11 @@ export function unpackKsplat(
     const bucketsMetaDataSizeBytes = partiallyFilledBucketCount * 4;
     const bucketsStorageSizeBytes =
       bucketStorageSizeBytes * bucketCount + bucketsMetaDataSizeBytes;
-    const sphericalHarmonicsDegree = section.getUint16(40, true);
+    const sphericalHarmonicsDegree = section.getUint16(40, true) as
+      | 0
+      | 1
+      | 2
+      | 3;
     const shComponents =
       KSPLAT_SH_DEGREE_TO_COMPONENTS[sphericalHarmonicsDegree];
 
@@ -601,33 +604,38 @@ export function unpackKsplat(
       );
 
       if (sphericalHarmonicsDegree >= 1) {
+        if (!extra.sh) {
+          extra.sh = new Uint8Array(
+            numSplats * getShArrayStride(sphericalHarmonicsDegree),
+          );
+          extra.shDegrees = sphericalHarmonicsDegree;
+        }
+
         if (sh1) {
-          if (!extra.sh1) {
-            extra.sh1 = new Uint32Array(numSplats * 2);
-          }
           for (const [i, key] of sh1Index.entries()) {
             sh1[i] = getSh(splatOffset, key);
           }
-          encodeSh1Rgb(extra.sh1 as Uint32Array, i, sh1, splatEncoding);
         }
         if (sh2) {
-          if (!extra.sh2) {
-            extra.sh2 = new Uint32Array(numSplats * 4);
-          }
           for (const [i, key] of sh2Index.entries()) {
             sh2[i] = getSh(splatOffset, key);
           }
-          encodeSh2Rgb(extra.sh2 as Uint32Array, i, sh2, splatEncoding);
         }
         if (sh3) {
-          if (!extra.sh3) {
-            extra.sh3 = new Uint32Array(numSplats * 4);
-          }
           for (const [i, key] of sh3Index.entries()) {
             sh3[i] = getSh(splatOffset, key);
           }
-          encodeSh3Rgb(extra.sh3 as Uint32Array, i, sh3, splatEncoding);
         }
+
+        encodeShRgb(
+          extra.sh as Uint8Array,
+          sphericalHarmonicsDegree,
+          i,
+          sh1,
+          sh2,
+          sh3,
+          splatEncoding,
+        );
       }
     }
     sectionBase += storageSizeBytes;
