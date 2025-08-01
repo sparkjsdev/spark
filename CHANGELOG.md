@@ -1,10 +1,11 @@
 ### 0.1.8 (July 31, 2025)
 
-Bug fix.
+Bug fix + SplatMesh bounding box calculation.
 
 ### Bug fixes
 
 - Fix SH encoding scale factors (#142) (@asundqui, @mrxz, @heimeii)
+- Calculate a SplatMesh's bounding box! `SplatMesh.getBoundingBox()` (#126) (@winnie1994)
 
 ### 0.1.7 (July 30, 2025)
 
@@ -12,8 +13,9 @@ Image quality and performance improvements.
 
 ### Enhancements
 
-- Allow custom splat encoding ranges (rgb, sh1, sh2, sh3). Expose `premultipliedAlpha` flag to use when accumulating splat RGB (#134) (@asundqui)
-- Add higher precision mode (float32) for splat sorting in addition to the default one (float16) (@asundqui, @mrxz) (#129)
+- Customizable splat encoding ranges (rgb, sh1, sh2, sh3) for wider range of colors and scales support improving contrast and color reproduction. Expose `premultipliedAlpha` flag to use when accumulating splat RGB (#134) (@asundqui)
+- [Experimental Stochastic splat ordering option](https://sparkjs.dev/examples/stochastic/). Faster rendering since sorting no longer needed but with some visual quality tradeoffs (#8f5596e) (@asundqui)
+- Higher precision mode (float32) for splat sorting in addition to the default one (float16). Addresses z-fighting issues between splats (@asundqui, @mrxz) (#129)
 - Allow decoding and parsing of SOGS images to happen in parallel (@mrxz) (#122)
 - New [splat shaders effect example](http://sparkjs.dev/examples/splat-shader-effects) (#141) (@kali-shade)
 - Expose `minAlpha` and `maxPixelRadius` in the [SparkRenderer](https://sparkjs.dev/docs/spark-renderer/) parameters (#130) (@asundqui)
