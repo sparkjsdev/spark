@@ -36,3 +36,8 @@ export const SPLAT_TEX_DEPTH_MASK = SPLAT_TEX_DEPTH - 1;
 // time between pure JS and WASM are minimal and don't make a big difference.
 
 export const WASM_SPLAT_SORT = true;
+
+// Enable/disable compiling a dedicated parse function per element type
+// in the plyReader.
+
+export const USE_COMPILED_PARSER_FUNCTION = true;

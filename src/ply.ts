@@ -1,14 +1,18 @@
 // PLY file format reader
 
-export type PlyPropertyType =
-  | "char"
-  | "uchar"
-  | "short"
-  | "ushort"
-  | "int"
-  | "uint"
-  | "float"
-  | "double";
+import { USE_COMPILED_PARSER_FUNCTION } from "./defines";
+
+const PLY_PROPERTY_TYPES = [
+  "char",
+  "uchar",
+  "short",
+  "ushort",
+  "int",
+  "uint",
+  "float",
+  "double",
+] as const;
+export type PlyPropertyType = (typeof PLY_PROPERTY_TYPES)[number];
 
 export type PlyElement = {
   name: string;
@@ -200,48 +204,17 @@ export class PlyReader {
       const element = this.elements[elementName];
       const { count, properties } = element;
       const item: Record<string, number | number[]> = {};
-      // Construct an array of parser function to parse each property in an item
-      const parsers = [];
+      // Prepare item
       for (const [propertyName, property] of Object.entries(properties)) {
-        if (!property.isList) {
-          item[propertyName] = 0;
-          parsers.push(() => {
-            item[propertyName] = PARSE_FIELD[property.type](
-              data,
-              offset,
-              this.littleEndian,
-            );
-            offset += FIELD_BYTES[property.type];
-          });
-        } else {
-          // Property is a list, so parse the count first
-          item[propertyName] = [];
-          parsers.push(() => {
-            const list = item[propertyName] as number[];
-            list.length = PARSE_FIELD[property.countType as PlyPropertyType](
-              data,
-              offset,
-              this.littleEndian,
-            );
-            offset += FIELD_BYTES[property.countType as PlyPropertyType];
-            for (let i = 0; i < list.length; i++) {
-              list[i] = PARSE_FIELD[property.type](
-                data,
-                offset,
-                this.littleEndian,
-              );
-              offset += FIELD_BYTES[property.type];
-            }
-          });
-        }
+        item[propertyName] = property.isList ? [] : 0;
       }
+      // Construct a parse function
+      const parseFn = createParseFn(properties, this.littleEndian);
 
       // Parse all the items in the element
       const callback = elementCallback(element) ?? (() => {});
       for (let index = 0; index < count; index++) {
-        for (let parserIndex = 0; parserIndex < parsers.length; parserIndex++) {
-          parsers[parserIndex]();
-        }
+        offset = parseFn(data, offset, item);
         callback(index, item);
       }
     }
@@ -886,6 +859,150 @@ const NUM_SH_TO_NUM_F_REST: Record<number, number> = {
   2: 24,
   3: 45,
 };
+
+function createParseFn(
+  properties: Record<string, PlyProperty>,
+  littleEndian: boolean,
+) {
+  if (USE_COMPILED_PARSER_FUNCTION && safeToCompile(properties)) {
+    return createCompiledParserFn(properties, littleEndian);
+  }
+  return createDynamicParserFn(properties, littleEndian);
+}
+
+const PROPERTY_NAME_REGEX = /^[a-zA-Z0-9_]+$/;
+
+function safeToCompile(properties: Record<string, PlyProperty>) {
+  for (const [propertyName, property] of Object.entries(properties)) {
+    if (!PROPERTY_NAME_REGEX.test(propertyName)) {
+      return false;
+    }
+
+    if (
+      property.isList &&
+      !PLY_PROPERTY_TYPES.includes(property.countType as PlyPropertyType)
+    ) {
+      return false;
+    }
+
+    if (!PLY_PROPERTY_TYPES.includes(property.type)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function createCompiledParserFn(
+  properties: Record<string, PlyProperty>,
+  littleEndian: boolean,
+) {
+  // Construct the parser function source.
+  const parserSrc: string[] = ["let list;"];
+  for (const [propertyName, property] of Object.entries(properties)) {
+    if (!property.isList) {
+      parserSrc.push(/*js*/ `
+        item['${propertyName}'] = PARSE_FIELD['${property.type}'](data, offset, ${littleEndian});
+        offset += ${FIELD_BYTES[property.type]};
+      `);
+    } else {
+      // Property is a list, so parse the count first
+      parserSrc.push(/*js*/ `
+        list = item['${propertyName}'];
+        list.length = PARSE_FIELD['${property.countType}'](data, offset, ${littleEndian});
+        offset += ${FIELD_BYTES[property.countType as PlyPropertyType]};
+        for (let i = 0; i < list.length; i++) {
+          list[i] = PARSE_FIELD['${property.type}'](data, offset, ${littleEndian});
+          offset += ${FIELD_BYTES[property.type]};
+        }
+      `);
+    }
+  }
+  parserSrc.push("return offset;");
+
+  const fn = new Function(
+    "data",
+    "offset",
+    "item",
+    "PARSE_FIELD",
+    parserSrc.join("\n"),
+  );
+  return (
+    data: DataView,
+    offset: number,
+    item: Record<string, number | number[]>,
+  ) => fn(data, offset, item, PARSE_FIELD);
+}
+
+function createDynamicParserFn(
+  properties: Record<string, PlyProperty>,
+  littleEndian: boolean,
+) {
+  // Construct an array of parser function to parse each property in an item
+  const parsers: Array<
+    (
+      data: DataView,
+      offset: number,
+      item: Record<string, number | number[]>,
+    ) => number
+  > = [];
+  for (const [propertyName, property] of Object.entries(properties)) {
+    if (!property.isList) {
+      parsers.push(
+        (
+          data: DataView,
+          offset: number,
+          item: Record<string, number | number[]>,
+        ) => {
+          item[propertyName] = PARSE_FIELD[property.type](
+            data,
+            offset,
+            littleEndian,
+          );
+          return offset + FIELD_BYTES[property.type];
+        },
+      );
+    } else {
+      // Property is a list, so parse the count first
+      parsers.push(
+        (
+          data: DataView,
+          offset: number,
+          item: Record<string, number | number[]>,
+        ) => {
+          const list = item[propertyName] as number[];
+          list.length = PARSE_FIELD[property.countType as PlyPropertyType](
+            data,
+            offset,
+            littleEndian,
+          );
+          let currentOffset =
+            offset + FIELD_BYTES[property.countType as PlyPropertyType];
+          for (let i = 0; i < list.length; i++) {
+            list[i] = PARSE_FIELD[property.type](
+              data,
+              currentOffset,
+              littleEndian,
+            );
+            currentOffset += FIELD_BYTES[property.type];
+          }
+          return currentOffset;
+        },
+      );
+    }
+  }
+
+  return (
+    data: DataView,
+    offset: number,
+    item: Record<string, number | number[]>,
+  ) => {
+    let currentOffset = offset;
+    for (let parserIndex = 0; parserIndex < parsers.length; parserIndex++) {
+      currentOffset = parsers[parserIndex](data, currentOffset, item);
+    }
+    return currentOffset;
+  };
+}
 
 function getNumSh(properties: Record<string, PlyProperty>) {
   let num_f_rest = 0;
