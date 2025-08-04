@@ -203,11 +203,7 @@ export class PlyReader {
     for (const elementName in this.elements) {
       const element = this.elements[elementName];
       const { count, properties } = element;
-      const item: Record<string, number | number[]> = {};
-      // Prepare item
-      for (const [propertyName, property] of Object.entries(properties)) {
-        item[propertyName] = property.isList ? [] : 0;
-      }
+      const item = createEmptyItem(properties);
       // Construct a parse function
       const parseFn = createParseFn(properties, this.littleEndian);
 
@@ -231,9 +227,9 @@ export class PlyReader {
     const ssChunks: SSChunk[] = [];
 
     let numSh = 0;
-    let sh1Props: string[] = [];
-    let sh2Props: string[] = [];
-    let sh3Props: string[] = [];
+    let sh1Props: number[] = [];
+    let sh2Props: number[] = [];
+    let sh3Props: number[] = [];
     let sh1: Float32Array | undefined = undefined;
     let sh2: Float32Array | undefined = undefined;
     let sh3: Float32Array | undefined = undefined;
@@ -243,18 +239,16 @@ export class PlyReader {
       const num_f_rest = NUM_SH_TO_NUM_F_REST[numSh];
       sh1Props = new Array(3)
         .fill(null)
-        .flatMap((_, k) =>
-          [0, 1, 2].map((_, d) => `f_rest_${k + (d * num_f_rest) / 3}`),
-        );
+        .flatMap((_, k) => [0, 1, 2].map((_, d) => k + (d * num_f_rest) / 3));
       sh2Props = new Array(5)
         .fill(null)
         .flatMap((_, k) =>
-          [0, 1, 2].map((_, d) => `f_rest_${3 + k + (d * num_f_rest) / 3}`),
+          [0, 1, 2].map((_, d) => 3 + k + (d * num_f_rest) / 3),
         );
       sh3Props = new Array(7)
         .fill(null)
         .flatMap((_, k) =>
-          [0, 1, 2].map((_, d) => `f_rest_${8 + k + (d * num_f_rest) / 3}`),
+          [0, 1, 2].map((_, d) => 8 + k + (d * num_f_rest) / 3),
         );
       sh1 = numSh >= 1 ? new Float32Array(3 * 3) : undefined;
       sh2 = numSh >= 2 ? new Float32Array(5 * 3) : undefined;
@@ -269,17 +263,19 @@ export class PlyReader {
       if (!sh1) {
         throw new Error("Missing sh1");
       }
+      const sh = item.f_rest as number[];
+
       for (let i = 0; i < sh1Props.length; i++) {
-        sh1[i] = ((item[sh1Props[i]] as number) * 8) / 255 - 4;
+        sh1[i] = (sh[sh1Props[i]] * 8) / 255 - 4;
       }
       if (sh2) {
         for (let i = 0; i < sh2Props.length; i++) {
-          sh2[i] = ((item[sh2Props[i]] as number) * 8) / 255 - 4;
+          sh2[i] = (sh[sh2Props[i]] * 8) / 255 - 4;
         }
       }
       if (sh3) {
         for (let i = 0; i < sh3Props.length; i++) {
-          sh3[i] = ((item[sh3Props[i]] as number) * 8) / 255 - 4;
+          sh3[i] = (sh[sh3Props[i]] * 8) / 255 - 4;
         }
       }
       shCallback?.(index, sh1, sh2, sh3);
@@ -596,19 +592,20 @@ export class PlyReader {
         );
 
         if (shCallback && sh1) {
+          const sh = item.f_rest as number[];
           if (sh1) {
-            for (const [i, key] of sh1Props.entries()) {
-              sh1[i] = item[key] as number;
+            for (let i = 0; i < sh1Props.length; i++) {
+              sh1[i] = sh[sh1Props[i]];
             }
           }
           if (sh2) {
-            for (const [i, key] of sh2Props.entries()) {
-              sh2[i] = item[key] as number;
+            for (let i = 0; i < sh2Props.length; i++) {
+              sh2[i] = sh[sh2Props[i]];
             }
           }
           if (sh3) {
-            for (const [i, key] of sh3Props.entries()) {
-              sh3[i] = item[key] as number;
+            for (let i = 0; i < sh3Props.length; i++) {
+              sh3[i] = sh[sh3Props[i]];
             }
           }
           shCallback(index, sh1, sh2, sh3);
@@ -860,6 +857,23 @@ const NUM_SH_TO_NUM_F_REST: Record<number, number> = {
   3: 45,
 };
 
+const F_REST_REGEX = /^f_rest_([0-9]{1,2})$/;
+
+function createEmptyItem(
+  properties: Record<string, PlyProperty>,
+): Record<string, number | number[]> {
+  const item: Record<string, number | number[]> = {};
+  for (const [propertyName, property] of Object.entries(properties)) {
+    // Treat f_rest properties as a single array for performance
+    if (F_REST_REGEX.test(propertyName)) {
+      item.f_rest = new Array(getNumSh(properties));
+    } else {
+      item[propertyName] = property.isList ? [] : 0;
+    }
+  }
+  return item;
+}
+
 function createParseFn(
   properties: Record<string, PlyProperty>,
   littleEndian: boolean,
@@ -870,9 +884,22 @@ function createParseFn(
   return createDynamicParserFn(properties, littleEndian);
 }
 
+// Detect if unsafe eval is allowed in the current execution context
+const UNSAFE_EVAL_ALLOWED = (() => {
+  try {
+    new Function("return 42;");
+  } catch (e) {
+    return false;
+  }
+  return true;
+})();
 const PROPERTY_NAME_REGEX = /^[a-zA-Z0-9_]+$/;
 
 function safeToCompile(properties: Record<string, PlyProperty>) {
+  if (!UNSAFE_EVAL_ALLOWED) {
+    return false;
+  }
+
   for (const [propertyName, property] of Object.entries(properties)) {
     if (!PROPERTY_NAME_REGEX.test(propertyName)) {
       return false;
@@ -899,7 +926,14 @@ function createCompiledParserFn(
   // Construct the parser function source.
   const parserSrc: string[] = ["let list;"];
   for (const [propertyName, property] of Object.entries(properties)) {
-    if (!property.isList) {
+    const fRestMatch = propertyName.match(F_REST_REGEX);
+    if (fRestMatch) {
+      const fRestIndex = +fRestMatch[1];
+      parserSrc.push(/*js*/ `
+        item.f_rest[${fRestIndex}] = PARSE_FIELD['${property.type}'](data, offset, ${littleEndian});
+        offset += ${FIELD_BYTES[property.type]};
+      `);
+    } else if (!property.isList) {
       parserSrc.push(/*js*/ `
         item['${propertyName}'] = PARSE_FIELD['${property.type}'](data, offset, ${littleEndian});
         offset += ${FIELD_BYTES[property.type]};
@@ -946,7 +980,24 @@ function createDynamicParserFn(
     ) => number
   > = [];
   for (const [propertyName, property] of Object.entries(properties)) {
-    if (!property.isList) {
+    const fRestMatch = propertyName.match(F_REST_REGEX);
+    if (fRestMatch) {
+      const fRestIndex = +fRestMatch[1];
+      parsers.push(
+        (
+          data: DataView,
+          offset: number,
+          item: Record<string, number | number[]>,
+        ) => {
+          (item.f_rest as number[])[fRestIndex] = PARSE_FIELD[property.type](
+            data,
+            offset,
+            littleEndian,
+          );
+          return offset + FIELD_BYTES[property.type];
+        },
+      );
+    } else if (!property.isList) {
       parsers.push(
         (
           data: DataView,
