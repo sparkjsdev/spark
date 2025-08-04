@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark • Splat Reveal Effects</title>
+  <style>
+    body {
+      margin: 0;
+    }
+    canvas {
+      touch-action: none;
+    }
+  </style>
+</head>
+
+<body>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/examples/js/vendor/three/build/three.module.js",
+        "lil-gui": "/examples/js/vendor/lil-gui/dist/lil-gui.esm.js",
+        "@sparkjsdev/spark": "/dist/spark.module.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { SparkControls, SplatMesh, dyno } from "@sparkjsdev/spark";
+    import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+    import GUI from "lil-gui";
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement)
+
+    const animateT = dyno.dynoFloat(0);
+    let baseTime = 0; // Variable to reset time
+    let splatLoaded = false; // Flag to know if splat has loaded
+
+    // Effect parameters
+    const effectParams = {
+      effect: "Twister" // "Twister", "Rain"
+    };
+
+    const splatURL = await getAssetFileURL("sutro.zip");
+    const splatMesh = new SplatMesh({ url: splatURL });
+    splatMesh.quaternion.set(1, 0, 0, 0);
+    splatMesh.position.set(0, 0, -1.5);
+    splatMesh.scale.set(.5,.5,.5);
+    scene.add(splatMesh);
+
+    // Wait for splat to load completely
+    await splatMesh.loaded;
+    splatLoaded = true;
+    baseTime = performance.now() / 1000; // Initialize base time when loaded
+
+    // Create GUI
+    const gui = new GUI({ title: "Weather Effects" });
+    gui.add(effectParams, "effect", ["Twister", "Rain"]).name("Effect Type").onChange(() => {
+      // Reset time when effect changes
+      baseTime = performance.now() / 1000;
+      splatMesh.updateGenerator();
+    });
+    
+    // Add reset time button
+    gui.add({ resetTime: () => {
+      baseTime = performance.now() / 1000;
+      splatMesh.updateGenerator();
+    }}, "resetTime").name("Reset Time");
+
+    // Modified shader: weather effects on splat mesh
+    splatMesh.objectModifier = dyno.dynoBlock(
+      { gsplat: dyno.Gsplat },
+      { gsplat: dyno.Gsplat },
+      ({ gsplat }) => {
+        const d = new dyno.Dyno({
+          inTypes: { gsplat: dyno.Gsplat, t: "float", effectType: "int" },
+          outTypes: { gsplat: dyno.Gsplat },
+          globals: () => [
+            dyno.unindent(`
+              vec3 hash(vec3 p) {
+                return fract(sin(p*123.456)*123.456);
+              }
+
+              mat2 rot(float a) {
+                float s=sin(a),c=cos(a);
+                return mat2(c,-s,s,c);
+              }
+              // Function that generates a twister effect
+              vec4 twister(vec3 pos, vec3 scale, float t) {
+                float h=hash(pos).x+.1;
+                float s=smoothstep(0.,8.,t*t*.1-length(pos.xz)*2.);
+                if (length(scale)<.05) pos.y=mix(-10.,pos.y,pow(s,2.*h));
+                pos.xz=mix(pos.xz*.5,pos.xz,pow(s,2.*h));
+                pos.xz*=rot(t*.2+pos.y*20.*(1.-s)*exp(-1.*length(pos.xz)));
+                return vec4(pos,s*s*s*s);
+              }
+              vec4 rain(vec3 pos, vec3 scale, float t) {
+                vec3 h=hash(pos);
+                float s=pow(smoothstep(0.,5.,t*t*.1-length(pos.xz)*2.+1.),.5+h.x);
+                float y=pos.y;
+                pos.y=min(-10.+s*15.,pos.y);
+                pos.xz=mix(pos.xz*.3,pos.xz,s);
+                return vec4(pos,smoothstep(-10.,y,pos.y));
+              }
+            `)
+          ],
+          statements: ({ inputs, outputs }) => dyno.unindentLines(`
+            ${outputs.gsplat} = ${inputs.gsplat};
+            vec3 localPos = ${inputs.gsplat}.center;
+            vec3 scale = ${inputs.gsplat}.scales;
+            
+            vec4 effectResult;
+            if (${inputs.effectType} == 1) {
+              // Twister effect
+              effectResult = twister(localPos, scale, ${inputs.t});
+            } else {
+              // Rain effect
+              effectResult = rain(localPos, scale, ${inputs.t});
+            }
+            
+            ${outputs.gsplat}.center = effectResult.xyz;
+            ${outputs.gsplat}.scales = mix(vec3(.005),scale,pow(effectResult.w,30.));
+            ${outputs.gsplat}.rgba.a = pow(effectResult.w,.7)*smoothstep(30.,0.,length(localPos.xz));
+          `),
+        });
+
+        // Convert effect name to integer for shader
+        const effectType = effectParams.effect === "Twister" ? 1 : 2;
+        
+        gsplat = d.apply({ 
+          gsplat, 
+          t: animateT,
+          effectType: dyno.dynoInt(effectType)
+        }).gsplat;
+        
+        return { gsplat };
+      }
+    );
+
+    // Update generator
+    splatMesh.updateGenerator();
+
+    const controls = new SparkControls({ canvas: renderer.domElement });
+    renderer.setAnimationLoop(function animate(time) {
+      if (splatLoaded) {
+        animateT.value = (time / 1000) - baseTime;
+      } else {
+        animateT.value = 0;
+      }
+      splatMesh.updateVersion();
+      splatMesh.position.set(0,-.7,-2.5);
+      controls.update(camera);
+      renderer.render(scene, camera);
+    });
+  </script>
+</body>
+
+</html>
