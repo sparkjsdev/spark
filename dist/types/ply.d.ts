@@ -1,4 +1,5 @@
-export type PlyPropertyType = "char" | "uchar" | "short" | "ushort" | "int" | "uint" | "float" | "double";
+declare const PLY_PROPERTY_TYPES: readonly ["char", "uchar", "short", "ushort", "int", "uint", "float", "double"];
+export type PlyPropertyType = (typeof PLY_PROPERTY_TYPES)[number];
 export type PlyElement = {
     name: string;
     count: number;
@@ -29,3 +30,4 @@ export declare class PlyReader {
     injectRgba(rgba: Uint8Array): void;
 }
 export declare const SH_C0 = 0.28209479177387814;
+export {};

@@ -16,3 +16,4 @@ export declare const SPLAT_TEX_WIDTH_MASK: number;
 export declare const SPLAT_TEX_HEIGHT_MASK: number;
 export declare const SPLAT_TEX_DEPTH_MASK: number;
 export declare const WASM_SPLAT_SORT = true;
+export declare const USE_COMPILED_PARSER_FUNCTION = true;
