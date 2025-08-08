@@ -2,7 +2,7 @@
 
 ## Quick Start
 
-Copy and paste code below in an `index.html` file or remix in the [Web Playground](https://stackblitz.com/edit/spark)
+Copy and paste code below in an `index.html` file or remix in the [Web Playground](https://stackblitz.com/edit/spark?file=index.html)
 
 ```html
 <style> body {margin: 0;} </style>
