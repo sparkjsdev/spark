@@ -3,9 +3,9 @@ import type { SplatEncoding } from "./PackedSplats";
 import { type PcSogsJson, tryPcSogsZip } from "./SplatLoader";
 import {
   computeMaxSplats,
-  encodeSh1Rgb,
-  encodeSh2Rgb,
-  encodeSh3Rgb,
+  encodeShRgb,
+  getShArrayStride,
+  getShDegrees,
   setPackedSplatCenter,
   setPackedSplatQuat,
   setPackedSplatRgba,
@@ -130,9 +130,11 @@ export async function unpackPcSogs(
     const useSH2 = json.shN.shape[1] >= 27 - 3;
     const useSH1 = json.shN.shape[1] >= 12 - 3;
 
-    if (useSH1) extra.sh1 = new Uint32Array(numSplats * 2);
-    if (useSH2) extra.sh2 = new Uint32Array(numSplats * 4);
-    if (useSH3) extra.sh3 = new Uint32Array(numSplats * 4);
+    const shDegrees = getShDegrees(useSH1, useSH2, useSH3, splatEncoding);
+    if (shDegrees > 0) {
+      extra.sh = new Uint8Array(numSplats * getShArrayStride(shDegrees));
+      extra.shDegrees = shDegrees;
+    }
 
     const sh1 = new Float32Array(9);
     const sh2 = new Float32Array(15);
@@ -181,12 +183,15 @@ export async function unpackPcSogs(
           }
         }
 
-        if (useSH1)
-          encodeSh1Rgb(extra.sh1 as Uint32Array, i, sh1, splatEncoding);
-        if (useSH2)
-          encodeSh2Rgb(extra.sh2 as Uint32Array, i, sh2, splatEncoding);
-        if (useSH3)
-          encodeSh3Rgb(extra.sh3 as Uint32Array, i, sh3, splatEncoding);
+        encodeShRgb(
+          extra.sh as Uint8Array,
+          shDegrees,
+          i,
+          sh1,
+          sh2,
+          sh3,
+          splatEncoding,
+        );
       }
     });
     promises.push(shNPromise);
