@@ -33,104 +33,236 @@
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    
+    // Initialize camera with elevated perspective
+    camera.position.set(0, 2, 2.5);
+    camera.lookAt(0, 0, 0);
+    
     const renderer = new THREE.WebGLRenderer();
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement)
 
+    // Animation timing variables
     const animateT = dyno.dynoFloat(0);
-    let baseTime = 0; // Variable to reset time
-    let splatLoaded = false; // Flag to know if splat has loaded
+    let baseTime = 0;
+    let splatLoaded = false;
+    
+    // Camera orbit parameters
+    let cameraAngle = 0;
+    const cameraRadius = 3;
+    const cameraHeight = 2;
+    const rotationSpeed = 0.2;
 
-    // Effect parameters
+    // Available visual effects configuration
     const effectParams = {
-      effect: "Twister" // "Twister", "Rain"
+      effect: "Magic"
     };
 
-    const splatURL = await getAssetFileURL("sutro.zip");
-    const splatMesh = new SplatMesh({ url: splatURL });
-    splatMesh.quaternion.set(1, 0, 0, 0);
-    splatMesh.position.set(0, 0, -1.5);
-    splatMesh.scale.set(.5,.5,.5);
-    scene.add(splatMesh);
+    let splatMesh = null;
 
-    // Wait for splat to load completely
-    await splatMesh.loaded;
-    splatLoaded = true;
-    baseTime = performance.now() / 1000; // Initialize base time when loaded
+      /**
+       * Loads and configures splat mesh based on selected effect
+       * @param {string} effect - The effect type (Magic, Spread, Unroll, Twister, or Rain)
+       */
+    async function loadSplatForEffect(effect) {
+      // Clean up existing splat mesh
+      if (splatMesh) {
+        scene.remove(splatMesh);
+        splatMesh = null;
+      }
 
-    // Create GUI
-    const gui = new GUI({ title: "Weather Effects" });
-    gui.add(effectParams, "effect", ["Twister", "Rain"]).name("Effect Type").onChange(() => {
-      // Reset time when effect changes
-      baseTime = performance.now() / 1000;
-      splatMesh.updateGenerator();
-    });
+      // Configure splat file and positioning per effect
+      let splatFileName, position;
+      if (effect === "Magic") {
+        splatFileName = "primerib-tamos.spz";
+        position = [0, 0, 0];
+      } else if (effect === "Spread") {
+        splatFileName = "valley.spz";
+        position = [0, 1, 1];
+              } else if (effect === "Unroll") {
+          splatFileName = "burger-from-amboy.spz";
+          position = [0, 0, 0];
+      } else if (effect === "Twister" || effect === "Rain") {
+        splatFileName = "sutro.zip";
+        position = [0, -1, 1];
+        }
+
+      // Load and initialize new splat mesh
+      const splatURL = await getAssetFileURL(splatFileName);
+      splatMesh = new SplatMesh({ url: splatURL });
+      splatMesh.quaternion.set(1, 0, 0, 0);
+      splatMesh.position.set(position[0], position[1], position[2]);
+      
+              // Apply special scaling for Unroll effect
+        if (effect === "Unroll") {
+          splatMesh.scale.set(1.5, 1.5, 1.5);
+        } else if (effect === "Twister" || effect === "Rain") {
+          splatMesh.scale.set(0.8, 0.8, 0.8);
+        }
+      
+      scene.add(splatMesh);
+
+      // Wait for asset loading and reset animation timing
+      splatLoaded = false;
+      await splatMesh.loaded;
+      splatLoaded = true;
+      baseTime = 0;
+
+      // Apply visual effects to the loaded splat
+      setupSplatModifier();
+    }
+
+    // Initialize user interface
+    const gui = new GUI();
+    const effectFolder = gui.addFolder('Effects');
     
-    // Add reset time button
-    gui.add({ resetTime: () => {
-      baseTime = performance.now() / 1000;
-      splatMesh.updateGenerator();
-    }}, "resetTime").name("Reset Time");
+          // Effect selector dropdown
+      effectFolder.add(effectParams, 'effect', ['Magic', 'Spread', 'Unroll', 'Twister', 'Rain'])
+        .name('Effect Type')
+        .onChange(async () => {
+          await loadSplatForEffect(effectParams.effect);
+        });
+    
+    // Animation controls
+    const guiControls = {
+      resetTime: () => {
+        baseTime = 0;
+        animateT.value = 0;
+      }
+    };
+    effectFolder.add(guiControls, 'resetTime').name('Reset Time');
+    effectFolder.open();
 
-    // Modified shader: weather effects on splat mesh
-    splatMesh.objectModifier = dyno.dynoBlock(
+    /**
+     * Configures visual effects shader for the current splat mesh
+     */
+    function setupSplatModifier() {
+      splatMesh.objectModifier = dyno.dynoBlock(
       { gsplat: dyno.Gsplat },
       { gsplat: dyno.Gsplat },
       ({ gsplat }) => {
         const d = new dyno.Dyno({
           inTypes: { gsplat: dyno.Gsplat, t: "float", effectType: "int" },
           outTypes: { gsplat: dyno.Gsplat },
+          // GLSL utility functions for effects
           globals: () => [
             dyno.unindent(`
+              // Pseudo-random hash function
               vec3 hash(vec3 p) {
-                return fract(sin(p*123.456)*123.456);
+                p = fract(p * 0.3183099 + 0.1);
+                p *= 17.0;
+                return fract(vec3(p.x * p.y * p.z, p.x + p.y * p.z, p.x * p.y + p.z));
               }
 
+              // 3D Perlin-style noise function
+              vec3 noise(vec3 p) {
+                vec3 i = floor(p);
+                vec3 f = fract(p);
+                f = f * f * (3.0 - 2.0 * f);
+                
+                vec3 n000 = hash(i + vec3(0,0,0));
+                vec3 n100 = hash(i + vec3(1,0,0));
+                vec3 n010 = hash(i + vec3(0,1,0));
+                vec3 n110 = hash(i + vec3(1,1,0));
+                vec3 n001 = hash(i + vec3(0,0,1));
+                vec3 n101 = hash(i + vec3(1,0,1));
+                vec3 n011 = hash(i + vec3(0,1,1));
+                vec3 n111 = hash(i + vec3(1,1,1));
+                
+                vec3 x0 = mix(n000, n100, f.x);
+                vec3 x1 = mix(n010, n110, f.x);
+                vec3 x2 = mix(n001, n101, f.x);
+                vec3 x3 = mix(n011, n111, f.x);
+                
+                vec3 y0 = mix(x0, x1, f.y);
+                vec3 y1 = mix(x2, x3, f.y);
+                
+                return mix(y0, y1, f.z);
+              }
+
+              // 2D rotation matrix
               mat2 rot(float a) {
                 float s=sin(a),c=cos(a);
                 return mat2(c,-s,s,c);
               }
-              // Function that generates a twister effect
+              // Twister weather effect
               vec4 twister(vec3 pos, vec3 scale, float t) {
-                float h=hash(pos).x+.1;
-                float s=smoothstep(0.,8.,t*t*.1-length(pos.xz)*2.);
-                if (length(scale)<.05) pos.y=mix(-10.,pos.y,pow(s,2.*h));
-                pos.xz=mix(pos.xz*.5,pos.xz,pow(s,2.*h));
-                pos.xz*=rot(t*.2+pos.y*20.*(1.-s)*exp(-1.*length(pos.xz)));
-                return vec4(pos,s*s*s*s);
+                float h = hash(pos).x + .1;
+                float s = smoothstep(0., 8., t*t*.1 - length(pos.xz)*2.+2.);
+                if (length(scale) < .05) pos.y = mix(-10., pos.y, pow(s, 2.*h));
+                pos.xz = mix(pos.xz*.5, pos.xz, pow(s, 2.*h));
+                pos.xz *= rot(t*.2 + pos.y*20.*(1.-s)*exp(-1.*length(pos.xz)));
+                return vec4(pos, s*s*s*s);
               }
+
+              // Rain weather effect
               vec4 rain(vec3 pos, vec3 scale, float t) {
-                vec3 h=hash(pos);
-                float s=pow(smoothstep(0.,5.,t*t*.1-length(pos.xz)*2.+1.),.5+h.x);
-                float y=pos.y;
-                pos.y=min(-10.+s*15.,pos.y);
-                pos.xz=mix(pos.xz*.3,pos.xz,s);
-                return vec4(pos,smoothstep(-10.,y,pos.y));
+                vec3 h = hash(pos);
+                float s = pow(smoothstep(0., 5., t*t*.1 - length(pos.xz)*2. + 1.), .5 + h.x);
+                float y = pos.y;
+                pos.y = min(-10. + s*15., pos.y);
+                pos.x += pos.y*.2;
+                pos.xz = mix(pos.xz*.3, pos.xz, s);
+                pos.xz *= rot(t*.3);
+                return vec4(pos, smoothstep(-10., y, pos.y));
               }
             `)
           ],
+          // Main effect shader logic
           statements: ({ inputs, outputs }) => dyno.unindentLines(`
             ${outputs.gsplat} = ${inputs.gsplat};
+            float t = ${inputs.t};
+            float s = smoothstep(0.,10.,t-4.5)*10.;
+            vec3 scales = ${inputs.gsplat}.scales;
             vec3 localPos = ${inputs.gsplat}.center;
-            vec3 scale = ${inputs.gsplat}.scales;
+            float l = length(localPos.xz);
             
-            vec4 effectResult;
             if (${inputs.effectType} == 1) {
-              // Twister effect
-              effectResult = twister(localPos, scale, ${inputs.t});
-            } else {
-              // Rain effect
-              effectResult = rain(localPos, scale, ${inputs.t});
+              // Magic Effect: Complex twister with noise and radial reveal
+              float border = abs(s-l-.5);
+              localPos *= 1.-.2*exp(-20.*border);
+              vec3 finalScales = mix(scales,vec3(0.002),smoothstep(s-.5,s,l+.5));
+              ${outputs.gsplat}.center = localPos + .1*noise(localPos.xyz*2.+t*.5)*smoothstep(s-.5,s,l+.5);
+              ${outputs.gsplat}.scales = finalScales;
+              float at = atan(localPos.x,localPos.z)/3.1416;
+              ${outputs.gsplat}.rgba *= step(at,t-3.1416);
+              ${outputs.gsplat}.rgba += exp(-20.*border) + exp(-50.*abs(t-at-3.1416))*.5;
+              
+            } else if (${inputs.effectType} == 2) {
+              // Spread Effect: Gentle radial emergence with scaling
+              float tt = t*t*.4+.5;
+              localPos.xz *= min(1.,.3+max(0.,tt*.05));
+              ${outputs.gsplat}.center = localPos;
+              ${outputs.gsplat}.scales = max(mix(vec3(0.0),scales,min(tt-7.-l*2.5,1.)),mix(vec3(0.0),scales*.2,min(tt-1.-l*2.,1.)));
+              ${outputs.gsplat}.rgba = mix(vec4(.3),${inputs.gsplat}.rgba,clamp(tt-l*2.5-3.,0.,1.));
+              
+            } else if (${inputs.effectType} == 3) {
+              // Unroll Effect: Rotating helix with vertical reveal
+              localPos.xz *= rot((localPos.y*50.-20.)*exp(-t));
+              ${outputs.gsplat}.center = localPos * (1.-exp(-t)*2.);
+              ${outputs.gsplat}.scales = mix(vec3(0.002),scales,smoothstep(.3,.7,t+localPos.y-2.));
+              ${outputs.gsplat}.rgba = ${inputs.gsplat}.rgba*step(0.,t*.5+localPos.y-.5);
+            } else if (${inputs.effectType} == 4) {
+              // Twister Effect: swirling weather reveal
+              vec4 effectResult = twister(localPos, scales, t);
+              ${outputs.gsplat}.center = effectResult.xyz;
+              ${outputs.gsplat}.scales = mix(vec3(.005), scales, pow(effectResult.w, 30.));
+              ${outputs.gsplat}.rgba.a = pow(effectResult.w, .7) * smoothstep(30., 0., length(localPos.xz));
+            } else if (${inputs.effectType} == 5) {
+              // Rain Effect: falling streaks
+              vec4 effectResult = rain(localPos, scales, t);
+              ${outputs.gsplat}.center = effectResult.xyz;
+              ${outputs.gsplat}.scales = mix(vec3(.005), scales, pow(effectResult.w, 30.));
+              ${outputs.gsplat}.rgba.a = pow(effectResult.w, .7) * smoothstep(30., 0., length(localPos.xz));
             }
-            
-            ${outputs.gsplat}.center = effectResult.xyz;
-            ${outputs.gsplat}.scales = mix(vec3(.005),scale,pow(effectResult.w,30.));
-            ${outputs.gsplat}.rgba.a = pow(effectResult.w,.7)*smoothstep(30.,0.,length(localPos.xz));
           `),
         });
 
-        // Convert effect name to integer for shader
-        const effectType = effectParams.effect === "Twister" ? 1 : 2;
+        // Map effect names to shader integer constants
+        const effectType = effectParams.effect === "Magic" ? 1 : 
+                          effectParams.effect === "Spread" ? 2 : 
+                          effectParams.effect === "Unroll" ? 3 : 
+                          effectParams.effect === "Twister" ? 4 : 5;
         
         gsplat = d.apply({ 
           gsplat, 
@@ -142,18 +274,44 @@
       }
     );
 
-    // Update generator
-    splatMesh.updateGenerator();
+      // Apply shader modifications to splat mesh
+      splatMesh.updateGenerator();
+    }
 
+    // Initialize with default effect
+    await loadSplatForEffect(effectParams.effect);
+
+    // Initialize camera controls and start render loop
     const controls = new SparkControls({ canvas: renderer.domElement });
+    
     renderer.setAnimationLoop(function animate(time) {
+      // Update animation timing
       if (splatLoaded) {
-        animateT.value = (time / 1000) - baseTime;
+        baseTime += 1/60;
+        animateT.value = baseTime;
       } else {
         animateT.value = 0;
       }
-      splatMesh.updateVersion();
-      splatMesh.position.set(0,-.7,-2.5);
+      
+      // Orbit camera only for non-weather effects
+      cameraAngle += rotationSpeed * (1/60);
+      if (effectParams.effect == "Twister" || effectParams.effect == "Rain") cameraAngle = 0;
+      camera.position.x = Math.cos(cameraAngle) * cameraRadius;
+      camera.position.z = Math.sin(cameraAngle) * cameraRadius;
+      camera.position.y = cameraHeight;
+    
+      // Adjust camera target based on current effect
+      if (effectParams.effect === "Spread") {
+        camera.lookAt(0, 1, 0);
+      } else {
+        camera.lookAt(0, 0, 0);
+      }
+      
+      // Update splat rendering if available
+      if (splatMesh) {
+        splatMesh.updateVersion();
+      }
+      
       controls.update(camera);
       renderer.render(scene, camera);
     });
