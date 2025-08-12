@@ -1,6 +1,5 @@
 const float LN_SCALE_MIN = -12.0;
 const float LN_SCALE_MAX = 9.0;
-const float LN_RESCALE = (LN_SCALE_MAX - LN_SCALE_MIN) / 254.0; // 1..=255
 
 const uint SPLAT_TEX_WIDTH_BITS = 11u;
 const uint SPLAT_TEX_HEIGHT_BITS = 11u;
@@ -199,8 +198,13 @@ vec4 decodeQuatOctXy88R8(uint encoded) {
 // }
 
 // Pack a Gsplat into a uvec4
-uvec4 packSplat(vec3 center, vec3 scales, vec4 quaternion, vec4 rgba) {
-    uvec4 uRgba = uvec4(round(clamp(rgba * 255.0, 0.0, 255.0)));
+uvec4 packSplatEncoding(
+    vec3 center, vec3 scales, vec4 quaternion, vec4 rgba, vec4 rgbMinMaxLnScaleMinMax
+) {
+    float rgbMin = rgbMinMaxLnScaleMinMax.x;
+    float rgbMax = rgbMinMaxLnScaleMinMax.y;
+    vec3 encRgb = (rgba.rgb - vec3(rgbMin)) / (rgbMax - rgbMin);
+    uvec4 uRgba = uvec4(round(clamp(vec4(encRgb, rgba.a) * 255.0, 0.0, 255.0)));
 
     uint uQuat = encodeQuatOctXy88R8(quaternion);
     // uint uQuat = encodeQuatXyz888(quaternion);
@@ -208,10 +212,13 @@ uvec4 packSplat(vec3 center, vec3 scales, vec4 quaternion, vec4 rgba) {
     uvec3 uQuat3 = uvec3(uQuat & 0xffu, (uQuat >> 8u) & 0xffu, (uQuat >> 16u) & 0xffu);
 
     // Encode scales in three uint8s, where 0=>0.0 and 1..=255 stores log scale
+    float lnScaleMin = rgbMinMaxLnScaleMinMax.z;
+    float lnScaleMax = rgbMinMaxLnScaleMinMax.w;
+    float lnScaleScale = 254.0 / (lnScaleMax - lnScaleMin);
     uvec3 uScales = uvec3(
-        (scales.x == 0.0) ? 0u : uint(round(clamp((log(scales.x) - LN_SCALE_MIN) / LN_RESCALE, 0.0, 254.0))) + 1u,
-        (scales.y == 0.0) ? 0u : uint(round(clamp((log(scales.y) - LN_SCALE_MIN) / LN_RESCALE, 0.0, 254.0))) + 1u,
-        (scales.z == 0.0) ? 0u : uint(round(clamp((log(scales.z) - LN_SCALE_MIN) / LN_RESCALE, 0.0, 254.0))) + 1u
+        (scales.x == 0.0) ? 0u : uint(round(clamp((log(scales.x) - lnScaleMin) * lnScaleScale, 0.0, 254.0))) + 1u,
+        (scales.y == 0.0) ? 0u : uint(round(clamp((log(scales.y) - lnScaleMin) * lnScaleScale, 0.0, 254.0))) + 1u,
+        (scales.z == 0.0) ? 0u : uint(round(clamp((log(scales.z) - lnScaleMin) * lnScaleScale, 0.0, 254.0))) + 1u
     );
 
     // Pack it all into 4 x uint32
@@ -222,12 +229,19 @@ uvec4 packSplat(vec3 center, vec3 scales, vec4 quaternion, vec4 rgba) {
     return uvec4(word0, word1, word2, word3);
 }
 
-// Unpack a Gsplat from a uvec4
-void unpackSplat(uvec4 packed, out vec3 center, out vec3 scales, out vec4 quaternion, out vec4 rgba) {
+// Pack a Gsplat into a uvec4
+uvec4 packSplat(vec3 center, vec3 scales, vec4 quaternion, vec4 rgba) {
+    return packSplatEncoding(center, scales, quaternion, rgba, vec4(0.0, 1.0, LN_SCALE_MIN, LN_SCALE_MAX));
+}
+
+void unpackSplatEncoding(uvec4 packed, out vec3 center, out vec3 scales, out vec4 quaternion, out vec4 rgba, vec4 rgbMinMaxLnScaleMinMax) {
     uint word0 = packed.x, word1 = packed.y, word2 = packed.z, word3 = packed.w;
 
     uvec4 uRgba = uvec4(word0 & 0xffu, (word0 >> 8u) & 0xffu, (word0 >> 16u) & 0xffu, (word0 >> 24u) & 0xffu);
-    rgba = vec4(uRgba) / 255.0;
+    float rgbMin = rgbMinMaxLnScaleMinMax.x;
+    float rgbMax = rgbMinMaxLnScaleMinMax.y;
+    rgba = (vec4(uRgba) / 255.0);
+    rgba.rgb = rgba.rgb * (rgbMax - rgbMin) + rgbMin;
 
     center = vec4(
         unpackHalf2x16(word1),
@@ -235,10 +249,13 @@ void unpackSplat(uvec4 packed, out vec3 center, out vec3 scales, out vec4 quater
     ).xyz;
 
     uvec3 uScales = uvec3(word3 & 0xffu, (word3 >> 8u) & 0xffu, (word3 >> 16u) & 0xffu);
+    float lnScaleMin = rgbMinMaxLnScaleMinMax.z;
+    float lnScaleMax = rgbMinMaxLnScaleMinMax.w;
+    float lnScaleScale = (lnScaleMax - lnScaleMin) / 254.0;
     scales = vec3(
-        (uScales.x == 0u) ? 0.0 : exp(LN_SCALE_MIN + float(uScales.x - 1u) * LN_RESCALE),
-        (uScales.y == 0u) ? 0.0 : exp(LN_SCALE_MIN + float(uScales.y - 1u) * LN_RESCALE),
-        (uScales.z == 0u) ? 0.0 : exp(LN_SCALE_MIN + float(uScales.z - 1u) * LN_RESCALE)
+        (uScales.x == 0u) ? 0.0 : exp(lnScaleMin + float(uScales.x - 1u) * lnScaleScale),
+        (uScales.y == 0u) ? 0.0 : exp(lnScaleMin + float(uScales.y - 1u) * lnScaleScale),
+        (uScales.z == 0u) ? 0.0 : exp(lnScaleMin + float(uScales.z - 1u) * lnScaleScale)
     );
 
 
@@ -246,6 +263,11 @@ void unpackSplat(uvec4 packed, out vec3 center, out vec3 scales, out vec4 quater
     quaternion = decodeQuatOctXy88R8(uQuat);
     // quaternion = decodeQuatXyz888(uQuat);
     // quaternion = decodeQuatEulerXyz888(uQuat);
+}
+
+// Unpack a Gsplat from a uvec4
+void unpackSplat(uvec4 packed, out vec3 center, out vec3 scales, out vec4 quaternion, out vec4 rgba) {
+    unpackSplatEncoding(packed, center, scales, quaternion, rgba, vec4(0.0, 1.0, LN_SCALE_MIN, LN_SCALE_MAX));
 }
 
 // Rotate vector v by quaternion q

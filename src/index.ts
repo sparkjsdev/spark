@@ -90,3 +90,6 @@ export {
   unpackSplat,
 } from "./utils";
 export * as utils from "./utils";
+
+export { LN_SCALE_MIN, LN_SCALE_MAX } from "./defines";
+export * as defines from "./defines";

@@ -3,17 +3,50 @@ import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 
 import type { GsplatGenerator } from "./SplatGenerator";
 import { type SplatFileType, SplatLoader, unpackSplats } from "./SplatLoader";
-import { SPLAT_TEX_HEIGHT, SPLAT_TEX_WIDTH } from "./defines";
+import {
+  LN_SCALE_MAX,
+  LN_SCALE_MIN,
+  SPLAT_TEX_HEIGHT,
+  SPLAT_TEX_WIDTH,
+} from "./defines";
 import {
   DynoProgram,
   DynoProgramTemplate,
   DynoUniform,
+  DynoVec2,
+  DynoVec4,
   dynoBlock,
   outputPackedSplat,
 } from "./dyno";
 import { TPackedSplats, definePackedSplats } from "./dyno/splats";
 import computeUvec4Template from "./shaders/computeUvec4.glsl";
 import { getTextureSize, setPackedSplat, unpackSplat } from "./utils";
+
+export type SplatEncoding = {
+  rgbMin?: number;
+  rgbMax?: number;
+  lnScaleMin?: number;
+  lnScaleMax?: number;
+  sh1Min?: number;
+  sh1Max?: number;
+  sh2Min?: number;
+  sh2Max?: number;
+  sh3Min?: number;
+  sh3Max?: number;
+};
+
+export const DEFAULT_SPLAT_ENCODING: SplatEncoding = {
+  rgbMin: 0,
+  rgbMax: 1,
+  lnScaleMin: LN_SCALE_MIN,
+  lnScaleMax: LN_SCALE_MAX,
+  sh1Min: -1,
+  sh1Max: 1,
+  sh2Min: -1,
+  sh2Max: 1,
+  sh3Min: -1,
+  sh3Max: 1,
+};
 
 // Initialize a PackedSplats collection from source data via
 // url, fileBytes, or packedArray. Creates an empty array if none are set,
@@ -47,6 +80,9 @@ export type PackedSplatsOptions = {
   construct?: (splats: PackedSplats) => Promise<void> | void;
   // Additional splat data, such as spherical harmonics components (sh1, sh2, sh3). (default: {})
   extra?: Record<string, unknown>;
+  // Override the default splat encoding ranges for the PackedSplats.
+  // (default: undefined)
+  splatEncoding?: SplatEncoding;
 };
 
 // A PackedSplats is a collection of Gaussian splats, packed into a format that
@@ -61,6 +97,7 @@ export class PackedSplats {
   numSplats = 0;
   packedArray: Uint32Array | null = null;
   extra: Record<string, unknown>;
+  splatEncoding?: SplatEncoding;
 
   initialized: Promise<PackedSplats>;
   isInitialized = false;
@@ -75,10 +112,60 @@ export class PackedSplats {
   // A PackedSplats can be used in a dyno graph using the below property dyno:
   // const gsplat = dyno.readPackedSplats(this.dyno, dynoIndex);
   dyno: DynoUniform<typeof TPackedSplats, "packedSplats">;
+  dynoRgbMinMaxLnScaleMinMax: DynoUniform<"vec4", "rgbMinMaxLnScaleMinMax">;
+  dynoSh1MinMax: DynoUniform<"vec2", "sh1MinMax">;
+  dynoSh2MinMax: DynoUniform<"vec2", "sh2MinMax">;
+  dynoSh3MinMax: DynoUniform<"vec2", "sh3MinMax">;
 
   constructor(options: PackedSplatsOptions = {}) {
     this.extra = {};
     this.dyno = new DynoPackedSplats({ packedSplats: this });
+    this.dynoRgbMinMaxLnScaleMinMax = new DynoVec4({
+      key: "rgbMinMaxLnScaleMinMax",
+      value: new THREE.Vector4(0.0, 1.0, LN_SCALE_MIN, LN_SCALE_MAX),
+      update: (value) => {
+        value.set(
+          this.splatEncoding?.rgbMin ?? 0.0,
+          this.splatEncoding?.rgbMax ?? 1.0,
+          this.splatEncoding?.lnScaleMin ?? LN_SCALE_MIN,
+          this.splatEncoding?.lnScaleMax ?? LN_SCALE_MAX,
+        );
+        return value;
+      },
+    });
+    this.dynoSh1MinMax = new DynoVec2({
+      key: "sh1MinMax",
+      value: new THREE.Vector2(-1, 1),
+      update: (value) => {
+        value.set(
+          this.splatEncoding?.sh1Min ?? -1,
+          this.splatEncoding?.sh1Max ?? 1,
+        );
+        return value;
+      },
+    });
+    this.dynoSh2MinMax = new DynoVec2({
+      key: "sh2MinMax",
+      value: new THREE.Vector2(-1, 1),
+      update: (value) => {
+        value.set(
+          this.splatEncoding?.sh2Min ?? -1,
+          this.splatEncoding?.sh2Max ?? 1,
+        );
+        return value;
+      },
+    });
+    this.dynoSh3MinMax = new DynoVec2({
+      key: "sh3MinMax",
+      value: new THREE.Vector2(-1, 1),
+      update: (value) => {
+        value.set(
+          this.splatEncoding?.sh3Min ?? -1,
+          this.splatEncoding?.sh3Max ?? 1,
+        );
+        return value;
+      },
+    });
 
     // The following line will be overridden by reinitialize()
     this.initialized = Promise.resolve(this);
@@ -87,6 +174,10 @@ export class PackedSplats {
 
   reinitialize(options: PackedSplatsOptions) {
     this.isInitialized = false;
+
+    this.extra = {};
+    this.splatEncoding = options.splatEncoding;
+
     if (options.url || options.fileBytes || options.construct) {
       // We need to initialize asynchronously given the options
       this.initialized = this.asyncInitialize(options).then(() => {
@@ -131,6 +222,7 @@ export class PackedSplats {
         input: fileBytes,
         fileType: options.fileType,
         pathOrUrl: options.fileName ?? url,
+        splatEncoding: options.splatEncoding ?? DEFAULT_SPLAT_ENCODING,
       });
       this.initialize(unpacked);
     }
@@ -239,7 +331,7 @@ export class PackedSplats {
     if (!this.packedArray || index >= this.numSplats) {
       throw new Error("Invalid index");
     }
-    return unpackSplat(this.packedArray, index);
+    return unpackSplat(this.packedArray, index, this.splatEncoding);
   }
 
   // Set all PackedSplat components at index with the provided Gsplat attributes
@@ -322,7 +414,7 @@ export class PackedSplats {
       return;
     }
     for (let i = 0; i < this.numSplats; ++i) {
-      const unpacked = unpackSplat(this.packedArray, i);
+      const unpacked = unpackSplat(this.packedArray, i, this.splatEncoding);
       callback(
         i,
         unpacked.center,
@@ -473,7 +565,10 @@ export class PackedSplats {
         ({ index }) => {
           generator.inputs.index = index;
           const gsplat = generator.outputs.gsplat;
-          const output = outputPackedSplat(gsplat);
+          const output = outputPackedSplat(
+            gsplat,
+            this.dynoRgbMinMaxLnScaleMinMax,
+          );
           return { output };
         },
       );
@@ -616,6 +711,7 @@ export class DynoPackedSplats extends DynoUniform<
   {
     texture: THREE.DataArrayTexture;
     numSplats: number;
+    rgbMinMaxLnScaleMinMax: THREE.Vector4;
   }
 > {
   packedSplats?: PackedSplats;
@@ -628,11 +724,23 @@ export class DynoPackedSplats extends DynoUniform<
       value: {
         texture: PackedSplats.getEmpty(),
         numSplats: 0,
+        rgbMinMaxLnScaleMinMax: new THREE.Vector4(
+          0,
+          1,
+          LN_SCALE_MIN,
+          LN_SCALE_MAX,
+        ),
       },
       update: (value) => {
         value.texture =
           this.packedSplats?.getTexture() ?? PackedSplats.getEmpty();
         value.numSplats = this.packedSplats?.numSplats ?? 0;
+        value.rgbMinMaxLnScaleMinMax.set(
+          this.packedSplats?.splatEncoding?.rgbMin ?? 0,
+          this.packedSplats?.splatEncoding?.rgbMax ?? 1,
+          this.packedSplats?.splatEncoding?.lnScaleMin ?? LN_SCALE_MIN,
+          this.packedSplats?.splatEncoding?.lnScaleMax ?? LN_SCALE_MAX,
+        );
         return value;
       },
     });

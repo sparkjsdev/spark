@@ -1,6 +1,10 @@
 import * as THREE from "three";
 
-import { PackedSplats } from "./PackedSplats";
+import {
+  DEFAULT_SPLAT_ENCODING,
+  PackedSplats,
+  type SplatEncoding,
+} from "./PackedSplats";
 import { RgbaArray } from "./RgbaArray";
 import { SparkViewpoint, type SparkViewpointOptions } from "./SparkViewpoint";
 import { type GeneratorMapping, SplatAccumulator } from "./SplatAccumulator";
@@ -8,6 +12,7 @@ import { SplatEdit } from "./SplatEdit";
 import { SplatGenerator, SplatModifier } from "./SplatGenerator";
 import { SplatGeometry } from "./SplatGeometry";
 import { SplatMesh } from "./SplatMesh";
+import { LN_SCALE_MAX, LN_SCALE_MIN } from "./defines";
 import {
   DynoVec3,
   DynoVec4,
@@ -85,6 +90,11 @@ export type SparkRendererOptions = {
    * rendering and significantly reduces performance.
    */
   renderer: THREE.WebGLRenderer;
+  /**
+   * Whether to use premultiplied alpha when accumulating splat RGB
+   * @default true
+   */
+  premultipliedAlpha?: boolean;
   /**
    * Pass in a THREE.Clock to synchronize time-based effects across different
    * systems. Alternatively, you can set the SparkRenderer properties time and
@@ -184,15 +194,22 @@ export type SparkRendererOptions = {
    * radial distance or Z-depth)
    */
   view?: SparkViewpointOptions;
+  /**
+   * Override the default splat encoding ranges for the PackedSplats.
+   * (default: undefined)
+   */
+  splatEncoding?: SplatEncoding;
 };
 
 export class SparkRenderer extends THREE.Mesh {
   renderer: THREE.WebGLRenderer;
+  premultipliedAlpha: boolean;
   material: THREE.ShaderMaterial;
   uniforms: ReturnType<typeof SparkRenderer.makeUniforms>;
 
   autoUpdate: boolean;
   preUpdate: boolean;
+  needsUpdate: boolean;
   originDistance: number;
   maxStdDev: number;
   maxPixelRadius: number;
@@ -205,6 +222,7 @@ export class SparkRenderer extends THREE.Mesh {
   falloff: number;
   clipXY: number;
   focalAdjustment: number;
+  splatEncoding: SplatEncoding;
 
   splatTexture: null | {
     enable?: boolean;
@@ -242,6 +260,7 @@ export class SparkRenderer extends THREE.Mesh {
   private lastUpdateTime: number | null = null;
   // List of cameras used for the current viewpoint (for WebXR)
   private defaultCameras: THREE.Matrix4[] = [];
+  private lastStochastic: boolean | null = null;
 
   // Should be set to the defaultView, but can be temporarily changed to another
   // viewpoint using prepareViewpoint() for rendering from a different viewpoint.
@@ -270,13 +289,14 @@ export class SparkRenderer extends THREE.Mesh {
   constructor(options: SparkRendererOptions) {
     const uniforms = SparkRenderer.makeUniforms();
     const shaders = getShaders();
+    const premultipliedAlpha = options.premultipliedAlpha ?? true;
     const material = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
       vertexShader: shaders.splatVertex,
       fragmentShader: shaders.splatFragment,
       uniforms,
+      premultipliedAlpha,
       transparent: true,
-      blending: THREE.NormalBlending,
       depthTest: true,
       depthWrite: false,
       side: THREE.DoubleSide,
@@ -309,8 +329,10 @@ export class SparkRenderer extends THREE.Mesh {
     );
     this.modifier = new SplatModifier(modifier);
 
+    this.premultipliedAlpha = premultipliedAlpha;
     this.autoUpdate = options.autoUpdate ?? true;
     this.preUpdate = options.preUpdate ?? false;
+    this.needsUpdate = false;
     this.originDistance = options.originDistance ?? 1;
     this.maxStdDev = options.maxStdDev ?? Math.sqrt(8.0);
     this.maxPixelRadius = options.maxPixelRadius ?? 512.0;
@@ -323,6 +345,7 @@ export class SparkRenderer extends THREE.Mesh {
     this.falloff = options.falloff ?? 1.0;
     this.clipXY = options.clipXY ?? 1.4;
     this.focalAdjustment = options.focalAdjustment ?? 1.0;
+    this.splatEncoding = options.splatEncoding ?? { ...DEFAULT_SPLAT_ENCODING };
 
     this.active = new SplatAccumulator();
     this.accumulatorCount = 1;
@@ -368,6 +391,8 @@ export class SparkRenderer extends THREE.Mesh {
       maxPixelRadius: { value: 512.0 },
       // Minimum alpha value for splat rendering
       minAlpha: { value: 0.5 * (1.0 / 255.0) },
+      // Enable stochastic splat rendering
+      stochastic: { value: false },
       // Enable interpreting 0-thickness Gsplats as 2DGS
       enable2DGS: { value: false },
       // Add to projected 2D splat covariance diagonal (thickens and brightens)
@@ -401,6 +426,8 @@ export class SparkRenderer extends THREE.Mesh {
       splatTexMid: { value: 0.0 },
       // Gsplat collection to render
       packedSplats: { type: "t", value: PackedSplats.getEmpty() },
+      // Splat encoding ranges
+      rgbMinMaxLnScaleMinMax: { value: new THREE.Vector4() },
       // Time in seconds for time-based effects
       time: { value: 0 },
       // Delta time in seconds since last frame
@@ -499,10 +526,19 @@ export class SparkRenderer extends THREE.Mesh {
 
     if (isNewFrame) {
       // Keep these uniforms the same for both eyes if in WebXR
+      if (this.material.premultipliedAlpha !== this.premultipliedAlpha) {
+        this.material.premultipliedAlpha = this.premultipliedAlpha;
+        this.material.needsUpdate = true;
+      }
       this.uniforms.time.value = time;
       this.uniforms.deltaTime.value = deltaTime;
       // Alternating debug flag that can aid in visual debugging
       this.uniforms.debugFlag.value = (performance.now() / 1000.0) % 2.0 < 1.0;
+
+      if (viewpoint.display && viewpoint.stochastic) {
+        (this.geometry as SplatGeometry).instanceCount =
+          this.uniforms.numSplats.value;
+      }
     }
 
     if (viewpoint.target) {
@@ -537,6 +573,7 @@ export class SparkRenderer extends THREE.Mesh {
     this.uniforms.maxStdDev.value = this.maxStdDev;
     this.uniforms.maxPixelRadius.value = this.maxPixelRadius;
     this.uniforms.minAlpha.value = this.minAlpha;
+    this.uniforms.stochastic.value = viewpoint.stochastic;
     this.uniforms.enable2DGS.value = this.enable2DGS;
     this.uniforms.preBlurAmount.value = this.preBlurAmount;
     this.uniforms.blurAmount.value = this.blurAmount;
@@ -545,6 +582,13 @@ export class SparkRenderer extends THREE.Mesh {
     this.uniforms.falloff.value = this.falloff;
     this.uniforms.clipXY.value = this.clipXY;
     this.uniforms.focalAdjustment.value = this.focalAdjustment;
+
+    if (this.lastStochastic !== !viewpoint.stochastic) {
+      this.lastStochastic = !viewpoint.stochastic;
+      this.material.transparent = !viewpoint.stochastic;
+      this.material.depthWrite = viewpoint.stochastic;
+      this.material.needsUpdate = true;
+    }
 
     if (this.splatTexture) {
       const { enable, texture, multiply, add, near, far, mid } =
@@ -598,7 +642,16 @@ export class SparkRenderer extends THREE.Mesh {
       const { accumulator, geometry } = this.viewpoint.display;
       this.uniforms.numSplats.value = accumulator.splats.numSplats;
       this.uniforms.packedSplats.value = accumulator.splats.getTexture();
+      this.uniforms.rgbMinMaxLnScaleMinMax.value.set(
+        accumulator.splats.splatEncoding?.rgbMin ?? 0.0,
+        accumulator.splats.splatEncoding?.rgbMax ?? 1.0,
+        accumulator.splats.splatEncoding?.lnScaleMin ?? LN_SCALE_MIN,
+        accumulator.splats.splatEncoding?.lnScaleMax ?? LN_SCALE_MAX,
+      );
       this.geometry = geometry;
+      this.material.transparent = !this.viewpoint.stochastic;
+      this.material.depthWrite = this.viewpoint.stochastic;
+      this.material.needsUpdate = true;
     } else {
       // No Gsplats to display for this viewpoint yet
       this.uniforms.numSplats.value = 0;
@@ -691,6 +744,7 @@ export class SparkRenderer extends THREE.Mesh {
       const isVisible = object.generator && visibleGenHash.has(object.uuid);
       const numSplats = isVisible ? object.numSplats : 0;
       if (
+        this.needsUpdate ||
         object.generator !== current?.generator ||
         numSplats !== current?.count
       ) {
@@ -708,9 +762,11 @@ export class SparkRenderer extends THREE.Mesh {
 
     // Check if we need any update at all
     const needsUpdate =
+      this.needsUpdate ||
       originUpdate ||
       generators.length !== activeMapping.size ||
       generators.some((g) => g.version !== activeMapping.get(g)?.version);
+    this.needsUpdate = false;
 
     let accumulator: SplatAccumulator | null = null;
     if (needsUpdate) {
@@ -782,6 +838,7 @@ export class SparkRenderer extends THREE.Mesh {
 
       // Generate the Gsplats according to the mapping that need updating
       accumulator.ensureGenerate(maxSplats);
+      accumulator.splats.splatEncoding = { ...this.splatEncoding };
       const generated = accumulator.generateSplats({
         renderer: this.renderer,
         modifier: this.modifier,

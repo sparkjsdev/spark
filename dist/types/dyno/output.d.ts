@@ -1,15 +1,17 @@
 import { Dyno } from './base';
 import { Gsplat } from './splats';
 import { DynoVal, DynoValue, HasDynoOut } from './value';
-export declare const outputPackedSplat: (gsplat: DynoVal<typeof Gsplat>) => OutputPackedSplat;
+export declare const outputPackedSplat: (gsplat: DynoVal<typeof Gsplat>, rgbMinMaxLnScaleMinMax: DynoVal<"vec4">) => OutputPackedSplat;
 export declare const outputRgba8: (rgba8: DynoVal<"vec4">) => OutputRgba8;
 export declare class OutputPackedSplat extends Dyno<{
     gsplat: typeof Gsplat;
+    rgbMinMaxLnScaleMinMax: "vec4";
 }, {
     output: "uvec4";
 }> implements HasDynoOut<"uvec4"> {
-    constructor({ gsplat }: {
+    constructor({ gsplat, rgbMinMaxLnScaleMinMax, }: {
         gsplat?: DynoVal<typeof Gsplat>;
+        rgbMinMaxLnScaleMinMax?: DynoVal<"vec4">;
     });
     dynoOut(): DynoValue<"uvec4">;
 }

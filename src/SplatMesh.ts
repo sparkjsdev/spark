@@ -1,7 +1,11 @@
 import * as THREE from "three";
 
 import init_wasm, { raycast_splats } from "spark-internal-rs";
-import { PackedSplats } from "./PackedSplats";
+import {
+  DEFAULT_SPLAT_ENCODING,
+  PackedSplats,
+  type SplatEncoding,
+} from "./PackedSplats";
 import { type RgbaArray, readRgbaArray } from "./RgbaArray";
 import { SplatEdit, SplatEditSdf, SplatEdits } from "./SplatEdit";
 import {
@@ -11,6 +15,7 @@ import {
 } from "./SplatGenerator";
 import type { SplatFileType } from "./SplatLoader";
 import type { SplatSkinning } from "./SplatSkinning";
+import { LN_SCALE_MAX, LN_SCALE_MIN } from "./defines";
 import {
   DynoFloat,
   DynoUsampler2DArray,
@@ -27,6 +32,7 @@ import {
   mul,
   normalize,
   readPackedSplat,
+  split,
   splitGsplat,
   sub,
   unindent,
@@ -80,6 +86,9 @@ export type SplatMeshOptions = {
   // Gsplat modifier to apply in world-space after transformations.
   // (default: undefined)
   worldModifier?: GsplatModifier;
+  // Override the default splat encoding ranges for the PackedSplats.
+  // (default: undefined)
+  splatEncoding?: SplatEncoding;
 };
 
 export type SplatMeshContext = {
@@ -183,6 +192,9 @@ export class SplatMesh extends SplatGenerator {
     });
 
     this.packedSplats = options.packedSplats ?? new PackedSplats();
+    this.packedSplats.splatEncoding = options.splatEncoding ?? {
+      ...DEFAULT_SPLAT_ENCODING,
+    };
     this.numSplats = this.packedSplats.numSplats;
     this.editable = options.editable ?? true;
     this.onFrame = options.onFrame;
@@ -226,8 +238,15 @@ export class SplatMesh extends SplatGenerator {
   }
 
   async asyncInitialize(options: SplatMeshOptions) {
-    const { url, fileBytes, fileType, fileName, maxSplats, constructSplats } =
-      options;
+    const {
+      url,
+      fileBytes,
+      fileType,
+      fileName,
+      maxSplats,
+      constructSplats,
+      splatEncoding,
+    } = options;
     if (url || fileBytes || constructSplats) {
       const packedSplatsOptions = {
         url,
@@ -236,6 +255,7 @@ export class SplatMesh extends SplatGenerator {
         fileName,
         maxSplats,
         construct: constructSplats,
+        splatEncoding,
       };
       this.packedSplats.reinitialize(packedSplatsOptions);
     }
@@ -299,6 +319,53 @@ export class SplatMesh extends SplatGenerator {
     this.packedSplats.dispose();
   }
 
+  // Returns axis-aligned bounding box of the SplatMesh. If centers_only is true,
+  // only the centers of the splats are used to compute the bounding box.
+  // IMPORTANT: This should only be called after the SplatMesh is initialized.
+  getBoundingBox(centers_only = true) {
+    if (!this.initialized) {
+      throw new Error(
+        "Cannot get bounding box before SplatMesh is initialized",
+      );
+    }
+    const minVec = new THREE.Vector3(
+      Number.POSITIVE_INFINITY,
+      Number.POSITIVE_INFINITY,
+      Number.POSITIVE_INFINITY,
+    );
+    const maxVec = new THREE.Vector3(
+      Number.NEGATIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+    );
+    const corners = new THREE.Vector3();
+    const signs = [-1, 1];
+    this.packedSplats.forEachSplat(
+      (_index, center, scales, quaternion, _opacity, _color) => {
+        if (centers_only) {
+          minVec.min(center);
+          maxVec.max(center);
+        } else {
+          // Get the 8 corners of the AABB in local space
+          for (const x of signs) {
+            for (const y of signs) {
+              for (const z of signs) {
+                corners.set(x * scales.x, y * scales.y, z * scales.z);
+                // Transform corner by rotation and position
+                corners.applyQuaternion(quaternion);
+                corners.add(center);
+                minVec.min(corners);
+                maxVec.max(corners);
+              }
+            }
+          }
+        }
+      },
+    );
+    const box = new THREE.Box3(minVec, maxVec);
+    return box;
+  }
+
   constructGenerator(context: SplatMeshContext) {
     const { transform, viewToObject, recolor } = context;
     const generator = dynoBlock(
@@ -321,13 +388,32 @@ export class SplatMesh extends SplatGenerator {
             const { center } = splitGsplat(gsplat).outputs;
             const viewDir = normalize(sub(center, viewCenterInObject));
 
+            function rescaleSh(
+              sNorm: DynoVal<"vec3">,
+              minMax: DynoVal<"vec2">,
+            ) {
+              const { x: min, y: max } = split(minMax).outputs;
+              const mid = mul(add(min, max), dynoConst("float", 0.5));
+              const scale = mul(sub(max, min), dynoConst("float", 0.5));
+              return add(mid, mul(sNorm, scale));
+            }
+
             // Evaluate Spherical Harmonics
-            let rgb = evaluateSH1(gsplat, sh1Texture, viewDir);
+            const sh1Snorm = evaluateSH1(gsplat, sh1Texture, viewDir);
+            let rgb = rescaleSh(sh1Snorm, this.packedSplats.dynoSh1MinMax);
             if (this.maxSh >= 2 && sh2Texture) {
-              rgb = add(rgb, evaluateSH2(gsplat, sh2Texture, viewDir));
+              const sh2Snorm = evaluateSH2(gsplat, sh2Texture, viewDir);
+              rgb = add(
+                rgb,
+                rescaleSh(sh2Snorm, this.packedSplats.dynoSh2MinMax),
+              );
             }
             if (this.maxSh >= 3 && sh3Texture) {
-              rgb = add(rgb, evaluateSH3(gsplat, sh3Texture, viewDir));
+              const sh3Snorm = evaluateSH3(gsplat, sh3Texture, viewDir);
+              rgb = add(
+                rgb,
+                rescaleSh(sh3Snorm, this.packedSplats.dynoSh3MinMax),
+              );
             }
 
             // Flash off for 0.3 / 1.0 sec for debugging
@@ -539,6 +625,8 @@ export class SplatMesh extends SplatGenerator {
       this.packedSplats.numSplats,
       this.packedSplats.packedArray,
       RAYCAST_ELLIPSOID,
+      this.packedSplats.splatEncoding?.lnScaleMin ?? LN_SCALE_MIN,
+      this.packedSplats.splatEncoding?.lnScaleMax ?? LN_SCALE_MAX,
     );
 
     for (const distance of distances) {

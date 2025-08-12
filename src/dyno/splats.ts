@@ -118,6 +118,7 @@ export const definePackedSplats = unindent(`
   struct PackedSplats {
     usampler2DArray texture;
     int numSplats;
+    vec4 rgbMinMaxLnScaleMinMax;
   };
 `);
 
@@ -137,10 +138,10 @@ export class NumPackedSplats extends UnaryOp<
 }
 
 const defineReadPackedSplat = unindent(`
-  bool readPackedSplat(usampler2DArray texture, int numSplats, int index, out Gsplat gsplat) {
+  bool readPackedSplat(usampler2DArray texture, int numSplats, vec4 rgbMinMaxLnScaleMinMax, int index, out Gsplat gsplat) {
     if ((index >= 0) && (index < numSplats)) {
       uvec4 packed = texelFetch(texture, splatTexCoord(index), 0);
-      unpackSplat(packed, gsplat.center, gsplat.scales, gsplat.quaternion, gsplat.rgba);
+      unpackSplatEncoding(packed, gsplat.center, gsplat.scales, gsplat.quaternion, gsplat.rgba, rgbMinMaxLnScaleMinMax);
       return true;
     } else {
       return false;
@@ -173,7 +174,7 @@ export class ReadPackedSplat
         let statements: string[];
         if (packedSplats && index) {
           statements = unindentLines(`
-            if (readPackedSplat(${packedSplats}.texture, ${packedSplats}.numSplats, ${index}, ${gsplat})) {
+            if (readPackedSplat(${packedSplats}.texture, ${packedSplats}.numSplats, ${packedSplats}.rgbMinMaxLnScaleMinMax, ${index}, ${gsplat})) {
               bool zeroSize = all(equal(${gsplat}.scales, vec3(0.0, 0.0, 0.0)));
               ${gsplat}.flags = zeroSize ? 0u : GSPLAT_FLAG_ACTIVE;
             } else {
@@ -238,7 +239,7 @@ export class ReadPackedSplatRange
           statements = unindentLines(`
             ${gsplat}.flags = 0u;
             if ((${index} >= ${base}) && (${index} < (${base} + ${count}))) {
-              if (readPackedSplat(${packedSplats}.texture, ${packedSplats}.numSplats, ${index}, ${gsplat})) {
+              if (readPackedSplat(${packedSplats}.texture, ${packedSplats}.numSplats, ${packedSplats}.rgbMinMaxLnScaleMinMax, ${index}, ${gsplat})) {
                 bool zeroSize = all(equal(${gsplat}.scales, vec3(0.0, 0.0, 0.0)));
                 ${gsplat}.flags = zeroSize ? 0u : GSPLAT_FLAG_ACTIVE;
               }

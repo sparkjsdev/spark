@@ -1,4 +1,4 @@
-import { PackedSplats } from './PackedSplats';
+import { PackedSplats, SplatEncoding } from './PackedSplats';
 import { RgbaArray } from './RgbaArray';
 import { SplatEdit } from './SplatEdit';
 import { GsplatModifier, SplatGenerator, SplatTransformer } from './SplatGenerator';
@@ -23,6 +23,7 @@ export type SplatMeshOptions = {
     }) => void;
     objectModifier?: GsplatModifier;
     worldModifier?: GsplatModifier;
+    splatEncoding?: SplatEncoding;
 };
 export type SplatMeshContext = {
     transform: SplatTransformer;
@@ -65,6 +66,7 @@ export declare class SplatMesh extends SplatGenerator {
     pushSplat(center: THREE.Vector3, scales: THREE.Vector3, quaternion: THREE.Quaternion, opacity: number, color: THREE.Color): void;
     forEachSplat(callback: (index: number, center: THREE.Vector3, scales: THREE.Vector3, quaternion: THREE.Quaternion, opacity: number, color: THREE.Color) => void): void;
     dispose(): void;
+    getBoundingBox(centers_only?: boolean): THREE.Box3;
     constructGenerator(context: SplatMeshContext): void;
     updateGenerator(): void;
     update({ time, viewToWorld, deltaTime, globalEdits, }: {

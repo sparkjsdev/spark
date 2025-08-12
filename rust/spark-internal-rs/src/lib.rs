@@ -82,6 +82,7 @@ pub fn raycast_splats(
     near: f32, far: f32,
     num_splats: u32, packed_splats: Uint32Array,
     raycast_ellipsoid: bool,
+    ln_scale_min: f32, ln_scale_max: f32,
 ) -> Float32Array {
     let mut distances = Vec::<f32>::new();
 
@@ -94,9 +95,9 @@ pub fn raycast_splats(
             subarray.copy_to(subbuffer);
 
             if raycast_ellipsoid {
-                raycast_ellipsoids(subbuffer, &mut distances, [origin_x, origin_y, origin_z], [dir_x, dir_y, dir_z], near, far);
+                raycast_ellipsoids(subbuffer, &mut distances, [origin_x, origin_y, origin_z], [dir_x, dir_y, dir_z], near, far, ln_scale_min, ln_scale_max);
             } else {
-                raycast_spheres(subbuffer, &mut distances, [origin_x, origin_y, origin_z], [dir_x, dir_y, dir_z], near, far);
+                raycast_spheres(subbuffer, &mut distances, [origin_x, origin_y, origin_z], [dir_x, dir_y, dir_z], near, far, ln_scale_min, ln_scale_max);
             }
 
             base += chunk_size;

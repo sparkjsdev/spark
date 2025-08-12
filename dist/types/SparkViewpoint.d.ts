@@ -92,6 +92,7 @@ export type SparkViewpointOptions = {
      */
     sort360?: boolean;
     sort32?: boolean;
+    stochastic?: boolean;
 };
 export declare class SparkViewpoint {
     spark: SparkRenderer;
@@ -112,6 +113,7 @@ export declare class SparkViewpoint {
     depthBias?: number;
     sort360?: boolean;
     sort32?: boolean;
+    stochastic: boolean;
     display: {
         accumulator: SplatAccumulator;
         viewToWorld: THREE.Matrix4;

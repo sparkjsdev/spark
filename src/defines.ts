@@ -6,7 +6,6 @@
 
 export const LN_SCALE_MIN = -12.0;
 export const LN_SCALE_MAX = 9.0;
-export const LN_RESCALE = (LN_SCALE_MAX - LN_SCALE_MIN) / 254.0; // 1..=255
 export const SCALE_MIN = Math.exp(LN_SCALE_MIN);
 export const SCALE_MAX = Math.exp(LN_SCALE_MAX);
 
@@ -37,3 +36,8 @@ export const SPLAT_TEX_DEPTH_MASK = SPLAT_TEX_DEPTH - 1;
 // time between pure JS and WASM are minimal and don't make a big difference.
 
 export const WASM_SPLAT_SORT = true;
+
+// Enable/disable compiling a dedicated parse function per element type
+// in the plyReader.
+
+export const USE_COMPILED_PARSER_FUNCTION = true;

@@ -1,3 +1,4 @@
+import * as THREE from "three";
 import { Dyno, unindentLines } from "./base";
 import { Gsplat, defineGsplat } from "./splats";
 import {
@@ -7,30 +8,41 @@ import {
   type HasDynoOut,
 } from "./value";
 
-export const outputPackedSplat = (gsplat: DynoVal<typeof Gsplat>) =>
-  new OutputPackedSplat({ gsplat });
+export const outputPackedSplat = (
+  gsplat: DynoVal<typeof Gsplat>,
+  rgbMinMaxLnScaleMinMax: DynoVal<"vec4">,
+) => new OutputPackedSplat({ gsplat, rgbMinMaxLnScaleMinMax });
 export const outputRgba8 = (rgba8: DynoVal<"vec4">) =>
   new OutputRgba8({ rgba8 });
 
 export class OutputPackedSplat
-  extends Dyno<{ gsplat: typeof Gsplat }, { output: "uvec4" }>
+  extends Dyno<
+    { gsplat: typeof Gsplat; rgbMinMaxLnScaleMinMax: "vec4" },
+    { output: "uvec4" }
+  >
   implements HasDynoOut<"uvec4">
 {
-  constructor({ gsplat }: { gsplat?: DynoVal<typeof Gsplat> }) {
+  constructor({
+    gsplat,
+    rgbMinMaxLnScaleMinMax,
+  }: {
+    gsplat?: DynoVal<typeof Gsplat>;
+    rgbMinMaxLnScaleMinMax?: DynoVal<"vec4">;
+  }) {
     super({
-      inTypes: { gsplat: Gsplat },
-      inputs: { gsplat },
+      inTypes: { gsplat: Gsplat, rgbMinMaxLnScaleMinMax: "vec4" },
+      inputs: { gsplat, rgbMinMaxLnScaleMinMax },
       globals: () => [defineGsplat],
       statements: ({ inputs, outputs }) => {
         const { output } = outputs;
         if (!output) {
           return [];
         }
-        const { gsplat } = inputs;
+        const { gsplat, rgbMinMaxLnScaleMinMax } = inputs;
         if (gsplat) {
           return unindentLines(`
             if (isGsplatActive(${gsplat}.flags)) {
-              ${output} = packSplat(${gsplat}.center, ${gsplat}.scales, ${gsplat}.quaternion, ${gsplat}.rgba);
+              ${output} = packSplatEncoding(${gsplat}.center, ${gsplat}.scales, ${gsplat}.quaternion, ${gsplat}.rgba, ${rgbMinMaxLnScaleMinMax});
             } else {
               ${output} = uvec4(0u, 0u, 0u, 0u);
             }
