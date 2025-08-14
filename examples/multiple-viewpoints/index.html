@@ -36,7 +36,14 @@
     const renderer = new THREE.WebGLRenderer();
     const header_height = document.querySelector('header').getBoundingClientRect().height;
     renderer.setSize(window.innerWidth, window.innerHeight - header_height);
-    document.body.appendChild(renderer.domElement)
+    document.body.appendChild(renderer.domElement);
+
+    window.addEventListener('resize', onWindowResize, false);
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
 
     // Explicitly create a SparkRenderer in the scene to spawn new viewpoints
     const spark = new SparkRenderer({ renderer });

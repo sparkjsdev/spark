@@ -38,6 +38,13 @@
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
 
+    window.addEventListener('resize', onWindowResize, false);
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
     const splatURL = await getAssetFileURL("sutro.zip");
     const sutroTower = new SplatMesh({ url: splatURL });
     sutroTower.quaternion.set(1, 0, 0, 0);
