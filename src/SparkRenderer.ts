@@ -267,10 +267,11 @@ export class SparkRenderer extends THREE.Mesh {
   viewpoint: SparkViewpoint;
 
   // Holds data needed to perform a scheduled Gsplat update.
-  private pendingUpdate: {
-    scene: THREE.Scene;
-    originToWorld: THREE.Matrix4;
-  } | null = null;
+  private pendingUpdate = {
+    scene: null as THREE.Scene | null,
+    originToWorld: new THREE.Matrix4(),
+    timeoutId: -1,
+  };
 
   // Internal SparkViewpoint used for environment map rendering.
   private envViewpoint: SparkViewpoint | null = null;
@@ -668,23 +669,39 @@ export class SparkRenderer extends THREE.Mesh {
   }: { scene: THREE.Scene; viewToWorld?: THREE.Matrix4 }) {
     // Compute the transform for the SparkRenderer to use as origin
     // for Gsplat generation and accumulation.
-    const originToWorld = this.matrixWorld.clone();
+    const originToWorld = this.matrixWorld;
+
     // Either do the update now, or in the next "tick" depending on preUpdate
     if (this.preUpdate) {
-      this.updateInternal({ scene, originToWorld, viewToWorld });
+      this.updateInternal({
+        scene,
+        originToWorld: originToWorld.clone(),
+        viewToWorld,
+      });
     } else {
       // Pass the update parameters to be performed on the next tick
-      this.pendingUpdate = {
-        scene,
-        originToWorld,
-      };
-      setTimeout(() => {
-        if (this.pendingUpdate) {
+      this.pendingUpdate.scene = scene;
+      this.pendingUpdate.originToWorld.copy(originToWorld);
+
+      // Schedule a timeout if there isn't one already
+      if (this.pendingUpdate.timeoutId === -1) {
+        this.pendingUpdate.timeoutId = setTimeout(() => {
           const { scene, originToWorld } = this.pendingUpdate;
-          this.pendingUpdate = null;
-          this.updateInternal({ scene, originToWorld, viewToWorld });
-        }
-      }, 1);
+          this.pendingUpdate.scene = null;
+          this.pendingUpdate.timeoutId = -1;
+          const updated = this.updateInternal({
+            scene: scene as THREE.Scene,
+            originToWorld,
+            viewToWorld,
+          });
+
+          if (updated) {
+            // Flush to encourage eager execution
+            const gl = this.renderer.getContext() as WebGL2RenderingContext;
+            gl.flush();
+          }
+        }, 1);
+      }
     }
   }
 
