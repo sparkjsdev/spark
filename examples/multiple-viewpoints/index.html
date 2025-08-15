@@ -40,6 +40,7 @@
 
     // Explicitly create a SparkRenderer in the scene to spawn new viewpoints
     const spark = new SparkRenderer({ renderer });
+    scene.add(spark);
 
     const splatURL = await getAssetFileURL("butterfly.spz");
     const butterfly = new SplatMesh({ url: splatURL });

@@ -54,6 +54,7 @@
 
     // Explicitly create a SparkRenderer to render environment maps
     const spark = new SparkRenderer({ renderer });
+    scene.add(spark);
 
     const splatURL = await getAssetFileURL("fireplace.spz");
     const packedSplats = new PackedSplats({ url: splatURL });
