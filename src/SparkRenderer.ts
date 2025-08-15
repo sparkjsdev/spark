@@ -40,48 +40,6 @@ import {
 // of 5 to avoid excessive memory usage.
 const MAX_ACCUMULATORS = 5;
 
-// Scene.onBeforeRender monkey-patch to
-// inject a SparkRenderer into a scene with SplatMeshes if there isn't
-// one already. Restore original Scene.onBeforeRenderer and Scene.add when done.
-let hasSplatMesh = false;
-let hasSparkRenderer = false;
-
-let sparkRendererInstance: SparkRenderer;
-
-function containsSplatMesh(object3D: THREE.Object3D) {
-  let hasSplatMesh = false;
-  if (object3D instanceof SplatMesh) {
-    return true;
-  }
-  object3D.traverse((child: THREE.Object3D) => {
-    hasSplatMesh = hasSplatMesh || child instanceof SplatMesh;
-  });
-  return hasSplatMesh;
-}
-
-const sceneAdd = THREE.Scene.prototype.add;
-THREE.Scene.prototype.add = function (object: THREE.Object3D) {
-  hasSplatMesh = hasSplatMesh || containsSplatMesh(object);
-  hasSparkRenderer = hasSparkRenderer || object instanceof SparkRenderer;
-  sceneAdd.call(this, object);
-  return this;
-};
-
-const sceneOnBeforeRender = THREE.Scene.prototype.onBeforeRender;
-THREE.Scene.prototype.onBeforeRender = function (
-  renderer: THREE.WebGLRenderer,
-) {
-  if (!hasSplatMesh) {
-    return;
-  }
-  if (!hasSparkRenderer) {
-    const spark = sparkRendererInstance || new SparkRenderer({ renderer });
-    this.add(spark);
-  }
-  THREE.Scene.prototype.onBeforeRender = sceneOnBeforeRender;
-  THREE.Scene.prototype.add = sceneAdd;
-};
-
 export type SparkRendererOptions = {
   /**
    * Pass in your THREE.WebGLRenderer instance so Spark can perform work
@@ -367,8 +325,6 @@ export class SparkRenderer extends THREE.Mesh {
     this.prepareViewpoint(this.viewpoint);
 
     this.clock = options.clock ? cloneClock(options.clock) : new THREE.Clock();
-
-    sparkRendererInstance = this;
   }
 
   static makeUniforms() {

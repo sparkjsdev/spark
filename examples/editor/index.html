@@ -79,6 +79,7 @@
     const canvas = document.getElementById("canvas");
     const renderer = new THREE.WebGLRenderer({ canvas });
     const spark = new SparkRenderer({ renderer });
+    scene.add(spark);
 
     function handleResize() {
       const width = canvas.clientWidth;
