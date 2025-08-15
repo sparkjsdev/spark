@@ -131,14 +131,24 @@ void main() {
     // Compute the Jacobian of the splat's projection at its center
     vec2 scaledRenderSize = renderSize * focalAdjustment;
     vec2 focal = 0.5 * scaledRenderSize * vec2(projectionMatrix[0][0], projectionMatrix[1][1]);
-    float invZ = 1.0 / viewCenter.z;
-    vec2 J1 = focal * invZ;
-    vec2 J2 = -(J1 * viewCenter.xy) * invZ;
-    mat3 J = mat3(
-        J1.x, 0.0, J2.x,
-        0.0, J1.y, J2.y,
-        0.0, 0.0, 0.0
-    );
+
+    mat3 J;
+    if(isOrthographic) {
+        J = mat3(
+            focal.x, 0.0, 0.0,
+            0.0, focal.y, 0.0,
+            0.0, 0.0, 0.0
+        );
+    } else {
+        float invZ = 1.0 / viewCenter.z;
+        vec2 J1 = focal * invZ;
+        vec2 J2 = -(J1 * viewCenter.xy) * invZ;
+        J = mat3(
+            J1.x, 0.0, J2.x,
+            0.0, J1.y, J2.y,
+            0.0, 0.0, 0.0
+        );
+    }
 
     // Compute the 2D covariance by projecting the 3D covariance
     // and picking out the XY plane components.
