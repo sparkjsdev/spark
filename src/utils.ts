@@ -370,7 +370,7 @@ export function setPackedSplat(
 
   // Alternate internal encodings commented out below.
   const uQuat = encodeQuatOctXy88R8(
-    new THREE.Quaternion(quatX, quatY, quatZ, quatW),
+    tempQuaternion.set(quatX, quatY, quatZ, quatW),
   );
   // const uQuat = encodeQuatXyz888(new THREE.Quaternion(quatX, quatY, quatZ, quatW));
   // const uQuat = encodeQuatEulerXyz888(new THREE.Quaternion(quatX, quatY, quatZ, quatW));
