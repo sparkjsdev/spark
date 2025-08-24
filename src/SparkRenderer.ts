@@ -60,10 +60,12 @@ function containsSplatMesh(object3D: THREE.Object3D) {
 }
 
 const sceneAdd = THREE.Scene.prototype.add;
-THREE.Scene.prototype.add = function (object: THREE.Object3D) {
-  hasSplatMesh = hasSplatMesh || containsSplatMesh(object);
-  hasSparkRenderer = hasSparkRenderer || object instanceof SparkRenderer;
-  sceneAdd.call(this, object);
+THREE.Scene.prototype.add = function (...objects: THREE.Object3D[]) {
+  for (const object of objects) {
+    hasSplatMesh = hasSplatMesh || containsSplatMesh(object);
+    hasSparkRenderer = hasSparkRenderer || object instanceof SparkRenderer;
+    sceneAdd.call(this, object);
+  }
   return this;
 };
 
