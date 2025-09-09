@@ -16,6 +16,12 @@ import { unindent } from "./dyno/base.js";
 const f32buffer = new Float32Array(1);
 const u32buffer = new Uint32Array(f32buffer.buffer);
 
+// Returns a normalized array of numbers
+export function normalize(vec: number[]) {
+  const norm = Math.sqrt(vec.reduce((acc, v) => acc + v * v, 0));
+  return vec.map((v) => v / norm);
+}
+
 // Reinterpret the bits of a float32 as a uint32
 export function floatBitsToUint(f: number): number {
   f32buffer[0] = f;
