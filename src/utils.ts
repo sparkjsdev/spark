@@ -21,6 +21,12 @@ const f16buffer = supportsFloat16Array
   : null;
 const u16buffer = new Uint16Array(f16buffer?.buffer);
 
+// Returns a normalized array of numbers
+export function normalize(vec: number[]) {
+  const norm = Math.sqrt(vec.reduce((acc, v) => acc + v * v, 0));
+  return vec.map((v) => v / norm);
+}
+
 // Reinterpret the bits of a float32 as a uint32
 export function floatBitsToUint(f: number): number {
   f32buffer[0] = f;

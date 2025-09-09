@@ -6,7 +6,7 @@ import {
   getSplatFileType,
   getSplatFileTypeFromPath,
 } from "./SplatLoader";
-import { GunzipReader, fromHalf, unpackSplat } from "./utils";
+import { GunzipReader, fromHalf, normalize, unpackSplat } from "./utils";
 
 import { decodeAntiSplat } from "./antisplat";
 import { decodeKsplat } from "./ksplat";
@@ -149,9 +149,7 @@ export class SpzReader {
     }
     if (this.version === 3) {
       // Version 3 uses a trick called "smallest three" to compress the rotation quaternions
-      // achieving better precision.
-      // "Optimizing orientation" section at https://gafferongames.com/post/snapshot_compression/
-      // A quaternion length must be 1: x^2+y^2+z^2+w^2 = 1
+      // achieving better precision. "Optimizing orientation" section at https://gafferongames.com/post/snapshot_compression/ A quaternion length must be 1: x^2+y^2+z^2+w^2 = 1
       // We can drop one component and reconstruct it with the identity above.
       // Largest component is dropped for best numerical precision.
       // Quaternion stored in 32 bits
@@ -262,7 +260,7 @@ const SH_DEGREE_TO_VECS: Record<number, number> = { 1: 3, 2: 8, 3: 15 };
 const SH_C0 = 0.28209479177387814;
 
 export const SPZ_MAGIC = 0x5053474e; // NGSP = Niantic gaussian splat
-export const SPZ_VERSION = 2;
+export const SPZ_VERSION = 3;
 export const FLAG_ANTIALIASED = 0x1;
 
 export class SpzWriter {
@@ -287,11 +285,11 @@ export class SpzWriter {
     flagAntiAlias?: boolean;
   }) {
     const splatSize =
-      9 +
-      1 +
-      3 +
-      3 +
-      3 +
+      9 + // Position
+      1 + // Opacity
+      3 + // Scale
+      3 + // DC-rgb
+      4 + // Rotation
       (shDegree >= 1 ? 9 : 0) +
       (shDegree >= 2 ? 15 : 0) +
       (shDegree >= 3 ? 21 : 0);
@@ -382,34 +380,40 @@ export class SpzWriter {
 
   setQuat(
     index: number,
-    quatX: number,
-    quatY: number,
-    quatZ: number,
-    quatW: number,
+    ...q: [number, number, number, number] // x, y, z, w
   ) {
-    const base = 16 + this.numSplats * 16 + index * 3;
-    const quatNeg = quatW < 0;
-    this.view.setUint8(
-      base,
-      Math.max(
-        0,
-        Math.min(255, Math.round(((quatNeg ? -quatX : quatX) + 1) * 127.5)),
-      ),
-    );
-    this.view.setUint8(
-      base + 1,
-      Math.max(
-        0,
-        Math.min(255, Math.round(((quatNeg ? -quatY : quatY) + 1) * 127.5)),
-      ),
-    );
-    this.view.setUint8(
-      base + 2,
-      Math.max(
-        0,
-        Math.min(255, Math.round(((quatNeg ? -quatZ : quatZ) + 1) * 127.5)),
-      ),
-    );
+    const base = 16 + this.numSplats * 16 + index * 4;
+
+    const quat = normalize(q);
+
+    // Find largest component
+    let iLargest = 0;
+    for (let i = 1; i < 4; ++i) {
+      if (Math.abs(quat[i]) > Math.abs(quat[iLargest])) {
+        iLargest = i;
+      }
+    }
+
+    // Since -quat represents the same rotation as quat, transform the quaternion so the largest element
+    // is positive. This avoids having to send its sign bit.
+    const negate = quat[iLargest] < 0 ? 1 : 0;
+
+    // Do compression using sign bit and 9-bit precision per element.
+    let comp = iLargest;
+    for (let i = 0; i < 4; ++i) {
+      if (i !== iLargest) {
+        const negbit = (quat[i] < 0 ? 1 : 0) ^ negate;
+        const mag = Math.floor(
+          ((1 << 9) - 1) * (Math.abs(quat[i]) / Math.SQRT1_2) + 0.5,
+        );
+        comp = (comp << 10) | (negbit << 9) | mag;
+      }
+    }
+
+    this.view.setUint8(base, comp & 0xff);
+    this.view.setUint8(base + 1, (comp >> 8) & 0xff);
+    this.view.setUint8(base + 2, (comp >> 16) & 0xff);
+    this.view.setUint8(base + 3, (comp >>> 24) & 0xff);
   }
 
   static quantizeSh(sh: number, bits: number) {
@@ -427,7 +431,7 @@ export class SpzWriter {
     sh3?: Float32Array,
   ) {
     const shVecs = SH_DEGREE_TO_VECS[this.shDegree] || 0;
-    const base1 = 16 + this.numSplats * 19 + index * shVecs * 3;
+    const base1 = 16 + this.numSplats * 20 + index * shVecs * 3;
     for (let j = 0; j < 9; ++j) {
       this.view.setUint8(base1 + j, SpzWriter.quantizeSh(sh1[j], 5));
     }
