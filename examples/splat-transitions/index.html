@@ -93,7 +93,8 @@
 
     const effectFiles = {
       'Spherical': 'spheric.html',
-      'Explosion': 'explosion.html'
+      'Explosion': 'explosion.html',
+      'Flow': 'flow.html'
     };
 
     function showLoading() {
@@ -160,6 +161,10 @@
       } else if (e.key === '2') {
         effectParams.currentEffect = 'Explosion';
         switchEffect('Explosion');
+        gui.updateDisplay(); // Update GUI to reflect change
+      } else if (e.key === '3') {
+        effectParams.currentEffect = 'Flow';
+        switchEffect('Flow');
         gui.updateDisplay(); // Update GUI to reflect change
       }
     });
