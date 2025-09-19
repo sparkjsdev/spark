@@ -2,172 +2,29 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Spark • Splat Transitions - Effects Showcase</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark • Splat Transitions (Modular)</title>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
-    html, body {
-      height: 100%;
-      width: 100%;
-      background-color: #000;
-      font-family: 'Arial', sans-serif;
-      overflow: hidden;
-    }
-
-
-    .iframe-container {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-    }
-
-    .effect-iframe {
-      width: 100%;
-      height: 100%;
-      border: none;
-      display: block;
-    }
-
-    .loading {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      color: white;
-      font-size: 18px;
-      z-index: 999;
-    }
-
-    .loading::after {
-      content: '';
-      display: inline-block;
-      width: 20px;
-      height: 20px;
-      border: 2px solid rgba(255, 255, 255, 0.3);
-      border-top: 2px solid white;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-      margin-left: 10px;
-    }
-
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-
-
+    html, body { margin: 0; height: 100%; width: 100%; background-color: black; }
+    #canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; outline: none; touch-action: none; }
+    .loading { position: absolute; top: 12px; left: 12px; color: white; font-family: Arial, sans-serif; font-size: 12px; opacity: .8; }
   </style>
-</head>
-<body>
-
-  <div class="loading" id="loading">Loading effect...</div>
-
-  <div class="iframe-container">
-    <iframe id="effectFrame" class="effect-iframe" src="spheric.html" tabindex="0"></iframe>
-  </div>
-
   <script type="importmap">
     {
       "imports": {
-        "lil-gui": "/examples/js/vendor/lil-gui/dist/lil-gui.esm.js"
+        "three": "/examples/js/vendor/three/build/three.module.js",
+        "three/addons/": "/examples/js/vendor/three/examples/jsm/",
+        "lil-gui": "/examples/js/vendor/lil-gui/dist/lil-gui.esm.js",
+        "@sparkjsdev/spark": "/dist/spark.module.js"
       }
     }
   </script>
-  <script type="module">
-    import { GUI } from "lil-gui";
-
-    const effectFrame = document.getElementById('effectFrame');
-    const loading = document.getElementById('loading');
-
-    // Effect control parameters
-    const effectParams = {
-      currentEffect: 'Spherical'
-    };
-
-    const effectFiles = {
-      'Spherical': 'spheric.html',
-      'Explosion': 'explosion.html',
-      'Flow': 'flow.html'
-    };
-
-    function showLoading() {
-      loading.style.display = 'block';
-    }
-
-    function hideLoading() {
-      loading.style.display = 'none';
-    }
-
-    function switchEffect(effectName) {
-      const effectFile = effectFiles[effectName];
-      if (effectFile) {
-        showLoading();
-        
-        // Add a small delay to show loading state
-        setTimeout(() => {
-          effectFrame.src = effectFile;
-        }, 100);
-      }
-    }
-
-    function focusIframe() {
-      // Focus the iframe after it loads
-      setTimeout(() => {
-        try {
-          effectFrame.focus();
-          // Also try to focus the canvas inside the iframe
-          const iframeDoc = effectFrame.contentDocument || effectFrame.contentWindow.document;
-          const canvas = iframeDoc.querySelector('canvas');
-          if (canvas) {
-            canvas.focus();
-          }
-        } catch (e) {
-          // Cross-origin restrictions might prevent this, that's ok
-          console.log('Could not focus iframe due to cross-origin restrictions');
-        }
-      }, 500); // Wait a bit longer for the iframe to fully load
-    }
-
-    // Handle iframe load event
-    effectFrame.addEventListener('load', () => {
-      hideLoading();
-      focusIframe(); // Focus the iframe when it loads
-    });
-
-    // Create GUI
-    const gui = new GUI();
-    gui.add(effectParams, 'currentEffect', Object.keys(effectFiles))
-       .name('Effect')
-       .onChange((value) => {
-         switchEffect(value);
-       });
-
-    // Initialize
-    hideLoading();
-
-    // Handle keyboard shortcuts
-    document.addEventListener('keydown', (e) => {
-      if (e.key === '1') {
-        effectParams.currentEffect = 'Spherical';
-        switchEffect('Spherical');
-        gui.updateDisplay(); // Update GUI to reflect change
-      } else if (e.key === '2') {
-        effectParams.currentEffect = 'Explosion';
-        switchEffect('Explosion');
-        gui.updateDisplay(); // Update GUI to reflect change
-      } else if (e.key === '3') {
-        effectParams.currentEffect = 'Flow';
-        switchEffect('Flow');
-        gui.updateDisplay(); // Update GUI to reflect change
-      }
-    });
-  </script>
+</head>
+<body>
+  <div class="loading" id="loading">Loading...</div>
+  <canvas id="canvas" tabindex="0"></canvas>
+  <script type="module" src="./main.js"></script>
 </body>
 </html>
+
+
