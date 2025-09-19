@@ -76,6 +76,11 @@ async function switchEffect(name) {
   }
 
   loading.style.display = "none";
+
+  // Give focus back to the canvas so keyboard controls work immediately
+  try {
+    canvas.focus();
+  } catch {}
 }
 
 gui.add(params, "Effect", Object.keys(effectFiles)).onChange(switchEffect);
