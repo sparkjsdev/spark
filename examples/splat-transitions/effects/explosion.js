@@ -291,6 +291,10 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
   }
 
   function setupGUI(folder) {
+    const params = { explosionStrength: uExplosionStrength.value };
+    folder.add(params, 'explosionStrength', 0.0, 10.0, 0.1)
+      .name('Explosion Strength')
+      .onChange(v => { uExplosionStrength.value = v; });
     folder.add(transitionParams, 'autoTransition').name('Auto Transition');
     folder.add({ explode: () => startTransition() }, 'explode').name('Trigger Explosion');
     return folder;

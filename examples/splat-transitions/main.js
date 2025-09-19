@@ -39,6 +39,7 @@ const effectFiles = {
 
 let active = null; // { api, group }
 let last = 0;
+let effectFolder = null; // GUI folder for current effect
 
 async function switchEffect(name) {
   const loading = document.getElementById("loading");
@@ -50,6 +51,12 @@ async function switchEffect(name) {
     try { active.api.dispose?.(); } catch {}
     if (active.group) scene.remove(active.group);
     active = null;
+  }
+
+  // Destroy previous GUI folder to avoid accumulation
+  if (effectFolder) {
+    try { effectFolder.destroy(); } catch {}
+    effectFolder = null;
   }
 
   const loader = effectFiles[name];
@@ -64,8 +71,8 @@ async function switchEffect(name) {
 
   // Setup a per-effect GUI folder if exposed
   if (api.setupGUI) {
-    if (active._folder) { try { active._folder.destroy(); } catch {} }
-    active._folder = api.setupGUI(gui.addFolder(name));
+    effectFolder = gui.addFolder(name);
+    api.setupGUI(effectFolder);
   }
 
   loading.style.display = "none";
