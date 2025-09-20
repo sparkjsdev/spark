@@ -1,4 +1,4 @@
-import { dyno, SplatMesh } from "@sparkjsdev/spark";
+import { SplatMesh, dyno } from "@sparkjsdev/spark";
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { getAssetFileURL } from "/examples/js/get-asset-url.js";
@@ -240,10 +240,11 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
 	function update(dt, _t) {
 		if (!PARAMETERS.pause) {
 			time.value += dt * 0.5 * PARAMETERS.speedMultiplier;
-			if (PARAMETERS.rotation)
-				meshes.forEach((m) => {
+			if (PARAMETERS.rotation) {
+				for (const m of meshes) {
 					m.rotation.y += dt * PARAMETERS.speedMultiplier;
-				});
+				}
+			}
 		}
 		// Keep camera centered on spherical target
 		camera.lookAt(SPHERICAL_TARGET);
@@ -252,13 +253,19 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
 	function setupGUI(folder) {
 		folder
 			.add(PARAMETERS, "spereRadius", 0.1, 8.0, 0.01)
-			.onChange((v) => (spereRadiusDyno.value = v));
+			.onChange((v) => {
+				spereRadiusDyno.value = v;
+			});
 		folder
 			.add(PARAMETERS, "sphereHeight", -1.0, 4.0, 0.01)
-			.onChange((v) => (sphereHeightDyno.value = v));
+			.onChange((v) => {
+				sphereHeightDyno.value = v;
+			});
 		folder
 			.add(PARAMETERS, "splatCoverage", 0.1, 2.0, 0.01)
-			.onChange((v) => (splatCoverageDyno.value = v));
+			.onChange((v) => {
+				splatCoverageDyno.value = v;
+			});
 		folder.add(PARAMETERS, "speedMultiplier", 0.25, 4.0, 0.01);
 		folder.add(PARAMETERS, "rotation");
 		folder.add(PARAMETERS, "pause");

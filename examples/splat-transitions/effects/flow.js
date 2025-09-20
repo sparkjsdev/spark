@@ -8,7 +8,7 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
 	scene.add(group);
 
 	const PARAMETERS = {
-		speedMultiplier: 1.0,
+		speedMultiplier: 0.5,
 		objectRotation: true,
 		pause: false,
 		fixedMinScale: false,
@@ -247,7 +247,7 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
 	}
 
 	function setupGUI(folder) {
-		folder.add(PARAMETERS, "speedMultiplier", 0.25, 4.0, 0.01);
+		folder.add(PARAMETERS, "speedMultiplier", 0, 1, 0.01);
 		folder.add(PARAMETERS, "objectRotation");
 		folder.add(PARAMETERS, "pause");
 		folder.add(PARAMETERS, "cameraRotation");
@@ -302,3 +302,4 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
 
 	return { group, update, dispose, setupGUI };
 }
+

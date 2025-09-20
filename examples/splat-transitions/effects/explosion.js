@@ -249,7 +249,7 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
 				(gltf) => {
 					const tableModel = gltf.scene;
 					tableModel.position.set(0, -0.5, 0);
-					tableModel.scale.set(3.5, 3.5, 3.5);
+					tableModel.scale.set(5.5, 5.5, 5.5);
 					tableModel.rotation.set(0, 0, 0);
 					tableModel.traverse((child) => {
 						if (child.isMesh) {
@@ -267,9 +267,9 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
 	}
 
 	function _switchToSplat(name) {
-		Object.values(splatMeshes).forEach((m) => {
+		for (const m of Object.values(splatMeshes)) {
 			if (m) m.visible = false;
-		});
+		}
 		if (splatMeshes[name]) {
 			splatMeshes[name].visible = true;
 			currentSplatName = name;
@@ -291,9 +291,9 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
 		if (transitionState.isTransitioning) return;
 		transitionState.isTransitioning = true;
 		transitionState.transitionTime = 0.0;
-		Object.entries(splatMeshes).forEach(([name, mesh]) => {
+		for (const [name, mesh] of Object.entries(splatMeshes)) {
 			if (mesh) mesh.visible = name === currentSplatName;
-		});
+		}
 		if (splatMeshes[currentSplatName]) {
 			splatMeshes[currentSplatName].worldModifier = createDeathDynoshader();
 			splatMeshes[currentSplatName].updateGenerator();
@@ -307,11 +307,11 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
 		startExplosion();
 		nextSplatName = getNextSplatName(currentSplatName);
 		if (splatMeshes[nextSplatName]) {
-			Object.entries(splatMeshes).forEach(([name, mesh]) => {
-				if (!mesh) return;
+			for (const [name, mesh] of Object.entries(splatMeshes)) {
+				if (!mesh) continue;
 				if (name !== currentSplatName && name !== nextSplatName)
 					mesh.visible = false;
-			});
+			}
 			splatMeshes[nextSplatName].worldModifier = createBirthDynoshader();
 			splatMeshes[nextSplatName].updateGenerator();
 			splatMeshes[nextSplatName].visible = true;
@@ -344,7 +344,7 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
 	group.add(instructionsText);
 
 	let totalTime = 0;
-	const transitionParams = { autoTransition: false };
+const transitionParams = { autoTransition: true };
 
 	function onKeyDown(e) {
 		if (e.code === "Space") {
