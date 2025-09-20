@@ -1,4 +1,4 @@
-import { dyno, SplatMesh } from "@sparkjsdev/spark";
+import { SplatMesh, dyno } from "@sparkjsdev/spark";
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { getAssetFileURL } from "/examples/js/get-asset-url.js";
@@ -221,7 +221,8 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
 			s ** 5,
 		);
 		const radius = 4 + Math.abs(s - 0.5) ** 2 * 20;
-		let x, z;
+		let x;
+		let z;
 		if (PARAMETERS.cameraRotation) {
 			const angle = -time.value * 0.5;
 			x = Math.cos(angle) * radius;
@@ -238,10 +239,11 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
 	function update(dt, _t) {
 		if (!PARAMETERS.pause) {
 			time.value += dt * PARAMETERS.speedMultiplier;
-			if (PARAMETERS.objectRotation)
-				meshes.forEach(
-					(m) => (m.rotation.y += dt * PARAMETERS.speedMultiplier * 2),
-				);
+			if (PARAMETERS.objectRotation) {
+				for (const m of meshes) {
+					m.rotation.y += dt * PARAMETERS.speedMultiplier * 2;
+				}
+			}
 		}
 		updateCamera();
 	}
