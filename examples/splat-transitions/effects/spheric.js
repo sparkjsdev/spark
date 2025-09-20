@@ -251,21 +251,15 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
   }
 
   function setupGUI(folder) {
-    folder
-      .add(PARAMETERS, "spereRadius", 0.1, 8.0, 0.01)
-      .onChange((v) => {
-        spereRadiusDyno.value = v;
-      });
-    folder
-      .add(PARAMETERS, "sphereHeight", -1.0, 4.0, 0.01)
-      .onChange((v) => {
-        sphereHeightDyno.value = v;
-      });
-    folder
-      .add(PARAMETERS, "splatCoverage", 0.1, 2.0, 0.01)
-      .onChange((v) => {
-        splatCoverageDyno.value = v;
-      });
+    folder.add(PARAMETERS, "spereRadius", 0.1, 8.0, 0.01).onChange((v) => {
+      spereRadiusDyno.value = v;
+    });
+    folder.add(PARAMETERS, "sphereHeight", -1.0, 4.0, 0.01).onChange((v) => {
+      sphereHeightDyno.value = v;
+    });
+    folder.add(PARAMETERS, "splatCoverage", 0.1, 2.0, 0.01).onChange((v) => {
+      splatCoverageDyno.value = v;
+    });
     folder.add(PARAMETERS, "speedMultiplier", 0.25, 4.0, 0.01);
     folder.add(PARAMETERS, "rotation");
     folder.add(PARAMETERS, "pause");

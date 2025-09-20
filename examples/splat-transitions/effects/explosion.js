@@ -4,76 +4,76 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
 export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
-	const group = new THREE.Group();
-	scene.add(group);
+  const group = new THREE.Group();
+  scene.add(group);
 
-	// Basic lights
-	const ambient = new THREE.AmbientLight(0x404040, 0.6);
-	group.add(ambient);
-	const dir = new THREE.DirectionalLight(0xffffff, 1.0);
-	dir.position.set(5, 10, 5);
-	dir.castShadow = true;
-	group.add(dir);
+  // Basic lights
+  const ambient = new THREE.AmbientLight(0x404040, 0.6);
+  group.add(ambient);
+  const dir = new THREE.DirectionalLight(0xffffff, 1.0);
+  dir.position.set(5, 10, 5);
+  dir.castShadow = true;
+  group.add(dir);
 
-	renderer.shadowMap.enabled = true;
-	renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-	// Camera baseline
-	camera.position.set(0, 2.5, 7);
-	camera.lookAt(0, 1, 0);
+  // Camera baseline
+  camera.position.set(0, 2.5, 7);
+  camera.lookAt(0, 1, 0);
 
-	// WASD + mouse controls
-	const controls = new SparkControls({ canvas: renderer.domElement });
-	controls.fpsMovement.moveSpeed = 3.0;
+  // WASD + mouse controls
+  const controls = new SparkControls({ canvas: renderer.domElement });
+  controls.fpsMovement.moveSpeed = 3.0;
 
-	// Uniforms
-	const animationTime = dyno.dynoFloat(0.0);
-	const uDropProgress = dyno.dynoFloat(0.0);
-	const uGravity = dyno.dynoFloat(9.8);
-	const uBounceDamping = dyno.dynoFloat(0.4);
-	const uFloorLevel = dyno.dynoFloat(0.0);
-	const uRandomFactor = dyno.dynoFloat(1.0);
-	const uReformSpeed = dyno.dynoFloat(2.0);
-	const uCycleDuration = dyno.dynoFloat(1.0);
-	const uDropTime = dyno.dynoFloat(0.0);
-	const uFriction = dyno.dynoFloat(0.98);
-	const uShrinkSpeed = dyno.dynoFloat(5.0 - 3.0);
-	const uExplosionStrength = dyno.dynoFloat(4.5);
-	const uIsReforming = dyno.dynoFloat(0.0);
-	const uReformTime = dyno.dynoFloat(0.0);
-	const uReformDuration = dyno.dynoFloat(2.0);
+  // Uniforms
+  const animationTime = dyno.dynoFloat(0.0);
+  const uDropProgress = dyno.dynoFloat(0.0);
+  const uGravity = dyno.dynoFloat(9.8);
+  const uBounceDamping = dyno.dynoFloat(0.4);
+  const uFloorLevel = dyno.dynoFloat(0.0);
+  const uRandomFactor = dyno.dynoFloat(1.0);
+  const uReformSpeed = dyno.dynoFloat(2.0);
+  const uCycleDuration = dyno.dynoFloat(1.0);
+  const uDropTime = dyno.dynoFloat(0.0);
+  const uFriction = dyno.dynoFloat(0.98);
+  const uShrinkSpeed = dyno.dynoFloat(5.0 - 3.0);
+  const uExplosionStrength = dyno.dynoFloat(4.5);
+  const uIsReforming = dyno.dynoFloat(0.0);
+  const uReformTime = dyno.dynoFloat(0.0);
+  const uReformDuration = dyno.dynoFloat(2.0);
 
-	const uIsBirthing = dyno.dynoFloat(0.0);
-	const uBirthTime = dyno.dynoFloat(0.0);
-	const uBirthDuration = dyno.dynoFloat(0.5);
+  const uIsBirthing = dyno.dynoFloat(0.0);
+  const uBirthTime = dyno.dynoFloat(0.0);
+  const uBirthDuration = dyno.dynoFloat(0.5);
 
-	function createDeathDynoshader() {
-		return dyno.dynoBlock(
-			{ gsplat: dyno.Gsplat },
-			{ gsplat: dyno.Gsplat },
-			({ gsplat }) => {
-				const physicsShader = new dyno.Dyno({
-					inTypes: {
-						gsplat: dyno.Gsplat,
-						time: "float",
-						dropTime: "float",
-						dropProgress: "float",
-						gravity: "float",
-						bounceDamping: "float",
-						floorLevel: "float",
-						randomFactor: "float",
-						reformSpeed: "float",
-						cycleDuration: "float",
-						friction: "float",
-						shrinkSpeed: "float",
-						explosionStrength: "float",
-						isReforming: "float",
-						reformTime: "float",
-						reformDuration: "float",
-					},
-					outTypes: { gsplat: dyno.Gsplat },
-					globals: () => [
-						dyno.unindent(`
+  function createDeathDynoshader() {
+    return dyno.dynoBlock(
+      { gsplat: dyno.Gsplat },
+      { gsplat: dyno.Gsplat },
+      ({ gsplat }) => {
+        const physicsShader = new dyno.Dyno({
+          inTypes: {
+            gsplat: dyno.Gsplat,
+            time: "float",
+            dropTime: "float",
+            dropProgress: "float",
+            gravity: "float",
+            bounceDamping: "float",
+            floorLevel: "float",
+            randomFactor: "float",
+            reformSpeed: "float",
+            cycleDuration: "float",
+            friction: "float",
+            shrinkSpeed: "float",
+            explosionStrength: "float",
+            isReforming: "float",
+            reformTime: "float",
+            reformDuration: "float",
+          },
+          outTypes: { gsplat: dyno.Gsplat },
+          globals: () => [
+            dyno.unindent(`
             mat2 rot(float angle) { float c = cos(angle); float s = sin(angle); return mat2(c, -s, s, c); }
             float hash(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
             vec3 simulatePhysics(vec3 originalPos, float dropTime, float progress, float gravity, float damping, float floorLevel, float randomOffset, float friction, float explosionStrength) {
@@ -120,9 +120,9 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
               return mix(currentScale, originalScale, easeOut);
             }
           `),
-					],
-					statements: ({ inputs, outputs }) =>
-						dyno.unindentLines(`
+          ],
+          statements: ({ inputs, outputs }) =>
+            dyno.unindentLines(`
             ${outputs.gsplat} = ${inputs.gsplat};
             vec3 originalPos = ${inputs.gsplat}.center;
             vec3 originalScale = ${inputs.gsplat}.scales;
@@ -143,51 +143,51 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
             ${outputs.gsplat}.center = finalPos;
             ${outputs.gsplat}.scales = finalScale;
           `),
-				});
-				gsplat = physicsShader.apply({
-					gsplat,
-					time: animationTime,
-					dropTime: uDropTime,
-					dropProgress: uDropProgress,
-					gravity: uGravity,
-					bounceDamping: uBounceDamping,
-					floorLevel: uFloorLevel,
-					randomFactor: uRandomFactor,
-					reformSpeed: uReformSpeed,
-					cycleDuration: uCycleDuration,
-					friction: uFriction,
-					shrinkSpeed: uShrinkSpeed,
-					explosionStrength: uExplosionStrength,
-					isReforming: uIsReforming,
-					reformTime: uReformTime,
-					reformDuration: uReformDuration,
-				}).gsplat;
-				return { gsplat };
-			},
-		);
-	}
+        });
+        gsplat = physicsShader.apply({
+          gsplat,
+          time: animationTime,
+          dropTime: uDropTime,
+          dropProgress: uDropProgress,
+          gravity: uGravity,
+          bounceDamping: uBounceDamping,
+          floorLevel: uFloorLevel,
+          randomFactor: uRandomFactor,
+          reformSpeed: uReformSpeed,
+          cycleDuration: uCycleDuration,
+          friction: uFriction,
+          shrinkSpeed: uShrinkSpeed,
+          explosionStrength: uExplosionStrength,
+          isReforming: uIsReforming,
+          reformTime: uReformTime,
+          reformDuration: uReformDuration,
+        }).gsplat;
+        return { gsplat };
+      },
+    );
+  }
 
-	function createBirthDynoshader() {
-		return dyno.dynoBlock(
-			{ gsplat: dyno.Gsplat },
-			{ gsplat: dyno.Gsplat },
-			({ gsplat }) => {
-				const birthShader = new dyno.Dyno({
-					inTypes: {
-						gsplat: dyno.Gsplat,
-						time: "float",
-						isBirthing: "float",
-						birthTime: "float",
-						birthDuration: "float",
-					},
-					outTypes: { gsplat: dyno.Gsplat },
-					globals: () => [
-						dyno.unindent(`
+  function createBirthDynoshader() {
+    return dyno.dynoBlock(
+      { gsplat: dyno.Gsplat },
+      { gsplat: dyno.Gsplat },
+      ({ gsplat }) => {
+        const birthShader = new dyno.Dyno({
+          inTypes: {
+            gsplat: dyno.Gsplat,
+            time: "float",
+            isBirthing: "float",
+            birthTime: "float",
+            birthDuration: "float",
+          },
+          outTypes: { gsplat: dyno.Gsplat },
+          globals: () => [
+            dyno.unindent(`
             float hash(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
           `),
-					],
-					statements: ({ inputs, outputs }) =>
-						dyno.unindentLines(`
+          ],
+          statements: ({ inputs, outputs }) =>
+            dyno.unindentLines(`
             ${outputs.gsplat} = ${inputs.gsplat};
             vec3 originalPos = ${inputs.gsplat}.center;
             vec3 originalScale = ${inputs.gsplat}.scales;
@@ -204,208 +204,208 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
               ${outputs.gsplat}.rgba.a = alpha;
             }
           `),
-				});
-				gsplat = birthShader.apply({
-					gsplat,
-					time: animationTime,
-					isBirthing: uIsBirthing,
-					birthTime: uBirthTime,
-					birthDuration: uBirthDuration,
-				}).gsplat;
-				return { gsplat };
-			},
-		);
-	}
+        });
+        gsplat = birthShader.apply({
+          gsplat,
+          time: animationTime,
+          isBirthing: uIsBirthing,
+          birthTime: uBirthTime,
+          birthDuration: uBirthDuration,
+        }).gsplat;
+        return { gsplat };
+      },
+    );
+  }
 
-	const splatMeshes = {};
-	let currentSplatName = "penguin";
-	let nextSplatName = "cat";
+  const splatMeshes = {};
+  let currentSplatName = "penguin";
+  let nextSplatName = "cat";
 
-	async function loadSplats() {
-		const splatNames = ["penguin.spz", "cat.spz", "woobles.spz"];
-		for (const splatName of splatNames) {
-			const splatURL = await getAssetFileURL(splatName);
-			const mesh = new SplatMesh({ url: splatURL });
-			await mesh.initialized;
-			const nameKey = splatName.replace(".spz", "");
-			mesh.worldModifier = createDeathDynoshader();
-			mesh.updateGenerator();
-			mesh.position.set(0, 0, 0);
-			mesh.rotation.set(Math.PI, 0, 0);
-			if (nameKey === "woobles") mesh.scale.set(1.7, 2.0, 1.7);
-			else mesh.scale.set(1, 1, 1);
-			mesh.visible = nameKey === currentSplatName;
-			group.add(mesh);
-			splatMeshes[nameKey] = mesh;
-		}
-	}
+  async function loadSplats() {
+    const splatNames = ["penguin.spz", "cat.spz", "woobles.spz"];
+    for (const splatName of splatNames) {
+      const splatURL = await getAssetFileURL(splatName);
+      const mesh = new SplatMesh({ url: splatURL });
+      await mesh.initialized;
+      const nameKey = splatName.replace(".spz", "");
+      mesh.worldModifier = createDeathDynoshader();
+      mesh.updateGenerator();
+      mesh.position.set(0, 0, 0);
+      mesh.rotation.set(Math.PI, 0, 0);
+      if (nameKey === "woobles") mesh.scale.set(1.7, 2.0, 1.7);
+      else mesh.scale.set(1, 1, 1);
+      mesh.visible = nameKey === currentSplatName;
+      group.add(mesh);
+      splatMeshes[nameKey] = mesh;
+    }
+  }
 
-	async function loadTable() {
-		const tableURL = await getAssetFileURL("table.glb");
-		const loader = new GLTFLoader();
-		await new Promise((resolve, reject) => {
-			loader.load(
-				tableURL,
-				(gltf) => {
-					const tableModel = gltf.scene;
-					tableModel.position.set(0, -0.5, 0);
-					tableModel.scale.set(5.5, 5.5, 5.5);
-					tableModel.rotation.set(0, 0, 0);
-					tableModel.traverse((child) => {
-						if (child.isMesh) {
-							child.castShadow = true;
-							child.receiveShadow = true;
-						}
-					});
-					group.add(tableModel);
-					resolve(tableModel);
-				},
-				undefined,
-				reject,
-			);
-		});
-	}
+  async function loadTable() {
+    const tableURL = await getAssetFileURL("table.glb");
+    const loader = new GLTFLoader();
+    await new Promise((resolve, reject) => {
+      loader.load(
+        tableURL,
+        (gltf) => {
+          const tableModel = gltf.scene;
+          tableModel.position.set(0, -0.5, 0);
+          tableModel.scale.set(5.5, 5.5, 5.5);
+          tableModel.rotation.set(0, 0, 0);
+          tableModel.traverse((child) => {
+            if (child.isMesh) {
+              child.castShadow = true;
+              child.receiveShadow = true;
+            }
+          });
+          group.add(tableModel);
+          resolve(tableModel);
+        },
+        undefined,
+        reject,
+      );
+    });
+  }
 
-	function _switchToSplat(name) {
-		for (const m of Object.values(splatMeshes)) {
-			if (m) m.visible = false;
-		}
-		if (splatMeshes[name]) {
-			splatMeshes[name].visible = true;
-			currentSplatName = name;
-		}
-	}
+  function _switchToSplat(name) {
+    for (const m of Object.values(splatMeshes)) {
+      if (m) m.visible = false;
+    }
+    if (splatMeshes[name]) {
+      splatMeshes[name].visible = true;
+      currentSplatName = name;
+    }
+  }
 
-	function getNextSplatName(current) {
-		const order = ["penguin", "cat", "woobles"];
-		return order[(order.indexOf(current) + 1) % order.length];
-	}
+  function getNextSplatName(current) {
+    const order = ["penguin", "cat", "woobles"];
+    return order[(order.indexOf(current) + 1) % order.length];
+  }
 
-	const transitionState = {
-		isTransitioning: false,
-		transitionTime: 0.0,
-		transitionDuration: 3.0,
-	};
+  const transitionState = {
+    isTransitioning: false,
+    transitionTime: 0.0,
+    transitionDuration: 3.0,
+  };
 
-	function startExplosion() {
-		if (transitionState.isTransitioning) return;
-		transitionState.isTransitioning = true;
-		transitionState.transitionTime = 0.0;
-		for (const [name, mesh] of Object.entries(splatMeshes)) {
-			if (mesh) mesh.visible = name === currentSplatName;
-		}
-		if (splatMeshes[currentSplatName]) {
-			splatMeshes[currentSplatName].worldModifier = createDeathDynoshader();
-			splatMeshes[currentSplatName].updateGenerator();
-		}
-		uDropProgress.value = 1.0;
-		uDropTime.value = 0.0;
-		uIsReforming.value = 0.0;
-	}
+  function startExplosion() {
+    if (transitionState.isTransitioning) return;
+    transitionState.isTransitioning = true;
+    transitionState.transitionTime = 0.0;
+    for (const [name, mesh] of Object.entries(splatMeshes)) {
+      if (mesh) mesh.visible = name === currentSplatName;
+    }
+    if (splatMeshes[currentSplatName]) {
+      splatMeshes[currentSplatName].worldModifier = createDeathDynoshader();
+      splatMeshes[currentSplatName].updateGenerator();
+    }
+    uDropProgress.value = 1.0;
+    uDropTime.value = 0.0;
+    uIsReforming.value = 0.0;
+  }
 
-	function startTransition() {
-		startExplosion();
-		nextSplatName = getNextSplatName(currentSplatName);
-		if (splatMeshes[nextSplatName]) {
-			for (const [name, mesh] of Object.entries(splatMeshes)) {
-				if (!mesh) continue;
-				if (name !== currentSplatName && name !== nextSplatName)
-					mesh.visible = false;
-			}
-			splatMeshes[nextSplatName].worldModifier = createBirthDynoshader();
-			splatMeshes[nextSplatName].updateGenerator();
-			splatMeshes[nextSplatName].visible = true;
-			uIsBirthing.value = 1.0;
-			uBirthTime.value = 0.0;
-		}
-	}
+  function startTransition() {
+    startExplosion();
+    nextSplatName = getNextSplatName(currentSplatName);
+    if (splatMeshes[nextSplatName]) {
+      for (const [name, mesh] of Object.entries(splatMeshes)) {
+        if (!mesh) continue;
+        if (name !== currentSplatName && name !== nextSplatName)
+          mesh.visible = false;
+      }
+      splatMeshes[nextSplatName].worldModifier = createBirthDynoshader();
+      splatMeshes[nextSplatName].updateGenerator();
+      splatMeshes[nextSplatName].visible = true;
+      uIsBirthing.value = 1.0;
+      uBirthTime.value = 0.0;
+    }
+  }
 
-	function completeTransition() {
-		uIsBirthing.value = 0.0;
-		uBirthTime.value = 0.0;
-		currentSplatName = nextSplatName;
-		transitionState.isTransitioning = false;
-		transitionState.transitionTime = 0.0;
-	}
+  function completeTransition() {
+    uIsBirthing.value = 0.0;
+    uBirthTime.value = 0.0;
+    currentSplatName = nextSplatName;
+    transitionState.isTransitioning = false;
+    transitionState.transitionTime = 0.0;
+  }
 
-	await Promise.all([loadSplats(), loadTable()]);
+  await Promise.all([loadSplats(), loadTable()]);
 
-	// Instructional text
-	const instructionsText = textSplats({
-		text: "WASD + mouse to move\nSPACEBAR: Explosion!",
-		font: "Arial",
-		fontSize: 24,
-		color: new THREE.Color(0xffffff),
-		textAlign: "center",
-		lineHeight: 1.3,
-	});
-	instructionsText.scale.setScalar(0.15 / 24);
-	instructionsText.position.set(0, 0.2, 2.5);
-	group.add(instructionsText);
+  // Instructional text
+  const instructionsText = textSplats({
+    text: "WASD + mouse to move\nSPACEBAR: Explosion!",
+    font: "Arial",
+    fontSize: 24,
+    color: new THREE.Color(0xffffff),
+    textAlign: "center",
+    lineHeight: 1.3,
+  });
+  instructionsText.scale.setScalar(0.15 / 24);
+  instructionsText.position.set(0, 0.2, 2.5);
+  group.add(instructionsText);
 
-	let totalTime = 0;
-const transitionParams = { autoTransition: true };
+  let totalTime = 0;
+  const transitionParams = { autoTransition: true };
 
-	function onKeyDown(e) {
-		if (e.code === "Space") {
-			e.preventDefault();
-			if (transitionState.isTransitioning) completeTransition();
-			startTransition();
-			totalTime = 0;
-		}
-	}
-	window.addEventListener("keydown", onKeyDown);
+  function onKeyDown(e) {
+    if (e.code === "Space") {
+      e.preventDefault();
+      if (transitionState.isTransitioning) completeTransition();
+      startTransition();
+      totalTime = 0;
+    }
+  }
+  window.addEventListener("keydown", onKeyDown);
 
-	function update(dt, t) {
-		animationTime.value = t;
-		// Update camera controls
-		controls.update(camera);
-		if (transitionParams.autoTransition) {
-			if (!transitionState.isTransitioning) totalTime += dt;
-			if (!transitionState.isTransitioning && totalTime >= 1.0) {
-				startTransition();
-				totalTime = 0;
-			}
-		}
-		if (transitionState.isTransitioning) {
-			transitionState.transitionTime += dt;
-			uBirthTime.value = transitionState.transitionTime;
-			if (transitionState.transitionTime >= transitionState.transitionDuration)
-				completeTransition();
-		}
-		uDropTime.value += dt;
-		const dying = splatMeshes[currentSplatName];
-		const birthing = splatMeshes[nextSplatName];
-		if (transitionState.isTransitioning) {
-			if (dying) dying.updateVersion();
-			if (birthing) birthing.updateVersion();
-		} else {
-			if (dying) dying.updateVersion();
-		}
-	}
+  function update(dt, t) {
+    animationTime.value = t;
+    // Update camera controls
+    controls.update(camera);
+    if (transitionParams.autoTransition) {
+      if (!transitionState.isTransitioning) totalTime += dt;
+      if (!transitionState.isTransitioning && totalTime >= 1.0) {
+        startTransition();
+        totalTime = 0;
+      }
+    }
+    if (transitionState.isTransitioning) {
+      transitionState.transitionTime += dt;
+      uBirthTime.value = transitionState.transitionTime;
+      if (transitionState.transitionTime >= transitionState.transitionDuration)
+        completeTransition();
+    }
+    uDropTime.value += dt;
+    const dying = splatMeshes[currentSplatName];
+    const birthing = splatMeshes[nextSplatName];
+    if (transitionState.isTransitioning) {
+      if (dying) dying.updateVersion();
+      if (birthing) birthing.updateVersion();
+    } else {
+      if (dying) dying.updateVersion();
+    }
+  }
 
-	function setupGUI(folder) {
-		const params = { explosionStrength: uExplosionStrength.value };
-		folder
-			.add(params, "explosionStrength", 0.0, 10.0, 0.1)
-			.name("Explosion Strength")
-			.onChange((v) => {
-				uExplosionStrength.value = v;
-			});
-		folder.add(transitionParams, "autoTransition").name("Auto Transition");
-		folder
-			.add({ explode: () => startTransition() }, "explode")
-			.name("Trigger Explosion");
-		return folder;
-	}
+  function setupGUI(folder) {
+    const params = { explosionStrength: uExplosionStrength.value };
+    folder
+      .add(params, "explosionStrength", 0.0, 10.0, 0.1)
+      .name("Explosion Strength")
+      .onChange((v) => {
+        uExplosionStrength.value = v;
+      });
+    folder.add(transitionParams, "autoTransition").name("Auto Transition");
+    folder
+      .add({ explode: () => startTransition() }, "explode")
+      .name("Trigger Explosion");
+    return folder;
+  }
 
-	function dispose() {
-		window.removeEventListener("keydown", onKeyDown);
-		// Disable controls to avoid interfering with other effects
-		controls.fpsMovement.enable = false;
-		controls.pointerControls.enable = false;
-		scene.remove(group);
-	}
+  function dispose() {
+    window.removeEventListener("keydown", onKeyDown);
+    // Disable controls to avoid interfering with other effects
+    controls.fpsMovement.enable = false;
+    controls.pointerControls.enable = false;
+    scene.remove(group);
+  }
 
-	return { group, update, dispose, setupGUI };
+  return { group, update, dispose, setupGUI };
 }
