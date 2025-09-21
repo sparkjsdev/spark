@@ -48,13 +48,9 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
         }
         float ease(float x) { return x*x*(3.0 - 2.0*x); }
         vec3 randPos(int splatIndex, float radius) {
-          vec3 h = hash3(splatIndex);
-          float phi = 6.28318530718 * h.x;
-          float cosTheta = 2.0 * h.y - 1.0;
-          float sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
-          vec3 dir = vec3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
-          float r = radius * pow(h.z, 1.0/3.0);
-          return dir * r;
+          // Uniform inside cube: each axis in [-radius, radius]
+          vec3 h = hash3(splatIndex) * 2.0 - 1.0;
+          return h * radius;
         }
       `),
       ],
