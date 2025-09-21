@@ -38,6 +38,7 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
         trans: "float",
         numObjects: "int",
         randomRadius: "float",
+        offsetY: "float",
       },
       outTypes: { gsplat: dyno.Gsplat },
       globals: () => [
@@ -48,9 +49,11 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
         }
         float ease(float x) { return x*x*(3.0 - 2.0*x); }
         vec3 randPos(int splatIndex, float radius) {
-          // Uniform inside cube: each axis in [-radius, radius]
-          vec3 h = hash3(splatIndex) * 2.0 - 1.0;
-          return h * radius;
+          // Uniform disk sampling on XZ plane
+          vec3 h = hash3(splatIndex);
+          float theta = 6.28318530718 * h.x;
+          float r = radius * sqrt(h.y);
+          return vec3(r * cos(theta), 0.0, r * sin(theta));
         }
       `),
       ],
@@ -72,7 +75,8 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
         int idx = ${inputs.objectIndex};
 
         vec3 rp = randPos(int(${inputs.gsplat}.index), ${inputs.randomRadius});
-        vec3 rpMid = mix(${inputs.gsplat}.center, rp, 0.5);
+        rp.y -= ${inputs.offsetY};
+        vec3 rpMid = mix(${inputs.gsplat}.center, rp, 0.7);
 
         float alpha = 0.0;
         vec3 pos = ${inputs.gsplat}.center;
@@ -111,13 +115,14 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
           pos = ${inputs.gsplat}.center;
           ${outputs.gsplat}.scales = origScale;
         }
+        pos.y += ${inputs.offsetY};
         ${outputs.gsplat}.center = pos;
         ${outputs.gsplat}.rgba.a = ${inputs.gsplat}.rgba.a * alpha;
       `),
     });
   }
 
-  function getMorphModifier(gt, idx, stay, trans, numObjects, randomRadius) {
+  function getMorphModifier(gt, idx, stay, trans, numObjects, randomRadius, offsetY) {
     const dyn = morphDyno();
     return dyno.dynoBlock(
       { gsplat: dyno.Gsplat },
@@ -131,6 +136,7 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
           trans,
           numObjects,
           randomRadius,
+          offsetY,
         }).gsplat,
       }),
     );
@@ -141,6 +147,7 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
   const stayDyn = dyno.dynoFloat(PARAMETERS.staySeconds);
   const transDyn = dyno.dynoFloat(PARAMETERS.transitionSeconds);
   const radiusDyn = dyno.dynoFloat(PARAMETERS.randomRadius);
+  const OFFSETS_Y = [dyno.dynoFloat(-0.3), dyno.dynoFloat(0.2), dyno.dynoFloat(0.1)];
 
   for (let i = 0; i < splatFiles.length; i++) {
     const url = await getAssetFileURL(splatFiles[i]);
@@ -163,6 +170,7 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
       transDyn,
       numObjectsDyn,
       radiusDyn,
+      OFFSETS_Y[i] ?? dyno.dynoFloat(0.0),
     );
     m.updateGenerator();
   });
@@ -170,8 +178,12 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
   function update(dt, _t) {
     if (!PARAMETERS.pause) {
       time.value += dt * PARAMETERS.speedMultiplier;
-      if (PARAMETERS.rotation) {
-        for (const m of meshes) m.rotation.y += dt * PARAMETERS.speedMultiplier;
+      for (const m of meshes) {
+        if (PARAMETERS.rotation) {
+          m.rotation.y += dt * PARAMETERS.speedMultiplier;
+        }
+        // Ensure dyno uniform updates are applied even without rotation
+        m.updateVersion();
       }
     }
   }
