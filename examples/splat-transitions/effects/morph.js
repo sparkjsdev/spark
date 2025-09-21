@@ -122,7 +122,15 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
     });
   }
 
-  function getMorphModifier(gt, idx, stay, trans, numObjects, randomRadius, offsetY) {
+  function getMorphModifier(
+    gt,
+    idx,
+    stay,
+    trans,
+    numObjects,
+    randomRadius,
+    offsetY,
+  ) {
     const dyn = morphDyno();
     return dyno.dynoBlock(
       { gsplat: dyno.Gsplat },
@@ -147,7 +155,11 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
   const stayDyn = dyno.dynoFloat(PARAMETERS.staySeconds);
   const transDyn = dyno.dynoFloat(PARAMETERS.transitionSeconds);
   const radiusDyn = dyno.dynoFloat(PARAMETERS.randomRadius);
-  const OFFSETS_Y = [dyno.dynoFloat(-0.3), dyno.dynoFloat(0.2), dyno.dynoFloat(0.1)];
+  const OFFSETS_Y = [
+    dyno.dynoFloat(0.0),
+    dyno.dynoFloat(0.3),
+    dyno.dynoFloat(0.0),
+  ];
 
   for (let i = 0; i < splatFiles.length; i++) {
     const url = await getAssetFileURL(splatFiles[i]);
