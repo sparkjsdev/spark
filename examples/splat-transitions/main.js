@@ -40,6 +40,7 @@ const effectFiles = {
   Spherical: () => import("./effects/spheric.js"),
   Explosion: () => import("./effects/explosion.js"),
   Flow: () => import("./effects/flow.js"),
+  Morph: () => import("./effects/morph.js"),
 };
 
 let active = null; // { api, group }
