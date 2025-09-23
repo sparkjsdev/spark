@@ -6,6 +6,7 @@ import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
   const group = new THREE.Group();
   scene.add(group);
+  let disposed = false;
 
   const PARAMETERS = {
     speedMultiplier: 0.5,
@@ -148,7 +149,7 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
   const skyFile = "dali-env.glb";
 
   const env = await loadGLB(skyFile, true);
-  group.add(env);
+  if (!disposed) group.add(env);
 
   const meshes = [];
   const period = dyno.dynoFloat(splatFiles.length);
@@ -164,7 +165,7 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
     await m.initialized;
     m.position.copy(positions[i]);
     m.rotateX(Math.PI);
-    group.add(m);
+    if (!disposed) group.add(m);
     meshes.push(m);
   }
 
@@ -299,6 +300,7 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
   }
 
   function dispose() {
+    disposed = true;
     scene.remove(group);
   }
 

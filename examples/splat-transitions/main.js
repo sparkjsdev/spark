@@ -46,8 +46,10 @@ const effectFiles = {
 let active = null; // { api, group }
 let last = 0;
 let effectFolder = null; // GUI folder for current effect
+let switchCounter = 0; // guards concurrent effect switches
 
 async function switchEffect(name) {
+  const myToken = ++switchCounter;
   const loading = document.getElementById("loading");
   loading.textContent = `Loading ${name}...`;
   loading.style.display = "block";
@@ -71,10 +73,25 @@ async function switchEffect(name) {
 
   const loader = effectFiles[name];
   if (!loader) return;
+  const preChildren = new Set(scene.children);
   const mod = await loader();
+  if (myToken !== switchCounter) {
+    // A newer switch started; ignore this one
+    return;
+  }
 
   const context = { THREE, scene, camera, renderer, spark };
   const api = await mod.init(context);
+  if (myToken !== switchCounter) {
+    try {
+      api.dispose?.();
+    } catch {}
+    // Remove any children added during this init
+    for (const child of [...scene.children]) {
+      if (!preChildren.has(child)) scene.remove(child);
+    }
+    return;
+  }
 
   if (api.group) scene.add(api.group);
   active = { api, group: api.group };

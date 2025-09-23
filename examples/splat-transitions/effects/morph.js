@@ -5,6 +5,7 @@ import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
   const group = new THREE.Group();
   scene.add(group);
+  let disposed = false;
 
   // Camera baseline for Morph effect
   camera.position.set(0, 2.2, 6.5);
@@ -169,7 +170,7 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
     mesh.rotateX(Math.PI);
     mesh.position.set(0, 0, 0);
     mesh.scale.set(1.5, 1.5, 1.5);
-    group.add(mesh);
+    if (!disposed) group.add(mesh);
     meshes.push(mesh);
   }
 
@@ -219,6 +220,7 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
   }
 
   function dispose() {
+    disposed = true;
     scene.remove(group);
   }
 

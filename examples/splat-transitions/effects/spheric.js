@@ -6,6 +6,7 @@ import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
   const group = new THREE.Group();
   scene.add(group);
+  let disposed = false;
 
   // Params and uniforms
   const PARAMETERS = {
@@ -209,12 +210,12 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
 
   // Load env and assets
   const sky = await loadDelitGLB(skyFile, true);
-  group.add(sky);
+  if (!disposed) group.add(sky);
   const table = await loadDelitGLB(sceneFile, false);
   const sceneScale = 3.5;
   table.scale.set(sceneScale, sceneScale, sceneScale);
   table.position.set(-1, 0, -0.8);
-  group.add(table);
+  if (!disposed) group.add(table);
 
   const period = dyno.dynoFloat(splatFiles.length);
   const spereRadiusDyno = dyno.dynoFloat(PARAMETERS.spereRadius);
@@ -233,7 +234,7 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
       spereRadiusDyno,
       sphereHeightDyno,
     );
-    group.add(mesh);
+    if (!disposed) group.add(mesh);
     meshes.push(mesh);
   }
 
@@ -267,6 +268,7 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
   }
 
   function dispose() {
+    disposed = true;
     // Remove group
     scene.remove(group);
     // No global listeners here; controls are managed by main

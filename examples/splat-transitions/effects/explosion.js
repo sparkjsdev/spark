@@ -6,6 +6,7 @@ import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
   const group = new THREE.Group();
   scene.add(group);
+  let disposed = false;
 
   // Basic lights
   const ambient = new THREE.AmbientLight(0x404040, 0.6);
@@ -329,6 +330,7 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
   }
 
   await Promise.all([loadSplats(), loadTable()]);
+  if (disposed) return { group, update: () => {}, dispose, setupGUI };
 
   // Instructional text
   const instructionsText = textSplats({
@@ -400,6 +402,7 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
   }
 
   function dispose() {
+    disposed = true;
     window.removeEventListener("keydown", onKeyDown);
     // Disable controls to avoid interfering with other effects
     controls.fpsMovement.enable = false;
