@@ -1,6 +1,7 @@
 export { SparkRenderer, type SparkRendererOptions } from './SparkRenderer';
 export { SparkViewpoint, type SparkViewpointOptions } from './SparkViewpoint';
 export * as dyno from './dyno';
+export { RgbaArray } from './RgbaArray';
 export { SplatLoader, unpackSplats, SplatFileType, getSplatFileType, isPcSogs, } from './SplatLoader';
 export { PlyReader } from './ply';
 export { SpzReader, SpzWriter, transcodeSpz } from './spz';
