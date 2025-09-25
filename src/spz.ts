@@ -18,21 +18,28 @@ export class SpzReader {
   fileBytes: Uint8Array;
   reader: GunzipReader;
 
-  version: number;
-  numSplats: number;
-  shDegree: number;
-  fractionalBits: number;
-  flags: number;
-  flagAntiAlias: boolean;
-  reserved: number;
-  parsed: boolean;
+  version = -1;
+  numSplats = 0;
+  shDegree = 0;
+  fractionalBits = 0;
+  flags = 0;
+  flagAntiAlias = false;
+  reserved = 0;
+  headerParsed = false;
+  parsed = false;
 
   constructor({ fileBytes }: { fileBytes: Uint8Array | ArrayBuffer }) {
     this.fileBytes =
       fileBytes instanceof ArrayBuffer ? new Uint8Array(fileBytes) : fileBytes;
     this.reader = new GunzipReader({ fileBytes: this.fileBytes });
+  }
 
-    const header = new DataView(this.reader.read(16).buffer);
+  async parseHeader() {
+    if (this.headerParsed) {
+      throw new Error("SPZ file header already parsed");
+    }
+
+    const header = new DataView((await this.reader.read(16)).buffer);
     if (header.getUint32(0, true) !== 0x5053474e) {
       throw new Error("Invalid SPZ file");
     }
@@ -47,10 +54,11 @@ export class SpzReader {
     this.flags = header.getUint8(14);
     this.flagAntiAlias = (this.flags & 0x01) !== 0;
     this.reserved = header.getUint8(15);
+    this.headerParsed = true;
     this.parsed = false;
   }
 
-  parseSplats(
+  async parseSplats(
     centerCallback?: (index: number, x: number, y: number, z: number) => void,
     alphaCallback?: (index: number, alpha: number) => void,
     rgbCallback?: (index: number, r: number, g: number, b: number) => void,
@@ -74,6 +82,9 @@ export class SpzReader {
       sh3?: Float32Array,
     ) => void,
   ) {
+    if (!this.headerParsed) {
+      throw new Error("SPZ file header must be parsed first");
+    }
     if (this.parsed) {
       throw new Error("SPZ file already parsed");
     }
@@ -81,7 +92,7 @@ export class SpzReader {
 
     if (this.version === 1) {
       // float16 centers
-      const centerBytes = this.reader.read(this.numSplats * 3 * 2);
+      const centerBytes = await this.reader.read(this.numSplats * 3 * 2);
       const centerUint16 = new Uint16Array(centerBytes.buffer);
       for (let i = 0; i < this.numSplats; i++) {
         const i3 = i * 3;
@@ -93,7 +104,7 @@ export class SpzReader {
     } else if (this.version === 2 || this.version === 3) {
       // 24-bit fixed-point centers
       const fixed = 1 << this.fractionalBits;
-      const centerBytes = this.reader.read(this.numSplats * 3 * 3);
+      const centerBytes = await this.reader.read(this.numSplats * 3 * 3);
       for (let i = 0; i < this.numSplats; i++) {
         const i9 = i * 9;
         const x =
@@ -121,13 +132,13 @@ export class SpzReader {
     }
 
     {
-      const bytes = this.reader.read(this.numSplats);
+      const bytes = await this.reader.read(this.numSplats);
       for (let i = 0; i < this.numSplats; i++) {
         alphaCallback?.(i, bytes[i] / 255);
       }
     }
     {
-      const rgbBytes = this.reader.read(this.numSplats * 3);
+      const rgbBytes = await this.reader.read(this.numSplats * 3);
       const scale = SH_C0 / 0.15;
       for (let i = 0; i < this.numSplats; i++) {
         const i3 = i * 3;
@@ -138,7 +149,7 @@ export class SpzReader {
       }
     }
     {
-      const scalesBytes = this.reader.read(this.numSplats * 3);
+      const scalesBytes = await this.reader.read(this.numSplats * 3);
       for (let i = 0; i < this.numSplats; i++) {
         const i3 = i * 3;
         const scaleX = Math.exp(scalesBytes[i3] / 16 - 10);
@@ -160,7 +171,7 @@ export class SpzReader {
       // v^2 + v^2 = 1
       // v = 1 / sqrt(2);
       const maxValue = 1 / Math.sqrt(2); // 0.7071
-      const quatBytes = this.reader.read(this.numSplats * 4);
+      const quatBytes = await this.reader.read(this.numSplats * 4);
       for (let i = 0; i < this.numSplats; i++) {
         const i3 = i * 4;
         const quaternion = [0, 0, 0, 0];
@@ -211,7 +222,7 @@ export class SpzReader {
         );
       }
     } else {
-      const quatBytes = this.reader.read(this.numSplats * 3);
+      const quatBytes = await this.reader.read(this.numSplats * 3);
       for (let i = 0; i < this.numSplats; i++) {
         const i3 = i * 3;
         const quatX = quatBytes[i3] / 127.5 - 1;
@@ -228,7 +239,7 @@ export class SpzReader {
       const sh1 = new Float32Array(3 * 3);
       const sh2 = this.shDegree >= 2 ? new Float32Array(5 * 3) : undefined;
       const sh3 = this.shDegree >= 3 ? new Float32Array(7 * 3) : undefined;
-      const shBytes = this.reader.read(
+      const shBytes = await this.reader.read(
         this.numSplats * SH_DEGREE_TO_VECS[this.shDegree] * 3,
       );
 
@@ -592,6 +603,7 @@ export async function transcodeSpz(input: TranscodeSpzInput) {
       }
       case SplatFileType.SPZ: {
         const spz = new SpzReader({ fileBytes: input.fileBytes });
+        await spz.parseHeader();
         const mapping = new Int32Array(spz.numSplats);
         mapping.fill(-1);
         const centers = new Float32Array(spz.numSplats * 3);

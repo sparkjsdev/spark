@@ -61,7 +61,7 @@ async function onMessage(event: MessageEvent) {
           fileBytes: Uint8Array;
           splatEncoding: SplatEncoding;
         };
-        const decoded = unpackSpz(fileBytes, splatEncoding);
+        const decoded = await unpackSpz(fileBytes, splatEncoding);
         result = {
           id,
           numSplats: decoded.numSplats,
@@ -379,21 +379,22 @@ async function unpackPly({
   return { packedArray, numSplats, extra };
 }
 
-function unpackSpz(
+async function unpackSpz(
   fileBytes: Uint8Array,
   splatEncoding: SplatEncoding,
-): {
+): Promise<{
   packedArray: Uint32Array;
   numSplats: number;
   extra: Record<string, unknown>;
-} {
+}> {
   const spz = new SpzReader({ fileBytes });
+  await spz.parseHeader();
   const numSplats = spz.numSplats;
   const maxSplats = computeMaxSplats(numSplats);
   const packedArray = new Uint32Array(maxSplats * 4);
   const extra: Record<string, unknown> = {};
 
-  spz.parseSplats(
+  await spz.parseSplats(
     (index, x, y, z) => {
       setPackedSplatCenter(packedArray, index, x, y, z);
     },

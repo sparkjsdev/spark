@@ -1344,10 +1344,9 @@ export class GunzipReader {
   fileBytes: Uint8Array;
   chunkBytes: number;
 
-  offset: number;
   chunks: Uint8Array[];
   totalBytes: number;
-  gunzip: Gunzip;
+  reader: ReadableStreamDefaultReader;
 
   constructor({
     fileBytes,
@@ -1355,28 +1354,23 @@ export class GunzipReader {
   }: { fileBytes: Uint8Array; chunkBytes?: number }) {
     this.fileBytes = fileBytes;
     this.chunkBytes = chunkBytes;
-    this.offset = 0;
     this.chunks = [];
     this.totalBytes = 0;
 
-    this.gunzip = new Gunzip((chunk, _final) => {
-      this.chunks.push(chunk);
-      this.totalBytes += chunk.length;
-    });
+    const ds = new DecompressionStream("gzip");
+    const decompressionStream = new Blob([fileBytes]).stream().pipeThrough(ds);
+    this.reader = decompressionStream.getReader();
   }
 
-  read(numBytes: number): Uint8Array {
-    while (this.totalBytes < numBytes && this.offset < this.fileBytes.length) {
-      const end = Math.min(
-        this.offset + this.chunkBytes,
-        this.fileBytes.length,
-      );
-      this.gunzip.push(this.fileBytes.subarray(this.offset, end), false);
-      this.offset = end;
-    }
+  async read(numBytes: number): Promise<Uint8Array> {
+    while (this.totalBytes < numBytes) {
+      const { value: chunk, done: readerDone } = await this.reader.read();
+      if (readerDone) {
+        break;
+      }
 
-    if (this.totalBytes < numBytes && this.offset >= this.fileBytes.length) {
-      this.gunzip.push(new Uint8Array(0), true);
+      this.chunks.push(chunk);
+      this.totalBytes += chunk.length;
     }
 
     if (this.totalBytes < numBytes) {
