@@ -1,6 +1,10 @@
 import { unzip } from "fflate";
 import type { SplatEncoding } from "./PackedSplats";
-import { type PcSogsJson, tryPcSogsZip } from "./SplatLoader";
+import {
+  type PcSogsJson,
+  type PcSogsV2Json,
+  tryPcSogsZip,
+} from "./SplatLoader";
 import {
   computeMaxSplats,
   encodeSh1Rgb,
@@ -13,7 +17,7 @@ import {
 } from "./utils";
 
 export async function unpackPcSogs(
-  json: PcSogsJson,
+  json: PcSogsJson | PcSogsV2Json,
   extraFiles: Record<string, ArrayBuffer>,
   splatEncoding: SplatEncoding,
 ): Promise<{
@@ -21,11 +25,13 @@ export async function unpackPcSogs(
   numSplats: number;
   extra: Record<string, unknown>;
 }> {
-  if (json.quats.encoding !== "quaternion_packed") {
+  const isVersion2 = "version" in json;
+
+  if (!isVersion2 && json.quats.encoding !== "quaternion_packed") {
     throw new Error("Unsupported quaternion encoding");
   }
 
-  const numSplats = json.means.shape[0];
+  const numSplats = isVersion2 ? json.count : json.means.shape[0];
   const maxSplats = computeMaxSplats(numSplats);
   const packedArray = new Uint32Array(maxSplats * 4);
   const extra: Record<string, unknown> = {};
@@ -54,30 +60,41 @@ export async function unpackPcSogs(
 
   const scalesPromise = decodeImageRgba(extraFiles[json.scales.files[0]]).then(
     (scales) => {
-      const xLookup = new Array(256)
-        .fill(0)
-        .map(
-          (_, i) =>
-            json.scales.mins[0] +
-            (json.scales.maxs[0] - json.scales.mins[0]) * (i / 255),
-        )
-        .map((x) => Math.exp(x));
-      const yLookup = new Array(256)
-        .fill(0)
-        .map(
-          (_, i) =>
-            json.scales.mins[1] +
-            (json.scales.maxs[1] - json.scales.mins[1]) * (i / 255),
-        )
-        .map((x) => Math.exp(x));
-      const zLookup = new Array(256)
-        .fill(0)
-        .map(
-          (_, i) =>
-            json.scales.mins[2] +
-            (json.scales.maxs[2] - json.scales.mins[2]) * (i / 255),
-        )
-        .map((x) => Math.exp(x));
+      let xLookup: number[];
+      let yLookup: number[];
+      let zLookup: number[];
+
+      if (isVersion2) {
+        xLookup =
+          yLookup =
+          zLookup =
+            json.scales.codebook.map((x) => Math.exp(x));
+      } else {
+        xLookup = new Array(256)
+          .fill(0)
+          .map(
+            (_, i) =>
+              json.scales.mins[0] +
+              (json.scales.maxs[0] - json.scales.mins[0]) * (i / 255),
+          )
+          .map((x) => Math.exp(x));
+        yLookup = new Array(256)
+          .fill(0)
+          .map(
+            (_, i) =>
+              json.scales.mins[1] +
+              (json.scales.maxs[1] - json.scales.mins[1]) * (i / 255),
+          )
+          .map((x) => Math.exp(x));
+        zLookup = new Array(256)
+          .fill(0)
+          .map(
+            (_, i) =>
+              json.scales.mins[2] +
+              (json.scales.maxs[2] - json.scales.mins[2]) * (i / 255),
+          )
+          .map((x) => Math.exp(x));
+      }
 
       for (let i = 0; i < numSplats; ++i) {
         const i4 = i * 4;
@@ -118,38 +135,51 @@ export async function unpackPcSogs(
   const sh0Promise = decodeImageRgba(extraFiles[json.sh0.files[0]]).then(
     (sh0) => {
       const SH_C0 = 0.28209479177387814;
-      const rLookup = new Array(256)
-        .fill(0)
-        .map(
-          (_, i) =>
-            json.sh0.mins[0] +
-            (json.sh0.maxs[0] - json.sh0.mins[0]) * (i / 255),
-        )
-        .map((x) => SH_C0 * x + 0.5);
-      const gLookup = new Array(256)
-        .fill(0)
-        .map(
-          (_, i) =>
-            json.sh0.mins[1] +
-            (json.sh0.maxs[1] - json.sh0.mins[1]) * (i / 255),
-        )
-        .map((x) => SH_C0 * x + 0.5);
-      const bLookup = new Array(256)
-        .fill(0)
-        .map(
-          (_, i) =>
-            json.sh0.mins[2] +
-            (json.sh0.maxs[2] - json.sh0.mins[2]) * (i / 255),
-        )
-        .map((x) => SH_C0 * x + 0.5);
-      const aLookup = new Array(256)
-        .fill(0)
-        .map(
-          (_, i) =>
-            json.sh0.mins[3] +
-            (json.sh0.maxs[3] - json.sh0.mins[3]) * (i / 255),
-        )
-        .map((x) => 1.0 / (1.0 + Math.exp(-x)));
+      let rLookup: number[];
+      let gLookup: number[];
+      let bLookup: number[];
+      let aLookup: number[];
+
+      if (isVersion2) {
+        rLookup =
+          gLookup =
+          bLookup =
+            json.sh0.codebook.map((x) => SH_C0 * x + 0.5);
+        aLookup = new Array(256).fill(0).map((_, i) => i / 255);
+      } else {
+        rLookup = new Array(256)
+          .fill(0)
+          .map(
+            (_, i) =>
+              json.sh0.mins[0] +
+              (json.sh0.maxs[0] - json.sh0.mins[0]) * (i / 255),
+          )
+          .map((x) => SH_C0 * x + 0.5);
+        gLookup = new Array(256)
+          .fill(0)
+          .map(
+            (_, i) =>
+              json.sh0.mins[1] +
+              (json.sh0.maxs[1] - json.sh0.mins[1]) * (i / 255),
+          )
+          .map((x) => SH_C0 * x + 0.5);
+        bLookup = new Array(256)
+          .fill(0)
+          .map(
+            (_, i) =>
+              json.sh0.mins[2] +
+              (json.sh0.maxs[2] - json.sh0.mins[2]) * (i / 255),
+          )
+          .map((x) => SH_C0 * x + 0.5);
+        aLookup = new Array(256)
+          .fill(0)
+          .map(
+            (_, i) =>
+              json.sh0.mins[3] +
+              (json.sh0.maxs[3] - json.sh0.mins[3]) * (i / 255),
+          )
+          .map((x) => 1.0 / (1.0 + Math.exp(-x)));
+      }
 
       for (let i = 0; i < numSplats; ++i) {
         const i4 = i * 4;
@@ -168,9 +198,15 @@ export async function unpackPcSogs(
 
   const promises = [meansPromise, scalesPromise, quatsPromise, sh0Promise];
   if (json.shN) {
-    const useSH3 = json.shN.shape[1] >= 48 - 3;
-    const useSH2 = json.shN.shape[1] >= 27 - 3;
-    const useSH1 = json.shN.shape[1] >= 12 - 3;
+    const useSH3 = isVersion2
+      ? json.shN.bands >= 3
+      : json.shN.shape[1] >= 48 - 3;
+    const useSH2 = isVersion2
+      ? json.shN.bands >= 2
+      : json.shN.shape[1] >= 27 - 3;
+    const useSH1 = isVersion2
+      ? json.shN.bands >= 1
+      : json.shN.shape[1] >= 12 - 3;
 
     if (useSH1) extra.sh1 = new Uint32Array(numSplats * 2);
     if (useSH2) extra.sh2 = new Uint32Array(numSplats * 4);
@@ -185,9 +221,12 @@ export async function unpackPcSogs(
       decodeImage(extraFiles[json.shN.files[0]]),
       decodeImage(extraFiles[json.shN.files[1]]),
     ]).then(([centroids, labels]) => {
-      const lookup = new Array(256)
-        .fill(0)
-        .map((_, i) => shN.mins + (shN.maxs - shN.mins) * (i / 255));
+      const lookup =
+        "codebook" in shN
+          ? shN.codebook
+          : new Array(256)
+              .fill(0)
+              .map((_, i) => shN.mins + (shN.maxs - shN.mins) * (i / 255));
 
       for (let i = 0; i < numSplats; ++i) {
         const i4 = i * 4;

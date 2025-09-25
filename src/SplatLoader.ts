@@ -282,6 +282,9 @@ export function getSplatFileTypeFromPath(
   if (extension === "ksplat") {
     return SplatFileType.KSPLAT;
   }
+  if (extension === "sog") {
+    return SplatFileType.PCSOGSZIP;
+  }
   return undefined;
 }
 
@@ -318,6 +321,32 @@ export type PcSogsJson = {
   };
 };
 
+export type PcSogsV2Json = {
+  version: 2;
+  count: number;
+  antialias?: boolean;
+  means: {
+    mins: number[];
+    maxs: number[];
+    files: string[];
+  };
+  scales: {
+    codebook: number[];
+    files: string[];
+  };
+  quats: { files: string[] };
+  sh0: {
+    codebook: number[];
+    files: string[];
+  };
+  shN?: {
+    count: number;
+    bands: number;
+    codebook: number[];
+    files: string[];
+  };
+};
+
 export function isPcSogs(input: ArrayBuffer | Uint8Array | string): boolean {
   // Returns true if the input seems to be a valid PC SOGS file
   return tryPcSogs(input) !== undefined;
@@ -325,7 +354,7 @@ export function isPcSogs(input: ArrayBuffer | Uint8Array | string): boolean {
 
 export function tryPcSogs(
   input: ArrayBuffer | Uint8Array | string,
-): PcSogsJson | undefined {
+): PcSogsJson | PcSogsV2Json | undefined {
   // Try to parse input as SOGS JSON and see if it's valid
   try {
     let text: string;
@@ -345,6 +374,8 @@ export function tryPcSogs(
     if (!json || typeof json !== "object" || Array.isArray(json)) {
       return undefined;
     }
+    const isVersion2 = json.version === 2;
+
     for (const key of ["means", "scales", "quats", "sh0"]) {
       if (
         !json[key] ||
@@ -353,15 +384,33 @@ export function tryPcSogs(
       ) {
         return undefined;
       }
-      if (!json[key].shape || !json[key].files) {
-        return undefined;
-      }
-      if (key !== "quats" && (!json[key].mins || !json[key].maxs)) {
-        return undefined;
+      if (isVersion2) {
+        // Expect files
+        if (!json[key].files) {
+          return undefined;
+        }
+
+        // Scales and sh0 should have codebooks
+        if ((key === "scales" || key === "sh0") && !json[key].codebook) {
+          return undefined;
+        }
+        // Means should have mins and maxs defined
+        if (key === "means" && (!json[key].mins || !json[key].maxs)) {
+          return undefined;
+        }
+      } else {
+        // Expect shape and files
+        if (!json[key].shape || !json[key].files) {
+          return undefined;
+        }
+        // Besides 'quats' all other properties have mins and maxs
+        if (key !== "quats" && (!json[key].mins || !json[key].maxs)) {
+          return undefined;
+        }
       }
     }
     // This is probably a PC SOGS file
-    return json as PcSogsJson;
+    return json as PcSogsJson | PcSogsV2Json;
   } catch {
     return undefined;
   }
@@ -388,6 +437,8 @@ export function tryPcSogsZip(
     if (!metaFilename) {
       return undefined;
     }
+
+    // Check for PC SOGS V1 and V2 (aka SOG)
     const json = tryPcSogs(unzipped[metaFilename]);
     if (!json) {
       return undefined;
