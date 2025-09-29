@@ -418,7 +418,7 @@ export function tryPcSogs(
 
 export function tryPcSogsZip(
   input: ArrayBuffer | Uint8Array,
-): { name: string; json: PcSogsJson } | undefined {
+): { name: string; json: PcSogsJson | PcSogsV2Json } | undefined {
   try {
     const fileBytes =
       input instanceof ArrayBuffer ? new Uint8Array(input) : input;
