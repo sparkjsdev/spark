@@ -17,6 +17,7 @@ uniform uint numSplats;
 uniform vec4 renderToViewQuat;
 uniform vec3 renderToViewPos;
 uniform float maxStdDev;
+uniform float minPixelRadius;
 uniform float maxPixelRadius;
 uniform float time;
 uniform float deltaTime;
@@ -199,11 +200,14 @@ void main() {
     vec2 eigenVec1 = normalize(vec2((abs(b) < 0.001) ? 1.0 : b, eigen1 - a));
     vec2 eigenVec2 = vec2(eigenVec1.y, -eigenVec1.x);
 
-    float scale1 = position.x * min(maxPixelRadius, maxStdDev * sqrt(eigen1));
-    float scale2 = position.y * min(maxPixelRadius, maxStdDev * sqrt(eigen2));
+    float scale1 = min(maxPixelRadius, maxStdDev * sqrt(eigen1));
+    float scale2 = min(maxPixelRadius, maxStdDev * sqrt(eigen2));
+    if (scale1 < minPixelRadius && scale2 < minPixelRadius) {
+        return;
+    }
 
     // Compute the NDC coordinates for the ellipsoid's diagonal axes.
-    vec2 pixelOffset = eigenVec1 * scale1 + eigenVec2 * scale2;
+    vec2 pixelOffset = position.x * eigenVec1 * scale1 + position.y * eigenVec2 * scale2;
     vec2 ndcOffset = (2.0 / scaledRenderSize) * pixelOffset;
     vec3 ndc = vec3(ndcCenter.xy + ndcOffset, ndcCenter.z);
 

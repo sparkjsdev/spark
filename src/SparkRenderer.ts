@@ -85,6 +85,11 @@ export type SparkRendererOptions = {
    */
   maxStdDev?: number;
   /**
+   * Minimum pixel radius for splat rendering.
+   * @default 0.0
+   */
+  minPixelRadius?: number;
+  /**
    * Maximum pixel radius for splat rendering.
    * @default 512.0
    */
@@ -170,6 +175,7 @@ export class SparkRenderer extends THREE.Mesh {
   needsUpdate: boolean;
   originDistance: number;
   maxStdDev: number;
+  minPixelRadius: number;
   maxPixelRadius: number;
   minAlpha: number;
   enable2DGS: boolean;
@@ -294,6 +300,7 @@ export class SparkRenderer extends THREE.Mesh {
     this.needsUpdate = false;
     this.originDistance = options.originDistance ?? 1;
     this.maxStdDev = options.maxStdDev ?? Math.sqrt(8.0);
+    this.minPixelRadius = options.minPixelRadius ?? 0.0;
     this.maxPixelRadius = options.maxPixelRadius ?? 512.0;
     this.minAlpha = options.minAlpha ?? 0.5 * (1.0 / 255.0);
     this.enable2DGS = options.enable2DGS ?? false;
@@ -344,6 +351,8 @@ export class SparkRenderer extends THREE.Mesh {
       renderToViewPos: { value: new THREE.Vector3() },
       // Maximum distance (in stddevs) from Gsplat center to render
       maxStdDev: { value: 1.0 },
+      // Minimum pixel radius for splat rendering
+      minPixelRadius: { value: 0.0 },
       // Maximum pixel radius for splat rendering
       maxPixelRadius: { value: 512.0 },
       // Minimum alpha value for splat rendering
@@ -528,6 +537,7 @@ export class SparkRenderer extends THREE.Mesh {
     this.uniforms.far.value = typedCamera.far;
     this.uniforms.encodeLinear.value = viewpoint.encodeLinear;
     this.uniforms.maxStdDev.value = this.maxStdDev;
+    this.uniforms.minPixelRadius.value = this.minPixelRadius;
     this.uniforms.maxPixelRadius.value = this.maxPixelRadius;
     this.uniforms.minAlpha.value = this.minAlpha;
     this.uniforms.stochastic.value = viewpoint.stochastic;
