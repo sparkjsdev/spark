@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark • Interactive Holes (Click Radius)</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #000;
+    }
+    header {
+      position: absolute;
+      color: silver;
+      font-family: sans-serif;
+      padding: 12px 16px;
+      text-align: left;
+      width: 100vw;
+      pointer-events: none;
+      text-shadow: 
+        2px 2px 4px rgba(0, 0, 0, 0.8),
+        -1px -1px 2px rgba(0, 0, 0, 0.6),
+        1px -1px 2px rgba(0, 0, 0, 0.6),
+        -1px 1px 2px rgba(0, 0, 0, 0.6);
+      -webkit-text-stroke: 0.5px rgba(0, 0, 0, 0.7);
+    }
+  </style>
+</head>
+
+<body>
+  <header>Mouse to look around • Click on a splat to create interactive holes within a radius</header>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/examples/js/vendor/three/build/three.module.js",
+        "three/addons/": "/examples/js/vendor/three/examples/jsm/",
+        "lil-gui": "/examples/js/vendor/lil-gui/dist/lil-gui.esm.js",
+        "@sparkjsdev/spark": "/dist/spark.module.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { SplatMesh, dyno, SparkControls, SplatEdit, SplatEditSdf, SplatEditSdfType, SplatEditRgbaBlendMode } from "@sparkjsdev/spark";
+    import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+    import { GUI } from "lil-gui";
+    import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+
+    // Scene
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 50);
+    camera.position.set(0, -0.3, -3);
+    camera.lookAt(0, 0, 1);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Controls (mouse only, WASD disabled)
+    const controls = new SparkControls({ canvas: renderer.domElement });
+    controls.fpsMovement.enable = false; // Disable WASD movement
+
+    // Lights
+
+    // Uniforms for click-radius interactive holes (multi-impulse)
+    const animationTime = dyno.dynoFloat(0.0);
+    const uExplosionStrength = dyno.dynoFloat(4.0);
+    const uFriction = dyno.dynoFloat(0.98);
+    const uGravity = dyno.dynoFloat(9.8);
+    const uBounceDamping = dyno.dynoFloat(0.45);
+    const uFloorLevel = dyno.dynoFloat(-1.1);
+    const uShrinkSpeed = dyno.dynoFloat(5.0);
+    const uExplosionRadius = dyno.dynoFloat(0.3); // GUI-controlled radius
+    const MAX_IMPULSES = 128; // Increased buffer size
+    const impulses = Array.from({ length: MAX_IMPULSES }, () => ({
+      center: dyno.dynoVec3(new THREE.Vector3(0, 0, 0)),
+      radius: dyno.dynoFloat(0.0),
+      start: dyno.dynoFloat(0.0),
+      active: dyno.dynoFloat(0.0),
+    }));
+    let impulseWriteIndex = 0;
+    // Depth selection state: choose deeper intersection on repeated clicks near same pixel
+    let lastClickNDC = new THREE.Vector2(999, 999);
+    let depthIndex = 0; // reserved if we want stepped indices later
+    let stackedDepth = 0.0; // actual accumulated depth distance
+    const DEPTH_STEP = 0.08;
+    const NDC_PROXIMITY = 0.1; // threshold in NDC to consider repeated click
+
+    // Dyno program with radial gating based on click center and radius
+    function createInteractiveHolesDynoshader() {
+      return dyno.dynoBlock(
+        { gsplat: dyno.Gsplat },
+        { gsplat: dyno.Gsplat },
+        ({ gsplat }) => {
+          // Generate input types dynamically
+          const inputTypes = {
+            gsplat: dyno.Gsplat,
+            time: "float",
+            explosionStrength: "float",
+            gravity: "float",
+            bounceDamping: "float",
+            floorLevel: "float",
+            friction: "float",
+            shrinkSpeed: "float",
+          };
+          
+          // Add impulse parameters dynamically
+          for (let i = 0; i < MAX_IMPULSES; i++) {
+            inputTypes[`clickCenter${i}`] = "vec3";
+            inputTypes[`clickRadius${i}`] = "float";
+            inputTypes[`clickStart${i}`] = "float";
+            inputTypes[`clickActive${i}`] = "float";
+          }
+
+          const shader = new dyno.Dyno({
+            inTypes: inputTypes,
+            outTypes: { gsplat: dyno.Gsplat },
+            globals: () => [
+              dyno.unindent(`
+              float hash(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+              vec3 simulatePhysics(vec3 originalPos, float dropTime, float gravity, float damping, float floorLevel, float friction, float explosionStrength) {
+                float timeVariation = hash(originalPos + vec3(42.0)) * 0.2 - 0.1;
+                float t = max(0.0, dropTime + timeVariation);
+                vec3 initialVelocity = vec3(
+                  (hash(originalPos + vec3(1.0)) - 0.5) * explosionStrength * (0.3 + hash(originalPos + vec3(10.0)) * 0.4),
+                  abs(hash(originalPos + vec3(3.0))) * explosionStrength * (0.8 + hash(originalPos + vec3(20.0)) * 0.4) + 0.5,
+                  (hash(originalPos + vec3(2.0)) - 0.5) * explosionStrength * (0.3 + hash(originalPos + vec3(30.0)) * 0.4)
+                );
+                float frictionDecay = pow(friction, t * 60.0);
+                vec3 position = originalPos;
+                position.x += initialVelocity.x * (1.0 - frictionDecay) / (1.0 - friction) / 60.0;
+                position.z += initialVelocity.z * (1.0 - frictionDecay) / (1.0 - friction) / 60.0;
+                position.y += initialVelocity.y * t - 0.5 * gravity * t * t;
+                if (position.y <= floorLevel) {
+                  float bounceTime = t;
+                  float bounceCount = floor(bounceTime * 3.0);
+                  float timeSinceBounce = bounceTime - bounceCount / 3.0;
+                  float bounceHeight = initialVelocity.y * pow(damping, bounceCount) * max(0.0, 1.0 - timeSinceBounce * 3.0);
+                  if (bounceHeight > 0.1) {
+                    position.y = floorLevel + abs(sin(timeSinceBounce * 3.14159 * 3.0)) * bounceHeight;
+                  } else {
+                    position.y = floorLevel;
+                    float scatterFactor = hash(originalPos + vec3(50.0)) * 0.2;
+                    position.x += (hash(originalPos + vec3(60.0)) - 0.5) * scatterFactor;
+                    position.z += (hash(originalPos + vec3(70.0)) - 0.5) * scatterFactor;
+                  }
+                }
+                return position;
+              }
+            `),
+            ],
+            statements: ({ inputs, outputs }) => dyno.unindentLines(`
+              ${outputs.gsplat} = ${inputs.gsplat};
+              vec3 originalPos = ${inputs.gsplat}.center;
+              const int K = ${MAX_IMPULSES};
+              vec3 centers[K];
+              float radii[K];
+              float starts[K];
+              float actives[K];
+              ${Array.from({ length: MAX_IMPULSES }, (_, i) => 
+                `centers[${i}] = ${inputs[`clickCenter${i}`]}; radii[${i}] = ${inputs[`clickRadius${i}`]}; starts[${i}] = ${inputs[`clickStart${i}`]}; actives[${i}] = ${inputs[`clickActive${i}`]};`
+              ).join('\n              ')}
+
+              float maskUnion = 0.0;
+              float tMax = 0.0;
+              for (int i = 0; i < K; i++) {
+                float m = actives[i] > 0.5 ? step(distance(originalPos, centers[i]), radii[i]) : 0.0;
+                maskUnion = max(maskUnion, m);
+                float ti = max(0.0, ${inputs.time} - starts[i]);
+                tMax = max(tMax, ti * m);
+              }
+              if (maskUnion > 0.0) {
+                float strength = ${inputs.explosionStrength};
+                vec3 physicsPos = simulatePhysics(originalPos, tMax, ${inputs.gravity}, ${inputs.bounceDamping}, ${inputs.floorLevel}, ${inputs.friction}, strength);
+                float factor = exp(-tMax * ${inputs.shrinkSpeed});
+                vec3 currentScale = mix(${inputs.gsplat}.scales, vec3(0.005), 1.0 - factor);
+                ${outputs.gsplat}.center = physicsPos;
+                ${outputs.gsplat}.scales = currentScale;
+              }
+            `),
+          });
+          // Generate apply parameters dynamically
+          const applyParams = {
+            gsplat,
+            time: animationTime,
+            explosionStrength: uExplosionStrength,
+            gravity: uGravity,
+            bounceDamping: uBounceDamping,
+            floorLevel: uFloorLevel,
+            friction: uFriction,
+            shrinkSpeed: uShrinkSpeed,
+          };
+          
+          // Add impulse parameters dynamically
+          for (let i = 0; i < MAX_IMPULSES; i++) {
+            applyParams[`clickCenter${i}`] = impulses[i].center;
+            applyParams[`clickRadius${i}`] = impulses[i].radius;
+            applyParams[`clickStart${i}`] = impulses[i].start;
+            applyParams[`clickActive${i}`] = impulses[i].active;
+          }
+
+          gsplat = shader.apply(applyParams).gsplat;
+          return { gsplat };
+        },
+      );
+    }
+
+    // Load a demo splat and a floor model to give context
+    const splatName = "painted-bedroom.spz";
+    const splatURL = await getAssetFileURL(splatName);
+    const splatMesh = new SplatMesh({ url: splatURL });
+    await splatMesh.initialized;
+    splatMesh.rotation.x = Math.PI;
+    splatMesh.position.set(0, 0, 0);
+    splatMesh.scale.set(1,1, 1);
+    splatMesh.worldModifier = createInteractiveHolesDynoshader();
+    splatMesh.updateGenerator();
+    scene.add(splatMesh);
+
+    // Persistent interactive holes edit (permanently removes splats in clicked regions)
+    const interactiveHolesEdit = new SplatEdit({
+      rgbaBlendMode: SplatEditRgbaBlendMode.MULTIPLY,
+      softEdge: 0.02,
+      sdfSmooth: 0.0,
+    });
+    splatMesh.add(interactiveHolesEdit);
+
+    // -------- CPU baking of centers so they stay on the floor and raycast uses updated positions --------
+    // Half-float helpers (encode/decode)
+    function floatToHalf(val) {
+      const floatView = new Float32Array(1);
+      const int32View = new Int32Array(floatView.buffer);
+      floatView[0] = val;
+      const x = int32View[0];
+      const bits = (x >>> 16) & 0x8000; // sign
+      const m = (x >>> 12) & 0x07ff; // mantissa
+      const e = (x >>> 23) & 0xff; // exponent
+      if (e < 103) return bits; // too small => 0
+      if (e > 142) return bits | 0x7c00; // too large => inf
+      let half = bits | ((e - 112) << 10) | (m >> 1);
+      return half;
+    }
+    function halfToFloat(h) {
+      const s = (h & 0x8000) >> 15;
+      let e = (h & 0x7c00) >> 10;
+      let f = h & 0x03ff;
+      if (e === 0) {
+        if (f === 0) return s ? -0 : 0;
+        // subnormal
+        return (s ? -1 : 1) * Math.pow(2, -14) * (f / 1024);
+      } else if (e === 31) {
+        return f ? NaN : (s ? -Infinity : Infinity);
+      }
+      return (s ? -1 : 1) * Math.pow(2, e - 15) * (1 + f / 1024);
+    }
+
+    // Decode all centers once and keep an up-to-date CPU-side array (friendly space with y/z flipped)
+    const packed = splatMesh.packedSplats.packedArray;
+    const originalPacked = packed.slice();
+    const numSplats = splatMesh.packedSplats.numSplats;
+    const centersFriendly = new Float32Array(numSplats * 3);
+    (function decodeCenters() {
+      for (let i = 0; i < numSplats; i++) {
+        const i4 = i * 4;
+        const w1 = packed[i4 + 1];
+        const w2 = packed[i4 + 2];
+        const uX = w1 & 0xffff;
+        const uY = (w1 >>> 16) & 0xffff;
+        const uZ = w2 & 0xffff;
+        const x = halfToFloat(uX);
+        const y = halfToFloat(uY);
+        const z = halfToFloat(uZ);
+        // Convert to friendly space used by clicks (y/z flipped)
+        centersFriendly[i * 3 + 0] = x;
+        centersFriendly[i * 3 + 1] = -y;
+        centersFriendly[i * 3 + 2] = -z;
+      }
+    })();
+
+    function writeCenterToPacked(index, xFriendly, yFriendly, zFriendly) {
+      // Convert back to packed space (invert friendly flips)
+      const x = xFriendly;
+      const y = -yFriendly;
+      const z = -zFriendly;
+      const uX = floatToHalf(x) & 0xffff;
+      const uY = floatToHalf(y) & 0xffff;
+      const uZ = floatToHalf(z) & 0xffff;
+      const i4 = index * 4;
+      // write X,Y into word1
+      packed[i4 + 1] = (uY << 16) | uX;
+      // write Z into low 16 bits of word2, keep the high 16 bits (quat)
+      packed[i4 + 2] = (packed[i4 + 2] & 0xffff0000) | uZ;
+      // Update CPU-side cache
+      centersFriendly[index * 3 + 0] = xFriendly;
+      centersFriendly[index * 3 + 1] = yFriendly;
+      centersFriendly[index * 3 + 2] = zFriendly;
+    }
+
+    function bakeClickedRegionToFloor(centerFriendly, radius) {
+      const r2 = radius * radius;
+      const floorY = 0.0; // mesh-local floor level
+      for (let i = 0; i < numSplats; i++) {
+        const cx = centersFriendly[i * 3 + 0];
+        const cy = centersFriendly[i * 3 + 1];
+        const cz = centersFriendly[i * 3 + 2];
+        const dx = cx - centerFriendly.x;
+        const dy = cy - centerFriendly.y;
+        const dz = cz - centerFriendly.z;
+        const d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 <= r2) {
+          // Bake to floor: keep x/z, set y to floor
+          writeCenterToPacked(i, cx, floorY, cz);
+        }
+      }
+      // Upload edited centers to GPU
+      splatMesh.updateVersion();
+    }
+
+    function resetSplat() {
+      // Restore original packed centers
+      const packed = splatMesh.packedSplats.packedArray;
+      packed.set(originalPacked);
+      // Rebuild CPU-side centersFriendly from restored packed
+      for (let i = 0; i < numSplats; i++) {
+        const i4 = i * 4;
+        const w1 = packed[i4 + 1];
+        const w2 = packed[i4 + 2];
+        const uX = w1 & 0xffff;
+        const uY = (w1 >>> 16) & 0xffff;
+        const uZ = w2 & 0xffff;
+        const x = halfToFloat(uX);
+        const y = halfToFloat(uY);
+        const z = halfToFloat(uZ);
+        centersFriendly[i * 3 + 0] = x;
+        centersFriendly[i * 3 + 1] = -y;
+        centersFriendly[i * 3 + 2] = -z;
+      }
+      // Clear any interactive holes SDFs
+      try {
+        while (interactiveHolesEdit.children.length) interactiveHolesEdit.remove(interactiveHolesEdit.children[0]);
+        interactiveHolesEdit.sdfs = null;
+      } catch {}
+      // Reset impulses and stacking
+      for (let i = 0; i < MAX_IMPULSES; i++) {
+        impulses[i].active.value = 0.0;
+        impulses[i].radius.value = 0.0;
+      }
+      impulseWriteIndex = 0;
+      stackedDepth = 0.0;
+      lastClickNDC.set(999, 999);
+      // Upload
+      splatMesh.updateVersion();
+      splatMesh.updateGenerator();
+    }
+
+    // Raycaster for clicks (with generous threshold for better hit detection)
+    const raycaster = new THREE.Raycaster();
+    // Increase threshold to detect splats more reliably, especially after modifications
+    raycaster.params.Points = { threshold: 0.5 };
+    
+    renderer.domElement.addEventListener("pointerdown", (event) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      const ndc = new THREE.Vector2(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1,
+      );
+      raycaster.setFromCamera(ndc, camera);
+      const hits = raycaster.intersectObject(splatMesh, false);
+      const hit = hits && hits.length ? hits[0] : null;
+      if (!hit) {
+        console.log("No hit detected at NDC:", ndc, "- try clicking closer to visible splats");
+        return;
+      }
+      console.log("Hit detected at distance:", hit.distance.toFixed(3), "point:", hit.point);
+      const localPoint = splatMesh.worldToLocal(hit.point.clone());
+      // Compute local ray direction for depth stacking
+      const localRayOrigin = splatMesh.worldToLocal(raycaster.ray.origin.clone());
+      const localRayDir = splatMesh.worldToLocal(raycaster.ray.origin.clone().add(raycaster.ray.direction)).sub(localRayOrigin).normalize();
+      // Adjust local axes to match visual orientation (model faces camera with X=PI)
+      localPoint.y = -localPoint.y;
+      localPoint.z = -localPoint.z;
+      const adjustedLocalRayDir = new THREE.Vector3(localRayDir.x, -localRayDir.y, -localRayDir.z).normalize();
+
+      // Depth stacking: if this click is near previous (in NDC), push deeper
+      if (ndc.distanceTo(lastClickNDC) < NDC_PROXIMITY) {
+        stackedDepth += DEPTH_STEP;
+      } else {
+        stackedDepth = 0.0;
+      }
+      lastClickNDC.copy(ndc);
+
+      const depthPoint = localPoint.clone().add(adjustedLocalRayDir.clone().multiplyScalar(stackedDepth));
+
+      // Write into circular impulse buffer (persist impulses; never deactivate)
+      const slot = impulses[impulseWriteIndex];
+      slot.center.value.copy(depthPoint);
+      slot.radius.value = uExplosionRadius.value; // use GUI-controlled radius
+      slot.start.value = animationTime.value; // start time for this impulse
+      slot.active.value = 1.0;
+      // Use circular buffer - overwrite oldest when full
+      impulseWriteIndex = (impulseWriteIndex + 1) % MAX_IMPULSES;
+
+      // Bake clicked region to floor on the CPU so raycasting sees updated geometry
+      bakeClickedRegionToFloor(depthPoint, uExplosionRadius.value);
+
+      splatMesh.updateVersion();
+    });
+
+    // Animation loop
+    renderer.setAnimationLoop((timeMs) => {
+      const time = timeMs * 0.001;
+      // Update camera controls
+      controls.update(camera);
+      animationTime.value = time;
+      // Always update; impulses are persistent and unioned in shader
+      splatMesh.updateVersion();
+      renderer.render(scene, camera);
+    });
+
+
+    // Initialize GUI
+    const gui = new GUI();
+    const params = { 
+      explosionStrength: uExplosionStrength.value,
+      explosionRadius: uExplosionRadius.value,
+      gravity: uGravity.value
+    };
+    
+    gui.add(params, "explosionStrength", 0.0, 10.0, 0.1)
+      .name("Explosion Strength")
+      .onChange((v) => {
+        uExplosionStrength.value = v;
+      });
+    
+    gui.add(params, "explosionRadius", 0.1, 1.0, 0.05)
+      .name("Explosion Radius")
+      .onChange((v) => {
+        uExplosionRadius.value = v;
+      });
+    
+    gui.add(params, "gravity", 0.0, 20.0, 0.1)
+      .name("Gravity")
+      .onChange((v) => {
+        uGravity.value = v;
+      });
+
+    gui.add({ reset: resetSplat }, "reset").name("Reset Interactive Holes");
+  </script>
+</body>
+
+</html>
+
+
