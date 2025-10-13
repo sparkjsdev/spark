@@ -97,7 +97,7 @@ export class SplatAccumulator {
     }
 
     this.splats.numSplats = numSplats;
-    this.toWorld = originToWorld;
+    this.toWorld.copy(originToWorld);
     this.mapping = generators;
     return updated !== 0;
   }
