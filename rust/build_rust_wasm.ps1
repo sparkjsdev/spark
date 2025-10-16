@@ -19,6 +19,7 @@ if (-not (Get-Command wasm-pack -ErrorAction SilentlyContinue)) {
     cargo install wasm-pack
 }
 
-# Change directory and build using wasm-pack
+# Change directory and build using wasm-pack with SIMD enabled
 Set-Location -Path "./spark-internal-rs"
-wasm-pack build --target web
+$env:RUSTFLAGS = "-C target-feature=+simd128,+bulk-memory"
+wasm-pack build --target web --release

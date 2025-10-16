@@ -17,6 +17,7 @@ export type GeneratorMapping = {
   node: SplatGenerator;
   generator?: GsplatGenerator;
   version: number;
+  mappingVersion?: number;
   base: number;
   count: number;
 };

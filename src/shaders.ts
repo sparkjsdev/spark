@@ -1,7 +1,7 @@
 import * as THREE from "three";
 
-import computeUvec4Template from "./shaders/computeUvec4.glsl";
-import computeVec4Template from "./shaders/computeVec4.glsl";
+import newSplatFragment from "./shaders/newSplatFragment.glsl";
+import newSplatVertex from "./shaders/newSplatVertex.glsl";
 import splatDefines from "./shaders/splatDefines.glsl";
 import splatFragment from "./shaders/splatFragment.glsl";
 import splatVertex from "./shaders/splatVertex.glsl";
@@ -15,8 +15,8 @@ export function getShaders(): Record<string, string> {
     shaders = {
       splatVertex,
       splatFragment,
-      computeVec4Template,
-      computeUvec4Template,
+      newSplatVertex,
+      newSplatFragment,
     };
   }
   return shaders;

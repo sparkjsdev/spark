@@ -16,7 +16,8 @@ uniform uint targetLayer;
 uniform int targetBase;
 uniform int targetCount;
 
-out uvec4 target;
+layout(location = 0) out uvec4 target;
+layout(location = 1) out uvec4 target2;
 
 {{ GLOBALS }}
 
@@ -29,6 +30,7 @@ void main() {
     int index = targetIndex - targetBase;
 
     target = uvec4(0u, 0u, 0u, 0u);
+    target2 = uvec4(0u, 0u, 0u, 0u);
     if ((index >= 0) && (index < targetCount)) {
         produceSplat(index);
     }
