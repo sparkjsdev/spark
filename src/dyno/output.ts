@@ -12,6 +12,17 @@ export const outputPackedSplat = (
   gsplat: DynoVal<typeof Gsplat>,
   rgbMinMaxLnScaleMinMax: DynoVal<"vec4">,
 ) => new OutputPackedSplat({ gsplat, rgbMinMaxLnScaleMinMax });
+
+export const outputExtendedSplat = (gsplat: DynoVal<typeof Gsplat>) =>
+  new OutputExtendedSplat({ gsplat });
+
+export const outputSplatDepth = (
+  gsplat: DynoVal<typeof Gsplat>,
+  viewCenter: DynoVal<"vec3">,
+  viewDir: DynoVal<"vec3">,
+  sortRadial: DynoVal<"bool">,
+) => new OutputSplatDepth({ gsplat, viewCenter, viewDir, sortRadial });
+
 export const outputRgba8 = (rgba8: DynoVal<"vec4">) =>
   new OutputRgba8({ rgba8 });
 
@@ -55,6 +66,93 @@ export class OutputPackedSplat
 
   dynoOut(): DynoValue<"uvec4"> {
     return new DynoOutput(this, "output");
+  }
+}
+
+export class OutputExtendedSplat extends Dyno<
+  { gsplat: typeof Gsplat },
+  Record<string, never>
+> {
+  constructor({
+    gsplat,
+  }: {
+    gsplat?: DynoVal<typeof Gsplat>;
+  }) {
+    super({
+      inTypes: { gsplat: Gsplat },
+      inputs: { gsplat },
+      globals: () => [defineGsplat],
+      statements: ({ inputs }) => {
+        const { gsplat } = inputs;
+        if (gsplat) {
+          return unindentLines(`
+            if (isGsplatActive(${gsplat}.flags)) {
+              packSplatExt(target, target2, ${gsplat}.center, ${gsplat}.scales, ${gsplat}.quaternion, ${gsplat}.rgba);
+            } else {
+              target = uvec4(0u);
+              target2 = uvec4(0u);
+            }
+          `);
+        }
+        return ["target = uvec4(0u);", "target2 = uvec4(0u);"];
+      },
+    });
+  }
+
+  dynoOut(): DynoValue<"uvec4"> {
+    return new DynoOutput(this, "output");
+  }
+}
+
+class OutputSplatDepth extends Dyno<
+  {
+    gsplat: typeof Gsplat;
+    viewCenter: "vec3";
+    viewDir: "vec3";
+    sortRadial: "bool";
+  },
+  Record<string, never>
+> {
+  constructor({
+    gsplat,
+    viewCenter,
+    viewDir,
+    sortRadial,
+  }: {
+    gsplat: DynoVal<typeof Gsplat>;
+    viewCenter: DynoVal<"vec3">;
+    viewDir: DynoVal<"vec3">;
+    sortRadial: DynoVal<"bool">;
+  }) {
+    super({
+      inTypes: {
+        gsplat: Gsplat,
+        viewCenter: "vec3",
+        viewDir: "vec3",
+        sortRadial: "bool",
+      },
+      inputs: { gsplat, viewCenter, viewDir, sortRadial },
+      globals: () => [defineGsplat],
+      statements: ({ inputs }) => {
+        const { gsplat, viewCenter, viewDir, sortRadial } = inputs;
+        if (gsplat && viewCenter && viewDir && sortRadial) {
+          return unindentLines(`
+            float metric = 1.0 / 0.0;
+            if (isGsplatActive(${gsplat}.flags)) {
+              vec3 center = ${gsplat}.center - ${viewCenter};
+              if (${sortRadial}) {
+                metric = length(center);
+              } else {
+                float bias = 100.0; // reduce popping
+                metric = dot(center, ${viewDir}) + bias;
+              }
+            }
+            target3 = floatToVec4(metric);
+          `);
+        }
+        return [];
+      },
+    });
   }
 }
 

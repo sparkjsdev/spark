@@ -13,6 +13,9 @@ import {
 } from "./defines.js";
 import { unindent } from "./dyno/base.js";
 
+export const threeRevision = Number.parseInt(THREE.REVISION);
+export const threeMrtArray = threeRevision >= 179;
+
 const f32buffer = new Float32Array(1);
 const u32buffer = new Uint32Array(f32buffer.buffer);
 const supportsFloat16Array = "Float16Array" in globalThis;
@@ -1172,10 +1175,10 @@ function packSint8Bytes(
   b2: number,
   b3: number,
 ): number {
-  const clampedB0 = Math.max(-127, Math.min(127, b0 * 127));
-  const clampedB1 = Math.max(-127, Math.min(127, b1 * 127));
-  const clampedB2 = Math.max(-127, Math.min(127, b2 * 127));
-  const clampedB3 = Math.max(-127, Math.min(127, b3 * 127));
+  const clampedB0 = Math.round(Math.max(-127, Math.min(127, b0 * 127)));
+  const clampedB1 = Math.round(Math.max(-127, Math.min(127, b1 * 127)));
+  const clampedB2 = Math.round(Math.max(-127, Math.min(127, b2 * 127)));
+  const clampedB3 = Math.round(Math.max(-127, Math.min(127, b3 * 127)));
   return (
     (clampedB0 & 0xff) |
     ((clampedB1 & 0xff) << 8) |

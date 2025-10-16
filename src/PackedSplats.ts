@@ -509,7 +509,7 @@ export class PackedSplats {
         // Allocate a new source texture of the right size
         const { width, height, depth } = getTextureSize(this.maxSplats);
         this.source = new THREE.DataArrayTexture(
-          this.packedArray,
+          this.packedArray as Uint32Array<ArrayBuffer>,
           width,
           height,
           depth,

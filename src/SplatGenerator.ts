@@ -161,24 +161,24 @@ export class SplatTransformer {
 // updateVersion() (alternatively, set needsUpdate to true) to trigger a
 // re-generation of the Gsplats for this SplatGenerator.
 
+export interface FrameUpdateContext {
+  renderer: THREE.WebGLRenderer;
+  object: SplatGenerator;
+  time: number;
+  deltaTime: number;
+  viewToWorld: THREE.Matrix4;
+  camera?: THREE.Camera;
+  renderSize?: THREE.Vector2;
+  globalEdits: SplatEdit[];
+}
+
 export class SplatGenerator extends THREE.Object3D {
   numSplats: number;
   generator?: GsplatGenerator;
   generatorError?: unknown;
-  frameUpdate?: ({
-    object,
-    time,
-    deltaTime,
-    viewToWorld,
-    globalEdits,
-  }: {
-    object: SplatGenerator;
-    time: number;
-    deltaTime: number;
-    viewToWorld: THREE.Matrix4;
-    globalEdits: SplatEdit[];
-  }) => void;
+  frameUpdate?: (context: FrameUpdateContext) => void;
   version: number;
+  mappingVersion: number;
 
   constructor({
     numSplats,
@@ -191,21 +191,9 @@ export class SplatGenerator extends THREE.Object3D {
     construct?: (object: SplatGenerator) => {
       generator?: GsplatGenerator;
       numSplats?: number;
-      frameUpdate?: (object: SplatGenerator) => void;
+      frameUpdate?: (context: FrameUpdateContext) => void;
     };
-    update?: ({
-      object,
-      time,
-      deltaTime,
-      viewToWorld,
-      globalEdits,
-    }: {
-      object: SplatGenerator;
-      time: number;
-      deltaTime: number;
-      viewToWorld: THREE.Matrix4;
-      globalEdits: SplatEdit[];
-    }) => void;
+    update?: (context: FrameUpdateContext) => void;
   }) {
     super();
 
@@ -213,6 +201,7 @@ export class SplatGenerator extends THREE.Object3D {
     this.generator = generator;
     this.frameUpdate = update;
     this.version = 0;
+    this.mappingVersion = 0;
 
     if (construct) {
       const constructed = construct(this);
@@ -222,6 +211,11 @@ export class SplatGenerator extends THREE.Object3D {
   }
 
   updateVersion() {
+    this.version += 1;
+  }
+
+  updateMappingVersion() {
+    this.mappingVersion += 1;
     this.version += 1;
   }
 

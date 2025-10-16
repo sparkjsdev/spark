@@ -16,7 +16,12 @@ uniform uint targetLayer;
 uniform int targetBase;
 uniform int targetCount;
 
-out uvec4 target;
+layout(location = 0) out uvec4 target;
+layout(location = 1) out uvec4 target2;
+layout(location = 2) out vec4 target3;
+// layout(location = 0) out vec4 target3;
+// layout(location = 1) out uvec4 target;
+// layout(location = 2) out uvec4 target2;
 
 {{ GLOBALS }}
 
@@ -28,7 +33,13 @@ void main() {
     int targetIndex = int(targetLayer << SPLAT_TEX_LAYER_BITS) + int(uint(gl_FragCoord.y) << SPLAT_TEX_WIDTH_BITS) + int(gl_FragCoord.x);
     int index = targetIndex - targetBase;
 
+    // Initial targets to "null" splat
     target = uvec4(0u, 0u, 0u, 0u);
+    target2 = uvec4(0u, 0u, 0u, 0u);
+
+    // Initialize target3 to +infinity
+    target3 = floatToVec4(1.0 / 0.0);
+
     if ((index >= 0) && (index < targetCount)) {
         produceSplat(index);
     }

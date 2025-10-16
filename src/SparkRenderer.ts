@@ -710,6 +710,7 @@ export class SparkRenderer extends THREE.Mesh {
     // Let all SplatGenerators run their frameUpdate() method
     for (const object of generators) {
       object.frameUpdate?.({
+        renderer: this.renderer,
         object,
         time,
         deltaTime,

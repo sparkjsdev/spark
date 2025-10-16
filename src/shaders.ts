@@ -1,5 +1,7 @@
 import * as THREE from "three";
 
+import newSplatFragment from "./shaders/newSplatFragment.glsl";
+import newSplatVertex from "./shaders/newSplatVertex.glsl";
 import splatDefines from "./shaders/splatDefines.glsl";
 import splatFragment from "./shaders/splatFragment.glsl";
 import splatVertex from "./shaders/splatVertex.glsl";
@@ -13,6 +15,8 @@ export function getShaders(): Record<string, string> {
     shaders = {
       splatVertex,
       splatFragment,
+      newSplatVertex,
+      newSplatFragment,
     };
   }
   return shaders;
