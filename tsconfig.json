@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
-    "target": "es2020",
+    "target": "es2024",
     "module": "es2020",
-    "lib": ["ES2020", "DOM"],
+    "lib": ["ES2024", "DOM"],
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "strict": true,
