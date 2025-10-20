@@ -32,7 +32,6 @@
     </script>
   <script type="module">
     import * as THREE from "three";
-    import { SplatMesh } from "@sparkjsdev/spark";
     import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
     import { EXRLoader } from "three/addons/loaders/EXRLoader.js";
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -176,7 +175,6 @@
           if (food) food.opacity = 1 - easeInOutSine(fadeOutTime / TRANSITION_LENGTH);
         } else {
           // Fade out finished
-          if (food) food.dispose();
           fadeOutTime = null;
           // Fade in next food
           fadeInTime = 0;
@@ -186,7 +184,7 @@
       }
 
       // fade in
-      if (fadeInTime != null && nextFood.isInitialized) {
+      if (fadeInTime != null) {
         fadeInTime++;
         if (fadeInTime < TRANSITION_LENGTH) {
           nextFood.opacity = easeInOutSine(fadeInTime / TRANSITION_LENGTH);
@@ -219,10 +217,8 @@
       nextFood.opacity = 0;
 
       // Setup shadow to the required size, and make it visible only when the splat is initialized
-      nextFood.initialized.then(() => {
-        shadow.visible = false;
-        fadeOutTime = 0; // Fade in next food
-      });
+      shadow.visible = false;
+      fadeOutTime = 0; // Fade in next food
 
       scene.add(nextFood);
 

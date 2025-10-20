@@ -27,14 +27,10 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import {
-      SparkRenderer,
-      PointerControls,
-      SplatMesh,
-      generators,
-    } from "@sparkjsdev/spark";
+    import { SplatLoader } from "@sparkjsdev/spark";
     import GUI from "lil-gui";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+    import { PointerControls } from "/examples/js/controls.js";
 
     const SCENE_CONFIG = {
       SNOW_HEIGHT: 8,
@@ -56,9 +52,6 @@
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
 
-    const spark = new SparkRenderer({ renderer });
-    scene.add(spark);
-
     function handleResize() {
       const width = window.innerWidth;
       const height = window.innerHeight;
@@ -70,8 +63,9 @@
     handleResize();
     window.addEventListener("resize", handleResize);
 
+    const loader = new SplatLoader();
     const backgroundURL = await getAssetFileURL("snow-street.spz");
-    const background = new SplatMesh({ url: backgroundURL });
+    const background = await loader.loadAsync(backgroundURL);
     background.quaternion.set(1, 0, 0, 0);
     background.position.set(
       background.position.x - 8,
@@ -79,7 +73,6 @@
       background.position.z - 104,
     );
     scene.add(background);
-    await background.initialized;
 
     const controls = new PointerControls({ canvas: renderer.domElement });
 
@@ -97,6 +90,7 @@
       ),
     );
 
+    /*
     const snow = generators.snowBox({
       ...generators.DEFAULT_SNOW,
       box: snowVolumeBox.clone(),
@@ -106,13 +100,20 @@
       density: 1000,
       maxScale: 0.01,
     });
-    scene.add(snow.snow);
+    scene.add(snow.snow);*/
+    // Stub for snow object
+    const snow = {
+      fallVelocity: { value: -1 },
+      wanderScale: { value: -1 },
+      wanderVariance: { value: -1 },
+      maxScale: { value: -1 },
+    };
 
     const gui = new GUI({ title: "Snow Particle Simulation" });
     const params = {
       fallVelocity: 0.04,
-      wanderScale: generators.DEFAULT_SNOW.wanderScale,
-      wanderVariance: generators.DEFAULT_SNOW.wanderVariance,
+      wanderScale: 0.04, // generators.DEFAULT_SNOW.wanderScale,
+      wanderVariance: 2, //generators.DEFAULT_SNOW.wanderVariance,
       maxScale: 0.01,
 
       color1: new THREE.Color(1.0, 1.0, 1.0),
@@ -122,9 +123,9 @@
       fallDirection: new THREE.Vector3(0, -1, 0),
       windDirection: "No Direction",
 
-      _previousFallVelocity: generators.DEFAULT_SNOW.fallVelocity,
-      _previousWanderScale: generators.DEFAULT_SNOW.wanderScale,
-      _previousWanderVariance: generators.DEFAULT_SNOW.wanderVariance,
+      _previousFallVelocity: 0.02, //generators.DEFAULT_SNOW.fallVelocity,
+      _previousWanderScale: 0.04, // generators.DEFAULT_SNOW.wanderScale,
+      _previousWanderVariance: 2, // generators.DEFAULT_SNOW.wanderVariance,
     };
 
     // snow parameter controls

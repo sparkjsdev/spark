@@ -17,13 +17,15 @@
     {
       "imports": {
         "three": "/examples/js/vendor/three/build/three.module.js",
+        "three/addons/": "/examples/js/vendor/three/examples/jsm/",
         "@sparkjsdev/spark": "/dist/spark.module.js"
       }
     }
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { SparkRenderer, SparkControls, SplatMesh, VRButton } from "@sparkjsdev/spark";
+    import { VRButton } from "three/addons/webxr/VRButton.js";
+    import { SplatLoader } from "@sparkjsdev/spark";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
     const scene = new THREE.Scene();
@@ -46,15 +48,14 @@
     scene.add(localFrame);
 
     // Lower the splat rendering width to sqrt(5) std devs for more performance
-    const spark = new SparkRenderer({ renderer, maxStdDev: Math.sqrt(5) });
-    spark.defaultView.stochastic = true;
-    localFrame.add(spark);
     localFrame.add(camera);
 
+    const loader = new SplatLoader();
     const splatURL = await getAssetFileURL("valley.spz");
-    const background = new SplatMesh({ url: splatURL });
+    const background = await loader.loadAsync(splatURL);
     background.quaternion.set(1, 0, 0, 0);
     background.scale.setScalar(0.5);
+    background.stochastic = true;
     scene.add(background);
 
     const vrButton = VRButton.createButton(renderer);
@@ -64,10 +65,11 @@
     }
 
     let lastCameraPos = new THREE.Vector3(0, 0, 0);
-    const controls = new SparkControls({ canvas: renderer.domElement });
+    // FIXME: Re-introduce spark controls as examples code
+    //const controls = new SparkControls({ canvas: renderer.domElement });
 
     renderer.setAnimationLoop(function animate(time, xrFrame) {
-      controls.update(localFrame);
+      //controls.update(localFrame);
 
       // This is a hack to make a "local" frame work reliably across
       // Quest 3 and Vision Pro. Any big discontinuity in the camera

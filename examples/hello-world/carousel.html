@@ -22,7 +22,7 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { SplatMesh } from "@sparkjsdev/spark";
+    import { Splat, SplatLoader } from "@sparkjsdev/spark";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
@@ -42,6 +42,7 @@
     controls.enabled = true;
     controls.update();
 
+    const loader = new SplatLoader();
     const ASSETS = [
       { file: "butterfly.spz", scale: 1.2 },
       { file: "furry-logo-pedestal.spz", scale: 0.45 },
@@ -51,7 +52,7 @@
 
     for (let asset of ASSETS) {
       const splatURL = await getAssetFileURL(asset.file);
-      const splat = new SplatMesh({ url: splatURL });
+      const splat = await loader.loadAsync(splatURL);
       splat.quaternion.set(1, 0, 0, 0);
       splat.position.set(0, 0, -3);
       splat.scale.setScalar(asset.scale);

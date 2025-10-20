@@ -26,8 +26,9 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { SparkControls, SplatMesh, constructGrid, constructAxes, textSplats, imageSplats } from "@sparkjsdev/spark";
+    import { BatchedSplat, Splat, PackedSplats } from "@sparkjsdev/spark";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+    import { SparkControls } from "/examples/js/controls.js";
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -43,86 +44,80 @@
     }
 
     // Generate a Sierpinski pyramid one splat at a time via iteration
-    const pyramid = new SplatMesh({
-      constructSplats: (splats) => {
-        const NUM_SPLATS = 500000;
-        const ITERATIONS = 15;
-        const CORNERS = [
-          new THREE.Vector3(0, 1, -0.7),
-          new THREE.Vector3(0, 0, 0),
-          new THREE.Vector3(0.6, 1, 0.5),
-          new THREE.Vector3(-0.6, 1, 0.5),
-        ];
-
-        const center = new THREE.Vector3();
-        const scales = new THREE.Vector3().setScalar(0.0005);
-        const quaternion = new THREE.Quaternion();
-        const opacity = 1;
-        const color = new THREE.Color(1, 1, 1);
-
-        for (let i = 0; i < NUM_SPLATS; i++) {
-          center.set(0, 0, 0);
-          for (let iter = 0; iter < ITERATIONS; iter++) {
-            const corner = CORNERS[Math.floor(Math.random() * 4)];
-            center.add(corner).multiplyScalar(0.5);
-          }
-          color.set(0.3 + center.x - center.z * 0.5, center.z * 1.5, 0.5 + center.z * 2);
-          splats.pushSplat(center, scales, quaternion, opacity, color);
+    const pyramid = Splat.constructFixed(500000, (splatEncoder, numSplats) => {
+      const ITERATIONS = 15;
+      const CORNERS = [
+        new THREE.Vector3(0, 1, -0.7),
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(0.6, 1, 0.5),
+        new THREE.Vector3(-0.6, 1, 0.5),
+      ];
+  
+      const center = new THREE.Vector3();
+      const scales = new THREE.Vector3().setScalar(0.0005);
+      const quaternion = new THREE.Quaternion();
+      const opacity = 1;
+      const color = new THREE.Color(1, 1, 1);
+  
+      for (let i = 0; i < numSplats; i++) {
+        center.set(0, 0, 0);
+        for (let iter = 0; iter < ITERATIONS; iter++) {
+          const corner = CORNERS[Math.floor(Math.random() * 4)];
+          center.add(corner).multiplyScalar(0.5);
         }
-      },
+        color.set(0.3 + center.x - center.z * 0.5, center.z * 1.5, 0.5 + center.z * 2);
+        splatEncoder.setSplat(i, center.x, center.y, center.z, scales.x, scales.y, scales.z, quaternion.x, quaternion.y, quaternion.z, quaternion.w, opacity, color.r, color.g, color.b);
+      }
     });
     pyramid.position.set(0, -0.5, -2);
-    scene.add(pyramid);
 
-    const stars = new SplatMesh({
-      constructSplats: (splats) => {
-        const NUM_SPLATS = 100000;
-
-        const center = new THREE.Vector3();
-        const scales = new THREE.Vector3().setScalar(0.008);
-        const quaternion = new THREE.Quaternion();
-        const opacity = 1;
-        const color = new THREE.Color(1, 1, 1);
-
-        for (let i = 0; i < NUM_SPLATS; i++) {
-          // Distribute stars on a 50x50x50 cube
-          center.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(50);
-          // Random purple-ish color
-          color.set(0.4 + Math.random() * 0.3, 0.5, 0.7 + Math.random() * 0.3);
-          splats.pushSplat(center, scales, quaternion, opacity, color);
-        }
-      },
+    const stars = Splat.constructFixed(100000, (splatEncoder, numSplats) => {
+      const center = new THREE.Vector3();
+      const scales = new THREE.Vector3().setScalar(0.008);
+      const quaternion = new THREE.Quaternion();
+      const opacity = 1;
+      const color = new THREE.Color(1, 1, 1);
+  
+      for (let i = 0; i < numSplats; i++) {
+        // Distribute stars on a 50x50x50 cube
+        center.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(50);
+        // Random purple-ish color
+        color.set(0.4 + Math.random() * 0.3, 0.5, 0.7 + Math.random() * 0.3);
+        splatEncoder.setSplat(i, center.x, center.y, center.z, scales.x, scales.y, scales.z, quaternion.x, quaternion.y, quaternion.z, quaternion.w, opacity, color.r, color.g, color.b);
+      }
     });
     stars.position.set(0, -0.5, -2);
-    scene.add(stars);
 
     // Generate splats from rendered text
-    const text = textSplats({
-      text: "I        GSplats!",
+    const text = Splat.fromText("I        GSplats!", {
       font: "Arial",
       fontSize: 60,
       color: new THREE.Color(0xE420B7),
     });
     text.scale.setScalar(0.5 / 80);
     text.position.set(0.15, -1, -2);
-    scene.add(text);
 
-    const text2 = textSplats({
-      text: "WASD + mouse to move",
+    const text2 = Splat.fromText("WASD + mouse to move", {
       font: "Verdana",
       fontSize: 30,
       color: new THREE.Color(0x49EAFF)
     });
     text2.scale.setScalar(0.2 / 40);
     text2.position.set(0, 1.0, -2);
-    scene.add(text2);
 
     // Generate splats from image pixels with alpha channel
     const imageURL = await getAssetFileURL("butterfly.png");
-    const image = imageSplats({ url: imageURL });
+    const image = await Splat.fromImageUrl(imageURL);
     image.scale.setScalar(0.7 / 400);
     image.position.set(-0.5, -1, -2);
-    scene.add(image);
+
+    const batchedSplat = new BatchedSplat(5);
+    batchedSplat.addSplat(pyramid);
+    batchedSplat.addSplat(stars);
+    batchedSplat.addSplat(text);
+    batchedSplat.addSplat(text2);
+    batchedSplat.addSplat(image);
+    scene.add(batchedSplat);
 
     const controls = new SparkControls({ canvas: renderer.domElement });
 
@@ -134,6 +129,7 @@
 
       // Move stars back and forth
       stars.position.z = Math.sin(time / 10000) * 10;
+
       // Rotate butterfly at different rates on each axis
       image.rotation.set(
         -0.3 + 0.35 * Math.sin(time / 190),
@@ -145,6 +141,15 @@
 
       // Animate opacity of top text
       text2.opacity = Math.abs(Math.sin(time / 1000) * 0.3);
+
+      pyramid.updateMatrixWorld();
+      stars.updateMatrixWorld();
+      image.updateMatrixWorld();
+      text2.updateMatrixWorld();
+      batchedSplat.setMatrixAt(0, pyramid.matrixWorld);
+      batchedSplat.setMatrixAt(1, stars.matrixWorld);
+      batchedSplat.setMatrixAt(3, text2.matrixWorld);
+      batchedSplat.setMatrixAt(4, image.matrixWorld);
     });
   </script>
 </body>

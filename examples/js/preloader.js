@@ -1,4 +1,4 @@
-import { SplatMesh } from "@sparkjsdev/spark";
+import { SplatLoader } from "@sparkjsdev/spark";
 import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
 // Add loading icon in the center of the screen
@@ -20,6 +20,8 @@ function removeLoader() {
   el.parentNode.removeChild(el);
 }
 
+const splatLoader = new SplatLoader();
+
 // preload splats, returning a map [filename -> SplatMesh]
 export async function preloadSplats(assets, loading_icon_color = "white") {
   addLoader(loading_icon_color);
@@ -27,12 +29,7 @@ export async function preloadSplats(assets, loading_icon_color = "white") {
   await Promise.all(
     assets.map(async (asset) => {
       const splatURL = await getAssetFileURL(asset);
-      return new Promise((resolve) => {
-        map[asset] = new SplatMesh({
-          url: splatURL,
-          onLoad: () => resolve(),
-        });
-      });
+      map[asset] = await splatLoader.loadAsync(splatURL);
     }),
   );
 
