@@ -7,6 +7,10 @@ precision highp usampler2DArray;
 
 attribute uint splatIndex;
 
+#ifdef USE_LOGDEPTHBUF
+    out float vFragDepth;
+    out float vIsPerspective;
+#endif
 out vec4 vRgba;
 out vec2 vSplatUv;
 out vec3 vNdc;
@@ -34,6 +38,12 @@ uniform float focalAdjustment;
 
 uniform usampler2DArray packedSplats;
 uniform vec4 rgbMinMaxLnScaleMinMax;
+
+#ifdef USE_LOGDEPTHBUF
+    bool isPerspectiveMatrix( mat4 m ) {
+      return m[ 2 ][ 3 ] == - 1.0;
+    }
+#endif
 
 void main() {
     // Default to outside the frustum so it's discarded if we return early
@@ -215,4 +225,8 @@ void main() {
     vSplatUv = position.xy * maxStdDev;
     vNdc = ndc;
     gl_Position = vec4(ndc.xy * clipCenter.w, clipCenter.zw);
+    #ifdef USE_LOGDEPTHBUF
+        vFragDepth = 1.0 + gl_Position.w;
+        vIsPerspective = float( isPerspectiveMatrix( projectionMatrix ) );
+    #endif
 }
