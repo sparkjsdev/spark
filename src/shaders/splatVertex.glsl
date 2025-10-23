@@ -7,6 +7,7 @@ precision highp usampler2DArray;
 #include <logdepthbuf_pars_vertex>
 
 attribute uint splatIndex;
+
 out vec4 vRgba;
 out vec2 vSplatUv;
 out vec3 vNdc;
@@ -221,8 +222,5 @@ void main() {
     vSplatUv = position.xy * maxStdDev;
     vNdc = ndc;
     gl_Position = vec4(ndc.xy * clipCenter.w, clipCenter.zw);
-    #ifdef USE_LOGDEPTHBUF
-        vFragDepth = 1.0 + gl_Position.w;
-        vIsPerspective = float( isPerspectiveMatrix( projectionMatrix ) );
-    #endif
+    #include <logdepthbuf_vertex>
 }
