@@ -3,6 +3,7 @@ precision highp float;
 precision highp int;
 
 #include <splatDefines>
+#include <logdepthbuf_pars_vertex>
 
 #ifdef USE_LOGDEPTHBUF
     uniform float logDepthBufFC;
@@ -31,10 +32,6 @@ out vec4 fragColor;
 in vec4 vRgba;
 in vec2 vSplatUv;
 in vec3 vNdc;
-#ifdef USE_LOGDEPTHBUF
-    in float vFragDepth;
-    in float vIsPerspective;
-#endif
 flat in uint vSplatIndex;
 
 void main() {
@@ -105,5 +102,4 @@ void main() {
       // on some platforms. See issue https://github.com/mrdoob/three.js/issues/17623.
       gl_FragDepth = vIsPerspective == 0.0 ? gl_FragCoord.z : log2( vFragDepth ) * logDepthBufFC * 0.5;
     #endif
-
 }

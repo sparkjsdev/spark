@@ -4,13 +4,9 @@ precision highp int;
 precision highp usampler2DArray;
 
 #include <splatDefines>
+#include <logdepthbuf_pars_vertex>
 
 attribute uint splatIndex;
-
-#ifdef USE_LOGDEPTHBUF
-    out float vFragDepth;
-    out float vIsPerspective;
-#endif
 out vec4 vRgba;
 out vec2 vSplatUv;
 out vec3 vNdc;
