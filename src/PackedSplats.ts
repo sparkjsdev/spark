@@ -464,7 +464,7 @@ export class PackedSplats {
     let maxSplats = 0;
     const mapping = splatCounts.map((numSplats) => {
       const base = maxSplats;
-      // Generation happens in horizonal row chunks, so round up to full width
+      // Generation happens in horizontal row chunks, so round up to full width
       const rounded = Math.ceil(numSplats / SPLAT_TEX_WIDTH) * SPLAT_TEX_WIDTH;
       maxSplats += rounded;
       return { base, count: numSplats };
