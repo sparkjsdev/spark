@@ -1,34 +1,41 @@
 import { unzipSync } from "fflate";
-import { FileLoader, Loader, type LoadingManager } from "three";
+import * as THREE from "three";
+import { Splat } from "./Splat";
+import { withWorkerCall } from "./SplatWorker";
 import {
-  DEFAULT_SPLAT_ENCODING,
-  PackedSplats,
-  type SplatEncoding,
-} from "./PackedSplats";
-import { SplatMesh } from "./SplatMesh";
-import { PlyReader } from "./ply";
-import { withWorker } from "./splatWorker";
-import { decompressPartialGzip, getTextureSize } from "./utils";
+  DefaultSplatEncoding,
+  type SplatEncodingClass,
+  type UnpackResult,
+} from "./encoding/encoder";
+import type { PcSogsJson, PcSogsV2Json } from "./formats/pcsogs";
+import { decompressPartialGzip } from "./utils";
 
-// SplatLoader implements the THREE.Loader interface and supports loading a variety
-// of different Gsplat file formats. Formats .PLY and .SPZ can be auto-detected
-// from the file contents, while .SPLAT and .KSPLAT require either having the
-// appropriate file extension as part of the path, or it can be explicitly set
-// in the loader using the fileType property.
+export type SplatLoaderOptions = {
+  loadingManager: THREE.LoadingManager;
+  fileType: SplatFileType;
+  splatEncoding: SplatEncodingClass;
+};
 
-export class SplatLoader extends Loader {
-  fileLoader: FileLoader;
+/**
+ * SplatLoader implements the THREE.Loader interface and supports loading a variety
+ * of different Gsplat file formats. Formats .PLY and .SPZ can be auto-detected
+ * from the file contents, while .SPLAT and .KSPLAT require either having the
+ * appropriate file extension as part of the path, or it can be explicitly set
+ * in the loader using the fileType property.
+ */
+export class SplatLoader extends THREE.Loader {
   fileType?: SplatFileType;
-  packedSplats?: PackedSplats;
+  splatEncoding: SplatEncodingClass;
 
-  constructor(manager?: LoadingManager) {
-    super(manager);
-    this.fileLoader = new FileLoader(manager);
+  constructor(options?: SplatLoaderOptions) {
+    super(options?.loadingManager);
+    this.fileType = options?.fileType;
+    this.splatEncoding = options?.splatEncoding ?? DefaultSplatEncoding;
   }
 
   load(
     url: string,
-    onLoad?: (decoded: PackedSplats) => void,
+    onLoad?: (decoded: Splat) => void,
     onProgress?: (event: ProgressEvent) => void,
     onError?: (error: unknown) => void,
   ) {
@@ -114,22 +121,12 @@ export class SplatLoader extends Loader {
 
         await Promise.all(promises);
         if (onLoad) {
-          const splatEncoding =
-            this.packedSplats?.splatEncoding ?? DEFAULT_SPLAT_ENCODING;
-          const decoded = await unpackSplats({
-            input,
+          const splat = await this.parseAsync(input, {
             extraFiles,
             fileType,
-            pathOrUrl: resolvedURL,
-            splatEncoding,
+            fileName: resolvedURL,
           });
-
-          if (this.packedSplats) {
-            this.packedSplats.initialize(decoded);
-            onLoad(this.packedSplats);
-          } else {
-            onLoad(new PackedSplats(decoded));
-          }
+          onLoad(splat);
         }
       })
       .catch((error) => {
@@ -144,7 +141,7 @@ export class SplatLoader extends Loader {
   async loadAsync(
     url: string,
     onProgress?: (event: ProgressEvent) => void,
-  ): Promise<PackedSplats> {
+  ): Promise<Splat> {
     return new Promise((resolve, reject) => {
       this.load(
         url,
@@ -157,8 +154,23 @@ export class SplatLoader extends Loader {
     });
   }
 
-  parse(packedSplats: PackedSplats): SplatMesh {
-    return new SplatMesh({ packedSplats });
+  async parseAsync(
+    input: ArrayBuffer,
+    options?: {
+      extraFiles?: Record<string, ArrayBuffer>;
+      fileType?: SplatFileType;
+      fileName?: string;
+    },
+  ): Promise<Splat> {
+    const decoded = await unpackSplats(
+      input,
+      this.splatEncoding.encodingName,
+      options?.extraFiles,
+      options?.fileType,
+      options?.fileName,
+    );
+
+    return new Splat(this.splatEncoding.fromTransferable(decoded.unpacked));
   }
 }
 
@@ -288,65 +300,6 @@ export function getSplatFileTypeFromPath(
   return undefined;
 }
 
-export type PcSogsJson = {
-  means: {
-    shape: number[];
-    dtype: string;
-    mins: number[];
-    maxs: number[];
-    files: string[];
-  };
-  scales: {
-    shape: number[];
-    dtype: string;
-    mins: number[];
-    maxs: number[];
-    files: string[];
-  };
-  quats: { shape: number[]; dtype: string; encoding?: string; files: string[] };
-  sh0: {
-    shape: number[];
-    dtype: string;
-    mins: number[];
-    maxs: number[];
-    files: string[];
-  };
-  shN?: {
-    shape: number[];
-    dtype: string;
-    mins: number;
-    maxs: number;
-    quantization: number;
-    files: string[];
-  };
-};
-
-export type PcSogsV2Json = {
-  version: 2;
-  count: number;
-  antialias?: boolean;
-  means: {
-    mins: number[];
-    maxs: number[];
-    files: string[];
-  };
-  scales: {
-    codebook: number[];
-    files: string[];
-  };
-  quats: { files: string[] };
-  sh0: {
-    codebook: number[];
-    files: string[];
-  };
-  shN?: {
-    count: number;
-    bands: number;
-    codebook: number[];
-    files: string[];
-  };
-};
-
 export function isPcSogs(input: ArrayBuffer | Uint8Array | string): boolean {
   // Returns true if the input seems to be a valid PC SOGS file
   return tryPcSogs(input) !== undefined;
@@ -449,23 +402,22 @@ export function tryPcSogsZip(
   }
 }
 
-export async function unpackSplats({
-  input,
-  extraFiles,
-  fileType,
-  pathOrUrl,
-  splatEncoding,
-}: {
-  input: Uint8Array | ArrayBuffer;
-  extraFiles?: Record<string, ArrayBuffer>;
-  fileType?: SplatFileType;
-  pathOrUrl?: string;
-  splatEncoding?: SplatEncoding;
-}): Promise<{
-  packedArray: Uint32Array;
-  numSplats: number;
-  extra?: Record<string, unknown>;
-}> {
+const SPLAT_FILE_TYPE_TO_RPC = {
+  [SplatFileType.PLY]: "decodePly",
+  [SplatFileType.SPZ]: "decodeSpz",
+  [SplatFileType.SPLAT]: "decodeAntiSplat",
+  [SplatFileType.KSPLAT]: "decodeKsplat",
+  [SplatFileType.PCSOGS]: "decodePcSogs",
+  [SplatFileType.PCSOGSZIP]: "decodePcSogsZip",
+} as const satisfies Partial<Record<SplatFileType, string>>;
+
+export async function unpackSplats(
+  input: Uint8Array<ArrayBuffer> | ArrayBuffer,
+  encodingName: string,
+  extraFiles?: Record<string, ArrayBuffer>,
+  fileType?: SplatFileType,
+  pathOrUrl?: string,
+): Promise<UnpackResult> {
   const fileBytes =
     input instanceof ArrayBuffer ? new Uint8Array(input) : input;
   let splatFileType = fileType;
@@ -476,262 +428,15 @@ export async function unpackSplats({
     }
   }
 
-  switch (splatFileType) {
-    case SplatFileType.PLY: {
-      const ply = new PlyReader({ fileBytes });
-      await ply.parseHeader();
-      const numSplats = ply.numSplats;
-      const maxSplats = getTextureSize(numSplats).maxSplats;
-      const args = {
-        fileBytes,
-        packedArray: new Uint32Array(maxSplats * 4),
-        splatEncoding,
-      };
-      return await withWorker(async (worker) => {
-        const { packedArray, numSplats, extra } = (await worker.call(
-          "unpackPly",
-          args,
-        )) as {
-          packedArray: Uint32Array;
-          numSplats: number;
-          extra: Record<string, unknown>;
-        };
-        return { packedArray, numSplats, extra };
-      });
-    }
-    case SplatFileType.SPZ: {
-      return await withWorker(async (worker) => {
-        const { packedArray, numSplats, extra } = (await worker.call(
-          "decodeSpz",
-          {
-            fileBytes,
-            splatEncoding,
-          },
-        )) as {
-          packedArray: Uint32Array;
-          numSplats: number;
-          extra: Record<string, unknown>;
-        };
-        return { packedArray, numSplats, extra };
-      });
-    }
-    case SplatFileType.SPLAT: {
-      return await withWorker(async (worker) => {
-        const { packedArray, numSplats } = (await worker.call(
-          "decodeAntiSplat",
-          {
-            fileBytes,
-            splatEncoding,
-          },
-        )) as { packedArray: Uint32Array; numSplats: number };
-        return { packedArray, numSplats };
-      });
-    }
-    case SplatFileType.KSPLAT: {
-      return await withWorker(async (worker) => {
-        const { packedArray, numSplats, extra } = (await worker.call(
-          "decodeKsplat",
-          { fileBytes, splatEncoding },
-        )) as {
-          packedArray: Uint32Array;
-          numSplats: number;
-          extra: Record<string, unknown>;
-        };
-        return { packedArray, numSplats, extra };
-      });
-    }
-    case SplatFileType.PCSOGS: {
-      return await withWorker(async (worker) => {
-        const { packedArray, numSplats, extra } = (await worker.call(
-          "decodePcSogs",
-          { fileBytes, extraFiles, splatEncoding },
-        )) as {
-          packedArray: Uint32Array;
-          numSplats: number;
-          extra: Record<string, unknown>;
-        };
-        return { packedArray, numSplats, extra };
-      });
-    }
-    case SplatFileType.PCSOGSZIP: {
-      return await withWorker(async (worker) => {
-        const { packedArray, numSplats, extra } = (await worker.call(
-          "decodePcSogsZip",
-          { fileBytes, splatEncoding },
-        )) as {
-          packedArray: Uint32Array;
-          numSplats: number;
-          extra: Record<string, unknown>;
-        };
-        return { packedArray, numSplats, extra };
-      });
-    }
-    default: {
-      throw new Error(`Unknown splat file type: ${splatFileType}`);
-    }
-  }
-}
-
-export class SplatData {
-  numSplats: number;
-  maxSplats: number;
-  centers: Float32Array;
-  scales: Float32Array;
-  quaternions: Float32Array;
-  opacities: Float32Array;
-  colors: Float32Array;
-  sh1?: Float32Array;
-  sh2?: Float32Array;
-  sh3?: Float32Array;
-
-  constructor({ maxSplats = 1 }: { maxSplats?: number } = {}) {
-    this.numSplats = 0;
-    this.maxSplats = getTextureSize(maxSplats).maxSplats;
-    this.centers = new Float32Array(this.maxSplats * 3);
-    this.scales = new Float32Array(this.maxSplats * 3);
-    this.quaternions = new Float32Array(this.maxSplats * 4);
-    this.opacities = new Float32Array(this.maxSplats);
-    this.colors = new Float32Array(this.maxSplats * 3);
+  if (!splatFileType) {
+    throw new Error(`Unknown splat file type: ${splatFileType}`);
   }
 
-  pushSplat(): number {
-    const index = this.numSplats;
-    this.ensureIndex(index);
-    this.numSplats += 1;
-    return index;
-  }
-
-  unpushSplat(index: number) {
-    if (index === this.numSplats - 1) {
-      this.numSplats -= 1;
-    } else {
-      throw new Error("Cannot unpush splat from non-last position");
-    }
-  }
-
-  ensureCapacity(numSplats: number) {
-    if (numSplats > this.maxSplats) {
-      const targetSplats = Math.max(numSplats, this.maxSplats * 2);
-      const newCenters = new Float32Array(targetSplats * 3);
-      const newScales = new Float32Array(targetSplats * 3);
-      const newQuaternions = new Float32Array(targetSplats * 4);
-      const newOpacities = new Float32Array(targetSplats);
-      const newColors = new Float32Array(targetSplats * 3);
-      newCenters.set(this.centers);
-      newScales.set(this.scales);
-      newQuaternions.set(this.quaternions);
-      newOpacities.set(this.opacities);
-      newColors.set(this.colors);
-      this.centers = newCenters;
-      this.scales = newScales;
-      this.quaternions = newQuaternions;
-      this.opacities = newOpacities;
-      this.colors = newColors;
-
-      if (this.sh1) {
-        const newSh1 = new Float32Array(targetSplats * 9);
-        newSh1.set(this.sh1);
-        this.sh1 = newSh1;
-      }
-      if (this.sh2) {
-        const newSh2 = new Float32Array(targetSplats * 15);
-        newSh2.set(this.sh2);
-        this.sh2 = newSh2;
-      }
-      if (this.sh3) {
-        const newSh3 = new Float32Array(targetSplats * 21);
-        newSh3.set(this.sh3);
-        this.sh3 = newSh3;
-      }
-
-      this.maxSplats = targetSplats;
-    }
-  }
-
-  ensureIndex(index: number) {
-    this.ensureCapacity(index + 1);
-  }
-
-  setCenter(index: number, x: number, y: number, z: number) {
-    this.centers[index * 3] = x;
-    this.centers[index * 3 + 1] = y;
-    this.centers[index * 3 + 2] = z;
-  }
-
-  setScale(index: number, scaleX: number, scaleY: number, scaleZ: number) {
-    this.scales[index * 3] = scaleX;
-    this.scales[index * 3 + 1] = scaleY;
-    this.scales[index * 3 + 2] = scaleZ;
-  }
-
-  setQuaternion(index: number, x: number, y: number, z: number, w: number) {
-    this.quaternions[index * 4] = x;
-    this.quaternions[index * 4 + 1] = y;
-    this.quaternions[index * 4 + 2] = z;
-    this.quaternions[index * 4 + 3] = w;
-  }
-
-  setOpacity(index: number, opacity: number) {
-    this.opacities[index] = opacity;
-  }
-
-  setColor(index: number, r: number, g: number, b: number) {
-    this.colors[index * 3] = r;
-    this.colors[index * 3 + 1] = g;
-    this.colors[index * 3 + 2] = b;
-  }
-
-  setSh1(index: number, sh1: Float32Array) {
-    if (!this.sh1) {
-      this.sh1 = new Float32Array(this.maxSplats * 9);
-    }
-    for (let j = 0; j < 9; ++j) {
-      this.sh1[index * 9 + j] = sh1[j];
-    }
-  }
-
-  setSh2(index: number, sh2: Float32Array) {
-    if (!this.sh2) {
-      this.sh2 = new Float32Array(this.maxSplats * 15);
-    }
-    for (let j = 0; j < 15; ++j) {
-      this.sh2[index * 15 + j] = sh2[j];
-    }
-  }
-
-  setSh3(index: number, sh3: Float32Array) {
-    if (!this.sh3) {
-      this.sh3 = new Float32Array(this.maxSplats * 21);
-    }
-    for (let j = 0; j < 21; ++j) {
-      this.sh3[index * 21 + j] = sh3[j];
-    }
-  }
-}
-
-export async function transcodeSpz(
-  input: TranscodeSpzInput,
-): Promise<{ input: TranscodeSpzInput; fileBytes: Uint8Array }> {
-  return await withWorker(async (worker) => {
-    const result = (await worker.call("transcodeSpz", input)) as {
-      input: TranscodeSpzInput;
-      fileBytes: Uint8Array;
-    };
-    return result;
+  const decodeRpc = SPLAT_FILE_TYPE_TO_RPC[splatFileType];
+  return await withWorkerCall(decodeRpc, {
+    fileBytes,
+    extraFiles,
+    encoder: encodingName,
+    encoderOptions: {},
   });
 }
-
-export type FileInput = {
-  fileBytes: Uint8Array;
-  fileType?: SplatFileType;
-  pathOrUrl?: string;
-  transform?: { translate?: number[]; quaternion?: number[]; scale?: number };
-};
-
-export type TranscodeSpzInput = {
-  inputs: FileInput[];
-  maxSh?: number;
-  clipXyz?: { min: number[]; max: number[] };
-  fractionalBits?: number;
-  opacityThreshold?: number;
-};

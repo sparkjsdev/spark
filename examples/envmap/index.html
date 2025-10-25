@@ -40,7 +40,7 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { SplatMesh, SparkRenderer, PackedSplats } from "@sparkjsdev/spark";
+    import { Splat, SplatLoader, SplatUtils } from "@sparkjsdev/spark";
     import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
@@ -59,28 +59,24 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    // Explicitly create a SparkRenderer to render environment maps
-    const spark = new SparkRenderer({ renderer });
-    scene.add(spark);
-
+    const splatLoader = new SplatLoader();
     const splatURL = await getAssetFileURL("fireplace.spz");
-    const packedSplats = new PackedSplats({ url: splatURL });
-    const background = new SplatMesh({ packedSplats });
+
+    const background = await splatLoader.loadAsync(splatURL);
     background.quaternion.set(1, 0, 0, 0);
     background.position.set(0.5, 0, -1);
     background.scale.setScalar(0.5);
-    scene.add(background);
 
-    const background2 = new SplatMesh({ packedSplats });
+    const background2 = background.clone();
     background2.quaternion.set(1, 0, 0, 0);
     background2.rotation.y = Math.PI;
     background2.position.set(-0.5, 0, 0.0);
     background2.scale.setScalar(0.5);
-    scene.add(background2);
 
-    // Make sure background is loaded before rendering env map
-    await background.initialized;
-    await background2.initialized;
+    const combinedBackground = SplatUtils.mergeSplats([ background, background2 ]);
+    scene.add(combinedBackground);
+    combinedBackground.sorter.sortRadial = true;
+    combinedBackground.sorter.sort360 = true;
 
     // Add rubber duck
     const gltfLoader = new GLTFLoader();
@@ -90,36 +86,27 @@
     duck.position.set(0, 0.45, -0.4);
     scene.add(duck);
 
+    combinedBackground.sortFor(renderer, camera).then(() => {
+      // Disable sorting while rendering the env map
+      combinedBackground.autoSort = false;
+
+      const sceneRT = new THREE.PMREMGenerator(renderer).fromScene(scene);
+      for (let obj of duck.children) {
+        // Set some reflectivity in the materials of the duck
+        obj.material.envMap = sceneRT.texture;
+        obj.material.metalness = 1.0;
+        obj.material.roughness = 0.02;
+      }
+
+      combinedBackground.autoSort = true;
+    });
+
     let lastTime;
-    let renderedEnvMap = false;
     renderer.setAnimationLoop(function animate(time) {
       const deltaTime = time - (lastTime || time);
       lastTime = time;
       renderer.render(scene, camera);
       duck.rotation.y += deltaTime / 2500;
-
-      // Make sure we only launch async renderEnvMap once
-      if (!renderedEnvMap) {
-        renderedEnvMap = true;
-        spark.renderEnvMap({
-          scene,
-          // World center to render from
-          worldCenter: duck.position,
-          // Hide the duck so we don't obscure the environment
-          hideObjects: [duck],
-          // Not needed in normal use, guards against "first render" issues
-          update: true,
-        })
-          .then((envMap) => {
-            for (let obj of duck.children) {
-              // Set some reflectivity in the materials of the duck
-              obj.material.envMap = envMap;
-              obj.material.original_color = obj.material.color.clone();
-              obj.material.metalness = 1.0;
-              obj.material.roughness = 0.02;
-            }
-          });
-      }
     });
 
     // Toggles between normal duck and metal duck
