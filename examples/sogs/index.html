@@ -26,7 +26,7 @@
     import * as THREE from "three";
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { Sky } from 'three/addons/objects/Sky.js';
-    import { SplatMesh } from "@sparkjsdev/spark";
+    import { Splat, SplatLoader } from "@sparkjsdev/spark";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
     const scene = new THREE.Scene();
@@ -46,7 +46,8 @@
     }
 
     const splatURL = await getAssetFileURL("sutro.zip");
-    const sutroTower = new SplatMesh({ url: splatURL });
+    const loader = new SplatLoader();
+    const sutroTower = await loader.loadAsync(splatURL);
     sutroTower.quaternion.set(1, 0, 0, 0);
     scene.add(sutroTower);
 
