@@ -1,18 +1,20 @@
 import init_wasm, {
   sort_splats,
   sort32_splats,
-  lod_init,
-  lod_dispose,
-  lod_compute,
-  simd_enabled,
   decode_to_gsplatarray,
   decode_to_packedsplats,
+  init_lod_tree,
+  dispose_lod_tree,
+  traverse_lod_trees,
 } from "spark-internal-rs";
 
 const rpcHandlers = {
   sortSplats16,
   sortSplats32,
   loadSplats,
+  initLodTree,
+  disposeLodTree,
+  traverseLodTrees,
 };
 
 async function onMessage(event: MessageEvent) {
@@ -25,11 +27,19 @@ async function onMessage(event: MessageEvent) {
   try {
     const handler = rpcHandlers[name] as (
       args: unknown,
+      options: { sendStatus: (data: unknown) => void },
     ) => unknown | Promise<unknown>;
     if (!handler) {
       throw new Error(`Unknown worker RPC: ${name}`);
     }
-    const result = await handler(args);
+
+    const sendStatus = (data: unknown) => {
+      self.postMessage(
+        { id, status: data },
+        { transfer: getArrayBuffers(data) },
+      );
+    };
+    const result = await handler(args, { sendStatus });
     self.postMessage({ id, result }, { transfer: getArrayBuffers(result) });
   } catch (error) {
     console.warn(`Worker error: ${error}`);
@@ -63,29 +73,36 @@ function sortSplats32({
   return { activeSplats, readback, ordering };
 }
 
-async function loadSplats({
-  url,
-  baseUri,
-  headers,
-  credentials,
-  fileBytes,
-  fileType,
-  pathName,
-  lod,
-  lodBase,
-  encoding,
-}: {
-  url?: string;
-  baseUri?: string;
-  headers?: Record<string, string>;
-  credentials?: string;
-  fileBytes?: Uint8Array;
-  fileType?: string;
-  pathName?: string;
-  lod?: number;
-  lodBase?: number;
-  encoding?: unknown;
-}) {
+async function loadSplats(
+  {
+    url,
+    baseUri,
+    requestHeader,
+    withCredentials,
+    fileBytes,
+    fileType,
+    pathName,
+    lod,
+    lodBase,
+    encoding,
+  }: {
+    url?: string;
+    baseUri?: string;
+    requestHeader?: Record<string, string>;
+    withCredentials?: string;
+    fileBytes?: Uint8Array;
+    fileType?: string;
+    pathName?: string;
+    lod?: boolean;
+    lodBase?: number;
+    encoding?: unknown;
+  },
+  {
+    sendStatus,
+  }: {
+    sendStatus: (data: unknown) => void;
+  },
+) {
   const decoder = lod
     ? decode_to_gsplatarray(fileType, pathName ?? url)
     : decode_to_packedsplats(fileType, pathName ?? url);
@@ -96,15 +113,10 @@ async function loadSplats({
     decoder.push(fileBytes);
     decodeDuration += performance.now() - start;
   } else if (url) {
-    console.log("Fetching", url);
-    console.log("location", location);
-
     const basedUrl = new URL(url, baseUri);
-    const reqHeaders = headers ? new Headers(headers) : undefined;
-    const reqCredentials = credentials ? "include" : "same-origin";
     const request = new Request(basedUrl, {
-      headers: reqHeaders,
-      credentials: reqCredentials,
+      headers: requestHeader ? new Headers(requestHeader) : undefined,
+      credentials: withCredentials ? "include" : "same-origin",
     });
 
     const response = await fetch(request);
@@ -114,34 +126,51 @@ async function loadSplats({
       );
     }
     const reader = response.body.getReader();
+    const contentLength = Number.parseInt(
+      response.headers.get("Content-Length") || "0",
+    );
+    const total = Number.isNaN(contentLength) ? 0 : contentLength;
+    let loaded = 0;
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) {
         break;
       }
+      loaded += value.length;
+      sendStatus({ loaded, total });
+
       const start = performance.now();
+      // if (lod) {
+      //   console.log(`Pushing ${value.length} bytes to decoder`);
+      // }
       decoder.push(value);
+      // if (lod) {
+      //   console.log(`- Done pushing ${value.length} bytes to decoder`);
+      // }
       decodeDuration += performance.now() - start;
     }
   } else {
     throw new Error("No url or fileBytes provided");
   }
 
+  console.log(`Finalizing decoding splats from ${url}`);
   const finishStart = performance.now();
   let decoded = decoder.finish();
   decodeDuration += performance.now() - finishStart;
   console.log(`Decoded ${decoded.numSplats} splats in ${decodeDuration} ms`);
 
   if (lod) {
-    const initialSplats = decoded.len();
-    const base = Math.max(1.1, Math.min(2.0, lodBase ?? 1.5));
-    const lodStart = performance.now();
-    decoded.quick_lod(base);
-    const lodDuration = performance.now() - lodStart;
-    console.log(
-      `Quick LoD: ${initialSplats} -> ${decoded.len()} (${lodDuration} ms)`,
-    );
+    if (!decoded.has_lod()) {
+      const initialSplats = decoded.len();
+      const base = Math.max(1.1, Math.min(2.0, lodBase ?? 1.5));
+      const lodStart = performance.now();
+      decoded.quick_lod(base);
+      const lodDuration = performance.now() - lodStart;
+      console.log(
+        `Quick LoD: ${initialSplats} -> ${decoded.len()} (${lodDuration} ms)`,
+      );
+    }
 
     const convertStart = performance.now();
     decoded = decoded.to_packedsplats();
@@ -156,9 +185,76 @@ async function loadSplats({
       sh1: decoded.sh1,
       sh2: decoded.sh2,
       sh3: decoded.sh3,
+      lodTree: decoded.lodTree,
     },
     encoding: decoded.encoding,
   };
+}
+
+function initLodTree({
+  numSplats,
+  lodTree,
+}: {
+  numSplats: number;
+  lodTree: Uint32Array;
+}) {
+  const lodId = init_lod_tree(numSplats, lodTree);
+  return { lodId };
+}
+
+function disposeLodTree({ lodId }: { lodId: number }) {
+  dispose_lod_tree(lodId);
+}
+
+function traverseLodTrees({
+  maxSplats,
+  pixelScaleLimit,
+  fovXdegrees,
+  fovYdegrees,
+  outsideFoveate,
+  behindFoveate,
+  instances,
+}: {
+  maxSplats: number;
+  pixelScaleLimit: number;
+  fovXdegrees: number;
+  fovYdegrees: number;
+  outsideFoveate: number;
+  behindFoveate: number;
+  instances: Record<string, { lodId: number; viewToObjectCols: number[] }>;
+}) {
+  const keyInstances = Object.entries(instances);
+  const lodIds = new Uint32Array(
+    keyInstances.map(([_key, instance]) => instance.lodId),
+  );
+  const viewToObjects = new Float32Array(
+    keyInstances.flatMap(([_key, instance]) => {
+      if (instance.viewToObjectCols.length !== 16) {
+        throw new Error("Incorrect array size for viewToObjectCols");
+      }
+      return instance.viewToObjectCols;
+    }),
+  );
+
+  const instanceIndices = traverse_lod_trees(
+    maxSplats,
+    pixelScaleLimit,
+    fovXdegrees,
+    fovYdegrees,
+    outsideFoveate,
+    behindFoveate,
+    lodIds,
+    viewToObjects,
+  ) as { numSplats: number; indices: Uint32Array }[];
+
+  const indices = keyInstances.reduce(
+    (indices, [key, _instance], index) => {
+      indices[key] = instanceIndices[index];
+      return indices;
+    },
+    {} as Record<string, { numSplats: number; indices: Uint32Array }>,
+  );
+  return { keyIndices: indices };
 }
 
 // Recursively finds all ArrayBuffers in an object and returns them as an array

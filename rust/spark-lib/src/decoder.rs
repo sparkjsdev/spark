@@ -21,22 +21,43 @@ impl dyn ChunkReceiver {
 pub struct SplatInit {
     pub num_splats: usize,
     pub max_sh_degree: usize,
+    pub lod_tree: bool,
+}
+
+impl Default for SplatInit {
+    fn default() -> Self {
+        Self {
+            num_splats: 0,
+            max_sh_degree: 0,
+            lod_tree: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SplatEncoding {
+    #[serde(rename = "rgbMin")]
     pub rgb_min: f32,
+    #[serde(rename = "rgbMax")]
     pub rgb_max: f32,
-    pub opacity_min: f32,
-    pub opacity_max: f32,
+    #[serde(rename = "lnScaleMin")]
     pub ln_scale_min: f32,
+    #[serde(rename = "lnScaleMax")]
     pub ln_scale_max: f32,
+    #[serde(rename = "sh1Min")]
     pub sh1_min: f32,
+    #[serde(rename = "sh1Max")]
     pub sh1_max: f32,
+    #[serde(rename = "sh2Min")]
     pub sh2_min: f32,
+    #[serde(rename = "sh2Max")]
     pub sh2_max: f32,
+    #[serde(rename = "sh3Min")]
     pub sh3_min: f32,
+    #[serde(rename = "sh3Max")]
     pub sh3_max: f32,
+    #[serde(rename = "lodOpacity")]
+    pub lod_opacity: bool,
 }
 
 impl Default for SplatEncoding {
@@ -44,8 +65,6 @@ impl Default for SplatEncoding {
         Self {
             rgb_min: 0.0,
             rgb_max: 1.0,
-            opacity_min: 0.0,
-            opacity_max: 1.0,
             ln_scale_min: -12.0,
             ln_scale_max: 9.0,
             sh1_min: -1.0,
@@ -54,16 +73,15 @@ impl Default for SplatEncoding {
             sh2_max: 1.0,
             sh3_min: -1.0,
             sh3_max: 1.0,
+            lod_opacity: false,
         }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Default,Debug, Clone)]
 pub struct SetSplatEncoding {
     pub rgb_min: Option<f32>,
     pub rgb_max: Option<f32>,
-    pub opacity_min: Option<f32>,
-    pub opacity_max: Option<f32>,
     pub ln_scale_min: Option<f32>,
     pub ln_scale_max: Option<f32>,
     pub sh1_min: Option<f32>,
@@ -72,6 +90,7 @@ pub struct SetSplatEncoding {
     pub sh2_max: Option<f32>,
     pub sh3_min: Option<f32>,
     pub sh3_max: Option<f32>,
+    pub lod_opacity: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -84,6 +103,25 @@ pub struct SplatProps<'a> {
     pub sh1: &'a [f32],
     pub sh2: &'a [f32],
     pub sh3: &'a [f32],
+    pub child_count: &'a [u16],
+    pub child_start: &'a [usize],
+}
+
+impl<'a> Default for SplatProps<'a> {
+    fn default() -> Self {
+        Self {
+            center: &[],
+            opacity: &[],
+            rgb: &[],
+            scale: &[],
+            quat: &[],
+            sh1: &[],
+            sh2: &[],
+            sh3: &[],
+            child_count: &[],
+            child_start: &[],
+        }
+    }
 }
 
 #[allow(unused)]
@@ -103,6 +141,31 @@ pub trait SplatReceiver: 'static {
     fn set_sh1(&mut self, base: usize, count: usize, sh1: &[f32]) {}
     fn set_sh2(&mut self, base: usize, count: usize, sh2: &[f32]) {}
     fn set_sh3(&mut self, base: usize, count: usize, sh3: &[f32]) {}
+    fn set_child_count(&mut self, base: usize, count: usize, child_count: &[u16]) {}
+    fn set_child_start(&mut self, base: usize, count: usize, child_start: &[usize]) {}
+}
+
+#[allow(unused)]
+pub trait SplatGetter: 'static {
+    // Source/format metadata (header-like)
+    fn num_splats(&self) -> usize;
+    fn max_sh_degree(&self) -> usize;
+    fn fractional_bits(&self) -> u8 { 10 }
+    fn flag_antialias(&self) -> bool { false }
+    fn has_lod_tree(&self) -> bool { false }
+    fn get_encoding(&mut self) -> SplatEncoding { SplatEncoding::default() }
+
+    // Batched property fetchers
+    fn get_center(&mut self, base: usize, count: usize, out: &mut [f32]);
+    fn get_opacity(&mut self, base: usize, count: usize, out: &mut [f32]);
+    fn get_rgb(&mut self, base: usize, count: usize, out: &mut [f32]);
+    fn get_scale(&mut self, base: usize, count: usize, out: &mut [f32]);
+    fn get_quat(&mut self, base: usize, count: usize, out: &mut [f32]);
+    fn get_sh1(&mut self, _base: usize, _count: usize, _out: &mut [f32]) {}
+    fn get_sh2(&mut self, _base: usize, _count: usize, _out: &mut [f32]) {}
+    fn get_sh3(&mut self, _base: usize, _count: usize, _out: &mut [f32]) {}
+    fn get_child_count(&mut self, _base: usize, _count: usize, _out: &mut [u16]) {}
+    fn get_child_start(&mut self, _base: usize, _count: usize, _out: &mut [u32]) {}
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -10,6 +10,7 @@ import { type RgbaArray, readRgbaArray } from "./RgbaArray";
 import { SparkRenderer } from "./SparkRenderer";
 import { SplatEdit, SplatEditSdf, SplatEdits } from "./SplatEdit";
 import {
+  type FrameUpdateContext,
   type GsplatModifier,
   SplatGenerator,
   SplatTransformer,
@@ -19,6 +20,7 @@ import type { SplatSkinning } from "./SplatSkinning";
 import { LN_SCALE_MAX, LN_SCALE_MIN } from "./defines";
 import {
   DynoFloat,
+  DynoUsampler2D,
   DynoUsampler2DArray,
   type DynoVal,
   DynoVec4,
@@ -39,6 +41,7 @@ import {
   unindent,
   unindentLines,
 } from "./dyno";
+// import { SplatWorker } from "./splatWorker";
 import { getTextureSize } from "./utils";
 
 export type SplatMeshOptions = {
@@ -65,6 +68,8 @@ export type SplatMeshOptions = {
   // Callback function to programmatically create splats at initialization
   // in provided PackedSplats. (default: undefined)
   constructSplats?: (splats: PackedSplats) => Promise<void> | void;
+  // Callback function called while downloading and initializing (default: undefined)
+  onProgress?: (event: ProgressEvent) => void;
   // Callback function that is called when mesh initialization is complete.
   // (default: undefined)
   onLoad?: (mesh: SplatMesh) => Promise<void> | void;
@@ -90,6 +95,11 @@ export type SplatMeshOptions = {
   // Override the default splat encoding ranges for the PackedSplats.
   // (default: undefined)
   splatEncoding?: SplatEncoding;
+  // Enable LOD. If a number is provided, it will be used as LoD level base,
+  // otherwise the default 1.5 is used. When loading a file without pre-computed
+  // LoD it will use the "quick lod" algorithm to generate one on-the-fly with
+  // the selected LoD level base. (default: undefined=false)
+  lod?: boolean | number;
 };
 
 export type SplatMeshContext = {
@@ -100,6 +110,7 @@ export type SplatMeshContext = {
   recolor: DynoVec4<THREE.Vector4>;
   time: DynoFloat;
   deltaTime: DynoFloat;
+  lodIndices: DynoUsampler2D<"lodIndices", THREE.DataTexture>;
 };
 
 export class SplatMesh extends SplatGenerator {
@@ -162,34 +173,35 @@ export class SplatMesh extends SplatGenerator {
   // after changing. (default: 3)
   maxSh = 3;
 
+  // lodMaxSplats = 1000000;
+  // lodScale = 1.0;
+  // lodState: {
+  //   lodId: number;
+  //   origin: THREE.Vector3;
+  //   dir: THREE.Vector3;
+  //   pixelScale: number;
+  //   indices: Uint32Array;
+  // } | null = null;
+
   constructor(options: SplatMeshOptions = {}) {
-    const transform = new SplatTransformer();
-    const viewToWorld = new SplatTransformer();
-    const worldToView = new SplatTransformer();
-    const viewToObject = new SplatTransformer();
-    const recolor = new DynoVec4({
-      value: new THREE.Vector4(
-        Number.NEGATIVE_INFINITY,
-        Number.NEGATIVE_INFINITY,
-        Number.NEGATIVE_INFINITY,
-        Number.NEGATIVE_INFINITY,
-      ),
-    });
-    const time = new DynoFloat({ value: 0 });
-    const deltaTime = new DynoFloat({ value: 0 });
     const context = {
-      transform,
-      viewToWorld,
-      worldToView,
-      viewToObject,
-      recolor,
-      time,
-      deltaTime,
+      transform: new SplatTransformer(),
+      viewToWorld: new SplatTransformer(),
+      worldToView: new SplatTransformer(),
+      viewToObject: new SplatTransformer(),
+      recolor: new DynoVec4({
+        value: new THREE.Vector4().setScalar(Number.NEGATIVE_INFINITY),
+      }),
+      time: new DynoFloat({ value: 0 }),
+      deltaTime: new DynoFloat({ value: 0 }),
+      lodIndices: new DynoUsampler2D({
+        value: EMPTY_LOD_INDICES,
+        key: "lodIndices",
+      }),
     };
 
     super({
-      update: ({ time, deltaTime, viewToWorld, globalEdits }) =>
-        this.update({ time, deltaTime, viewToWorld, globalEdits }),
+      update: (context) => this.update(context),
     });
 
     this.packedSplats = options.packedSplats ?? new PackedSplats();
@@ -237,7 +249,7 @@ export class SplatMesh extends SplatGenerator {
       }
     }
 
-    this.add(createRendererDetectionMesh());
+    // this.add(createRendererDetectionMesh());
   }
 
   async asyncInitialize(options: SplatMeshOptions) {
@@ -248,7 +260,9 @@ export class SplatMesh extends SplatGenerator {
       fileName,
       maxSplats,
       constructSplats,
+      onProgress,
       splatEncoding,
+      lod,
     } = options;
     if (url || fileBytes || constructSplats) {
       const packedSplatsOptions = {
@@ -258,16 +272,85 @@ export class SplatMesh extends SplatGenerator {
         fileName,
         maxSplats,
         construct: constructSplats,
+        onProgress,
         splatEncoding,
+        lod,
       };
       this.packedSplats.reinitialize(packedSplatsOptions);
     }
     if (this.packedSplats) {
       await this.packedSplats.initialized;
       this.numSplats = this.packedSplats.numSplats;
+
+      // if (
+      //   this.packedSplats.extra.childCounts &&
+      //   this.packedSplats.extra.childStarts
+      // ) {
+      //   this.numSplats = 0;
+
+      //   SplatMesh.withLodWorker(async (worker) => {
+      //     const clonedSplats = this.packedSplats.packedArray?.slice();
+      //     const { lodId } = (await worker.call("lodInit", {
+      //       numSplats: this.packedSplats.numSplats,
+      //       packedSplats: clonedSplats,
+      //       splatEncoding:
+      //         this.packedSplats.splatEncoding ?? DEFAULT_SPLAT_ENCODING,
+      //       childCounts: (
+      //         this.packedSplats.extra.childCounts as Uint16Array
+      //       ).slice(),
+      //       childStarts: (
+      //         this.packedSplats.extra.childStarts as Uint32Array
+      //       ).slice(),
+      //     })) as { lodId: number };
+
+      //     this.lodState = {
+      //       lodId,
+      //       origin: new THREE.Vector3().setScalar(Number.NEGATIVE_INFINITY),
+      //       dir: new THREE.Vector3().setScalar(0),
+      //       pixelScale: 0,
+      //       indices: new Uint32Array(),
+      //     };
+      //     this.ensureLodIndices();
+      //   });
+      // }
+
       this.updateGenerator();
     }
   }
+
+  // static lodWorker = new SplatWorker();
+  // static lodWaiters: (() => void)[] | null = null;
+
+  // static tryLodWorker(callback: (worker: SplatWorker) => Promise<void>) {
+  //   if (SplatMesh.lodWaiters == null) {
+  //     return SplatMesh.withLodWorker(callback);
+  //   }
+  //   return null;
+  // }
+
+  // static async withLodWorker(callback: (worker: SplatWorker) => Promise<void>) {
+  //   const lodWaiters = SplatMesh.lodWaiters;
+  //   if (lodWaiters != null) {
+  //     await new Promise((resolve) => {
+  //       lodWaiters.push(() => resolve(undefined));
+  //     });
+  //   } else {
+  //     SplatMesh.lodWaiters = [];
+  //   }
+
+  //   try {
+  //     await callback(SplatMesh.lodWorker);
+  //   } finally {
+  //     if (SplatMesh.lodWaiters != null) {
+  //       if (SplatMesh.lodWaiters.length === 0) {
+  //         SplatMesh.lodWaiters = null;
+  //       } else {
+  //         const waiter = SplatMesh.lodWaiters.shift() as () => void;
+  //         waiter();
+  //       }
+  //     }
+  //   }
+  // }
 
   static staticInitialized = SplatMesh.staticInitialize();
   static isStaticInitialized = false;
@@ -378,8 +461,21 @@ export class SplatMesh extends SplatGenerator {
         if (!index) {
           throw new Error("index is undefined");
         }
-        // Read a Gsplat from the PackedSplats template
-        let gsplat = readPackedSplat(this.packedSplats.dyno, index);
+
+        let gsplat: DynoVal<typeof Gsplat>;
+
+        if (this.packedSplats.extra.lodTree) {
+          index = readLodIndices(context.lodIndices, index);
+          gsplat = readPackedSplat(this.packedSplats.dyno, index);
+          const opacity = mul(
+            splitGsplat(gsplat).outputs.opacity,
+            dynoConst("float", 2.0),
+          );
+          gsplat = combineGsplat({ gsplat, opacity });
+        } else {
+          // Read a Gsplat from the PackedSplats template
+          gsplat = readPackedSplat(this.packedSplats.dyno, index);
+        }
 
         if (this.maxSh >= 1) {
           // Inject lighting from SH1..SH3
@@ -482,17 +578,15 @@ export class SplatMesh extends SplatGenerator {
   // call it. It updates parameters for the generated pipeline and calls
   // updateGenerator() if the pipeline needs to change.
   update({
+    renderer,
     time,
-    viewToWorld,
     deltaTime,
+    viewToWorld,
+    camera,
+    renderSize,
     globalEdits,
-  }: {
-    time: number;
-    viewToWorld: THREE.Matrix4;
-    deltaTime: number;
-    globalEdits: SplatEdit[];
-  }) {
-    this.numSplats = this.packedSplats.numSplats;
+    lodIndices,
+  }: FrameUpdateContext) {
     this.context.time.value = time;
     this.context.deltaTime.value = deltaTime;
     SplatMesh.dynoTime.value = time;
@@ -528,6 +622,15 @@ export class SplatMesh extends SplatGenerator {
       // Only trigger update if we have view-dependent spherical harmonics
       updated = true;
     }
+
+    const viewInObject = new THREE.Vector3().setFromMatrixColumn(
+      viewToObjectMatrix,
+      3,
+    );
+    const viewDirInObject = new THREE.Vector3()
+      .setFromMatrixColumn(viewToObjectMatrix, 2)
+      .negate()
+      .normalize();
 
     const newRecolor = new THREE.Vector4(
       this.recolor.r,
@@ -583,6 +686,86 @@ export class SplatMesh extends SplatGenerator {
         this.updateGenerator();
       }
     }
+
+    if (this.packedSplats.extra.lodTree) {
+      this.numSplats = lodIndices?.numSplats ?? 0;
+      this.context.lodIndices.value = lodIndices?.texture ?? EMPTY_LOD_INDICES;
+    }
+
+    // if (this.lodState) {
+    //   let pixelScale = 0;
+    //   if (renderSize) {
+    //     pixelScale =
+    //       camera instanceof THREE.PerspectiveCamera
+    //         ? (2.0 * Math.tan((0.5 * camera.fov * Math.PI) / 180.0)) /
+    //           renderSize.y
+    //         : 0.0;
+    //     pixelScale *= this.lodScale;
+    //   }
+    //   const pixelScaleUpdated = pixelScale !== this.lodState.pixelScale;
+
+    //   const distance = this.lodState.origin.distanceTo(viewInObject);
+    //   const dirDot = this.lodState.dir.dot(viewDirInObject);
+    //   if (pixelScaleUpdated || distance > 0.001 || dirDot < 0.999) {
+    //     SplatMesh.tryLodWorker(async (worker) => {
+    //       if (!this.lodState) {
+    //         return;
+    //       }
+    //       const origin = viewInObject.clone();
+    //       const dir = viewDirInObject.clone();
+    //       // console.log(`lodCompute id=${this.lodState.lodId}, origin=${origin.toArray()}, dir=${dir.toArray()}, pixelScale=${pixelScale}, maxSplats=${this.lodMaxSplats}`);
+    //       const { indices } = (await worker.call("lodCompute", {
+    //         lodId: this.lodState.lodId,
+    //         origin,
+    //         dir,
+    //         foveate: 0.3,
+    //         pixelScale,
+    //         maxSplats: this.lodMaxSplats,
+    //       })) as { indices: Uint32Array };
+
+    //       if (!this.lodState) {
+    //         return;
+    //       }
+
+    //       this.ensureLodIndices();
+    //       this.lodState.indices.set(indices);
+    //       this.lodState.origin = origin;
+    //       this.lodState.dir = dir;
+    //       this.lodState.pixelScale = pixelScale;
+    //       this.numSplats = indices.length;
+    //       this.updateMappingVersion();
+
+    //       const gl = renderer.getContext() as WebGL2RenderingContext;
+    //       if (!renderer.properties.has(this.context.lodIndices.value)) {
+    //         this.context.lodIndices.value.needsUpdate = true;
+    //       } else {
+    //         const props = renderer.properties.get(
+    //           this.context.lodIndices.value,
+    //         );
+    //         const glTexture = (props as { __webglTexture: WebGLTexture })
+    //           .__webglTexture;
+    //         if (!glTexture) {
+    //           throw new Error("lodIndices texture not found");
+    //         }
+    //         renderer.state.activeTexture(gl.TEXTURE0);
+    //         renderer.state.bindTexture(gl.TEXTURE_2D, glTexture);
+    //         const height = Math.ceil(indices.length / 16384);
+    //         gl.texSubImage2D(
+    //           gl.TEXTURE_2D,
+    //           0,
+    //           0,
+    //           0,
+    //           4096,
+    //           height,
+    //           gl.RGBA_INTEGER,
+    //           gl.UNSIGNED_INT,
+    //           this.lodState.indices,
+    //         );
+    //         renderer.state.bindTexture(gl.TEXTURE_2D, null);
+    //       }
+    //     });
+    //   }
+    // }
 
     if (updated) {
       this.updateVersion();
@@ -659,7 +842,7 @@ export class SplatMesh extends SplatGenerator {
       | DynoUsampler2DArray<"sh1", THREE.DataArrayTexture>
       | undefined;
     if (!sh1Texture) {
-      let sh1 = this.packedSplats.extra.sh1 as Uint32Array;
+      let sh1 = this.packedSplats.extra.sh1 as Uint32Array<ArrayBuffer>;
       const { width, height, depth, maxSplats } = getTextureSize(
         sh1.length / 2,
       );
@@ -691,7 +874,7 @@ export class SplatMesh extends SplatGenerator {
       | DynoUsampler2DArray<"sh2", THREE.DataArrayTexture>
       | undefined;
     if (!sh2Texture) {
-      let sh2 = this.packedSplats.extra.sh2 as Uint32Array;
+      let sh2 = this.packedSplats.extra.sh2 as Uint32Array<ArrayBuffer>;
       const { width, height, depth, maxSplats } = getTextureSize(
         sh2.length / 4,
       );
@@ -723,7 +906,7 @@ export class SplatMesh extends SplatGenerator {
       | DynoUsampler2DArray<"sh3", THREE.DataArrayTexture>
       | undefined;
     if (!sh3Texture) {
-      let sh3 = this.packedSplats.extra.sh3 as Uint32Array;
+      let sh3 = this.packedSplats.extra.sh3 as Uint32Array<ArrayBuffer>;
       const { width, height, depth, maxSplats } = getTextureSize(
         sh3.length / 4,
       );
@@ -749,6 +932,30 @@ export class SplatMesh extends SplatGenerator {
 
     return { sh1Texture, sh2Texture, sh3Texture };
   }
+
+  // ensureLodIndices() {
+  //   if (this.lodState) {
+  //     const maxSplats = Math.min(this.packedSplats.numSplats, 16 * 1048576);
+  //     const numSplats = Math.max(16384, Math.min(this.lodMaxSplats, maxSplats));
+  //     const rows = Math.ceil(numSplats / 16384);
+  //     const capacity = rows * 16384;
+
+  //     if (capacity > this.lodState.indices.length) {
+  //       this.context.lodIndices.value.dispose();
+
+  //       this.lodState.indices = new Uint32Array(capacity);
+  //       this.context.lodIndices.value = new THREE.DataTexture(
+  //         this.lodState.indices,
+  //         4096,
+  //         rows,
+  //         THREE.RGBAIntegerFormat,
+  //         THREE.UnsignedIntType,
+  //       );
+  //       this.context.lodIndices.value.internalFormat = "RGBA32UI";
+  //       this.context.lodIndices.value.needsUpdate = true;
+  //     }
+  //   }
+  // }
 }
 
 const defineEvaluateSH1 = unindent(`
@@ -937,8 +1144,34 @@ export function evaluateSH3(
   }).outputs.rgb;
 }
 
+function readLodIndices(
+  lodIndices: DynoUsampler2D<"lodIndices", THREE.DataTexture>,
+  index: DynoVal<"int">,
+) {
+  return dyno({
+    inTypes: {
+      lodIndices: "usampler2D",
+      index: "int",
+    },
+    outTypes: {
+      index: "int",
+    },
+    inputs: {
+      lodIndices,
+      index,
+    },
+    statements: ({ inputs, outputs }) =>
+      unindentLines(`
+        ivec2 lodIndexCoord = ivec2((${inputs.index} >> 2) & 4095, ${inputs.index} >> 14);
+        uint splatIndex = texelFetch(${inputs.lodIndices}, lodIndexCoord, 0)[${inputs.index} & 3];
+        ${outputs.index} = int(splatIndex);
+      `),
+  }).outputs.index;
+}
+
 const EMPTY_GEOMETRY = new THREE.BufferGeometry();
 const EMPTY_MATERIAL = new THREE.ShaderMaterial();
+const EMPTY_LOD_INDICES = new THREE.DataTexture();
 
 // Creates an empty mesh to hook into Three.js rendering.
 // This is used to detect if a SparkRenderer is present in the scene.

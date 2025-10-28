@@ -507,7 +507,6 @@ impl SplatReceiver for GsplatArray {
     fn init_splats(&mut self, init: &SplatInit) -> anyhow::Result<()> {
         self.max_sh_degree = init.max_sh_degree;
         self.splats.resize_with(init.num_splats, Default::default);
-        self.extras.clear();
 
         self.sh1.clear();
         if self.max_sh_degree >= 1 {
@@ -522,6 +521,11 @@ impl SplatReceiver for GsplatArray {
         self.sh3.clear();
         if self.max_sh_degree >= 3 {
             self.sh3.resize_with(init.num_splats, Default::default);
+        }
+
+        self.extras.clear();
+        if init.lod_tree {
+            self.extras.resize_with(init.num_splats, Default::default);
         }
 
         Ok(())
@@ -551,6 +555,11 @@ impl SplatReceiver for GsplatArray {
         }
 
         self.set_sh(base, count, batch.sh1, batch.sh2, batch.sh3);
+
+        if !batch.child_count.is_empty() && !batch.child_start.is_empty() {
+            self.set_child_start(base, count, batch.child_start);
+            self.set_child_count(base, count, batch.child_count);
+        }
     }
 
     fn set_center(&mut self, base: usize, count: usize, center: &[f32]) {
@@ -631,6 +640,35 @@ impl SplatReceiver for GsplatArray {
             for i in 0..count {
                 let i21 = i * 21;
                 self.sh3[base + i].set_from_array(&sh3[i21..i21 + 21]);
+            }
+        }
+    }
+
+    fn set_child_count(&mut self, base: usize, count: usize, child_count: &[u16]) {
+        for i in 0..count {
+            let mut child_index = *self.extras[base + i].children.get(0).unwrap_or(&0);
+            self.extras[base + i].children.clear();
+            self.extras[base + i].children.resize_with(child_count[i] as usize, || {
+                let child = child_index;
+                child_index += 1;
+                child
+            });
+        }
+    }
+
+    fn set_child_start(&mut self, base: usize, count: usize, child_start: &[usize]) {
+        for i in 0..count {
+            let mut child_index = child_start[i];
+            if child_index == 0 {
+                self.extras[base + i].children.clear();
+            } else {
+                let count = self.extras[base + i].children.len().max(1);
+                self.extras[base + i].children.clear();
+                self.extras[base + i].children.resize_with(count, || {
+                    let child = child_index;
+                    child_index += 1;
+                    child
+                });
             }
         }
     }
