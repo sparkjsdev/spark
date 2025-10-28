@@ -302,7 +302,9 @@ export class SparkViewpoint {
     while (update ?? true) {
       // Force an update, possibly with origin centered at this camera
       // to yield the best quality output.
-      const originToWorld = forceOrigin ? this.viewToWorld : undefined;
+      const originToWorld = forceOrigin
+        ? this.viewToWorld
+        : this.spark.matrixWorld;
       const updated = this.spark.updateInternal({ scene, originToWorld });
       if (updated) {
         break;
@@ -312,10 +314,11 @@ export class SparkViewpoint {
     }
 
     const accumulator = this.spark.active;
-    if (accumulator !== this.display?.accumulator) {
-      this.spark.active.refCount += 1;
-    }
+    // Hold reference to accumulator while sorting
+    accumulator.refCount += 1;
     await this.sortUpdate({ accumulator, viewToWorld: this.viewToWorld });
+    // Release accumulator reference
+    this.spark.releaseAccumulator(accumulator);
   }
 
   // Render out the viewpoint to the view target RGBA buffer.
