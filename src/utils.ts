@@ -270,7 +270,7 @@ export function getArrayBuffers(ctx: unknown): Transferable[] {
         buffers.push(obj);
       } else if (ArrayBuffer.isView(obj)) {
         // Handles TypedArrays and DataView
-        buffers.push(obj.buffer);
+        buffers.push(obj.buffer as ArrayBuffer);
       } else if (Array.isArray(obj)) {
         obj.forEach(traverse);
       } else {
@@ -387,6 +387,7 @@ export function setPackedSplat(
     rgbMax?: number;
     lnScaleMin?: number;
     lnScaleMax?: number;
+    lodOpacity?: boolean;
   },
 ) {
   const rgbMin = encoding?.rgbMin ?? 0.0;
@@ -395,7 +396,7 @@ export function setPackedSplat(
   const uR = floatToUint8((r - rgbMin) / rgbRange);
   const uG = floatToUint8((g - rgbMin) / rgbRange);
   const uB = floatToUint8((b - rgbMin) / rgbRange);
-  const uA = floatToUint8(opacity);
+  const uA = floatToUint8(encoding?.lodOpacity ? 0.5 * opacity : opacity);
 
   // Alternate internal encodings commented out below.
   const uQuat = encodeQuatOctXy88R8(
@@ -568,6 +569,7 @@ export function setPackedSplatRgba(
   encoding?: {
     rgbMin?: number;
     rgbMax?: number;
+    lodOpacity?: boolean;
   },
 ) {
   const rgbMin = encoding?.rgbMin ?? 0.0;
@@ -576,7 +578,7 @@ export function setPackedSplatRgba(
   const uR = floatToUint8((r - rgbMin) / rgbRange);
   const uG = floatToUint8((g - rgbMin) / rgbRange);
   const uB = floatToUint8((b - rgbMin) / rgbRange);
-  const uA = floatToUint8(a);
+  const uA = floatToUint8(encoding?.lodOpacity ? 0.5 * a : a);
   const i4 = index * 4;
   packedSplats[i4] = uR | (uG << 8) | (uB << 16) | (uA << 24);
 }
@@ -639,6 +641,7 @@ export function unpackSplat(
     rgbMax?: number;
     lnScaleMin?: number;
     lnScaleMax?: number;
+    lodOpacity?: boolean;
   },
 ): {
   center: THREE.Vector3;
@@ -665,6 +668,9 @@ export function unpackSplat(
     rgbMin + (((word0 >>> 16) & 0xff) / 255) * rgbRange,
   );
   result.opacity = ((word0 >>> 24) & 0xff) / 255;
+  if (encoding?.lodOpacity) {
+    result.opacity = 2.0 * result.opacity;
+  }
   result.center.set(
     fromHalf(word1 & 0xffff),
     fromHalf((word1 >>> 16) & 0xffff),
@@ -753,6 +759,10 @@ export function isAndroid(): boolean {
 // Heuristic function to determine if we are running on an Oculus Quest device.
 export function isOculus(): boolean {
   return /Oculus/.test(navigator.userAgent);
+}
+
+export function isIos(): boolean {
+  return /iPhone|iPad/.test(navigator.userAgent);
 }
 
 // Take an array of RGBA8 encoded pixels and flip them vertically in-place.
@@ -1354,7 +1364,7 @@ export class GunzipReader {
   constructor({
     fileBytes,
     chunkBytes = 64 * 1024,
-  }: { fileBytes: Uint8Array; chunkBytes?: number }) {
+  }: { fileBytes: Uint8Array<ArrayBuffer>; chunkBytes?: number }) {
     this.fileBytes = fileBytes;
     this.chunkBytes = chunkBytes;
     this.chunks = [];

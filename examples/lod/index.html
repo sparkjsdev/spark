@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark • LoD</title>
+  <style>
+    body {
+      margin: 0;
+      background-color: black;
+    }
+    canvas {
+      touch-action: none;
+    }
+  </style>
+</head>
+
+<body>
+  <!-- <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.179.0/three.module.js",
+        "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.20.0/+esm",
+        "@sparkjsdev/spark": "/dist/spark.module.js"
+      }
+    }
+  </script> -->
+  <!-- <script src="https://cdn.jsdelivr.net/npm/stats.js@0.17.0/build/stats.min.js"></script> -->
+  <script src="/node_modules/stats.js/build/stats.min.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/examples/js/vendor/three/build/three.module.js",
+        "lil-gui": "/examples/js/vendor/lil-gui/dist/lil-gui.esm.js",
+        "@sparkjsdev/spark": "/dist/spark.module.js"
+      }
+    }
+  </script>
+  <!-- "@sparkjsdev/spark": "./spark.module.js" -->
+  <script type="module">
+    import * as THREE from "three";
+    import { testSpark, NewSparkRenderer, NewerSparkRenderer, SparkRenderer, SplatMesh, PackedSplats, SplatLoader, SparkControls, isMobile } from "@sparkjsdev/spark";
+    import GUI from "lil-gui";
+    import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+
+    const RENDER_TIMEOUT_MS = 2000;
+
+    async function main() {
+      // await testSpark();
+      // return;
+
+      const scene = new THREE.Scene();
+      // scene.background = new THREE.Color("#caf0fe");
+      const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 1000);
+      // camera.position.set(0, 1, 0);
+      // camera.position.set(0, 0.2, 0.5);
+      // camera.position.set(5.92, 13.68, 3.17);
+      // camera.quaternion.set(-0.315, 0.178, 0.060, 0.930).normalize();
+      const renderer = new THREE.WebGLRenderer();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+
+      window.addEventListener('resize', onWindowResize, false);
+      function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+
+      const spark = new NewerSparkRenderer({
+        renderer,
+        // sort32: false,
+        // sort360: true,
+        // sortRadial: true,
+        // preUpdate: false,
+        // minSortIntervalMs: 200,
+      });
+      scene.add(spark);
+      console.log("SPARK: ", spark);
+
+      const stats = new Stats();
+      document.body.appendChild(stats.dom);
+
+      const controls = new SparkControls({ canvas: renderer.domElement });
+      controls.pointerControls.pointerRollScale = 0.0;
+      controls.pointerControls.reverseRotate = isMobile();
+      controls.pointerControls.rotateSpeed *= 2.0;
+      // controls.pointerControls.slideSpeed *= 1.5;
+      // controls.fpsMovement.moveSpeed *= 1.5;
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "\\") {
+          console.log("Camera position: ", camera.position, "quaternion: ", camera.quaternion);
+        }
+      });
+
+      const gui = new GUI({ title: "Settings" });
+
+      const renderEnable = { value: true };
+      let lastMoved = Number.POSITIVE_INFINITY;
+      gui.add(renderEnable, "value").name("Enable render").listen().onChange((enabled) => {
+        if (enabled) {
+          lastMoved = performance.now();
+        }
+      });
+
+      gui.add(controls.pointerControls, "reverseRotate").name("Reverse controls").listen();
+
+      // const url = await getAssetFileURL("valley.spz");
+      // const url = "./cottage-lod-1.5-nf.spz";
+      // const url = "./sunken-15m-lod-1.5-nf.spz";
+      // const url = "./grace-interior-12m-lod.spz";
+      // const url = "./grace-5m-lod-1.5-nf.spz";
+      // const url = "./hobbiton-1.5-nf.spz";
+      // const url = "./coit-40m-2.0-nf.spz"
+      // const url = "./fb1e7c73-a486-4247-adde-0bff9865d16d_ceramic-lod.spz";
+      const url = "./cozy_cottage-lod.spz";
+      // const url = "./Untitled.ply";
+      // const url = "./sunken-lod.spz";
+      // const url = "./garden.ply";
+      // const url = "./cottage-lod-1.5-nf.spz";
+      // const url = "./cozy_cottage.spz";
+      // const url = "./combined_sparse_5m_cropped.ply";
+      // const url = "./grace-5m-lod.spz";
+      // const url = "./garden-lod.spz";
+      // const url = "./Untitled-lod.spz";
+      // const url = "./Hobbiton5-lod.spz";
+      // const loader = new SplatLoader();
+      // const packedSplats = await loader.loadAsync(url, (event) => {
+      //   if (event.type === "progress") {
+      //     console.log("Progress: ", event.loaded, event.total);
+      //   }
+      // });
+      const splats = new SplatMesh({
+        url,
+        lod: true,
+        // onProgress: (event) => {
+        //   if (event.type === "progress") {
+        //     console.log("Progress: ", event.loaded, event.total);
+        //   }
+        // },
+      });
+      // splats.lodMaxSplats = 1 * 1048576 - 2048;
+      // splats.foveate = 0.5;
+      // splats.quaternion.set(1, 0, 0, 0);
+      // splats.position.set(0, 0, -1);
+      // await splats.initialized;
+      scene.add(splats);
+
+      const toad = new PackedSplats({ url: "./toad-lod.spz", lod: true });
+      // await toad.initialized;
+      const butterfly = new PackedSplats({ url: "./butterfly-ai-lod.spz", lod: true });
+      // await butterfly.initialized;
+
+      for (let i = 0; i < 2; ++i) {
+        const packedSplats = ((i % 2) == 0) ? toad : butterfly;
+        const splats = new SplatMesh({ packedSplats });
+        splats.quaternion.set(1, 0, 0, 0);
+        // splats.position.set(Math.random() * 1 - 0.5, 0, Math.random() * 1 - 0.5);
+        splats.position.set(0.3 * (i % 3) - 1, 0, 0.3 * Math.floor(i / 3) - 2);
+        splats.scale.setScalar(0.3);
+        scene.add(splats);
+      }
+
+      let lastTime = 0;
+      let lastPos = new THREE.Vector3().setScalar(Number.NEGATIVE_INFINITY);
+      let lastDir = new THREE.Vector3();
+
+      renderer.setAnimationLoop(function animate(time) {
+        stats.begin();
+        const deltaTime = time - (lastTime || time);
+        lastTime = time;
+
+        controls.update(camera);
+
+        const now = performance.now();
+        const dir = camera.getWorldDirection(new THREE.Vector3());
+        if ((camera.position.distanceTo(lastPos) > 0.001) || (dir.dot(lastDir) < 0.999)) {
+          lastMoved = now;
+          renderEnable.value = true;
+          lastPos.copy(camera.position);
+          lastDir.copy(dir);
+        }
+        if ((now - lastMoved) > RENDER_TIMEOUT_MS) {
+          renderEnable.value = false;
+        }
+
+        if (renderEnable.value) {
+          // splats.rotation.y += deltaTime * 0.0005;
+          renderer.render(scene, camera);
+        }
+
+        stats.end();
+      });
+    }
+
+    main().catch(console.error);
+  </script>
+</body>
+
+</html>

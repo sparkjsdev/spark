@@ -120,6 +120,7 @@ impl<T: SplatReceiver> PlyDecoder<T> {
         self.splats.init_splats(&SplatInit {
             num_splats,
             max_sh_degree: state.max_sh_degree,
+            lod_tree: false,
         })?;
         
         self.buffer.drain(..header_end + TERMINATOR.len());
@@ -191,6 +192,7 @@ impl<T: SplatReceiver> PlyDecoder<T> {
                 sh1: &state.out_sh1[..(if state.max_sh_degree >= 1 { count * 9 } else { 0 })],
                 sh2: &state.out_sh2[..(if state.max_sh_degree >= 2 { count * 15 } else { 0 })],
                 sh3: &state.out_sh3[..(if state.max_sh_degree >= 3 { count * 21 } else { 0 })],
+                ..Default::default()
             });
 
             state.next_splat += count;

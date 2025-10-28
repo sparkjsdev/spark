@@ -170,6 +170,7 @@ export interface FrameUpdateContext {
   camera?: THREE.Camera;
   renderSize?: THREE.Vector2;
   globalEdits: SplatEdit[];
+  lodIndices?: { numSplats: number; texture: THREE.DataTexture };
 }
 
 export class SplatGenerator extends THREE.Object3D {

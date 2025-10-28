@@ -4,6 +4,7 @@ import { getArrayBuffers } from "./utils";
 type PromiseRecord = {
   resolve: (value: unknown) => void;
   reject: (reason?: unknown) => void;
+  onStatus?: (data: unknown) => void;
 };
 
 export class NewSplatWorker {
@@ -18,14 +19,17 @@ export class NewSplatWorker {
   }
 
   onMessage(event: MessageEvent) {
-    const { id, result, error } = event.data;
+    const { id, result, error, status } = event.data;
     const promise = this.messages[id];
     if (promise) {
-      delete this.messages[id];
       if (error) {
+        delete this.messages[id];
         promise.reject(error);
-      } else {
+      } else if (result) {
+        delete this.messages[id];
         promise.resolve(result);
+      } else if (status) {
+        promise.onStatus?.(status);
       }
     }
   }
@@ -60,10 +64,14 @@ export class NewSplatWorker {
     }
   }
 
-  async call(name: string, args: unknown): Promise<unknown> {
+  async call(
+    name: string,
+    args: unknown,
+    options: { onStatus?: (data: unknown) => void } = {},
+  ): Promise<unknown> {
     const id = ++NewSplatWorker.currentId;
     const promise = new Promise((resolve, reject) => {
-      this.messages[id] = { resolve, reject };
+      this.messages[id] = { resolve, reject, onStatus: options.onStatus };
     });
     this.worker.postMessage(
       { id, name, args },

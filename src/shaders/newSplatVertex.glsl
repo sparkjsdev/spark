@@ -11,8 +11,8 @@ out vec3 vNdc;
 flat out uint vSplatIndex;
 flat out float adjustedStdDev;
 
+uniform uint numSplats;
 uniform vec2 renderSize;
-// uniform uint numSplats;
 uniform vec4 renderToViewQuat;
 uniform vec3 renderToViewPos;
 uniform float maxStdDev;
@@ -30,7 +30,7 @@ uniform float apertureAngle;
 uniform float clipXY;
 uniform float focalAdjustment;
 
-uniform usampler2DArray ordering;
+uniform usampler2D ordering;
 uniform usampler2DArray packedSplats;
 uniform usampler2DArray packedSplats2;
 
@@ -42,8 +42,8 @@ void main() {
     //     return;
     // }
 
-    ivec3 orderingCoord = splatTexCoord(int(gl_InstanceID));
-    uint splatIndex = texelFetch(ordering, orderingCoord, 0).r;
+    ivec2 orderingCoord = ivec2((gl_InstanceID >> 2) & 4095, gl_InstanceID >> 14);
+    uint splatIndex = texelFetch(ordering, orderingCoord, 0)[gl_InstanceID & 3];
     if (splatIndex == 0xffffffffu) {
         // Special value reserved for "no splat"
         return;
@@ -67,7 +67,7 @@ void main() {
     }
 
     adjustedStdDev = maxStdDev;
-    // rgba.a *= 2.0;
+    rgba.a *= 2.0;
     if (rgba.a > 1.0) {
         // Stretch 1..2 to 1..5
         rgba.a = min(rgba.a * 4.0 - 3.0, 5.0);

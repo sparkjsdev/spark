@@ -27,10 +27,10 @@ pub fn get_splat_tex_size(num_splats: usize) -> (usize, usize, usize, usize) {
 }
 
 pub fn encode_packed_splat(packed: &mut [u32], center: [f32; 3], opacity: f32, rgb: [f32; 3], scale: [f32; 3], quat_xyzw: [f32; 4], encoding: &SplatEncoding) {
-    let SplatEncoding { rgb_min, rgb_max, opacity_min, opacity_max, ln_scale_min, ln_scale_max, .. } = encoding;
+    let SplatEncoding { rgb_min, rgb_max, ln_scale_min, ln_scale_max, lod_opacity, .. } = encoding;
 
     let u_rgb = rgb.map(|x| float_to_u8(x, *rgb_min, *rgb_max));
-    let u_a = float_to_u8(opacity, *opacity_min, *opacity_max);
+    let u_a = float_to_u8(opacity, 0.0, if *lod_opacity { 2.0 } else { 1.0 });
     let u_center = center.map(|x| f16::from_f32(x).to_bits());
     let u_quat = encode_quat_oct888(quat_xyzw);
     let u_scale = scale.map(|x| encode_scale8(x, *ln_scale_min, *ln_scale_max));
@@ -47,10 +47,23 @@ pub fn encode_packed_splat_center(packed: &mut [u32], center: [f32; 3]) {
     packed[2] = (packed[2] & 0xffff0000) | (u_center[2] as u32);
 }
 
+pub fn decode_packed_splat_center(packed: &[u32]) -> [f32; 3] {
+    let x = f16::from_bits((packed[1] & 0xffff) as u16).to_f32();
+    let y = f16::from_bits((packed[1] >> 16) as u16).to_f32();
+    let z = f16::from_bits((packed[2] & 0xffff) as u16).to_f32();
+    [x, y, z]
+}
+
 pub fn encode_packed_splat_opacity(packed: &mut [u32], opacity: f32, encoding: &SplatEncoding) {
-    let SplatEncoding { opacity_min, opacity_max, .. } = encoding;
-    let u_a = float_to_u8(opacity, *opacity_min, *opacity_max);
+    let SplatEncoding { lod_opacity, .. } = encoding;
+    let u_a = float_to_u8(opacity, 0.0, if *lod_opacity { 2.0 } else { 1.0 });
     packed[0] = (packed[0] & 0x00ffffff) | ((u_a as u32) << 24);
+}
+
+pub fn decode_packed_splat_opacity(packed: &[u32], encoding: &SplatEncoding) -> f32 {
+    let SplatEncoding { lod_opacity, .. } = encoding;
+    let u_a = (packed[0] >> 24) & 0xff;
+    u8_to_float(u_a as u8, 0.0, if *lod_opacity { 2.0 } else { 1.0 })
 }
 
 pub fn encode_packed_splat_rgb(packed: &mut [u32], rgb: [f32; 3], encoding: &SplatEncoding) {
@@ -60,9 +73,9 @@ pub fn encode_packed_splat_rgb(packed: &mut [u32], rgb: [f32; 3], encoding: &Spl
 }
 
 pub fn encode_packed_splat_rgba(packed: &mut [u32], rgba: [f32; 4], encoding: &SplatEncoding) {
-    let SplatEncoding { rgb_min, rgb_max, opacity_min, opacity_max, .. } = encoding;
+    let SplatEncoding { rgb_min, rgb_max, lod_opacity, .. } = encoding;
     let u_rgb = rgba.map(|x| float_to_u8(x, *rgb_min, *rgb_max));
-    let u_a = float_to_u8(rgba[3], *opacity_min, *opacity_max);
+    let u_a = float_to_u8(rgba[3], 0.0, if *lod_opacity { 2.0 } else { 1.0 });
     packed[0] = (u_rgb[0] as u32) | ((u_rgb[1] as u32) << 8) | ((u_rgb[2] as u32) << 16) | ((u_a as u32) << 24);
 }
 
@@ -72,14 +85,29 @@ pub fn encode_packed_splat_scale(packed: &mut [u32], scale: [f32; 3], encoding: 
     packed[3] = (packed[3] & 0xff000000) | (u_scale[0] as u32) | ((u_scale[1] as u32) << 8) | ((u_scale[2] as u32) << 16);
 }
 
+pub fn decode_packed_splat_scale(packed: &[u32], encoding: &SplatEncoding) -> [f32; 3] {
+    let SplatEncoding { ln_scale_min, ln_scale_max, .. } = encoding;
+    let u_scale = [packed[3] as u8, (packed[3] >> 8) as u8, (packed[3] >> 16) as u8];
+    u_scale.map(|x| decode_scale8(x, *ln_scale_min, *ln_scale_max))
+}
+
 pub fn encode_packed_splat_quat(packed: &mut [u32], quat_xyzw: [f32; 4]) {
     let u_quat = encode_quat_oct888(quat_xyzw);
     packed[2] = (packed[2] & 0x0000ffff) | ((u_quat[0] as u32) << 16) | ((u_quat[1] as u32) << 24);
     packed[3] = (packed[3] & 0x00ffffff) | (u_quat[2] as u32) << 24;
 }
 
+pub fn decode_packed_splat_quat(packed: &[u32]) -> [f32; 4] {
+    let u_quat = [packed[2] as u8, (packed[2] >> 8) as u8, (packed[2] >> 16) as u8];
+    decode_quat_oct888(u_quat)
+}
+
 pub fn float_to_u8(value: f32, min: f32, max: f32) -> u8 {
     ((value - min) / (max - min) * 255.0).clamp(0.0, 255.0).round() as u8
+}
+
+pub fn u8_to_float(value: u8, min: f32, max: f32) -> f32 {
+    min + (value as f32 / 255.0) * (max - min)
 }
 
 pub fn encode_quat_oct888(quat_xyzw: [f32; 4]) -> [u8; 3] {

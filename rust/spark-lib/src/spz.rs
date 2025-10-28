@@ -5,14 +5,15 @@ use miniz_oxide::inflate::core::inflate_flags::{
 };
 use miniz_oxide::inflate::TINFLStatus;
 
-use crate::decoder::{ChunkReceiver, SplatInit, SplatReceiver};
+use crate::decoder::{ChunkReceiver, SplatGetter, SplatInit, SplatReceiver};
+use miniz_oxide::deflate::compress_to_vec;
 
 pub const SPZ_MAGIC: u32 = 0x5053474e; // "NGSP"
 const SH_C0: f32 = 0.28209479177387814;
 const MAX_SPLAT_CHUNK: usize = 16384;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum SpzDecoderStage { Centers, Alphas, Rgb, Scales, Quats, Sh, Done }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SpzDecoderStage { Centers, Alphas, Rgb, Scales, Quats, Sh, Extension, ChildCounts, ChildStarts, Done }
 
 pub struct SpzDecoder<T: SplatReceiver> {
     splats: T,
@@ -60,17 +61,17 @@ impl<T: SplatReceiver> SpzDecoder<T> {
             return Ok(());
         }
 
-        let magic = read_u32_le(&self.buffer, 0);
+        let magic = read_u32_le(&self.buffer[0..4]);
         if magic != SPZ_MAGIC {
             return Err(anyhow::anyhow!("Invalid SPZ magic: 0x{:08x}", magic));
         }
 
-        let version = read_u32_le(&self.buffer, 4);
+        let version = read_u32_le(&self.buffer[4..8]);
         if version < 1 || version > 3 {
             return Err(anyhow::anyhow!("Unsupported SPZ version: {}", version));
         }
 
-        let num_splats = read_u32_le(&self.buffer, 8) as usize;
+        let num_splats = read_u32_le(&self.buffer[8..12]) as usize;
         let sh_degree = self.buffer[12] as usize;
         let fractional_bits = self.buffer[13];
         let flags = self.buffer[14];
@@ -80,7 +81,11 @@ impl<T: SplatReceiver> SpzDecoder<T> {
         let state = SpzDecoderState::new(version as u32, num_splats, sh_degree, fractional_bits, flags)?;
         self.state = Some(state);
 
-        self.splats.init_splats(&SplatInit { num_splats, max_sh_degree: sh_degree })?;
+        self.splats.init_splats(&SplatInit {
+            num_splats,
+            max_sh_degree: sh_degree,
+            lod_tree: flags & 0x80 != 0,
+        })?;
 
         Ok(())
     }
@@ -286,11 +291,65 @@ impl<T: SplatReceiver> SpzDecoder<T> {
                 }
                 SpzDecoderStage::Sh => {
                     if state.sh_degree == 0 {
-                        state.stage = SpzDecoderStage::Done;
-                        return Ok(());
+                        state.stage = SpzDecoderStage::Extension;
+                    } else {
+                        let sh_components = 3 * match state.sh_degree { 1 => 3, 2 => 8, 3 => 15, _ => 0 };
+                        let bytes_per_item = sh_components;
+                        let avail_items = self.buffer.len() / bytes_per_item;
+                        let remaining = state.num_splats - state.next_splat;
+                        if (avail_items < remaining) && (avail_items < MAX_SPLAT_CHUNK) {
+                            return Ok(());
+                        }
+                        let chunk = remaining.min(avail_items).min(MAX_SPLAT_CHUNK);
+
+                        let total_floats = chunk * sh_components;
+                        if state.output.len() < total_floats {
+                            state.output.resize(total_floats, 0.0);
+                        }
+
+                        for i in 0..chunk {
+                            let base = i * sh_components;
+                            for k in 0..9 {
+                                state.output[9 * i + k] = (self.buffer[base + k] as f32 - 128.0) / 128.0;
+                            }
+                            if state.sh_degree >= 2 {
+                                for k in 0..15 {
+                                    state.output[9 * chunk + 15 * i + k] = (self.buffer[base + 9 + k] as f32 - 128.0) / 128.0;
+                                }
+                            }
+                            if state.sh_degree >= 3 {
+                                for k in 0..21 {
+                                    state.output[24 * chunk + 21 * i + k] = (self.buffer[base + 24 + k] as f32 - 128.0) / 128.0;
+                                }
+                            }
+                        }
+
+                        self.splats.set_sh(
+                            state.next_splat,
+                            chunk,
+                            &state.output[0..chunk * 9],
+                            if state.sh_degree >= 2 { &state.output[9 * chunk..24 * chunk] } else { &[][..] },
+                            if state.sh_degree >= 3 { &state.output[24 * chunk..total_floats] } else { &[][..] },
+                        );
+
+                        self.buffer.drain(..chunk * bytes_per_item);
+                        state.next_splat += chunk;
+                        if state.next_splat == state.num_splats {
+                            state.next_splat = 0;
+                            state.stage = SpzDecoderStage::Extension;
+                        }
                     }
-                    let sh_components = 3 * match state.sh_degree { 1 => 3, 2 => 8, 3 => 15, _ => 0 };
-                    let bytes_per_item = sh_components;
+                }
+                SpzDecoderStage::Extension => {
+                    if (state.flags & 0x80) == 0 {
+                        // No LoD extension
+                        state.stage = SpzDecoderStage::Done;
+                    } else {
+                        state.stage = SpzDecoderStage::ChildCounts;
+                    }
+                }
+                SpzDecoderStage::ChildCounts => {
+                    let bytes_per_item = 2;
                     let avail_items = self.buffer.len() / bytes_per_item;
                     let remaining = state.num_splats - state.next_splat;
                     if (avail_items < remaining) && (avail_items < MAX_SPLAT_CHUNK) {
@@ -298,35 +357,41 @@ impl<T: SplatReceiver> SpzDecoder<T> {
                     }
                     let chunk = remaining.min(avail_items).min(MAX_SPLAT_CHUNK);
 
-                    let total_floats = chunk * sh_components;
-                    if state.output.len() < total_floats {
-                        state.output.resize(total_floats, 0.0);
+                    if state.output_u16.len() < chunk {
+                        state.output_u16.resize(chunk, 0);
                     }
-
                     for i in 0..chunk {
-                        let base = i * sh_components;
-                        for k in 0..9 {
-                            state.output[9 * i + k] = (self.buffer[base + k] as f32 - 128.0) / 128.0;
-                        }
-                        if state.sh_degree >= 2 {
-                            for k in 0..15 {
-                                state.output[9 * chunk + 15 * i + k] = (self.buffer[base + 9 + k] as f32 - 128.0) / 128.0;
-                            }
-                        }
-                        if state.sh_degree >= 3 {
-                            for k in 0..21 {
-                                state.output[24 * chunk + 21 * i + k] = (self.buffer[base + 24 + k] as f32 - 128.0) / 128.0;
-                            }
-                        }
+                        let base = i * 2;
+                        state.output_u16[i] = read_u16_le(&self.buffer[base..base + 2]);
                     }
 
-                    self.splats.set_sh(
-                        state.next_splat,
-                        chunk,
-                        &state.output[0..chunk * 9],
-                        if state.sh_degree >= 2 { &state.output[9 * chunk..24 * chunk] } else { &[][..] },
-                        if state.sh_degree >= 3 { &state.output[24 * chunk..total_floats] } else { &[][..] },
-                    );
+                    self.splats.set_child_count(state.next_splat, chunk, &state.output_u16);
+
+                    self.buffer.drain(..chunk * bytes_per_item);
+                    state.next_splat += chunk;
+                    if state.next_splat == state.num_splats {
+                        state.next_splat = 0;
+                        state.stage = SpzDecoderStage::ChildStarts;
+                    }
+                }
+                SpzDecoderStage::ChildStarts => {
+                    let bytes_per_item = 4;
+                    let avail_items = self.buffer.len() / bytes_per_item;
+                    let remaining = state.num_splats - state.next_splat;
+                    if (avail_items < remaining) && (avail_items < MAX_SPLAT_CHUNK) {
+                        return Ok(());
+                    }
+                    let chunk = remaining.min(avail_items).min(MAX_SPLAT_CHUNK);
+
+                    if state.output_usize.len() < chunk {
+                        state.output_usize.resize(chunk, 0);
+                    }
+                    for i in 0..chunk {
+                        let base = i * 4;
+                        state.output_usize[i] = read_u32_le(&self.buffer[base..base + 4]) as usize;
+                    }
+
+                    self.splats.set_child_start(state.next_splat, chunk, &state.output_usize);
 
                     self.buffer.drain(..chunk * bytes_per_item);
                     state.next_splat += chunk;
@@ -482,7 +547,7 @@ impl<T: SplatReceiver> ChunkReceiver for SpzDecoder<T> {
         if !self.done { return Err(anyhow::anyhow!("Truncated gzip stream")); }
         if let Some(state) = &self.state {
             if state.stage != SpzDecoderStage::Done && !(state.sh_degree == 0 && state.stage == SpzDecoderStage::Sh) {
-                return Err(anyhow::anyhow!("Incomplete SPZ stream"));
+                return Err(anyhow::anyhow!("Incomplete SPZ stream: stage = {:?}, sh_degree = {}", state.stage, state.sh_degree));
             }
         } else {
             return Err(anyhow::anyhow!("Invalid SPZ stream"));
@@ -497,10 +562,13 @@ struct SpzDecoderState {
     num_splats: usize,
     sh_degree: usize,
     fractional_bits: u8,
-    _flags: u8,
+    #[allow(unused)]
+    flags: u8,
     next_splat: usize,
     stage: SpzDecoderStage,
     output: Vec<f32>,
+    output_u16: Vec<u16>,
+    output_usize: Vec<usize>,
 }
 
 impl SpzDecoderState {
@@ -511,17 +579,19 @@ impl SpzDecoderState {
             num_splats,
             sh_degree,
             fractional_bits,
-            _flags: flags,
+            flags,
             next_splat: 0,
             stage: SpzDecoderStage::Centers,
             output: Vec::with_capacity(MAX_SPLAT_CHUNK * 4),
+            output_u16: Vec::new(),
+            output_usize: Vec::new(),
         })
     }
 }
 
 #[inline]
-fn read_u32_le(buf: &[u8], off: usize) -> u32 {
-    u32::from_le_bytes([buf[off], buf[off + 1], buf[off + 2], buf[off + 3]])
+fn read_u32_le(buf: &[u8]) -> u32 {
+    u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]])
 }
 
 #[inline]
@@ -534,4 +604,334 @@ fn read_f16_le(two: &[u8]) -> f32 {
 fn read_i24_le(three: &[u8]) -> i32 {
     let v = (three[2] as u32) << 16 | (three[1] as u32) << 8 | (three[0] as u32);
     if (v & 0x0080_0000) != 0 { (v | 0xFF00_0000) as i32 } else { v as i32 }
+}
+
+#[inline]
+fn read_u16_le(two: &[u8]) -> u16 {
+    u16::from_le_bytes([two[0], two[1]])
+}
+
+
+pub struct SpzEncoder<T: SplatGetter> {
+    getter: T,
+    max_sh_out: Option<u8>,
+}
+
+impl<T: SplatGetter> SpzEncoder<T> {
+    pub fn new(getter: T) -> Self { Self { getter, max_sh_out: None } }
+
+    pub fn with_max_sh(mut self, max_sh: u8) -> Self {
+        self.max_sh_out = Some(max_sh.min(3));
+        self
+    }
+
+    pub fn encode(mut self) -> anyhow::Result<Vec<u8>> {
+        let num_splats = self.getter.num_splats();
+        let sh_src = self.getter.max_sh_degree() as u8;
+        let sh_degree = self.max_sh_out.map(|m| m.min(sh_src)).unwrap_or(sh_src);
+        let fractional_bits = self.getter.fractional_bits();
+        let flag_antialias = self.getter.flag_antialias();
+        let lod_tree = self.getter.has_lod_tree();
+        let version = 2u32; // fixed for now; encoder writes v2 layout by default
+
+        // Header (16 bytes)
+        let mut raw = Vec::with_capacity(16 + num_splats * 64); // rough guess
+        write_u32_le(&mut raw, SPZ_MAGIC);
+        write_u32_le(&mut raw, version);
+        write_u32_le(&mut raw, num_splats as u32);
+        raw.push(sh_degree);
+        raw.push(fractional_bits);
+        let mut flags: u8 = 0;
+        if flag_antialias { flags |= 0x01; }
+        if lod_tree { flags |= 0x80; }
+        raw.push(flags);
+        raw.push(0); // reserved
+
+        // Temporary buffers
+        let mut f32_buf: Vec<f32> = Vec::new();
+        let mut f32_buf_b: Vec<f32> = Vec::new();
+        let mut u16_buf: Vec<u16> = Vec::new();
+        let mut u32_buf: Vec<u32> = Vec::new();
+
+        // Centers (i24 xyz)
+        {
+            let frac = (1_i32) << fractional_bits;
+            let clamp_min = -0x7fffff; // keep consistent with prior writer
+            let clamp_max = 0x7fffff;
+            let mut base = 0usize;
+            loop {
+                if base >= num_splats { break; }
+                let count = (num_splats - base).min(MAX_SPLAT_CHUNK);
+                ensure_len(&mut f32_buf, count * 3);
+                self.getter.get_center(base, count, &mut f32_buf[..count * 3]);
+                for i in 0..count {
+                    let ix = (f32_buf[i * 3] * frac as f32).round() as i32;
+                    let iy = (f32_buf[i * 3 + 1] * frac as f32).round() as i32;
+                    let iz = (f32_buf[i * 3 + 2] * frac as f32).round() as i32;
+                    write_i24_le(&mut raw, ix.clamp(clamp_min, clamp_max));
+                    write_i24_le(&mut raw, iy.clamp(clamp_min, clamp_max));
+                    write_i24_le(&mut raw, iz.clamp(clamp_min, clamp_max));
+                }
+                base += count;
+            }
+        }
+
+        // Alphas (u8)
+        {
+            let mut base = 0usize;
+            loop {
+                if base >= num_splats { break; }
+                let count = (num_splats - base).min(MAX_SPLAT_CHUNK);
+                ensure_len(&mut f32_buf, count);
+                self.getter.get_opacity(base, count, &mut f32_buf[..count]);
+                for i in 0..count {
+                    let opacity = f32_buf[i];
+                    let opacity = if lod_tree {
+                        if opacity <= 1.0 {
+                            opacity
+                        } else {
+                            (0.25 * (opacity - 1.0) + 1.0).clamp(1.0, 2.0)
+                        }
+                    } else {
+                        opacity
+                    };
+                    let a = (opacity * 255.0).clamp(0.0, 255.0).round();
+                    raw.push(a as u8);
+                }
+                base += count;
+            }
+        }
+
+        // RGB (3*u8)
+        {
+            let mut base = 0usize;
+            loop {
+                if base >= num_splats { break; }
+                let count = (num_splats - base).min(MAX_SPLAT_CHUNK);
+                ensure_len(&mut f32_buf, count * 3);
+                self.getter.get_rgb(base, count, &mut f32_buf[..count * 3]);
+                for i in 0..count {
+                    let r = scale_rgb_byte(f32_buf[i * 3]);
+                    let g = scale_rgb_byte(f32_buf[i * 3 + 1]);
+                    let b = scale_rgb_byte(f32_buf[i * 3 + 2]);
+                    raw.extend_from_slice(&[r, g, b]);
+                }
+                base += count;
+            }
+        }
+
+        // Scales (3*u8 of ln scale)
+        {
+            let mut base = 0usize;
+            loop {
+                if base >= num_splats { break; }
+                let count = (num_splats - base).min(MAX_SPLAT_CHUNK);
+                ensure_len(&mut f32_buf, count * 3);
+                self.getter.get_scale(base, count, &mut f32_buf[..count * 3]);
+                for i in 0..count {
+                    let sx = ((f32_buf[i * 3].ln() + 10.0) * 16.0).round().clamp(0.0, 255.0) as u8;
+                    let sy = ((f32_buf[i * 3 + 1].ln() + 10.0) * 16.0).round().clamp(0.0, 255.0) as u8;
+                    let sz = ((f32_buf[i * 3 + 2].ln() + 10.0) * 16.0).round().clamp(0.0, 255.0) as u8;
+                    raw.extend_from_slice(&[sx, sy, sz]);
+                }
+                base += count;
+            }
+        }
+
+        // Quats
+        if version == 3 {
+            // Smallest-three (4 bytes)
+            let mut base = 0usize;
+            loop {
+                if base >= num_splats { break; }
+                let count = (num_splats - base).min(MAX_SPLAT_CHUNK);
+                ensure_len(&mut f32_buf, count * 4);
+                self.getter.get_quat(base, count, &mut f32_buf[..count * 4]);
+                for i in 0..count {
+                    let q = &mut f32_buf[i * 4..i * 4 + 4];
+                    // ensure unit and handle sign: choose largest index
+                    let (idx, _) = (0..4)
+                        .map(|k| (k, q[k].abs()))
+                        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+                        .unwrap();
+                    let mut comp: u32 = (idx as u32) << 30;
+                    let max_value: f32 = std::f32::consts::FRAC_1_SQRT_2;
+                    let value_mask: u32 = (1u32 << 9) - 1;
+                    for k in (0..4).rev() {
+                        if k == idx { continue; }
+                        let mut v = q[k].clamp(-max_value, max_value);
+                        let sign = v.is_sign_negative();
+                        if sign { v = -v; }
+                        let mag = (v / max_value * value_mask as f32).round().clamp(0.0, value_mask as f32) as u32;
+                        comp = (comp << 10) | ((sign as u32) << 9) | mag;
+                    }
+                    raw.extend_from_slice(&comp.to_le_bytes());
+                }
+                base += count;
+            }
+        } else {
+            // 3 bytes (xyz), fold sign of w
+            let mut base = 0usize;
+            loop {
+                if base >= num_splats { break; }
+                let count = (num_splats - base).min(MAX_SPLAT_CHUNK);
+                ensure_len(&mut f32_buf, count * 4);
+                self.getter.get_quat(base, count, &mut f32_buf[..count * 4]);
+                for i in 0..count {
+                    let qx = f32_buf[i * 4];
+                    let qy = f32_buf[i * 4 + 1];
+                    let qz = f32_buf[i * 4 + 2];
+                    let qw = f32_buf[i * 4 + 3];
+                    let neg = qw < 0.0;
+                    let x = (((if neg { -qx } else { qx }) + 1.0) * 127.5).round().clamp(0.0, 255.0) as u8;
+                    let y = (((if neg { -qy } else { qy }) + 1.0) * 127.5).round().clamp(0.0, 255.0) as u8;
+                    let z = (((if neg { -qz } else { qz }) + 1.0) * 127.5).round().clamp(0.0, 255.0) as u8;
+                    raw.extend_from_slice(&[x, y, z]);
+                }
+                base += count;
+            }
+        }
+
+        // SH blocks
+        if sh_degree > 0 {
+            let mut base = 0usize;
+            loop {
+                if base >= num_splats { break; }
+                let count = (num_splats - base).min(MAX_SPLAT_CHUNK);
+                let bands = match sh_degree { 1 => 3, 2 => 8, 3 => 15, _ => 0 } as usize;
+                ensure_len(&mut f32_buf, count * 9);
+                ensure_len(&mut f32_buf_b, count * 15);
+                if sh_degree >= 1 {
+                    self.getter.get_sh1(base, count, &mut f32_buf[..count * 9]);
+                }
+                if sh_degree >= 2 {
+                    self.getter.get_sh2(base, count, &mut f32_buf_b[..count * 15]);
+                }
+                // write degree1 (9)
+                if sh_degree >= 1 {
+                    for i in 0..count {
+                        for k in 0..9 {
+                            raw.push(quantize_sh_byte(f32_buf[i * 9 + k], 5));
+                        }
+                    }
+                }
+                // degree2 (15)
+                if sh_degree >= 2 {
+                    for i in 0..count {
+                        for k in 0..15 { raw.push(quantize_sh_byte(f32_buf_b[i * 15 + k], 4)); }
+                    }
+                }
+                // degree3 (21)
+                if sh_degree >= 3 {
+                    ensure_len(&mut f32_buf, count * 21);
+                    self.getter.get_sh3(base, count, &mut f32_buf[..count * 21]);
+                    for i in 0..count {
+                        for k in 0..21 { raw.push(quantize_sh_byte(f32_buf[i * 21 + k], 4)); }
+                    }
+                }
+                let _ = bands; // silence warning in case of degree 0
+                base += count;
+            }
+        }
+
+        // LoD extension
+        if lod_tree {
+            let mut base = 0usize;
+            loop {
+                if base >= num_splats { break; }
+                let count = (num_splats - base).min(MAX_SPLAT_CHUNK);
+                ensure_len_u16(&mut u16_buf, count);
+                self.getter.get_child_count(base, count, &mut u16_buf[..count]);
+                for i in 0..count { raw.extend_from_slice(&u16_buf[i].to_le_bytes()); }
+                base += count;
+            }
+
+            let mut base = 0usize;
+            loop {
+                if base >= num_splats { break; }
+                let count = (num_splats - base).min(MAX_SPLAT_CHUNK);
+                ensure_len_u32(&mut u32_buf, count);
+                self.getter.get_child_start(base, count, &mut u32_buf[..count]);
+                for i in 0..count { raw.extend_from_slice(&u32_buf[i].to_le_bytes()); }
+                base += count;
+            }
+        }
+
+        // gzip: header + deflate(raw) + trailer(CRC32, ISIZE)
+        let mut out = Vec::with_capacity(raw.len() / 2);
+        // Header (no extra fields)
+        out.extend_from_slice(&[0x1f, 0x8b, 0x08, 0x00, 0, 0, 0, 0, 0x00, 0xff]);
+        // Deflate payload (level 6 as a balanced default)
+        let deflated = compress_to_vec(&raw, 6);
+        out.extend_from_slice(&deflated);
+        // Trailer
+        let crc = crc32(&raw);
+        out.extend_from_slice(&crc.to_le_bytes());
+        out.extend_from_slice(&(raw.len() as u32).to_le_bytes());
+        Ok(out)
+    }
+}
+
+#[inline]
+fn ensure_len(buf: &mut Vec<f32>, len: usize) {
+    if buf.len() < len { buf.resize(len, 0.0); }
+}
+
+#[inline]
+fn ensure_len_u16(buf: &mut Vec<u16>, len: usize) {
+    if buf.len() < len { buf.resize(len, 0); }
+}
+
+#[inline]
+fn ensure_len_u32(buf: &mut Vec<u32>, len: usize) {
+    if buf.len() < len { buf.resize(len, 0); }
+}
+
+#[inline]
+fn write_u32_le(out: &mut Vec<u8>, v: u32) { out.extend_from_slice(&v.to_le_bytes()); }
+
+#[inline]
+fn write_i24_le(out: &mut Vec<u8>, v: i32) {
+    out.push((v & 0xFF) as u8);
+    out.push(((v >> 8) & 0xFF) as u8);
+    out.push(((v >> 16) & 0xFF) as u8);
+}
+
+#[inline]
+fn scale_rgb_byte(r: f32) -> u8 {
+    let v = ((r - 0.5) / (SH_C0 / 0.15) + 0.5) * 255.0;
+    v.round().clamp(0.0, 255.0) as u8
+}
+
+#[inline]
+fn quantize_sh_byte(sh: f32, bits: u8) -> u8 {
+    let mut value = (sh * 128.0).round() + 128.0;
+    let bucket = 1u32 << (8 - bits);
+    value = ((value + (bucket as f32) / 2.0) / bucket as f32).floor() * bucket as f32;
+    value.round().clamp(0.0, 255.0) as u8
+}
+
+// Simple CRC32 (IEEE, polynomial 0xEDB88320)
+#[inline]
+fn crc32(bytes: &[u8]) -> u32 {
+    const POLY: u32 = 0xEDB88320;
+    static mut TABLE: [u32; 256] = [0; 256];
+    static INIT: std::sync::Once = std::sync::Once::new();
+    unsafe {
+        INIT.call_once(|| {
+            for i in 0..256u32 {
+                let mut c = i;
+                for _ in 0..8 {
+                    c = if c & 1 != 0 { (c >> 1) ^ POLY } else { c >> 1 };
+                }
+                TABLE[i as usize] = c;
+            }
+        });
+        let mut crc: u32 = 0xFFFF_FFFF;
+        for &b in bytes {
+            let idx = ((crc ^ b as u32) & 0xFF) as usize;
+            crc = (crc >> 8) ^ TABLE[idx];
+        }
+        !crc
+    }
 }

@@ -1,8 +1,8 @@
 import * as THREE from "three";
-import { Readback, dyno } from ".";
+import { type PackedSplats, Readback, SplatMesh, dyno } from ".";
 import { NewSplatAccumulator } from "./NewSplatAccumulator";
 import { NewSplatGeometry } from "./NewSplatGeometry";
-import { workerPool } from "./NewSplatWorker";
+import { NewSplatWorker, workerPool } from "./NewSplatWorker";
 import { SPLAT_TEX_HEIGHT, SPLAT_TEX_WIDTH } from "./defines";
 import { getShaders } from "./shaders";
 import { withWorker } from "./splatWorker";
@@ -140,7 +140,7 @@ export interface NewSparkRendererOptions {
    * using the SparkRenderer.renderEnvMap() utility function.
    * @default false
    */
-  sort360?: boolean;
+  // sort360?: boolean;
   /*
    * Set this to true to sort with float32 precision with two-pass sort.
    * @default true
@@ -179,7 +179,7 @@ export class NewSparkRenderer extends THREE.Mesh {
 
   sortRadial?: boolean;
   depthBias?: number;
-  sort360: boolean;
+  // sort360: boolean;
   sort32: boolean;
   minSortIntervalMs?: number;
 
@@ -191,6 +191,9 @@ export class NewSparkRenderer extends THREE.Mesh {
   sortDirty = false;
   sorting = false;
   lastSort?: number;
+  sortCenter = new THREE.Vector3().setScalar(Number.NEGATIVE_INFINITY);
+  sortDir = new THREE.Vector3().setScalar(0);
+  sortTimeoutId = -1;
   readback32 = new Uint32Array(0);
   readback16 = new Uint16Array(0);
 
@@ -201,11 +204,22 @@ export class NewSparkRenderer extends THREE.Mesh {
   display: NewSplatAccumulator;
   current: NewSplatAccumulator;
   accumulators: NewSplatAccumulator[] = [];
-  // pending: NewSplatAccumulator;
-  // pending2: NewSplatAccumulator;
 
-  flushAfterGenerate = true;
-  flushAfterRead = true;
+  worker: NewSplatWorker | null = null;
+  lodIds: Map<PackedSplats, { lodId: number; lastTouched: number }> = new Map();
+  lodInitQueue: PackedSplats[] = [];
+  lodInstances: Map<
+    SplatMesh,
+    { numSplats: number; indices: Uint32Array; texture: THREE.DataTexture }
+  > = new Map();
+  lodCenter = new THREE.Vector3().setScalar(Number.NEGATIVE_INFINITY);
+  lodOrient = new THREE.Quaternion().set(0, 0, 0, 0);
+
+  flushAfterGenerate = false;
+  flushAfterRead = false;
+  readPause = 1;
+  sortPause = 0;
+  sortDelay = 0;
 
   constructor(options: NewSparkRendererOptions) {
     const uniforms = NewSparkRenderer.makeUniforms();
@@ -253,7 +267,7 @@ export class NewSparkRenderer extends THREE.Mesh {
 
     this.sortRadial = options.sortRadial;
     this.depthBias = options.depthBias;
-    this.sort360 = options.sort360 ?? false;
+    // this.sort360 = options.sort360 ?? false;
     this.sort32 = options.sort32 ?? false;
     this.minSortIntervalMs = options.minSortIntervalMs ?? 1;
 
@@ -270,14 +284,6 @@ export class NewSparkRenderer extends THREE.Mesh {
   }
 
   static makeUniforms() {
-    const mappingTexture = new THREE.DataTexture(
-      new Uint32Array(4),
-      1,
-      1,
-      THREE.RGBAIntegerFormat,
-      THREE.UnsignedIntType,
-    );
-    mappingTexture.needsUpdate = true;
     const uniforms = {
       // Size of render viewport in pixels
       renderSize: { value: new THREE.Vector2() },
@@ -398,7 +404,6 @@ export class NewSparkRenderer extends THREE.Mesh {
 
     if (this.autoUpdate && isNewFrame) {
       const preUpdate = this.preUpdate && !renderer.xr.isPresenting;
-      // const preUpdate = true;
       if (preUpdate) {
         this.update({ renderer, scene, camera });
       } else {
@@ -412,8 +417,49 @@ export class NewSparkRenderer extends THREE.Mesh {
     }
   }
 
-  maxHistory = 300;
-  history: string[] = [];
+  // maybeUpdateSort(camera: THREE.Camera) {
+  //   if (this.sortCamera) {
+  //     this.sortCamera.copy(camera);
+  //   } else {
+  //     const center = camera.getWorldPosition(new THREE.Vector3());
+  //     const dir = camera.getWorldDirection(new THREE.Vector3());
+  //     const needsSort = (center.distanceTo(this.sortCenter) > 0.001) ||
+  //       (dir.dot(this.sortDir) < (this.sortRadial ? 0.99 : 0.999));
+  //     if (needsSort) {
+  //       this.sortCamera = camera.clone();
+  //     }
+  //   }
+
+  //   this.maybeTriggerSort()
+  // }
+
+  // maybeTriggerSort() {
+  //   if (this.sortCamera && !this.sorting) {
+  //     const nextSort = (this.minSortIntervalMs && this.lastSort) ?
+  //       (this.lastSort + this.minSortIntervalMs - performance.now()) : 0;
+
+  //     if (this.sortTimeoutId !== -1) {
+  //       clearTimeout(this.sortTimeoutId);
+  //       this.sortTimeoutId = -1;
+  //     }
+
+  //     if (nextSort <= 0) {
+  //       this.runSort();
+  //     } else {
+  //       this.sortTimeoutId = setTimeout(() => {
+  //         this.sortTimeoutId = -1;
+  //         this.runSort();
+  //       }, nextSort);
+  //     }
+  //   }
+  // }
+
+  // runSort() {
+  //   this.sorting = true;
+
+  //   //
+  //   this.maybeTriggerSort();
+  // }
 
   update({
     renderer,
@@ -425,19 +471,10 @@ export class NewSparkRenderer extends THREE.Mesh {
     camera: THREE.Camera;
   }) {
     this.updateMatrixWorld();
+    camera.updateMatrixWorld();
+
     const renderSize = this.uniforms.renderSize.value;
     const time = this.time ?? this.clock.getElapsedTime();
-    if (this.history.length < this.maxHistory) {
-      this.history.push(`frame#=${Math.round(time * 240.0)} | time=${time}`);
-    }
-
-    if (this.maxHistory > 0 && this.history.length >= this.maxHistory) {
-      // console.log("HISTORY:");
-      // for (const line of this.history) {
-      //   console.log(line);
-      // }
-      this.maxHistory = 0;
-    }
 
     const now = performance.now();
     let sortOkay = true;
@@ -456,33 +493,34 @@ export class NewSparkRenderer extends THREE.Mesh {
       throw new Error("No next accumulator");
     }
 
-    // let numAccumulators;
-    // numAccumulators = new Set([this.display, this.current, next, ...this.accumulators]).size;
-    // console.log(`A: ${numAccumulators} | ${this.accumulators.length}`);
+    const { sameMapping, mappingVersion, visibleGenerators, generate } =
+      next.prepareGenerate({
+        renderer,
+        scene,
+        time,
+        camera,
+        sortRadial: this.sortRadial ?? true,
+        renderSize,
+        previous: this.current,
+        lodInstances: this.lodInstances,
+      });
 
-    const { sameMapping, mappingVersion, generate } = next.prepareGenerate({
-      renderer,
-      scene,
-      time,
-      camera,
-      sortRadial: this.sortRadial ?? true,
-      renderSize,
-      previous: this.current,
-    });
+    const center = camera.getWorldPosition(new THREE.Vector3());
+    const dir = camera.getWorldDirection(new THREE.Vector3());
+    const viewChanged =
+      center.distanceTo(this.sortCenter) > 0.001 ||
+      dir.dot(this.sortDir) < (this.sortRadial ? 0.99 : 0.999);
 
-    if (this.history.length < this.maxHistory) {
-      this.history.push(
-        `sorting=${this.sorting} | sameMapping=${sameMapping} | frame#=${Math.round(this.display.time * 240.0)} | display=${this.display.numSplats}, ${this.display.time} | current=${this.current.numSplats}, ${this.current.time} | next=${next.numSplats}, ${next.time}`,
-      );
-    }
-
-    const needSort = mappingVersion > this.current.mappingVersion;
+    const needSort =
+      viewChanged || mappingVersion > this.current.mappingVersion;
     if (needSort && !sortOkay) {
+      console.log(`push: needSort && !sortOkay, viewChanged=${viewChanged}`);
       this.accumulators.push(next);
       return false;
     }
 
     if (this.sorting && needSort) {
+      console.log(`push: sorting && needsSort, viewChanged=${viewChanged}`);
       // Don't create yet another new mapping while we're processing one
       this.accumulators.push(next);
       return false;
@@ -500,30 +538,18 @@ export class NewSparkRenderer extends THREE.Mesh {
     if (this.sorting) {
       // sameMapping == true by above check
       if (this.display.mappingVersion === next.mappingVersion) {
-        // numAccumulators = new Set([this.display, this.current, next, ...this.accumulators]).size;
-        // console.log(`B0: ${numAccumulators} | ${this.accumulators.length}`);
-
         this.accumulators.push(this.display);
         this.display = next;
-
-        // numAccumulators = new Set([this.display, this.current, next, ...this.accumulators]).size;
-        // console.log(`B1: ${numAccumulators} | ${this.accumulators.length}`);
       } else {
         this.accumulators.push(this.current);
       }
 
-      // numAccumulators = new Set([this.display, this.current, next, ...this.accumulators]).size;
-      // console.log(`B2: ${numAccumulators} | ${this.accumulators.length}`);
       this.current = next;
-
-      // numAccumulators = new Set([this.display, this.current, next, ...this.accumulators]).size;
-      // console.log(`B3: ${numAccumulators} | ${this.accumulators.length}`);
     } else {
-      // numAccumulators = new Set([this.display, this.current, next, ...this.accumulators]).size;
-      // console.log(`C0: ${numAccumulators} | ${this.accumulators.length}`);
       if (sameMapping) {
         if (this.current === this.display) {
           this.display = next;
+          console.log("Short circuit sameMapping");
         } else {
         }
       } else {
@@ -531,42 +557,238 @@ export class NewSparkRenderer extends THREE.Mesh {
           console.log("!sameMapping && sortOkay");
         }
       }
-      this.accumulators.push(this.current);
+      if (this.display !== this.current) {
+        this.accumulators.push(this.current);
+      }
       this.current = next;
 
-      // numAccumulators = new Set([this.display, this.current, next, ...this.accumulators]).size;
-      // console.log(`C1: ${numAccumulators} | ${this.accumulators.length}`);
-
       if (sortOkay) {
-        // numAccumulators = new Set([this.display, this.current, next, ...this.accumulators]).size;
-        // console.log(`D0: ${numAccumulators} | ${this.accumulators.length}`);
-
         // Don't await this
         this.driveSort(sortOkay, sameMapping);
-        // numAccumulators = new Set([this.display, this.current, next, ...this.accumulators]).size;
-        // console.log(`D1: ${numAccumulators} | ${this.accumulators.length}`);
       } else {
         if (this.display !== next) {
           this.accumulators.push(next);
         }
-        // numAccumulators = new Set([this.display, this.current, next, ...this.accumulators]).size;
-        // console.log(`E: ${numAccumulators} | ${this.accumulators.length}`);
       }
     }
 
-    // numAccumulators = new Set([this.display, this.current, next, ...this.accumulators]).size;
-    // console.log(`E: ${numAccumulators} | ${this.accumulators.length}`);
     if (this.accumulators.length > 2) {
       throw new Error("Accumulators length > 2");
+    }
+
+    const lodMeshes = visibleGenerators.filter((generator) => {
+      return (
+        generator instanceof SplatMesh && generator.packedSplats.extra.lodTree
+      );
+    }) as SplatMesh[];
+
+    const lodSplats = lodMeshes.reduce((splats, mesh) => {
+      splats.add(mesh.packedSplats);
+      return splats;
+    }, new Set<PackedSplats>());
+
+    this.lodInitQueue = [];
+
+    for (const splats of lodSplats) {
+      const record = this.lodIds.get(splats);
+      if (record) {
+        record.lastTouched = now;
+      } else {
+        this.lodInitQueue.push(splats);
+      }
+    }
+
+    if (lodMeshes.length > 0) {
+      if (!this.worker) {
+        this.worker = new NewSplatWorker();
+      }
+      this.worker?.tryExclusive(async (worker) => {
+        const now = performance.now();
+        if (this.lodInitQueue.length > 0) {
+          const splats = this.lodInitQueue.shift() as PackedSplats;
+          const { lodId } = (await worker.call("initLodTree", {
+            numSplats: splats.numSplats,
+            lodTree: (splats.extra.lodTree as Uint32Array).slice(),
+          })) as { lodId: number };
+          console.log("initLodTree", lodId);
+          this.lodIds.set(splats, { lodId, lastTouched: now });
+          return;
+        }
+
+        const viewQuaternion = new THREE.Quaternion();
+        const viewPosition = new THREE.Vector3();
+        next.viewToWorld.decompose(
+          viewPosition,
+          viewQuaternion,
+          new THREE.Vector3(),
+        );
+        const lodViewChanged =
+          viewPosition.distanceTo(this.lodCenter) > 0.001 ||
+          viewQuaternion.dot(this.lodOrient) < 0.999;
+
+        if (lodViewChanged) {
+          const maxSplats = 1500000;
+          let pixelScaleLimit = 0.0;
+          let fovXdegrees = Number.POSITIVE_INFINITY;
+          let fovYdegrees = Number.POSITIVE_INFINITY;
+          if (camera instanceof THREE.PerspectiveCamera) {
+            const tanYfov = Math.tan((0.5 * camera.fov * Math.PI) / 180);
+            pixelScaleLimit = (2.0 * tanYfov) / renderSize.y;
+            fovYdegrees = camera.fov;
+            fovXdegrees =
+              ((Math.atan(tanYfov * camera.aspect) * 180) / Math.PI) * 2.0;
+          }
+
+          const uuidToMesh: Record<string, SplatMesh> = {};
+
+          const instances = lodMeshes.reduce(
+            (instances, mesh) => {
+              const record = this.lodIds.get(mesh.packedSplats);
+              if (record) {
+                const viewToObject = new THREE.Matrix4();
+                viewToObject.compose(
+                  mesh.context.viewToObject.translate.value,
+                  mesh.context.viewToObject.rotate.value,
+                  new THREE.Vector3().setScalar(
+                    mesh.context.viewToObject.scale.value,
+                  ),
+                );
+                uuidToMesh[mesh.uuid] = mesh;
+                instances[mesh.uuid] = {
+                  lodId: record.lodId,
+                  viewToObjectCols: viewToObject.elements,
+                };
+              }
+              return instances;
+            },
+            {} as Record<string, { lodId: number; viewToObjectCols: number[] }>,
+          );
+
+          const traverseStart = performance.now();
+          const { keyIndices } = (await worker.call("traverseLodTrees", {
+            maxSplats,
+            pixelScaleLimit,
+            fovXdegrees,
+            fovYdegrees,
+            outsideFoveate: 1.0,
+            behindFoveate: 0.5,
+            instances,
+          })) as {
+            keyIndices: Record<
+              string,
+              { numSplats: number; indices: Uint32Array }
+            >;
+          };
+          const debugSplats = Object.keys(keyIndices).map((uuid) => [
+            uuid,
+            keyIndices[uuid].numSplats,
+          ]);
+          console.log(
+            "traverseLodTrees result",
+            performance.now() - traverseStart,
+            JSON.stringify(debugSplats),
+          );
+
+          for (const [uuid, countIndices] of Object.entries(keyIndices)) {
+            const { numSplats, indices } = countIndices;
+            const mesh = uuidToMesh[uuid];
+            let instance = this.lodInstances.get(mesh);
+            if (instance) {
+              if (indices.length > instance.indices.length) {
+                instance.texture.dispose();
+                instance = undefined;
+              }
+            }
+
+            const rows = Math.ceil(indices.length / 16384);
+            if (!instance) {
+              const capacity = rows * 16384;
+              if (indices.length !== capacity) {
+                throw new Error("Indices length != capacity");
+              }
+              const texture = new THREE.DataTexture(
+                indices,
+                4096,
+                rows,
+                THREE.RGBAIntegerFormat,
+                THREE.UnsignedIntType,
+              );
+              texture.internalFormat = "RGBA32UI";
+              texture.needsUpdate = true;
+              instance = { numSplats, indices, texture };
+              this.lodInstances.set(mesh, instance);
+            } else {
+              instance.numSplats = numSplats;
+              // TODO: Do we need to do this since we are directly uploading from indices?
+              instance.indices.set(indices);
+
+              const gl = renderer.getContext() as WebGL2RenderingContext;
+              if (!renderer.properties.has(instance.texture)) {
+                instance.texture.needsUpdate = true;
+              } else {
+                const props = renderer.properties.get(instance.texture) as {
+                  __webglTexture: WebGLTexture;
+                };
+                const glTexture = props.__webglTexture;
+                if (!glTexture) {
+                  throw new Error("lodIndices texture not found");
+                }
+                renderer.state.activeTexture(gl.TEXTURE0);
+                renderer.state.bindTexture(gl.TEXTURE_2D, glTexture);
+                gl.texSubImage2D(
+                  gl.TEXTURE_2D,
+                  0,
+                  0,
+                  0,
+                  4096,
+                  rows,
+                  gl.RGBA_INTEGER,
+                  gl.UNSIGNED_INT,
+                  indices,
+                );
+                renderer.state.bindTexture(gl.TEXTURE_2D, null);
+              }
+            }
+            mesh.updateMappingVersion();
+          }
+
+          this.lodCenter.copy(viewPosition);
+          this.lodOrient.copy(viewQuaternion);
+
+          return;
+        }
+
+        let oldest = null;
+        for (const [splats, record] of this.lodIds.entries()) {
+          if (
+            oldest == null ||
+            record.lastTouched < (this.lodIds.get(oldest)?.lastTouched ?? 0)
+          ) {
+            oldest = splats;
+          }
+        }
+        if (oldest != null) {
+          const { lastTouched, lodId } = this.lodIds.get(oldest) ?? {
+            lastTouched: 0,
+            lodId: 0,
+          };
+          if (lastTouched < now - 3000) {
+            for (const [mesh, indices] of this.lodInstances.entries()) {
+              if (mesh.packedSplats === oldest) {
+                indices.texture.dispose();
+                this.lodInstances.delete(mesh);
+              }
+            }
+            await worker.call("disposeLodTree", { lodId });
+          }
+        }
+      });
     }
 
     return true;
   }
 
   async driveSort(sortOkay: boolean, sameMapping: boolean) {
-    this.history.push(
-      `driveSort with current=${this.current.numSplats}, ${this.current.time}`,
-    );
     if (this.sorting || !this.sortDirty) {
       return;
     }
@@ -574,10 +796,13 @@ export class NewSparkRenderer extends THREE.Mesh {
       this.sorting = true;
       this.sortDirty = false;
       this.lastSort = performance.now();
-      // console.log("minSortIntervalMs:", this.minSortIntervalMs, "driveSort lastSort:", this.lastSort, "sortOkay:", sortOkay, "sameMapping:", sameMapping);
-      // let numAccumulators = new Set([this.display, this.current, ...this.accumulators]).size;
-      // console.log(`D0: ${numAccumulators} | ${this.accumulators.length} | display=${this.display.mappingVersion} | current=${this.current.mappingVersion}`);
-      // await new Promise((resolve) => setTimeout(resolve, 1));
+
+      this.sortCenter.copy(this.current.viewCenterUniform.value);
+      this.sortDir.copy(this.current.viewDirUniform.value);
+
+      if (this.readPause > 0) {
+        await new Promise((resolve) => setTimeout(resolve, this.readPause));
+      }
 
       const sort32 = true;
 
@@ -626,51 +851,16 @@ export class NewSparkRenderer extends THREE.Mesh {
       //   readback,
       // });
 
-      // await new Promise((resolve) => setTimeout(resolve, 1));
-
       await this.readbackDepth({
         renderer: this.renderer,
         numSplats,
         readback,
       });
-      console.log(
-        "readback:",
-        [...readback.slice(0, 5)]
-          .map((u) => {
-            const value = uintBitsToFloat(u);
-            return `${value.toFixed(4)}`;
-          })
-          .join(" | "),
-      );
-      // console.log("readback:", readback.slice(0, 5).join(" | "));
 
-      // if ((performance.now() % 2000) < 1000) {
-      //   const floats = new Float32Array(readback.buffer);
-      //   for (let i = 0; i < numSplats; ++i) {
-      //     floats[i] = 1000.0 - floats[i];
-      //   }
-      // }
+      if (this.sortPause > 0) {
+        await new Promise((resolve) => setTimeout(resolve, this.sortPause));
+      }
 
-      // numAccumulators = new Set([this.display, this.current, ...this.accumulators]).size;
-      // console.log(`D1: ${numAccumulators} | ${this.accumulators.length} | display=${this.display.mappingVersion} | current=${this.current.mappingVersion}`);
-
-      // await new Promise((resolve) => setTimeout(resolve, 1));
-
-      this.history.push(
-        `Sort worker maxSplats=${maxSplats} | numSplats=${numSplats}`,
-      );
-      // const result = (await withWorker(async (worker) => {
-      //   return worker.call(sort32 ? "sort32Splats" : "sortDoubleSplats", {
-      //     maxSplats,
-      //     numSplats,
-      //     readback,
-      //     ordering,
-      //   });
-      // })) as {
-      //   readback: Uint16Array<ArrayBuffer> | Uint32Array<ArrayBuffer>;
-      //   ordering: Uint32Array<ArrayBuffer>;
-      //   activeSplats: number;
-      // };
       const result = (await workerPool.withWorker(async (worker) => {
         return worker.call(sort32 ? "sortSplats32" : "sortSplats16", {
           numSplats,
@@ -682,17 +872,10 @@ export class NewSparkRenderer extends THREE.Mesh {
         ordering: Uint32Array<ArrayBuffer>;
         activeSplats: number;
       };
-      this.history.push(
-        `Sort worker result activeSplats=${result.activeSplats}`,
-      );
 
-      // numAccumulators = new Set([this.display, this.current, ...this.accumulators]).size;
-      // console.log(`D2: ${numAccumulators} | ${this.accumulators.length} | display=${this.display.mappingVersion} | current=${this.current.mappingVersion}`);
-
-      // await new Promise((resolve) => setTimeout(resolve, 1));
-
-      // // Add delay to sort
-      // await new Promise(resolve => setTimeout(resolve, 1000));
+      if (this.sortDelay > 0) {
+        await new Promise((resolve) => setTimeout(resolve, this.sortDelay));
+      }
 
       if (sort32) {
         this.readback32 = result.readback as Uint32Array<ArrayBuffer>;
@@ -704,10 +887,9 @@ export class NewSparkRenderer extends THREE.Mesh {
 
       if (this.orderingTexture) {
         const { width, height, depth } = this.orderingTexture.image;
-        if (width * height * depth !== result.ordering.length) {
-          // this.history.push(`Disposing orderingTexture: ${width}x${height}x${depth} !== ${result.ordering.length}`);
+        if (width * height * depth < result.ordering.length) {
           console.log(
-            `Disposing orderingTexture: ${width}x${height}x${depth} !== ${result.ordering.length}`,
+            `Disposing orderingTexture: ${width}x${height}x${depth} < ${result.ordering.length}`,
           );
           this.orderingTexture.dispose();
           this.orderingTexture = null;
@@ -715,7 +897,6 @@ export class NewSparkRenderer extends THREE.Mesh {
       }
       if (!this.orderingTexture) {
         const { width, height, depth } = getTextureSize(result.ordering.length);
-        // this.history.push(`Allocating orderingTexture: ${width}x${height}x${depth}`);
         console.log(`Allocating orderingTexture: ${width}x${height}x${depth}`);
         this.orderingTexture = new THREE.DataArrayTexture(
           result.ordering,
@@ -730,30 +911,28 @@ export class NewSparkRenderer extends THREE.Mesh {
         this.orderingTexture.image.data = result.ordering;
         const { width, height } = this.orderingTexture.image;
         const numLayers = Math.ceil(result.activeSplats / (width * height));
-        this.history.push(`Adding ${numLayers} layers to orderingTexture`);
         for (let layer = 0; layer < numLayers; ++layer) {
           this.orderingTexture.addLayerUpdate(layer);
-          // console.log(`Adding layer ${layer} to orderingTexture`);
         }
       }
       this.orderingTexture.needsUpdate = true;
 
+      // this.sortCenter.copy(this.current.viewCenterUniform.value);
+      // this.sortDir.copy(this.current.viewDirUniform.value);
+
       if (this.current.mappingVersion > this.display.mappingVersion) {
         this.accumulators.push(this.display);
         this.display = this.current;
+        console.log("Updating display to current");
+      } else {
+        console.log("NOT updating display to current");
       }
-
-      // numAccumulators = new Set([this.display, this.current, ...this.accumulators]).size;
-      // console.log(`D3: ${numAccumulators} | ${this.accumulators.length} | display=${this.display.mappingVersion} | current=${this.current.mappingVersion}`);
     } finally {
       this.sorting = false;
     }
-
-    // // Don't await this
-    // this.driveSort();
   }
 
-  readbackDepth({
+  async readbackDepth({
     renderer,
     numSplats,
     readback,
@@ -778,11 +957,11 @@ export class NewSparkRenderer extends THREE.Mesh {
     }
     const readbackUint8 = new Uint8Array(readback.buffer);
 
+    const renderState = this.saveRenderState(renderer);
+
     // We can only read back one 2D array layer of pixels at a time,
     // so loop through them, initiate the readback, and collect the
     // completion promises.
-
-    const renderState = this.saveRenderState(this.renderer);
 
     const layerSize = SPLAT_TEX_WIDTH * SPLAT_TEX_HEIGHT;
     let baseIndex = 0;
@@ -796,18 +975,15 @@ export class NewSparkRenderer extends THREE.Mesh {
         Math.ceil((numSplats - layerBase) / SPLAT_TEX_WIDTH),
       );
 
-      renderer.setRenderTarget(this.current.target, layer);
-
       // Compute the subarray that this layer of readback corresponds to
       const readbackSize = SPLAT_TEX_WIDTH * layerYEnd * 4;
       const subReadback = readbackUint8.subarray(
         layerBase * 4,
         layerBase * 4 + readbackSize,
       );
-      // console.log("readbackSize:", readbackSize);
-      // console.log("width * height:", layerYEnd * SPLAT_TEX_WIDTH);
-      // console.log("Readback:", 0, 0, SPLAT_TEX_WIDTH, layerYEnd, subReadback.length);
-      const promise = renderer?.readRenderTargetPixelsAsync(
+      renderer.setRenderTarget(this.current.target, layer);
+
+      const promise = renderer.readRenderTargetPixelsAsync(
         this.current.target,
         0,
         0,
@@ -819,12 +995,18 @@ export class NewSparkRenderer extends THREE.Mesh {
       );
       promises.push(promise);
 
-      baseIndex += SPLAT_TEX_WIDTH * layerYEnd;
-    }
+      if (this.flushAfterRead) {
+        const gl = renderer.getContext() as WebGL2RenderingContext;
+        gl.flush();
+      }
 
-    if (this.flushAfterRead) {
-      const gl = renderer.getContext() as WebGL2RenderingContext;
-      gl.flush();
+      // await new Promise((resolve) => {
+      //   requestAnimationFrame(() => {
+      //     setTimeout(resolve, 1);
+      //   });
+      // });
+
+      baseIndex += SPLAT_TEX_WIDTH * layerYEnd;
     }
 
     // renderer.setRenderTarget(null);

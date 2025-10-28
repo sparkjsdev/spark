@@ -1,13 +1,32 @@
 
 use std::cell::RefCell;
-use js_sys::{Float32Array, Uint16Array, Uint32Array};
+use js_sys::{Float32Array, Object, Reflect, Uint16Array, Uint32Array};
+use spark_lib::decoder::{ChunkReceiver, MultiDecoder, SplatFileType};
+use spark_lib::gsplat::GsplatArray as GsplatArrayInner;
 use wasm_bindgen::prelude::*;
+
+use crate::{decoder::ChunkDecoder, packed_splats::PackedSplatsReceiver};
 
 mod sort;
 use sort::{sort_internal, SortBuffers, sort32_internal, Sort32Buffers};
 
 mod raycast;
 use raycast::{raycast_ellipsoids, raycast_spheres};
+
+mod loder;
+pub use loder::{lod_init, lod_dispose, lod_compute};
+
+mod decoder;
+mod packed_splats;
+
+mod lod_tree;
+pub use lod_tree::{init_lod_tree, dispose_lod_tree, traverse_lod_trees};
+
+
+#[wasm_bindgen]
+pub fn simd_enabled() -> bool {
+    cfg!(target_feature = "simd128")
+}
 
 const RAYCAST_BUFFER_COUNT: u32 = 65536;
 
@@ -107,4 +126,93 @@ pub fn raycast_splats(
     let output = Float32Array::new_with_length(distances.len() as u32);
     output.copy_from(&distances);
     output
+}
+
+#[wasm_bindgen]
+pub fn decode_to_packedsplats(file_type: Option<String>, path_name: Option<String>) -> Result<ChunkDecoder, JsValue> {
+    let file_type = if let Some(file_type) = file_type {
+        match SplatFileType::from_enum_str(&file_type) {
+            Ok(file_type) => Some(file_type),
+            Err(err) => { return Err(JsValue::from(err.to_string())); },
+        }
+    } else {
+        None
+    };
+
+    let splats = PackedSplatsReceiver::new();
+    let decoder = MultiDecoder::new(splats, file_type, path_name.as_deref());
+    let on_finish = |receiver: Box<dyn ChunkReceiver>| {
+        let decoder: Box<MultiDecoder<PackedSplatsReceiver>> = receiver.into_any().downcast().unwrap();
+        let file_type = decoder.file_type.unwrap();
+        let object = decoder.into_splats().into_splat_object();
+        Reflect::set(&object, &JsValue::from_str("fileType"), &JsValue::from(file_type.to_enum_str())).unwrap();
+        Ok(JsValue::from(object))
+    };
+
+    let decoder = ChunkDecoder::new(Box::new(decoder), Box::new(on_finish));
+    Ok(decoder)
+}
+
+#[wasm_bindgen]
+#[allow(non_snake_case)]
+pub struct GsplatArray {
+    pub numSplats: usize,
+    pub maxShDegree: usize,
+    inner: GsplatArrayInner,
+}
+
+impl GsplatArray {
+    pub fn new(inner: GsplatArrayInner) -> Self {
+        Self {
+            numSplats: inner.len(),
+            maxShDegree: inner.max_sh_degree,
+            inner,
+        }
+    }
+}
+
+#[wasm_bindgen]
+impl GsplatArray {
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    pub fn has_lod(&self) -> bool {
+        !self.inner.extras.is_empty()
+    }
+
+    pub fn quick_lod(&mut self, lod_base: f32) {
+        spark_lib::quick_lod::compute_lod_tree(&mut self.inner, lod_base);
+    }
+
+    pub fn to_packedsplats(&self) -> Result<Object, JsValue> {
+        let splats = match PackedSplatsReceiver::new_from_gsplat_array_lod(&self.inner) {
+            Err(err) => { return Err(JsValue::from(err.to_string())); },
+            Ok(splats) => splats,
+        };
+        Ok(splats.into_splat_object())
+    }
+}
+
+#[wasm_bindgen]
+pub fn decode_to_gsplatarray(file_type: Option<String>, path_name: Option<String>) -> Result<ChunkDecoder, JsValue> {
+    let file_type = if let Some(file_type) = file_type {
+        match SplatFileType::from_enum_str(&file_type) {
+            Ok(file_type) => Some(file_type),
+            Err(err) => { return Err(JsValue::from(err.to_string())); },
+        }
+    } else {
+        None
+    };
+
+    let splats = GsplatArrayInner::new();
+    let decoder = MultiDecoder::new(splats, file_type, path_name.as_deref());
+    let on_finish = |receiver: Box<dyn ChunkReceiver>| {
+        let decoder: Box<MultiDecoder<GsplatArrayInner>> = receiver.into_any().downcast().unwrap();
+        let gsplats = GsplatArray::new(decoder.into_splats());
+        Ok(JsValue::from(gsplats))
+    };
+
+    let decoder = ChunkDecoder::new(Box::new(decoder), Box::new(on_finish));
+    Ok(decoder)
 }

@@ -28,7 +28,8 @@ export class NewSplatAccumulator {
   numSplats = 0;
   target: THREE.WebGLArrayRenderTarget | null = null;
   mapping: GeneratorMapping[] = [];
-  mappingVersion = 0;
+  version = -1;
+  mappingVersion = -1;
 
   constructor() {
     if (!threeMrtArray) {
@@ -273,6 +274,7 @@ export class NewSplatAccumulator {
     sortRadial,
     renderSize,
     previous,
+    lodInstances,
   }: {
     renderer: THREE.WebGLRenderer;
     scene: THREE.Scene;
@@ -281,11 +283,14 @@ export class NewSplatAccumulator {
     sortRadial: boolean;
     renderSize: THREE.Vector2;
     previous: NewSplatAccumulator;
+    lodInstances: Map<
+      SplatMesh,
+      { numSplats: number; texture: THREE.DataTexture }
+    >;
   }) {
-    camera.updateMatrixWorld();
     this.viewToWorld.copy(camera.matrixWorld);
 
-    this.viewCenterUniform.value.copy(camera.position);
+    camera.getWorldPosition(this.viewCenterUniform.value);
     camera.getWorldDirection(this.viewDirUniform.value);
     this.sortRadialUniform.value = sortRadial;
 
@@ -327,6 +332,8 @@ export class NewSplatAccumulator {
           camera,
           renderSize,
           globalEdits,
+          lodIndices:
+            object instanceof SplatMesh ? lodInstances.get(object) : undefined,
         });
       } catch (error) {
         object.generator = undefined;
@@ -361,6 +368,7 @@ export class NewSplatAccumulator {
       const node = visibleGenerators[index];
       const previousNode = previousMappings.get(node);
       if (previousNode && previousNode.count !== node.numSplats) {
+        node.updateVersion();
         node.updateMappingVersion();
       }
 
@@ -378,22 +386,18 @@ export class NewSplatAccumulator {
         this.numSplats = Math.max(this.numSplats, base + count);
       }
     });
-    const sameMapping = previous.hasCorrespondence(this.mapping);
-    this.mappingVersion = previous.mappingVersion + (sameMapping ? 0 : 1);
-    if (!sameMapping) {
-      console.log("prepareGenerate !sameMapping version:", this.mappingVersion);
-    }
-
-    // console.log("sameMapping", sameMapping);
-    // if (!sameMapping) {
-    //   if (Math.random() < 0.1) {
-    //     console.log(`previous: ${previous.numSplats} | ${previous.mapping.length} (${previous.mapping[0]?.count}), mapping: ${mapping.length} (${mapping[0]?.count})`);
-    //   }
-    // }
+    // const sameMapping = previous.hasCorrespondence(this.mapping);
+    const { splatsUpdated, mappingUpdated } = previous.checkVersions(
+      this.mapping,
+    );
+    this.version = previous.version + (splatsUpdated ? 1 : 0);
+    this.mappingVersion = previous.mappingVersion + (mappingUpdated ? 1 : 0);
 
     return {
-      sameMapping,
+      sameMapping: !mappingUpdated,
+      version: this.version,
       mappingVersion: this.mappingVersion,
+      visibleGenerators,
       generate: () => {
         this.ensureGenerate({ maxSplats });
 
@@ -407,25 +411,49 @@ export class NewSplatAccumulator {
     };
   }
 
+  // // Check if this accumulator has exactly the same generator mapping as
+  // // the previous one. If so, we can reuse the Gsplat sort order.
+  // hasCorrespondence(mapping: GeneratorMapping[]) {
+  //   if (this.mapping.length !== mapping.length) {
+  //     return false;
+  //   }
+  //   return this.mapping.every(({ node, mappingVersion, base, count }, i) => {
+  //     const {
+  //       node: otherNode,
+  //       base: otherBase,
+  //       count: otherCount,
+  //       mappingVersion: otherMappingVersion,
+  //     } = mapping[i];
+  //     return (
+  //       node === otherNode &&
+  //       base === otherBase &&
+  //       count === otherCount &&
+  //       mappingVersion === otherMappingVersion
+  //     );
+  //   });
+  // }
+
   // Check if this accumulator has exactly the same generator mapping as
   // the previous one. If so, we can reuse the Gsplat sort order.
-  hasCorrespondence(mapping: GeneratorMapping[]) {
-    if (this.mapping.length !== mapping.length) {
-      return false;
+  checkVersions(otherMapping: GeneratorMapping[]) {
+    if (this.mapping.length !== otherMapping.length) {
+      return { splatsUpdated: true, mappingUpdated: true };
     }
-    return this.mapping.every(({ node, mappingVersion, base, count }, i) => {
-      const {
-        node: otherNode,
-        base: otherBase,
-        count: otherCount,
-        mappingVersion: otherMappingVersion,
-      } = mapping[i];
+    const mappingUpdated = this.mapping.some((item, i) => {
+      const other = otherMapping[i];
       return (
-        node === otherNode &&
-        base === otherBase &&
-        count === otherCount &&
-        mappingVersion === otherMappingVersion
+        item.node !== other.node ||
+        item.base !== other.base ||
+        item.count !== other.count ||
+        item.mappingVersion !== other.mappingVersion
       );
     });
+    if (mappingUpdated) {
+      return { splatsUpdated: true, mappingUpdated: true };
+    }
+    const splatsUpdated = this.mapping.some((item, i) => {
+      return item.version !== otherMapping[i].version;
+    });
+    return { splatsUpdated, mappingUpdated };
   }
 }

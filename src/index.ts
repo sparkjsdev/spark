@@ -1,5 +1,20 @@
+import init_wasm, {
+  decode_to_packedsplats,
+  decode_to_gsplatarray,
+} from "spark-internal-rs";
+
 export { SparkRenderer, type SparkRendererOptions } from "./SparkRenderer";
 export { SparkViewpoint, type SparkViewpointOptions } from "./SparkViewpoint";
+
+export {
+  NewSparkRenderer,
+  type NewSparkRendererOptions,
+} from "./NewSparkRenderer";
+export {
+  NewerSparkRenderer,
+  type NewerSparkRendererOptions,
+} from "./NewerSparkRenderer";
+export { NewSplatAccumulator } from "./NewSplatAccumulator";
 
 export * as dyno from "./dyno";
 

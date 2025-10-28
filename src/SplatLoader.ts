@@ -1,5 +1,6 @@
 import { unzipSync } from "fflate";
 import { FileLoader, Loader, type LoadingManager } from "three";
+import { workerPool } from "./NewSplatWorker";
 import {
   DEFAULT_SPLAT_ENCODING,
   PackedSplats,
@@ -36,100 +37,69 @@ export class SplatLoader extends Loader {
       (this.path ?? "") + (url ?? ""),
     );
 
-    const headers = new Headers(this.requestHeader);
-    const credentials = this.withCredentials ? "include" : "same-origin";
-    const request = new Request(resolvedURL, { headers, credentials });
-    let fileType = this.fileType;
+    // const headers = new Headers(this.requestHeader);
+    // const credentials = this.withCredentials ? "include" : "same-origin";
+    // const request = new Request(resolvedURL, { headers, credentials });
+    // let fileType = this.fileType;
 
     this.manager.itemStart(resolvedURL);
 
-    fetchWithProgress(request, onProgress)
-      .then(async (input) => {
-        const progresses = [
-          new ProgressEvent("progress", {
-            lengthComputable: true,
-            loaded: input.byteLength,
-            total: input.byteLength,
-          }),
-        ];
-
-        function updateProgresses() {
+    workerPool
+      .withWorker(async (worker) => {
+        const onStatus = (data: unknown) => {
+          const { loaded, total } = data as { loaded: number; total: number };
           if (onProgress) {
-            const lengthComputable = progresses.every((p) => {
-              // Either it's computable or no progress yet
-              return p.lengthComputable || (p.loaded === 0 && p.total === 0);
-            });
-            const loaded = progresses.reduce((sum, p) => sum + p.loaded, 0);
-            const total = progresses.reduce((sum, p) => sum + p.total, 0);
             onProgress(
               new ProgressEvent("progress", {
-                lengthComputable,
+                lengthComputable: total !== 0,
                 loaded,
                 total,
               }),
             );
           }
-        }
+        };
 
-        const extraFiles: Record<string, ArrayBuffer> = {};
-        const promises = [];
-
-        const pcSogsJson = tryPcSogs(input);
-        if (fileType === SplatFileType.PCSOGS) {
-          if (pcSogsJson === undefined) {
-            throw new Error("Invalid PC SOGS file");
-          }
-        }
-        if (pcSogsJson !== undefined) {
-          fileType = SplatFileType.PCSOGS;
-          for (const key of ["means", "scales", "quats", "sh0", "shN"]) {
-            const prop = pcSogsJson[key as keyof PcSogsJson];
-            if (prop) {
-              for (const file of prop.files) {
-                const fileUrl = new URL(file, resolvedURL).toString();
-                const progressIndex = progresses.length;
-                progresses.push(new ProgressEvent("progress"));
-
-                this.manager.itemStart(fileUrl);
-                const request = new Request(fileUrl, { headers, credentials });
-                const promise = fetchWithProgress(request, (progress) => {
-                  progresses[progressIndex] = progress;
-                  updateProgresses();
-                })
-                  .then((data) => {
-                    extraFiles[file] = data;
-                  })
-                  .catch((error) => {
-                    this.manager.itemError(fileUrl);
-                    throw error;
-                  })
-                  .finally(() => {
-                    this.manager.itemEnd(fileUrl);
-                  });
-                promises.push(promise);
-              }
+        let lod = false;
+        let lodBase = 1.5;
+        // If LoD is set and not falsey
+        console.log("packedSplats", this.packedSplats);
+        if (this.packedSplats?.lod ?? null) {
+          if (this.packedSplats?.lod) {
+            lod = true;
+            if (typeof this.packedSplats.lod === "number") {
+              // Limit LoD base to 1.1-2.0
+              lodBase = Math.max(1.1, Math.min(2.0, this.packedSplats.lod));
             }
           }
         }
+        console.log(`Loading with LoD=${lod}, lodBase=${lodBase}`);
 
-        await Promise.all(promises);
-        if (onLoad) {
-          const splatEncoding =
-            this.packedSplats?.splatEncoding ?? DEFAULT_SPLAT_ENCODING;
-          const decoded = await unpackSplats({
-            input,
-            extraFiles,
-            fileType,
-            pathOrUrl: resolvedURL,
-            splatEncoding,
-          });
+        const decoded = (await worker.call(
+          "loadSplats",
+          {
+            url: resolvedURL,
+            baseUri: window.location.href,
+            requestHeader: this.requestHeader,
+            withCredentials: this.withCredentials,
+            fileType: this.fileType,
+            pathName: resolvedURL,
+            lod,
+            lodBase,
+          },
+          { onStatus },
+        )) as {
+          numSplats: number;
+          packedArray: Uint32Array;
+          extra: Record<string, unknown>;
+          encoding: SplatEncoding;
+        };
+        console.log("loadSplats result", decoded);
 
-          if (this.packedSplats) {
-            this.packedSplats.initialize(decoded);
-            onLoad(this.packedSplats);
-          } else {
-            onLoad(new PackedSplats(decoded));
-          }
+        if (this.packedSplats) {
+          this.packedSplats.initialize(decoded);
+          onLoad?.(this.packedSplats);
+        } else {
+          onLoad?.(new PackedSplats(decoded));
         }
       })
       .catch((error) => {
@@ -139,6 +109,103 @@ export class SplatLoader extends Loader {
       .finally(() => {
         this.manager.itemEnd(resolvedURL);
       });
+
+    // fetchWithProgress(request, onProgress)
+    //   .then(async (input) => {
+    //     const progresses = [
+    //       new ProgressEvent("progress", {
+    //         lengthComputable: true,
+    //         loaded: input.byteLength,
+    //         total: input.byteLength,
+    //       }),
+    //     ];
+
+    //     function updateProgresses() {
+    //       if (onProgress) {
+    //         const lengthComputable = progresses.every((p) => {
+    //           // Either it's computable or no progress yet
+    //           return p.lengthComputable || (p.loaded === 0 && p.total === 0);
+    //         });
+    //         const loaded = progresses.reduce((sum, p) => sum + p.loaded, 0);
+    //         const total = progresses.reduce((sum, p) => sum + p.total, 0);
+    //         onProgress(
+    //           new ProgressEvent("progress", {
+    //             lengthComputable,
+    //             loaded,
+    //             total,
+    //           }),
+    //         );
+    //       }
+    //     }
+
+    //     const extraFiles: Record<string, ArrayBuffer> = {};
+    //     const promises = [];
+
+    //     const pcSogsJson = tryPcSogs(input);
+    //     if (fileType === SplatFileType.PCSOGS) {
+    //       if (pcSogsJson === undefined) {
+    //         throw new Error("Invalid PC SOGS file");
+    //       }
+    //     }
+    //     if (pcSogsJson !== undefined) {
+    //       fileType = SplatFileType.PCSOGS;
+    //       for (const key of ["means", "scales", "quats", "sh0", "shN"]) {
+    //         const prop = pcSogsJson[key as keyof PcSogsJson];
+    //         if (prop) {
+    //           for (const file of prop.files) {
+    //             const fileUrl = new URL(file, resolvedURL).toString();
+    //             const progressIndex = progresses.length;
+    //             progresses.push(new ProgressEvent("progress"));
+
+    //             this.manager.itemStart(fileUrl);
+    //             const request = new Request(fileUrl, { headers, credentials });
+    //             const promise = fetchWithProgress(request, (progress) => {
+    //               progresses[progressIndex] = progress;
+    //               updateProgresses();
+    //             })
+    //               .then((data) => {
+    //                 extraFiles[file] = data;
+    //               })
+    //               .catch((error) => {
+    //                 this.manager.itemError(fileUrl);
+    //                 throw error;
+    //               })
+    //               .finally(() => {
+    //                 this.manager.itemEnd(fileUrl);
+    //               });
+    //             promises.push(promise);
+    //           }
+    //         }
+    //       }
+    //     }
+
+    //     await Promise.all(promises);
+    //     if (onLoad) {
+    //       const splatEncoding =
+    //         this.packedSplats?.splatEncoding ?? DEFAULT_SPLAT_ENCODING;
+    //       const decoded = await unpackSplats({
+    //         input,
+    //         extraFiles,
+    //         fileType,
+    //         pathOrUrl: resolvedURL,
+    //         splatEncoding,
+    //       });
+
+    //       if (this.packedSplats) {
+    //         this.packedSplats.initialize(decoded);
+    //         onLoad(this.packedSplats);
+    //       } else {
+    //         onLoad(new PackedSplats(decoded));
+    //       }
+    //     }
+    //   })
+    //   .catch((error) => {
+    //     this.manager.itemError(resolvedURL);
+    //     onError?.(error);
+    //   })
+    //   .finally(() => {
+    //     this.manager.itemEnd(resolvedURL);
+    //   });
   }
 
   async loadAsync(
@@ -177,30 +244,38 @@ async function fetchWithProgress(
   }
 
   const reader = response.body.getReader();
-  const contentLength = Number.parseInt(
-    response.headers.get("Content-Length") || "0",
-  );
-  const total = Number.isNaN(contentLength) ? 0 : contentLength;
   let loaded = 0;
   const chunks: Uint8Array[] = [];
+  try {
+    const contentLength = Number.parseInt(
+      response.headers.get("Content-Length") || "0",
+    );
+    const total = Number.isNaN(contentLength) ? 0 : contentLength;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
-    }
-    chunks.push(value);
-    loaded += value.length;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      chunks.push(value);
+      loaded += value.length;
 
-    if (onProgress) {
-      onProgress(
-        new ProgressEvent("progress", {
-          lengthComputable: total !== 0,
-          loaded,
-          total,
-        }),
-      );
+      if (onProgress) {
+        onProgress(
+          new ProgressEvent("progress", {
+            lengthComputable: total !== 0,
+            loaded,
+            total,
+          }),
+        );
+      }
     }
+  } catch (err) {
+    try {
+      const reason = err instanceof Error ? err.message : "Unknown error";
+      await reader.cancel(reason);
+    } catch {}
+    throw err;
   }
 
   // Combine chunks into a single buffer

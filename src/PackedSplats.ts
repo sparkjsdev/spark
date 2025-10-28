@@ -33,6 +33,7 @@ export type SplatEncoding = {
   sh2Max?: number;
   sh3Min?: number;
   sh3Max?: number;
+  lodOpacity?: boolean;
 };
 
 export const DEFAULT_SPLAT_ENCODING: SplatEncoding = {
@@ -46,6 +47,7 @@ export const DEFAULT_SPLAT_ENCODING: SplatEncoding = {
   sh2Max: 1,
   sh3Min: -1,
   sh3Max: 1,
+  lodOpacity: false,
 };
 
 // Initialize a PackedSplats collection from source data via
@@ -78,11 +80,18 @@ export type PackedSplatsOptions = {
   // Callback function to programmatically create splats at initialization.
   // (default: undefined)
   construct?: (splats: PackedSplats) => Promise<void> | void;
+  // Callback function called while downloading and initializing (default: undefined)
+  onProgress?: (event: ProgressEvent) => void;
   // Additional splat data, such as spherical harmonics components (sh1, sh2, sh3). (default: {})
   extra?: Record<string, unknown>;
   // Override the default splat encoding ranges for the PackedSplats.
   // (default: undefined)
   splatEncoding?: SplatEncoding;
+  // Enable LOD. If a number is provided, it will be used as LoD level base,
+  // otherwise the default 1.5 is used. When loading a file without pre-computed
+  // LoD it will use the "quick lod" algorithm to generate one on-the-fly with
+  // the selected LoD level base. (default: undefined=false)
+  lod?: boolean | number;
 };
 
 // A PackedSplats is a collection of Gaussian splats, packed into a format that
@@ -98,6 +107,7 @@ export class PackedSplats {
   packedArray: Uint32Array | null = null;
   extra: Record<string, unknown>;
   splatEncoding?: SplatEncoding;
+  lod?: boolean | number;
 
   initialized: Promise<PackedSplats>;
   isInitialized = false;
@@ -177,6 +187,7 @@ export class PackedSplats {
 
     this.extra = {};
     this.splatEncoding = options.splatEncoding;
+    this.lod = options.lod;
 
     if (options.url || options.fileBytes || options.construct) {
       // We need to initialize asynchronously given the options
@@ -204,6 +215,9 @@ export class PackedSplats {
         this.maxSplats,
         options.numSplats ?? Number.POSITIVE_INFINITY,
       );
+      console.log(
+        `Initialized packedSplats with numSplats=${this.numSplats}, maxSplats=${this.maxSplats}`,
+      );
     } else {
       this.maxSplats = options.maxSplats ?? 0;
       this.numSplats = 0;
@@ -212,11 +226,12 @@ export class PackedSplats {
   }
 
   async asyncInitialize(options: PackedSplatsOptions) {
-    const { url, fileBytes, construct } = options;
+    const { url, fileBytes, construct, lod } = options;
+    this.lod = lod;
     if (url) {
       const loader = new SplatLoader();
       loader.packedSplats = this;
-      await loader.loadAsync(url);
+      await loader.loadAsync(url, options.onProgress);
     } else if (fileBytes) {
       const unpacked = await unpackSplats({
         input: fileBytes,
@@ -711,6 +726,7 @@ export class DynoPackedSplats extends DynoUniform<
   {
     texture: THREE.DataArrayTexture;
     numSplats: number;
+    lodOpacity: boolean;
     rgbMinMaxLnScaleMinMax: THREE.Vector4;
   }
 > {
@@ -724,6 +740,7 @@ export class DynoPackedSplats extends DynoUniform<
       value: {
         texture: PackedSplats.getEmpty(),
         numSplats: 0,
+        lodOpacity: false,
         rgbMinMaxLnScaleMinMax: new THREE.Vector4(
           0,
           1,
@@ -735,6 +752,8 @@ export class DynoPackedSplats extends DynoUniform<
         value.texture =
           this.packedSplats?.getTexture() ?? PackedSplats.getEmpty();
         value.numSplats = this.packedSplats?.numSplats ?? 0;
+        value.lodOpacity =
+          this.packedSplats?.splatEncoding?.lodOpacity ?? false;
         value.rgbMinMaxLnScaleMinMax.set(
           this.packedSplats?.splatEncoding?.rgbMin ?? 0,
           this.packedSplats?.splatEncoding?.rgbMax ?? 1,

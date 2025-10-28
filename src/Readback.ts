@@ -48,7 +48,7 @@ export class Readback {
 
   // Ensure we have a buffer large enough for the readback of count indices.
   // Pass in previous bufer of the desired type.
-  ensureBuffer<B extends ReadbackBuffer>(count: number, buffer: B): B {
+  static ensureBuffer<B extends ReadbackBuffer>(count: number, buffer: B): B {
     // Readback is performed in a 2D array of pixels, so round up with SPLAT_TEX_WIDTH
     const roundedCount =
       Math.ceil(Math.max(1, count) / SPLAT_TEX_WIDTH) * SPLAT_TEX_WIDTH;
@@ -65,6 +65,10 @@ export class Readback {
 
     const ctor = buffer.constructor as { new (arrayBuffer: ArrayBuffer): B };
     return new ctor(newBuffer) as B;
+  }
+
+  ensureBuffer<B extends ReadbackBuffer>(count: number, buffer: B): B {
+    return Readback.ensureBuffer(count, buffer);
   }
 
   // Ensure our render target is large enough for the readback of capacity indices.
@@ -248,6 +252,8 @@ export class Readback {
 
       baseIndex += SPLAT_TEX_WIDTH * layerYEnd;
     }
+    // const gl = renderer.getContext() as WebGL2RenderingContext;
+    // gl.flush();
     return Promise.all(promises).then(() => readback);
   }
 
