@@ -399,6 +399,8 @@ export class SparkRenderer extends THREE.Mesh {
       time: { value: 0 },
       // Delta time in seconds since last frame
       deltaTime: { value: 0 },
+      // Whether to use three.js's built-in linearToOutputTexel function instead of encodeLinear.
+      useLinearToOutputTexel: { value: false },
       // Whether to encode Gsplat with linear RGB (for environment mapping)
       encodeLinear: { value: false },
       // Debug flag that alternates each frame
@@ -536,6 +538,7 @@ export class SparkRenderer extends THREE.Mesh {
       | THREE.OrthographicCamera;
     this.uniforms.near.value = typedCamera.near;
     this.uniforms.far.value = typedCamera.far;
+    this.uniforms.useLinearToOutputTexel.value = viewpoint.useLinearToOutputTexel;
     this.uniforms.encodeLinear.value = viewpoint.encodeLinear;
     this.uniforms.maxStdDev.value = this.maxStdDev;
     this.uniforms.minPixelRadius.value = this.minPixelRadius;

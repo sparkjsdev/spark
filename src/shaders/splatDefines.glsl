@@ -35,11 +35,17 @@ float pow8(float x) {
 }
 
 vec3 srgbToLinear(vec3 rgb) {
-    return pow(rgb, vec3(2.2));
+    // See https://github.com/mrdoob/three.js/blob/e04b9f7bd7f5b17103339d343168bfab2d6e0ace/src/math/ColorManagement.js#L205
+    vec3 linearLow = rgb * 0.0773993808;
+    vec3 linearHigh = pow(rgb * 0.9478672986 + 0.0521327014, vec3(2.4));
+    return mix(linearLow, linearHigh, greaterThanEqual(rgb, vec3(0.04045)));
 }
 
 vec3 linearToSrgb(vec3 rgb) {
-    return pow(rgb, vec3(1.0 / 2.2));
+    // See https://github.com/mrdoob/three.js/blob/e04b9f7bd7f5b17103339d343168bfab2d6e0ace/src/math/ColorManagement.js#L211
+    vec3 srgbLow = rgb * 12.92;
+    vec3 srgbHigh = 1.055 * (pow(rgb, vec3(0.41666)) - 0.055);
+    return mix(srgbLow, srgbHigh, greaterThanEqual(rgb, vec3(0.0031308)));
 }
 
 // uint encodeQuatXyz888(vec4 q) {

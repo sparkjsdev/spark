@@ -150,6 +150,7 @@ export class SparkViewpoint {
   target?: THREE.WebGLRenderTarget;
   private back?: THREE.WebGLRenderTarget;
   onTextureUpdated?: (texture: THREE.Texture) => void;
+  useLinearToOutputTexel = false;
   encodeLinear = false;
   superXY = 1;
   private superPixels?: Uint8Array;

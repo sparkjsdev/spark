@@ -7,6 +7,7 @@ precision highp int;
 
 uniform float near;
 uniform float far;
+uniform bool useLinearToOutputTexel;
 uniform bool encodeLinear;
 uniform float time;
 uniform bool debugFlag;
@@ -69,7 +70,7 @@ void main() {
     if (rgba.a < minAlpha) {
         discard;
     }
-    if (encodeLinear) {
+    if (useLinearToOutputTexel || encodeLinear) {
         rgba.rgb = srgbToLinear(rgba.rgb);
     }
 
@@ -88,6 +89,9 @@ void main() {
             discard;
         }
     } else {
+        if (useLinearToOutputTexel) {
+            rgba = linearToOutputTexel( rgba );
+        }
         #ifdef PREMULTIPLIED_ALPHA
             fragColor = vec4(rgba.rgb * rgba.a, rgba.a);
         #else
