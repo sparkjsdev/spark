@@ -11,7 +11,7 @@ import { NewSplatGeometry } from "./NewSplatGeometry";
 import { NewSplatWorker } from "./NewSplatWorker";
 import { SPLAT_TEX_HEIGHT, SPLAT_TEX_WIDTH } from "./defines";
 import { getShaders } from "./shaders";
-import { cloneClock, isAndroid, isIos } from "./utils";
+import { cloneClock, isAndroid, isIos, isOculus, isVisionPro } from "./utils";
 
 export interface NewSparkRendererOptions {
   /**
@@ -150,13 +150,13 @@ export interface NewSparkRendererOptions {
    */
   minLodIntervalMs?: number;
   /**
-   * Set the target # splats for LoD. Recommended # splats is 500K forf mobile and 1.5M for desktop,
+   * Set the target # splats for LoD. Recommended # splats is 500K for mobile and 1.5M for desktop,
    * which is set automatically if this isn't set.
    */
   lodSplatCount?: number;
   /**
    * Scale factor for target # splats for LoD. 2.0 means 2x the recommended # splats.
-   * Recommended # splats is 500K forf mobile and 1.5M for desktop.
+   * Recommended # splats is 500K for mobile and 1.5M for desktop.
    * @default 1.0
    */
   lodSplatScale?: number;
@@ -441,7 +441,30 @@ export class NewSparkRenderer extends THREE.Mesh {
     this.uniforms.debugFlag.value = (performance.now() / 1000.0) % 2.0 < 1.0;
 
     if (this.autoUpdate && isNewFrame) {
-      this.updateInternal({ renderer, scene, camera, autoUpdate: true });
+      const preUpdate = this.preUpdate && !renderer.xr.isPresenting;
+      const useCamera = renderer.xr.isPresenting
+        ? renderer.xr.getCamera()
+        : camera;
+      if (preUpdate) {
+        this.updateInternal({
+          renderer,
+          scene,
+          camera: useCamera,
+          autoUpdate: true,
+        });
+      } else {
+        if (this.updateTimeoutId === -1) {
+          this.updateTimeoutId = setTimeout(() => {
+            this.updateTimeoutId = -1;
+            this.updateInternal({
+              renderer,
+              scene,
+              camera: useCamera,
+              autoUpdate: true,
+            });
+          }, 1);
+        }
+      }
     }
   }
 
@@ -483,8 +506,9 @@ export class NewSparkRenderer extends THREE.Mesh {
     const viewChanged =
       center.distanceTo(currentCenter) > 0.001 || dir.dot(currentDir) < 0.999;
 
-    if (this.lodUpdate) {
-      const { uuidToMesh, keyIndices } = this.lodUpdate;
+    const lodUpdate = this.lodUpdate;
+    if (lodUpdate) {
+      const { uuidToMesh, keyIndices } = lodUpdate;
       this.lodUpdate = null;
       this.updateLodIndices(uuidToMesh, keyIndices);
     }
@@ -507,6 +531,7 @@ export class NewSparkRenderer extends THREE.Mesh {
       });
 
     this.driveLod({ visibleGenerators, camera });
+    this.driveSort();
 
     const needsUpdate = viewChanged || version !== this.current.version;
 
@@ -559,10 +584,10 @@ export class NewSparkRenderer extends THREE.Mesh {
       ? this.lastSortTime + this.minSortIntervalMs
       : now;
     if (now < nextSortTime) {
-      this.sortTimeoutId = setTimeout(
-        () => this.driveSort(),
-        nextSortTime - now,
-      );
+      this.sortTimeoutId = setTimeout(() => {
+        this.sortTimeoutId = -1;
+        this.driveSort();
+      }, nextSortTime - now);
       return;
     }
 
@@ -783,8 +808,15 @@ export class NewSparkRenderer extends THREE.Mesh {
     camera: THREE.Camera,
     lodMeshes: SplatMesh[],
   ) {
+    const defaultSplatCount =
+      isAndroid() || isOculus() || isVisionPro()
+        ? 500000
+        : isIos()
+          ? 500000
+          : 1500000;
     const splatCount =
-      this.lodSplatCount ?? (isAndroid() ? 500000 : isIos() ? 500000 : 1500000);
+      this.lodSplatCount ??
+      (isAndroid() || isOculus() ? 500000 : isIos() ? 500000 : 1500000);
     const maxSplats = splatCount * this.lodSplatScale;
     let pixelScaleLimit = 0.0;
     let fovXdegrees = Number.POSITIVE_INFINITY;
@@ -851,7 +883,12 @@ export class NewSparkRenderer extends THREE.Mesh {
       JSON.stringify(debugSplats),
     );
 
-    this.lodUpdate = { uuidToMesh, keyIndices };
+    for (const mesh of lodMeshes) {
+      mesh.updateMappingVersion();
+    }
+
+    // this.lodUpdate = { uuidToMesh, keyIndices };
+    this.updateLodIndices(uuidToMesh, keyIndices);
   }
 
   private async cleanupLodTrees(worker: NewSplatWorker) {
