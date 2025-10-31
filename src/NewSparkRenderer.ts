@@ -631,7 +631,7 @@ export class NewSparkRenderer extends THREE.Mesh {
     }
 
     if (!this.orderingTexture) {
-      console.log(`Allocating orderingTexture: ${4096}x${rows}`);
+      // console.log(`Allocating orderingTexture: ${4096}x${rows}`);
       const orderingTexture = new THREE.DataTexture(
         result.ordering,
         4096,
@@ -769,12 +769,12 @@ export class NewSparkRenderer extends THREE.Mesh {
   }
 
   private async initLodTree(worker: NewSplatWorker, splats: PackedSplats) {
-    console.log("initLodTree", splats.extra.lodTree, splats);
+    // console.log("initLodTree", splats.extra.lodTree, splats);
     const { lodId } = (await worker.call("initLodTree", {
       numSplats: splats.numSplats ?? 0,
       lodTree: (splats.extra.lodTree as Uint32Array).slice(),
     })) as { lodId: number };
-    console.log("=> initLodTree: lodId =", lodId);
+    // console.log("=> initLodTree: lodId =", lodId);
     this.lodIds.set(splats, { lodId, lastTouched: performance.now() });
   }
 
@@ -918,11 +918,11 @@ export class NewSparkRenderer extends THREE.Mesh {
         texture.needsUpdate = true;
         instance = { numSplats, indices, texture };
         this.lodInstances.set(mesh, instance);
-        console.log(
-          "updateLodIndices: new texture",
-          numSplats,
-          indices.slice(0, 10),
-        );
+        // console.log(
+        //   "updateLodIndices: new texture",
+        //   numSplats,
+        //   indices.slice(0, 10),
+        // );
       } else {
         instance.numSplats = numSplats;
         // TODO: Do we need to do this since we are directly uploading from indices?
@@ -954,11 +954,11 @@ export class NewSparkRenderer extends THREE.Mesh {
           );
           renderer.state.bindTexture(gl.TEXTURE_2D, null);
         }
-        console.log(
-          "updateLodIndices: texture",
-          numSplats,
-          indices.slice(0, 10),
-        );
+        // console.log(
+        //   "updateLodIndices: texture",
+        //   numSplats,
+        //   indices.slice(0, 10),
+        // );
       }
       mesh.updateMappingVersion();
     }
