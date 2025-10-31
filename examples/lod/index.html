@@ -42,7 +42,7 @@
     import * as THREE from "three";
     import { NewSparkRenderer, SparkRenderer, SplatMesh, PackedSplats, SplatLoader, SparkControls, isMobile, SplatEdit, SplatEditSdf, SplatEditSdfType } from "@sparkjsdev/spark";
     import GUI from "lil-gui";
-    // import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+    import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
     const RENDER_TIMEOUT_MS = 20000;
 
@@ -133,7 +133,8 @@
       // const url = "./garden-lod.spz";
       // const url = "./Untitled-lod.spz";
       // const url = "./Hobbiton5-lod.spz";
-      const url = "./ceramic/fb1e7c73-a486-4247-adde-0bff9865d16d_ceramic-lod.spz";
+      // const url = "./ceramic/fb1e7c73-a486-4247-adde-0bff9865d16d_ceramic-lod.spz";
+      const url = await getAssetFileURL("valley.spz");
       // const url = "./ceramic/e5ca2ab2-c67c-469b-a30e-2a59ca4bdfff_ceramic-lod.spz";
       // const loader = new SplatLoader();
       // const packedSplats = await loader.loadAsync(url, (event) => {
@@ -217,14 +218,13 @@
       // });
       // hero2.edits = [edit2];
 
-      const toad = new PackedSplats({ url: "./toad.spz", lod: true, nonLod: true });
+      const char1 = new PackedSplats({ url: await getAssetFileURL("butterfly.spz"), lod: true, nonLod: true });
       // await toad.initialized;
-      console.log("Toad: ", toad);
-      const butterfly = new PackedSplats({ url: "./butterfly-ai.spz", lod: true });
+      const char2 = new PackedSplats({ url: await getAssetFileURL("butterfly-ai.spz"), lod: true, nonLod: true });
       // await butterfly.initialized;
 
-      for (let i = 0; i < 9; ++i) {
-        const packedSplats = ((i % 2) == 0) ? toad : butterfly;
+      for (let i = 0; i < 2; ++i) {
+        const packedSplats = ((i % 2) == 0) ? char1 : char2;
         const splats = new SplatMesh({ packedSplats, lodScale: 1.0, outsideFoveate: 1.0, behindFoveate: 0.3 });
         splats.quaternion.set(1, 0, 0, 0);
         // splats.position.set(Math.random() * 1 - 0.5, 0, Math.random() * 1 - 0.5);

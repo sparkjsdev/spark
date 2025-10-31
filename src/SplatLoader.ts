@@ -97,15 +97,15 @@ export class SplatLoader extends Loader {
                 extra: Record<string, unknown>;
                 splatEncoding: SplatEncoding;
               };
-              console.log(
-                "Initializing packedSplats",
-                packedSplats,
-                numSplats,
-                packedArray,
-                extra,
-                splatEncoding,
-                splatEncoding.lodOpacity,
-              );
+              // console.log(
+              //   "Initializing packedSplats",
+              //   packedSplats,
+              //   numSplats,
+              //   packedArray,
+              //   extra,
+              //   splatEncoding,
+              //   splatEncoding.lodOpacity,
+              // );
               packedSplats.initialize({
                 numSplats,
                 packedArray,
@@ -171,7 +171,7 @@ export class SplatLoader extends Loader {
           ...decoded,
         };
         if (packedSplats) {
-          console.log("Initializing packedSplats", initSplats);
+          // console.log("Initializing packedSplats", initSplats);
           packedSplats.initialize(initSplats as PackedSplatsOptions);
           onLoad?.(packedSplats);
         } else {
