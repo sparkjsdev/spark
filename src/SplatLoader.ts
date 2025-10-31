@@ -21,7 +21,9 @@ export class SplatLoader extends Loader {
   fileLoader: FileLoader;
   fileType?: SplatFileType;
   packedSplats?: PackedSplats;
-  nonLod?: boolean;
+
+  static lod = false;
+  static nonLod = false;
 
   constructor(manager?: LoadingManager) {
     super(manager);
@@ -50,18 +52,20 @@ export class SplatLoader extends Loader {
 
     workerPool
       .withWorker(async (worker) => {
-        let lod = false;
+        let lod = SplatLoader.lod;
+        let nonLod = SplatLoader.nonLod;
         let lodBase = 1.5;
         // If LoD is set and not falsey
         console.log("packedSplats", packedSplats);
-        if (packedSplats?.lod ?? null) {
-          if (packedSplats?.lod) {
-            lod = true;
-            if (typeof packedSplats.lod === "number") {
-              // Limit LoD base to 1.1-2.0
-              lodBase = Math.max(1.1, Math.min(2.0, packedSplats.lod));
-            }
+        if (packedSplats?.lod) {
+          lod = true;
+          if (typeof packedSplats.lod === "number") {
+            // Limit LoD base to 1.1-2.0
+            lodBase = Math.max(1.1, Math.min(2.0, packedSplats.lod));
           }
+        }
+        if (packedSplats?.nonLod) {
+          nonLod = true;
         }
         console.log(`Loading with LoD=${lod}, lodBase=${lodBase}`);
 
@@ -130,7 +134,7 @@ export class SplatLoader extends Loader {
             pathName: resolvedURL,
             lod,
             lodBase,
-            nonLod: this.nonLod ?? false,
+            nonLod,
           },
           { onStatus },
         )) as {

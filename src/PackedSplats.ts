@@ -112,6 +112,7 @@ export class PackedSplats {
   extra: Record<string, unknown>;
   splatEncoding?: SplatEncoding;
   lod?: boolean | number;
+  nonLod?: boolean;
   lodSplats?: PackedSplats;
 
   initialized: Promise<PackedSplats>;
@@ -193,6 +194,7 @@ export class PackedSplats {
     this.extra = {};
     this.splatEncoding = options.splatEncoding;
     this.lod = options.lod;
+    this.nonLod = options.nonLod;
 
     if (options.url || options.fileBytes || options.construct) {
       // We need to initialize asynchronously given the options
@@ -235,9 +237,9 @@ export class PackedSplats {
   async asyncInitialize(options: PackedSplatsOptions) {
     const { url, fileBytes, construct, lod, nonLod } = options;
     this.lod = lod;
+    this.nonLod = nonLod;
     const loader = new SplatLoader();
     loader.packedSplats = this;
-    loader.nonLod = nonLod;
     if (url) {
       await loader.loadAsync(url, options.onProgress);
     } else if (fileBytes) {
