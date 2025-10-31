@@ -194,11 +194,12 @@
               }
               // Twister weather effect
               vec4 twister(vec3 pos, vec3 scale, float t) {
-                float h = hash(pos).x + .1;
+                vec3 h = hash(pos);
                 float s = smoothstep(0., 8., t*t*.1 - length(pos.xz)*2.+2.);
-                if (length(scale) < .05) pos.y = mix(-10., pos.y, pow(s, 2.*h));
-                pos.xz = mix(pos.xz*.5, pos.xz, pow(s, 2.*h));
-                pos.xz *= rot(t*.2 + pos.y*20.*(1.-s)*exp(-1.*length(pos.xz)));
+                if (length(scale) < .05) pos.y = mix(-10., pos.y, pow(s, 2.*h.x));
+                pos.xz = mix(pos.xz*.5, pos.xz, pow(s, 2.*h.x));
+                float rotationTime = t * (1.0 - s) * 0.2;
+                pos.xz *= rot(rotationTime + pos.y*20.*(1.-s)*exp(-1.*length(pos.xz)));
                 return vec4(pos, s*s*s*s);
               }
 
@@ -208,7 +209,6 @@
                 float s = pow(smoothstep(0., 5., t*t*.1 - length(pos.xz)*2. + 1.), .5 + h.x);
                 float y = pos.y;
                 pos.y = min(-10. + s*15., pos.y);
-                pos.x += pos.y*.2;
                 pos.xz = mix(pos.xz*.3, pos.xz, s);
                 pos.xz *= rot(t*.3);
                 return vec4(pos, smoothstep(-10., y, pos.y));
@@ -253,14 +253,21 @@
               // Twister Effect: swirling weather reveal
               vec4 effectResult = twister(localPos, scales, t);
               ${outputs.gsplat}.center = effectResult.xyz;
-              ${outputs.gsplat}.scales = mix(vec3(.005), scales, pow(effectResult.w, 30.));
-              ${outputs.gsplat}.rgba.a = pow(effectResult.w, .7) * smoothstep(30., 0., length(localPos.xz));
+              ${outputs.gsplat}.scales = mix(vec3(.002), scales, pow(effectResult.w, 12.));
+              float s = effectResult.w;
+              // Also apply a spin (self-rotation) so each splat rotates about its own center.
+              float spin = -t * 0.3 * (1.0 - s);
+              vec4 spinQ = vec4(0.0, sin(spin*0.5), 0.0, cos(spin*0.5));
+              ${outputs.gsplat}.quaternion = quatQuat(spinQ, ${inputs.gsplat}.quaternion);
             } else if (${inputs.effectType} == 5) {
               // Rain Effect: falling streaks
               vec4 effectResult = rain(localPos, scales, t);
               ${outputs.gsplat}.center = effectResult.xyz;
               ${outputs.gsplat}.scales = mix(vec3(.005), scales, pow(effectResult.w, 30.));
-              ${outputs.gsplat}.rgba.a = pow(effectResult.w, .7) * smoothstep(30., 0., length(localPos.xz));
+              // Also apply a spin (self-rotation) so each splat rotates about its own center.
+              float spin = -t*.3;
+              vec4 spinQ = vec4(0.0, sin(spin*0.5), 0.0, cos(spin*0.5));
+              ${outputs.gsplat}.quaternion = quatQuat(spinQ, ${inputs.gsplat}.quaternion);
             }
           `),
         });
