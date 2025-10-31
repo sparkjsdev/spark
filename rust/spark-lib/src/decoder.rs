@@ -150,7 +150,6 @@ pub trait SplatGetter: 'static {
     // Source/format metadata (header-like)
     fn num_splats(&self) -> usize;
     fn max_sh_degree(&self) -> usize;
-    fn fractional_bits(&self) -> u8 { 10 }
     fn flag_antialias(&self) -> bool { false }
     fn has_lod_tree(&self) -> bool { false }
     fn get_encoding(&mut self) -> SplatEncoding { SplatEncoding::default() }
@@ -165,7 +164,7 @@ pub trait SplatGetter: 'static {
     fn get_sh2(&mut self, _base: usize, _count: usize, _out: &mut [f32]) {}
     fn get_sh3(&mut self, _base: usize, _count: usize, _out: &mut [f32]) {}
     fn get_child_count(&mut self, _base: usize, _count: usize, _out: &mut [u16]) {}
-    fn get_child_start(&mut self, _base: usize, _count: usize, _out: &mut [u32]) {}
+    fn get_child_start(&mut self, _base: usize, _count: usize, _out: &mut [usize]) {}
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -415,4 +414,102 @@ fn try_gunzip(buffer: &[u8], max_bytes: usize) -> anyhow::Result<Option<Vec<u8>>
         }
         _ => Err(anyhow::anyhow!("Decompression failed: {:?}", status))
     }
+}
+
+pub fn copy_getter_to_receiver<G: SplatGetter, R: SplatReceiver>(getter: &mut G, receiver: &mut R) -> anyhow::Result<()> {
+    const MAX_SPLAT_CHUNK: usize = 16384;
+
+    let num_splats = getter.num_splats();
+    let max_sh_degree = getter.max_sh_degree();
+    let lod_tree = getter.has_lod_tree();
+    receiver.init_splats(&SplatInit { num_splats, max_sh_degree, lod_tree })?;
+
+    // Propagate encoding from getter if available
+    let enc = getter.get_encoding();
+    receiver.set_encoding(&SetSplatEncoding {
+        rgb_min: Some(enc.rgb_min),
+        rgb_max: Some(enc.rgb_max),
+        ln_scale_min: Some(enc.ln_scale_min),
+        ln_scale_max: Some(enc.ln_scale_max),
+        sh1_min: Some(enc.sh1_min),
+        sh1_max: Some(enc.sh1_max),
+        sh2_min: Some(enc.sh2_min),
+        sh2_max: Some(enc.sh2_max),
+        sh3_min: Some(enc.sh3_min),
+        sh3_max: Some(enc.sh3_max),
+        lod_opacity: Some(enc.lod_opacity),
+    })?;
+
+    // Reusable buffers
+    let mut center: Vec<f32> = Vec::new();
+    let mut opacity: Vec<f32> = Vec::new();
+    let mut rgb: Vec<f32> = Vec::new();
+    let mut scale: Vec<f32> = Vec::new();
+    let mut quat: Vec<f32> = Vec::new();
+    let mut sh1: Vec<f32> = Vec::new();
+    let mut sh2: Vec<f32> = Vec::new();
+    let mut sh3: Vec<f32> = Vec::new();
+    let mut child_count: Vec<u16> = Vec::new();
+    let mut child_start: Vec<usize> = Vec::new();
+
+    let mut base = 0usize;
+    while base < num_splats {
+        let count = (num_splats - base).min(MAX_SPLAT_CHUNK);
+
+        if center.len() < count * 3 { center.resize(count * 3, 0.0); }
+        if opacity.len() < count { opacity.resize(count, 0.0); }
+        if rgb.len() < count * 3 { rgb.resize(count * 3, 0.0); }
+        if scale.len() < count * 3 { scale.resize(count * 3, 0.0); }
+        if quat.len() < count * 4 { quat.resize(count * 4, 0.0); }
+
+        getter.get_center(base, count, &mut center[..count * 3]);
+        getter.get_opacity(base, count, &mut opacity[..count]);
+        getter.get_rgb(base, count, &mut rgb[..count * 3]);
+        getter.get_scale(base, count, &mut scale[..count * 3]);
+        getter.get_quat(base, count, &mut quat[..count * 4]);
+
+        let (sh1_slice, sh2_slice, sh3_slice) = if max_sh_degree >= 1 {
+            if sh1.len() < count * 9 { sh1.resize(count * 9, 0.0); }
+            getter.get_sh1(base, count, &mut sh1[..count * 9]);
+            if max_sh_degree >= 2 {
+                if sh2.len() < count * 15 { sh2.resize(count * 15, 0.0); }
+                getter.get_sh2(base, count, &mut sh2[..count * 15]);
+            }
+            if max_sh_degree >= 3 {
+                if sh3.len() < count * 21 { sh3.resize(count * 21, 0.0); }
+                getter.get_sh3(base, count, &mut sh3[..count * 21]);
+            }
+            (
+                &sh1[..count * 9],
+                if max_sh_degree >= 2 { &sh2[..count * 15] } else { &[][..] },
+                if max_sh_degree >= 3 { &sh3[..count * 21] } else { &[][..] },
+            )
+        } else { (&[][..], &[][..], &[][..]) };
+
+        let (child_count_slice, child_start_slice): (&[u16], &[usize]) = if lod_tree {
+            if child_count.len() < count { child_count.resize(count, 0); }
+            getter.get_child_count(base, count, &mut child_count[..count]);
+            if child_start.len() < count { child_start.resize(count, 0); }
+            getter.get_child_start(base, count, &mut child_start[..count]);
+            (&child_count[..count], &child_start[..count])
+        } else { (&[][..], &[][..]) };
+
+        receiver.set_batch(base, count, &SplatProps {
+            center: &center[..count * 3],
+            opacity: &opacity[..count],
+            rgb: &rgb[..count * 3],
+            scale: &scale[..count * 3],
+            quat: &quat[..count * 4],
+            sh1: sh1_slice,
+            sh2: sh2_slice,
+            sh3: sh3_slice,
+            child_count: child_count_slice,
+            child_start: child_start_slice,
+        });
+
+        base += count;
+    }
+
+    receiver.finish()?;
+    Ok(())
 }

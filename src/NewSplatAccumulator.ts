@@ -336,6 +336,7 @@ export class NewSplatAccumulator {
             object instanceof SplatMesh ? lodInstances.get(object) : undefined,
         });
       } catch (error) {
+        console.error("frameUpdate error", error);
         object.generator = undefined;
         object.generatorError = error;
       }

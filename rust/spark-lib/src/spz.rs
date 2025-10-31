@@ -5,7 +5,7 @@ use miniz_oxide::inflate::core::inflate_flags::{
 };
 use miniz_oxide::inflate::TINFLStatus;
 
-use crate::decoder::{ChunkReceiver, SplatGetter, SplatInit, SplatReceiver};
+use crate::decoder::{ChunkReceiver, SetSplatEncoding, SplatGetter, SplatInit, SplatReceiver};
 use miniz_oxide::deflate::compress_to_vec;
 
 pub const SPZ_MAGIC: u32 = 0x5053474e; // "NGSP"
@@ -86,6 +86,13 @@ impl<T: SplatReceiver> SpzDecoder<T> {
             max_sh_degree: sh_degree,
             lod_tree: flags & 0x80 != 0,
         })?;
+
+        if flags & 0x80 != 0 {
+            self.splats.set_encoding(&SetSplatEncoding {
+                lod_opacity: Some(true),
+                ..Default::default()
+            })?;
+        }
 
         Ok(())
     }
@@ -615,13 +622,19 @@ fn read_u16_le(two: &[u8]) -> u16 {
 pub struct SpzEncoder<T: SplatGetter> {
     getter: T,
     max_sh_out: Option<u8>,
+    fractional_bits: u8,
 }
 
 impl<T: SplatGetter> SpzEncoder<T> {
-    pub fn new(getter: T) -> Self { Self { getter, max_sh_out: None } }
+    pub fn new(getter: T) -> Self { Self { getter, max_sh_out: None, fractional_bits: 12 } }
 
     pub fn with_max_sh(mut self, max_sh: u8) -> Self {
         self.max_sh_out = Some(max_sh.min(3));
+        self
+    }
+
+    pub fn with_fractional_bits(mut self, bits: u8) -> Self {
+        self.fractional_bits = bits.min(24);
         self
     }
 
@@ -629,7 +642,7 @@ impl<T: SplatGetter> SpzEncoder<T> {
         let num_splats = self.getter.num_splats();
         let sh_src = self.getter.max_sh_degree() as u8;
         let sh_degree = self.max_sh_out.map(|m| m.min(sh_src)).unwrap_or(sh_src);
-        let fractional_bits = self.getter.fractional_bits();
+        let fractional_bits = self.fractional_bits;
         let flag_antialias = self.getter.flag_antialias();
         let lod_tree = self.getter.has_lod_tree();
         let version = 2u32; // fixed for now; encoder writes v2 layout by default
@@ -651,7 +664,6 @@ impl<T: SplatGetter> SpzEncoder<T> {
         let mut f32_buf: Vec<f32> = Vec::new();
         let mut f32_buf_b: Vec<f32> = Vec::new();
         let mut u16_buf: Vec<u16> = Vec::new();
-        let mut u32_buf: Vec<u32> = Vec::new();
 
         // Centers (i24 xyz)
         {
@@ -687,11 +699,7 @@ impl<T: SplatGetter> SpzEncoder<T> {
                 for i in 0..count {
                     let opacity = f32_buf[i];
                     let opacity = if lod_tree {
-                        if opacity <= 1.0 {
-                            opacity
-                        } else {
-                            (0.25 * (opacity - 1.0) + 1.0).clamp(1.0, 2.0)
-                        }
+                        0.5 * opacity
                     } else {
                         opacity
                     };
@@ -850,9 +858,9 @@ impl<T: SplatGetter> SpzEncoder<T> {
             loop {
                 if base >= num_splats { break; }
                 let count = (num_splats - base).min(MAX_SPLAT_CHUNK);
-                ensure_len_u32(&mut u32_buf, count);
-                self.getter.get_child_start(base, count, &mut u32_buf[..count]);
-                for i in 0..count { raw.extend_from_slice(&u32_buf[i].to_le_bytes()); }
+                let mut child_starts: Vec<usize> = vec![0; count];
+                self.getter.get_child_start(base, count, &mut child_starts[..count]);
+                for i in 0..count { raw.extend_from_slice(&(child_starts[i] as u32).to_le_bytes()); }
                 base += count;
             }
         }
@@ -879,11 +887,6 @@ fn ensure_len(buf: &mut Vec<f32>, len: usize) {
 
 #[inline]
 fn ensure_len_u16(buf: &mut Vec<u16>, len: usize) {
-    if buf.len() < len { buf.resize(len, 0); }
-}
-
-#[inline]
-fn ensure_len_u32(buf: &mut Vec<u32>, len: usize) {
     if buf.len() < len { buf.resize(len, 0); }
 }
 

@@ -6,7 +6,7 @@ use half::f16;
 use ordered_float::OrderedFloat;
 use smallvec::SmallVec;
 
-use crate::decoder::{SetSplatEncoding, SplatEncoding, SplatInit, SplatProps, SplatReceiver};
+use crate::decoder::{SetSplatEncoding, SplatEncoding, SplatGetter, SplatInit, SplatProps, SplatReceiver};
 use crate::splat_encode::{encode_packed_splat, encode_sh1, encode_sh2, encode_sh3, get_splat_tex_size};
 use crate::symmat3::SymMat3;
 
@@ -669,6 +669,95 @@ impl SplatReceiver for GsplatArray {
                     child_index += 1;
                     child
                 });
+            }
+        }
+    }
+}
+
+impl SplatGetter for GsplatArray {
+    fn num_splats(&self) -> usize { self.len() }
+    fn max_sh_degree(&self) -> usize { self.max_sh_degree }
+    fn flag_antialias(&self) -> bool { true }
+    fn has_lod_tree(&self) -> bool { !self.extras.is_empty() }
+    fn get_encoding(&mut self) -> SplatEncoding { SplatEncoding::default() }
+
+    fn get_center(&mut self, base: usize, count: usize, out: &mut [f32]) {
+        for i in 0..count {
+            let c = self.splats[base + i].center.to_array();
+            out[i * 3 + 0] = c[0];
+            out[i * 3 + 1] = c[1];
+            out[i * 3 + 2] = c[2];
+        }
+    }
+
+    fn get_opacity(&mut self, base: usize, count: usize, out: &mut [f32]) {
+        for i in 0..count { out[i] = self.splats[base + i].opacity(); }
+    }
+
+    fn get_rgb(&mut self, base: usize, count: usize, out: &mut [f32]) {
+        for i in 0..count {
+            let r = self.splats[base + i].rgb().to_array();
+            out[i * 3 + 0] = r[0];
+            out[i * 3 + 1] = r[1];
+            out[i * 3 + 2] = r[2];
+        }
+    }
+
+    fn get_scale(&mut self, base: usize, count: usize, out: &mut [f32]) {
+        for i in 0..count {
+            let s = self.splats[base + i].scales().to_array();
+            out[i * 3 + 0] = s[0];
+            out[i * 3 + 1] = s[1];
+            out[i * 3 + 2] = s[2];
+        }
+    }
+
+    fn get_quat(&mut self, base: usize, count: usize, out: &mut [f32]) {
+        for i in 0..count {
+            let q = self.splats[base + i].quaternion().to_array();
+            out[i * 4 + 0] = q[0];
+            out[i * 4 + 1] = q[1];
+            out[i * 4 + 2] = q[2];
+            out[i * 4 + 3] = q[3];
+        }
+    }
+
+    fn get_sh1(&mut self, base: usize, count: usize, out: &mut [f32]) {
+        if self.max_sh_degree >= 1 {
+            for i in 0..count { out[i * 9..i * 9 + 9].copy_from_slice(&self.sh1[base + i].to_array()); }
+        }
+    }
+
+    fn get_sh2(&mut self, base: usize, count: usize, out: &mut [f32]) {
+        if self.max_sh_degree >= 2 {
+            for i in 0..count { out[i * 15..i * 15 + 15].copy_from_slice(&self.sh2[base + i].to_array()); }
+        }
+    }
+
+    fn get_sh3(&mut self, base: usize, count: usize, out: &mut [f32]) {
+        if self.max_sh_degree >= 3 {
+            for i in 0..count { out[i * 21..i * 21 + 21].copy_from_slice(&self.sh3[base + i].to_array()); }
+        }
+    }
+
+    fn get_child_count(&mut self, base: usize, count: usize, out: &mut [u16]) {
+        if self.extras.is_empty() {
+            for i in 0..count { out[i] = 0; }
+            return;
+        }
+        for i in 0..count { out[i] = self.extras[base + i].children.len() as u16; }
+    }
+
+    fn get_child_start(&mut self, base: usize, count: usize, out: &mut [usize]) {
+        if self.extras.is_empty() {
+            for i in 0..count { out[i] = 0; }
+            return;
+        }
+        for i in 0..count {
+            let children = &self.extras[base + i].children;
+            out[i] = children.first().copied().unwrap_or(0) as usize;
+            if (base + i) < 10 {
+                println!("get_child_start {}: => {}", base + i, out[i]);
             }
         }
     }

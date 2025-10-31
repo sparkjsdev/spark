@@ -5,16 +5,13 @@ use spark_lib::decoder::{ChunkReceiver, MultiDecoder, SplatFileType};
 use spark_lib::gsplat::GsplatArray as GsplatArrayInner;
 use wasm_bindgen::prelude::*;
 
-use crate::{decoder::ChunkDecoder, packed_splats::PackedSplatsReceiver};
+use crate::{decoder::ChunkDecoder, packed_splats::PackedSplatsData};
 
 mod sort;
 use sort::{sort_internal, SortBuffers, sort32_internal, Sort32Buffers};
 
 mod raycast;
 use raycast::{raycast_ellipsoids, raycast_spheres};
-
-mod loder;
-pub use loder::{lod_init, lod_dispose, lod_compute};
 
 mod decoder;
 mod packed_splats;
@@ -139,10 +136,10 @@ pub fn decode_to_packedsplats(file_type: Option<String>, path_name: Option<Strin
         None
     };
 
-    let splats = PackedSplatsReceiver::new();
+    let splats = PackedSplatsData::new();
     let decoder = MultiDecoder::new(splats, file_type, path_name.as_deref());
     let on_finish = |receiver: Box<dyn ChunkReceiver>| {
-        let decoder: Box<MultiDecoder<PackedSplatsReceiver>> = receiver.into_any().downcast().unwrap();
+        let decoder: Box<MultiDecoder<PackedSplatsData>> = receiver.into_any().downcast().unwrap();
         let file_type = decoder.file_type.unwrap();
         let object = decoder.into_splats().into_splat_object();
         Reflect::set(&object, &JsValue::from_str("fileType"), &JsValue::from(file_type.to_enum_str())).unwrap();
@@ -186,7 +183,15 @@ impl GsplatArray {
     }
 
     pub fn to_packedsplats(&self) -> Result<Object, JsValue> {
-        let splats = match PackedSplatsReceiver::new_from_gsplat_array_lod(&self.inner) {
+        let splats = match PackedSplatsData::new_from_gsplat_array(&self.inner) {
+            Err(err) => { return Err(JsValue::from(err.to_string())); },
+            Ok(splats) => splats,
+        };
+        Ok(splats.into_splat_object())
+    }
+
+    pub fn to_packedsplats_lod(&self) -> Result<Object, JsValue> {
+        let splats = match PackedSplatsData::new_from_gsplat_array_lod(&self.inner) {
             Err(err) => { return Err(JsValue::from(err.to_string())); },
             Ok(splats) => splats,
         };
@@ -215,4 +220,25 @@ pub fn decode_to_gsplatarray(file_type: Option<String>, path_name: Option<String
 
     let decoder = ChunkDecoder::new(Box::new(decoder), Box::new(on_finish));
     Ok(decoder)
+}
+
+#[wasm_bindgen]
+pub fn packedsplats_to_gsplatarray(num_splats: u32, packed: Uint32Array, extra: Option<Object>) -> Result<GsplatArray, JsValue> {
+    use crate::packed_splats::PackedSplatsData;
+    let mut receiver = match PackedSplatsData::from_js_arrays(packed, num_splats as usize, extra.as_ref()) {
+        Ok(r) => r,
+        Err(err) => { return Err(JsValue::from(err.to_string())); }
+    };
+    let inner = match receiver.to_gsplat_array() {
+        Ok(inner) => inner,
+        Err(err) => { return Err(JsValue::from(err.to_string())); }
+    };
+    Ok(GsplatArray::new(inner))
+}
+
+#[wasm_bindgen]
+pub fn quick_lod_packedsplats(num_splats: u32, packed: Uint32Array, extra: Option<Object>, lod_base: f32) -> Result<Object, JsValue> {
+    let mut gs = packedsplats_to_gsplatarray(num_splats, packed, extra)?;
+    gs.quick_lod(lod_base);
+    gs.to_packedsplats()
 }
