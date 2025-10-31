@@ -2,7 +2,7 @@ import init_wasm, { sort_splats, sort32_splats } from "spark-internal-rs";
 import type { SplatEncoding } from "./PackedSplats";
 import type { PcSogsJson, TranscodeSpzInput } from "./SplatLoader";
 import { unpackAntiSplat } from "./antisplat";
-import { WASM_SPLAT_SORT } from "./defines";
+import { LN_SCALE_MAX, LN_SCALE_MIN, WASM_SPLAT_SORT } from "./defines";
 import { unpackKsplat } from "./ksplat";
 import { unpackPcSogs, unpackPcSogsZip } from "./pcsogs";
 import { PlyReader } from "./ply";
@@ -394,6 +394,22 @@ async function unpackSpz(
   const packedArray = new Uint32Array(maxSplats * 4);
   const extra: Record<string, unknown> = {};
 
+  let extraCallbacks = {};
+  if (spz.flagLod) {
+    const childCounts = new Uint16Array(numSplats);
+    const childStarts = new Uint32Array(numSplats);
+    extra.childCounts = childCounts;
+    extra.childStarts = childStarts;
+    extraCallbacks = {
+      childCounts: (index: number, count: number) => {
+        childCounts[index] = count;
+      },
+      childStarts: (index: number, start: number) => {
+        childStarts[index] = start;
+      },
+    };
+  }
+
   await spz.parseSplats(
     (index, x, y, z) => {
       setPackedSplatCenter(packedArray, index, x, y, z);
@@ -437,6 +453,7 @@ async function unpackSpz(
         encodeSh3Rgb(extra.sh3 as Uint32Array, index, sh3, splatEncoding);
       }
     },
+    extraCallbacks,
   );
   return { packedArray, numSplats, extra };
 }

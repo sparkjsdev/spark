@@ -1,12 +1,17 @@
 import * as THREE from "three";
-import { type PackedSplats, Readback, SplatMesh, dyno } from ".";
+import {
+  type PackedSplats,
+  Readback,
+  type SplatGenerator,
+  SplatMesh,
+  dyno,
+} from ".";
 import { NewSplatAccumulator } from "./NewSplatAccumulator";
 import { NewSplatGeometry } from "./NewSplatGeometry";
-import { NewSplatWorker, workerPool } from "./NewSplatWorker";
+import { NewSplatWorker } from "./NewSplatWorker";
 import { SPLAT_TEX_HEIGHT, SPLAT_TEX_WIDTH } from "./defines";
 import { getShaders } from "./shaders";
-import { withWorker } from "./splatWorker";
-import { cloneClock, getTextureSize, uintBitsToFloat } from "./utils";
+import { cloneClock, isAndroid, isIos } from "./utils";
 
 export interface NewSparkRendererOptions {
   /**
@@ -135,22 +140,37 @@ export interface NewSparkRendererOptions {
    */
   depthBias?: number;
   /**
-   * Set this to true if rendering a 360 to disable "behind the viewpoint"
-   * culling during sorting. This is set automatically when rendering 360 envMaps
-   * using the SparkRenderer.renderEnvMap() utility function.
-   * @default false
-   */
-  // sort360?: boolean;
-  /*
-   * Set this to true to sort with float32 precision with two-pass sort.
-   * @default true
-   */
-  sort32?: boolean;
-  /**
    * Minimum interval between sort calls in milliseconds.
-   * @default 1
+   * @default 10
    */
   minSortIntervalMs?: number;
+  /**
+   * Minimum interval between LOD calls in milliseconds.
+   * @default 10
+   */
+  minLodIntervalMs?: number;
+  /**
+   * Set the target # splats for LoD. Recommended # splats is 500K forf mobile and 1.5M for desktop,
+   * which is set automatically if this isn't set.
+   */
+  lodSplatCount?: number;
+  /**
+   * Scale factor for target # splats for LoD. 2.0 means 2x the recommended # splats.
+   * Recommended # splats is 500K forf mobile and 1.5M for desktop.
+   * @default 1.0
+   */
+  lodSplatScale?: number;
+  /* LoD scale to apply @default 1.0
+   */
+  lodScale?: number;
+  /* Foveation scale to apply outside the view frustum (but not behind viewer)
+   * @default 0.6
+   */
+  outsideFoveate?: number;
+  /* Foveation scale to apply behind viewer
+   * @default 0.3
+   */
+  behindFoveate?: number;
 }
 
 export class NewSparkRenderer extends THREE.Mesh {
@@ -162,6 +182,7 @@ export class NewSparkRenderer extends THREE.Mesh {
   autoUpdate: boolean;
   preUpdate: boolean;
 
+  renderSize = new THREE.Vector2();
   maxStdDev: number;
   minPixelRadius: number;
   maxPixelRadius: number;
@@ -175,45 +196,59 @@ export class NewSparkRenderer extends THREE.Mesh {
   clipXY: number;
   focalAdjustment: number;
   encodeLinear: boolean;
-  globalLodScale = 1.0;
 
-  sortRadial?: boolean;
+  sortRadial: boolean;
   depthBias?: number;
-  // sort360: boolean;
-  sort32: boolean;
-  minSortIntervalMs?: number;
+  // sort32: boolean;
 
   clock: THREE.Clock;
   time?: number;
   lastFrame = -1;
   updateTimeoutId = -1;
 
-  sortDirty = false;
-  sorting = false;
-  lastSort?: number;
-  sortCenter = new THREE.Vector3().setScalar(Number.NEGATIVE_INFINITY);
-  sortDir = new THREE.Vector3().setScalar(0);
-  sortTimeoutId = -1;
-  readback32 = new Uint32Array(0);
-  readback16 = new Uint16Array(0);
-
-  orderingTexture: THREE.DataArrayTexture | null = null;
+  orderingTexture: THREE.DataTexture | null = null;
+  maxSplats = 0;
   activeSplats = 0;
 
-  maxSplats = 0;
   display: NewSplatAccumulator;
   current: NewSplatAccumulator;
   accumulators: NewSplatAccumulator[] = [];
 
-  worker: NewSplatWorker | null = null;
+  sorting = false;
+  sortDirty = false;
+  lastSortTime = 0;
+  sortWorker: NewSplatWorker | null = null;
+  sortTimeoutId = -1;
+  sortedVersion = -1;
+  sortedMappingVersion = -1;
+  sortedCenter = new THREE.Vector3().setScalar(Number.NEGATIVE_INFINITY);
+  sortedDir = new THREE.Vector3().setScalar(0);
+  sortedTime = 0;
+  readback32 = new Uint32Array(0);
+
+  minSortIntervalMs: number;
+  minLodIntervalMs: number;
+  lodSplatCount?: number;
+  lodSplatScale: number;
+  lodScale: number;
+  outsideFoveate: number;
+  behindFoveate: number;
+
+  lodWorker: NewSplatWorker | null = null;
+  lodMeshes: SplatMesh[] = [];
+  lodDirty = false;
   lodIds: Map<PackedSplats, { lodId: number; lastTouched: number }> = new Map();
   lodInitQueue: PackedSplats[] = [];
+  lodPos = new THREE.Vector3().setScalar(Number.NEGATIVE_INFINITY);
+  lodQuat = new THREE.Quaternion().set(0, 0, 0, 0);
   lodInstances: Map<
     SplatMesh,
     { numSplats: number; indices: Uint32Array; texture: THREE.DataTexture }
   > = new Map();
-  lodCenter = new THREE.Vector3().setScalar(Number.NEGATIVE_INFINITY);
-  lodOrient = new THREE.Quaternion().set(0, 0, 0, 0);
+  lodUpdate: {
+    uuidToMesh: Map<string, SplatMesh>;
+    keyIndices: Record<string, { numSplats: number; indices: Uint32Array }>;
+  } | null = null;
 
   flushAfterGenerate = false;
   flushAfterRead = false;
@@ -249,7 +284,7 @@ export class NewSparkRenderer extends THREE.Mesh {
     this.renderer = options.renderer;
     this.premultipliedAlpha = premultipliedAlpha;
     this.autoUpdate = options.autoUpdate ?? true;
-    this.preUpdate = options.preUpdate ?? false;
+    this.preUpdate = options.preUpdate ?? true;
 
     this.maxStdDev = options.maxStdDev ?? Math.sqrt(8.0);
     this.minPixelRadius = options.minPixelRadius ?? 0.0; //1.6;
@@ -265,26 +300,29 @@ export class NewSparkRenderer extends THREE.Mesh {
     this.focalAdjustment = options.focalAdjustment ?? 1.0;
     this.encodeLinear = options.encodeLinear ?? false;
 
-    this.sortRadial = options.sortRadial;
+    this.sortRadial = options.sortRadial ?? true;
     this.depthBias = options.depthBias;
-    // this.sort360 = options.sort360 ?? false;
-    this.sort32 = options.sort32 ?? false;
-    this.minSortIntervalMs = options.minSortIntervalMs ?? 1;
+    // this.sort32 = options.sort32 ?? true;
+    this.minSortIntervalMs = options.minSortIntervalMs ?? 10;
+    this.minLodIntervalMs = options.minLodIntervalMs ?? 10;
+    this.lodSplatCount = options.lodSplatCount;
+    this.lodSplatScale = options.lodSplatScale ?? 1.0;
+    this.lodScale = options.lodScale ?? 1.0;
+    this.outsideFoveate = options.outsideFoveate ?? 0.6;
+    this.behindFoveate = options.behindFoveate ?? 0.3;
 
     this.clock = options.clock ? cloneClock(options.clock) : new THREE.Clock();
-    this.time = undefined;
 
     this.display = new NewSplatAccumulator();
     this.current = this.display;
     this.accumulators.push(new NewSplatAccumulator());
     this.accumulators.push(new NewSplatAccumulator());
-
-    // this.renderer.xr.setFramebufferScaleFactor(0.5);
-    // this.renderer.xr.setReferenceSpaceType("local");
   }
 
   static makeUniforms() {
     const uniforms = {
+      // number of active splats to render
+      numSplats: { value: 0 },
       // Size of render viewport in pixels
       renderSize: { value: new THREE.Vector2() },
       // Near and far plane distances
@@ -345,9 +383,7 @@ export class NewSparkRenderer extends THREE.Mesh {
     const isNewFrame = frame !== this.lastFrame;
     this.lastFrame = frame;
 
-    const renderSize = renderer.getDrawingBufferSize(
-      this.uniforms.renderSize.value,
-    );
+    const renderSize = renderer.getDrawingBufferSize(this.renderSize);
     if (renderer.xr.isPresenting) {
       if (renderSize.x === 1 && renderSize.y === 1) {
         // WebXR mode on Apple Vision Pro returns 1x1 when presenting.
@@ -359,6 +395,7 @@ export class NewSparkRenderer extends THREE.Mesh {
         }
       }
     }
+    this.uniforms.renderSize.value.copy(renderSize);
 
     const typedCamera = camera as
       | THREE.PerspectiveCamera
@@ -369,6 +406,7 @@ export class NewSparkRenderer extends THREE.Mesh {
 
     const geometry = this.geometry as NewSplatGeometry;
     geometry.instanceCount = this.activeSplats;
+    this.uniforms.numSplats.value = this.activeSplats;
 
     const worldToCamera = camera.matrixWorld.clone().invert();
     worldToCamera.decompose(
@@ -403,63 +441,9 @@ export class NewSparkRenderer extends THREE.Mesh {
     this.uniforms.debugFlag.value = (performance.now() / 1000.0) % 2.0 < 1.0;
 
     if (this.autoUpdate && isNewFrame) {
-      const preUpdate = this.preUpdate && !renderer.xr.isPresenting;
-      if (preUpdate) {
-        this.update({ renderer, scene, camera });
-      } else {
-        if (this.updateTimeoutId === -1) {
-          this.updateTimeoutId = setTimeout(() => {
-            this.updateTimeoutId = -1;
-            this.update({ renderer, scene, camera });
-          }, 1);
-        }
-      }
+      this.updateInternal({ renderer, scene, camera, autoUpdate: true });
     }
   }
-
-  // maybeUpdateSort(camera: THREE.Camera) {
-  //   if (this.sortCamera) {
-  //     this.sortCamera.copy(camera);
-  //   } else {
-  //     const center = camera.getWorldPosition(new THREE.Vector3());
-  //     const dir = camera.getWorldDirection(new THREE.Vector3());
-  //     const needsSort = (center.distanceTo(this.sortCenter) > 0.001) ||
-  //       (dir.dot(this.sortDir) < (this.sortRadial ? 0.99 : 0.999));
-  //     if (needsSort) {
-  //       this.sortCamera = camera.clone();
-  //     }
-  //   }
-
-  //   this.maybeTriggerSort()
-  // }
-
-  // maybeTriggerSort() {
-  //   if (this.sortCamera && !this.sorting) {
-  //     const nextSort = (this.minSortIntervalMs && this.lastSort) ?
-  //       (this.lastSort + this.minSortIntervalMs - performance.now()) : 0;
-
-  //     if (this.sortTimeoutId !== -1) {
-  //       clearTimeout(this.sortTimeoutId);
-  //       this.sortTimeoutId = -1;
-  //     }
-
-  //     if (nextSort <= 0) {
-  //       this.runSort();
-  //     } else {
-  //       this.sortTimeoutId = setTimeout(() => {
-  //         this.sortTimeoutId = -1;
-  //         this.runSort();
-  //       }, nextSort);
-  //     }
-  //   }
-  // }
-
-  // runSort() {
-  //   this.sorting = true;
-
-  //   //
-  //   this.maybeTriggerSort();
-  // }
 
   update({
     renderer,
@@ -470,21 +454,39 @@ export class NewSparkRenderer extends THREE.Mesh {
     scene: THREE.Scene;
     camera: THREE.Camera;
   }) {
-    this.updateMatrixWorld();
-    camera.updateMatrixWorld();
+    this.updateInternal({ renderer, scene, camera, autoUpdate: false });
+  }
 
-    const renderSize = this.uniforms.renderSize.value;
+  private updateInternal({
+    renderer,
+    scene,
+    camera,
+    autoUpdate,
+  }: {
+    renderer: THREE.WebGLRenderer;
+    scene: THREE.Scene;
+    camera: THREE.Camera;
+    autoUpdate: boolean;
+  }) {
     const time = this.time ?? this.clock.getElapsedTime();
 
-    const now = performance.now();
-    let sortOkay = true;
-    if (this.lastSort) {
-      if (
-        this.minSortIntervalMs &&
-        now - this.lastSort < this.minSortIntervalMs
-      ) {
-        sortOkay = false;
-      }
+    const center = camera.getWorldPosition(new THREE.Vector3());
+    const dir = camera.getWorldDirection(new THREE.Vector3());
+
+    const currentToWorld = this.current.viewToWorld.clone().invert();
+    const currentCenter = new THREE.Vector3().applyMatrix4(currentToWorld);
+    const currentDir = new THREE.Vector3(0, 0, -1)
+      .applyMatrix4(currentToWorld)
+      .sub(currentCenter)
+      .normalize();
+
+    const viewChanged =
+      center.distanceTo(currentCenter) > 0.001 || dir.dot(currentDir) < 0.999;
+
+    if (this.lodUpdate) {
+      const { uuidToMesh, keyIndices } = this.lodUpdate;
+      this.lodUpdate = null;
+      this.updateLodIndices(uuidToMesh, keyIndices);
     }
 
     const next = this.accumulators.pop();
@@ -492,38 +494,31 @@ export class NewSparkRenderer extends THREE.Mesh {
       // Should never happen
       throw new Error("No next accumulator");
     }
-
-    const { sameMapping, mappingVersion, visibleGenerators, generate } =
+    const { version, mappingVersion, visibleGenerators, generate } =
       next.prepareGenerate({
         renderer,
         scene,
         time,
         camera,
         sortRadial: this.sortRadial ?? true,
-        renderSize,
+        renderSize: this.renderSize,
         previous: this.current,
         lodInstances: this.lodInstances,
       });
 
-    const center = camera.getWorldPosition(new THREE.Vector3());
-    const dir = camera.getWorldDirection(new THREE.Vector3());
-    const viewChanged =
-      center.distanceTo(this.sortCenter) > 0.001 ||
-      dir.dot(this.sortDir) < (this.sortRadial ? 0.99 : 0.999);
+    this.driveLod({ visibleGenerators, camera });
 
-    const needSort =
-      viewChanged || mappingVersion > this.current.mappingVersion;
-    if (needSort && !sortOkay) {
-      console.log(`push: needSort && !sortOkay, viewChanged=${viewChanged}`);
+    const needsUpdate = viewChanged || version !== this.current.version;
+
+    if (autoUpdate && !needsUpdate) {
+      // Triggered by auto-update but no change, so exit early
       this.accumulators.push(next);
-      return false;
+      return null;
     }
 
-    if (this.sorting && needSort) {
-      console.log(`push: sorting && needsSort, viewChanged=${viewChanged}`);
-      // Don't create yet another new mapping while we're processing one
+    if (needsUpdate && this.sorting) {
       this.accumulators.push(next);
-      return false;
+      return null;
     }
 
     generate();
@@ -533,406 +528,443 @@ export class NewSparkRenderer extends THREE.Mesh {
       gl.flush();
     }
 
+    if (this.display.mappingVersion === next.mappingVersion) {
+      this.accumulators.push(this.display);
+      this.display = next;
+    } else {
+      this.accumulators.push(this.current);
+    }
+
+    if (this.display !== this.current) {
+      this.accumulators.push(this.current);
+    }
+    this.current = next;
     this.sortDirty = true;
 
-    if (this.sorting) {
-      // sameMapping == true by above check
-      if (this.display.mappingVersion === next.mappingVersion) {
-        this.accumulators.push(this.display);
-        this.display = next;
-      } else {
-        this.accumulators.push(this.current);
-      }
+    this.driveSort();
+  }
 
-      this.current = next;
+  private async driveSort() {
+    if (this.sorting || !this.sortDirty) {
+      return;
+    }
+
+    if (this.sortTimeoutId !== -1) {
+      clearTimeout(this.sortTimeoutId);
+      this.sortTimeoutId = -1;
+    }
+
+    const now = performance.now();
+    const nextSortTime = this.lastSortTime
+      ? this.lastSortTime + this.minSortIntervalMs
+      : now;
+    if (now < nextSortTime) {
+      this.sortTimeoutId = setTimeout(
+        () => this.driveSort(),
+        nextSortTime - now,
+      );
+      return;
+    }
+
+    this.sorting = true;
+    this.sortDirty = false;
+    this.lastSortTime = now;
+    const current = this.current;
+
+    const currentToWorld = current.viewToWorld.clone().invert();
+    this.sortedCenter.set(0, 0, 0).applyMatrix4(currentToWorld);
+    this.sortedDir
+      .set(0, 0, -1)
+      .applyMatrix4(currentToWorld)
+      .sub(this.sortedCenter)
+      .normalize();
+
+    if (this.readPause > 0) {
+      await new Promise((resolve) => setTimeout(resolve, this.readPause));
+    }
+
+    const { numSplats, maxSplats } = current;
+    const rows = Math.max(1, Math.ceil(maxSplats / 16384));
+    const orderingMaxSplats = rows * 16384;
+    this.maxSplats = Math.max(this.maxSplats, orderingMaxSplats);
+
+    const ordering = new Uint32Array(this.maxSplats);
+    const readback = Readback.ensureBuffer(maxSplats, this.readback32);
+    this.readback32 = readback;
+
+    await this.readbackDepth({
+      renderer: this.renderer,
+      numSplats,
+      readback,
+    });
+
+    if (this.sortPause > 0) {
+      await new Promise((resolve) => setTimeout(resolve, this.sortPause));
+    }
+
+    if (!this.sortWorker) {
+      this.sortWorker = new NewSplatWorker();
+    }
+    const result = (await this.sortWorker.call("sortSplats32", {
+      numSplats,
+      readback,
+      ordering,
+    })) as {
+      readback: Uint16Array | Uint32Array;
+      ordering: Uint32Array;
+      activeSplats: number;
+    };
+
+    if (this.sortDelay > 0) {
+      await new Promise((resolve) => setTimeout(resolve, this.sortDelay));
+    }
+
+    this.readback32 = result.readback as Uint32Array<ArrayBuffer>;
+
+    this.activeSplats = result.activeSplats;
+
+    if (this.orderingTexture) {
+      if (rows > this.orderingTexture.image.height) {
+        this.orderingTexture.dispose();
+        this.orderingTexture = null;
+      }
+    }
+
+    if (!this.orderingTexture) {
+      console.log(`Allocating orderingTexture: ${4096}x${rows}`);
+      const orderingTexture = new THREE.DataTexture(
+        result.ordering,
+        4096,
+        rows,
+        THREE.RGBAIntegerFormat,
+        THREE.UnsignedIntType,
+      );
+      orderingTexture.internalFormat = "RGBA32UI";
+      this.orderingTexture = orderingTexture;
     } else {
-      if (sameMapping) {
-        if (this.current === this.display) {
-          this.display = next;
-          console.log("Short circuit sameMapping");
-        } else {
-        }
-      } else {
-        if (sortOkay) {
-          console.log("!sameMapping && sortOkay");
-        }
-      }
-      if (this.display !== this.current) {
-        this.accumulators.push(this.current);
-      }
-      this.current = next;
+      const data = new Uint32Array(this.orderingTexture.image.data.buffer);
+      data.set(result.ordering);
+      // console.log("Setting ordering", result.ordering.slice(0, 10));
 
-      if (sortOkay) {
-        // Don't await this
-        this.driveSort(sortOkay, sameMapping);
+      const renderer = this.renderer;
+      const gl = renderer.getContext() as WebGL2RenderingContext;
+      if (!renderer.properties.has(this.orderingTexture)) {
+        this.orderingTexture.needsUpdate = true;
       } else {
-        if (this.display !== next) {
-          this.accumulators.push(next);
+        const props = renderer.properties.get(this.orderingTexture) as {
+          __webglTexture: WebGLTexture;
+        };
+        const glTexture = props.__webglTexture;
+        if (!glTexture) {
+          throw new Error("ordering texture not found");
         }
+        renderer.state.activeTexture(gl.TEXTURE0);
+        renderer.state.bindTexture(gl.TEXTURE_2D, glTexture);
+        gl.texSubImage2D(
+          gl.TEXTURE_2D,
+          0,
+          0,
+          0,
+          4096,
+          rows,
+          gl.RGBA_INTEGER,
+          gl.UNSIGNED_INT,
+          data,
+        );
+        renderer.state.bindTexture(gl.TEXTURE_2D, null);
       }
     }
+    this.orderingTexture.needsUpdate = true;
 
-    if (this.accumulators.length > 2) {
-      throw new Error("Accumulators length > 2");
+    // console.log(`Sorted ${numSplats} splats in ${performance.now() - now} ms`);
+
+    if (this.display !== current) {
+      this.accumulators.push(this.display);
+      this.display = current;
     }
+    this.sorting = false;
 
+    this.driveSort();
+  }
+
+  private async driveLod({
+    visibleGenerators,
+    camera: inputCamera,
+  }: { visibleGenerators: SplatGenerator[]; camera: THREE.Camera }) {
     const lodMeshes = visibleGenerators.filter((generator) => {
       return (
-        generator instanceof SplatMesh && generator.packedSplats.extra.lodTree
+        generator instanceof SplatMesh &&
+        generator.packedSplats.lodSplats &&
+        generator.enableLod !== false
       );
     }) as SplatMesh[];
 
+    let forceUpdate = this.lodMeshes.length !== lodMeshes.length;
+    if (
+      !forceUpdate &&
+      this.lodMeshes.some((mesh, i) => mesh !== lodMeshes[i])
+    ) {
+      forceUpdate = true;
+    }
+    this.lodMeshes = lodMeshes;
+
+    if (forceUpdate) {
+      this.lodDirty = true;
+    }
+
+    if (!this.lodDirty && lodMeshes.length === 0 && this.lodIds.size === 0) {
+      return;
+    }
+
+    const camera = inputCamera.clone();
+
     const lodSplats = lodMeshes.reduce((splats, mesh) => {
-      splats.add(mesh.packedSplats);
+      splats.add(mesh.packedSplats.lodSplats as PackedSplats);
       return splats;
     }, new Set<PackedSplats>());
 
     this.lodInitQueue = [];
+    const now = performance.now();
 
-    for (const splats of lodSplats) {
-      const record = this.lodIds.get(splats);
+    for (const splat of lodSplats) {
+      const record = this.lodIds.get(splat);
       if (record) {
         record.lastTouched = now;
       } else {
-        this.lodInitQueue.push(splats);
+        this.lodInitQueue.push(splat);
       }
     }
 
-    if (lodMeshes.length > 0) {
-      if (!this.worker) {
-        this.worker = new NewSplatWorker();
-      }
-      this.worker?.tryExclusive(async (worker) => {
-        const now = performance.now();
-        if (this.lodInitQueue.length > 0) {
-          const splats = this.lodInitQueue.shift() as PackedSplats;
-          const { lodId } = (await worker.call("initLodTree", {
-            numSplats: splats.numSplats,
-            lodTree: (splats.extra.lodTree as Uint32Array).slice(),
-          })) as { lodId: number };
-          console.log("initLodTree", lodId);
-          this.lodIds.set(splats, { lodId, lastTouched: now });
-          return;
-        }
-
-        const viewQuaternion = new THREE.Quaternion();
-        const viewPosition = new THREE.Vector3();
-        next.viewToWorld.decompose(
-          viewPosition,
-          viewQuaternion,
-          new THREE.Vector3(),
-        );
-        const lodViewChanged =
-          viewPosition.distanceTo(this.lodCenter) > 0.001 ||
-          viewQuaternion.dot(this.lodOrient) < 0.999;
-
-        if (lodViewChanged) {
-          const maxSplats = 1500000;
-          let pixelScaleLimit = 0.0;
-          let fovXdegrees = Number.POSITIVE_INFINITY;
-          let fovYdegrees = Number.POSITIVE_INFINITY;
-          if (camera instanceof THREE.PerspectiveCamera) {
-            const tanYfov = Math.tan((0.5 * camera.fov * Math.PI) / 180);
-            pixelScaleLimit = (2.0 * tanYfov) / renderSize.y;
-            fovYdegrees = camera.fov;
-            fovXdegrees =
-              ((Math.atan(tanYfov * camera.aspect) * 180) / Math.PI) * 2.0;
-          }
-
-          const uuidToMesh: Record<string, SplatMesh> = {};
-
-          const instances = lodMeshes.reduce(
-            (instances, mesh) => {
-              const record = this.lodIds.get(mesh.packedSplats);
-              if (record) {
-                const viewToObject = new THREE.Matrix4();
-                viewToObject.compose(
-                  mesh.context.viewToObject.translate.value,
-                  mesh.context.viewToObject.rotate.value,
-                  new THREE.Vector3().setScalar(
-                    mesh.context.viewToObject.scale.value,
-                  ),
-                );
-                uuidToMesh[mesh.uuid] = mesh;
-                instances[mesh.uuid] = {
-                  lodId: record.lodId,
-                  viewToObjectCols: viewToObject.elements,
-                };
-              }
-              return instances;
-            },
-            {} as Record<string, { lodId: number; viewToObjectCols: number[] }>,
-          );
-
-          const traverseStart = performance.now();
-          const { keyIndices } = (await worker.call("traverseLodTrees", {
-            maxSplats,
-            pixelScaleLimit,
-            fovXdegrees,
-            fovYdegrees,
-            outsideFoveate: 1.0,
-            behindFoveate: 0.5,
-            instances,
-          })) as {
-            keyIndices: Record<
-              string,
-              { numSplats: number; indices: Uint32Array }
-            >;
-          };
-          const debugSplats = Object.keys(keyIndices).map((uuid) => [
-            uuid,
-            keyIndices[uuid].numSplats,
-          ]);
-          console.log(
-            "traverseLodTrees result",
-            performance.now() - traverseStart,
-            JSON.stringify(debugSplats),
-          );
-
-          for (const [uuid, countIndices] of Object.entries(keyIndices)) {
-            const { numSplats, indices } = countIndices;
-            const mesh = uuidToMesh[uuid];
-            let instance = this.lodInstances.get(mesh);
-            if (instance) {
-              if (indices.length > instance.indices.length) {
-                instance.texture.dispose();
-                instance = undefined;
-              }
-            }
-
-            const rows = Math.ceil(indices.length / 16384);
-            if (!instance) {
-              const capacity = rows * 16384;
-              if (indices.length !== capacity) {
-                throw new Error("Indices length != capacity");
-              }
-              const texture = new THREE.DataTexture(
-                indices,
-                4096,
-                rows,
-                THREE.RGBAIntegerFormat,
-                THREE.UnsignedIntType,
-              );
-              texture.internalFormat = "RGBA32UI";
-              texture.needsUpdate = true;
-              instance = { numSplats, indices, texture };
-              this.lodInstances.set(mesh, instance);
-            } else {
-              instance.numSplats = numSplats;
-              // TODO: Do we need to do this since we are directly uploading from indices?
-              instance.indices.set(indices);
-
-              const gl = renderer.getContext() as WebGL2RenderingContext;
-              if (!renderer.properties.has(instance.texture)) {
-                instance.texture.needsUpdate = true;
-              } else {
-                const props = renderer.properties.get(instance.texture) as {
-                  __webglTexture: WebGLTexture;
-                };
-                const glTexture = props.__webglTexture;
-                if (!glTexture) {
-                  throw new Error("lodIndices texture not found");
-                }
-                renderer.state.activeTexture(gl.TEXTURE0);
-                renderer.state.bindTexture(gl.TEXTURE_2D, glTexture);
-                gl.texSubImage2D(
-                  gl.TEXTURE_2D,
-                  0,
-                  0,
-                  0,
-                  4096,
-                  rows,
-                  gl.RGBA_INTEGER,
-                  gl.UNSIGNED_INT,
-                  indices,
-                );
-                renderer.state.bindTexture(gl.TEXTURE_2D, null);
-              }
-            }
-            mesh.updateMappingVersion();
-          }
-
-          this.lodCenter.copy(viewPosition);
-          this.lodOrient.copy(viewQuaternion);
-
-          return;
-        }
-
-        let oldest = null;
-        for (const [splats, record] of this.lodIds.entries()) {
-          if (
-            oldest == null ||
-            record.lastTouched < (this.lodIds.get(oldest)?.lastTouched ?? 0)
-          ) {
-            oldest = splats;
-          }
-        }
-        if (oldest != null) {
-          const { lastTouched, lodId } = this.lodIds.get(oldest) ?? {
-            lastTouched: 0,
-            lodId: 0,
-          };
-          if (lastTouched < now - 3000) {
-            for (const [mesh, indices] of this.lodInstances.entries()) {
-              if (mesh.packedSplats === oldest) {
-                indices.texture.dispose();
-                this.lodInstances.delete(mesh);
-              }
-            }
-            await worker.call("disposeLodTree", { lodId });
-          }
-        }
-      });
+    if (!this.lodWorker) {
+      this.lodWorker = new NewSplatWorker();
     }
-
-    return true;
-  }
-
-  async driveSort(sortOkay: boolean, sameMapping: boolean) {
-    if (this.sorting || !this.sortDirty) {
-      return;
-    }
-    try {
-      this.sorting = true;
-      this.sortDirty = false;
-      this.lastSort = performance.now();
-
-      this.sortCenter.copy(this.current.viewCenterUniform.value);
-      this.sortDir.copy(this.current.viewDirUniform.value);
-
-      if (this.readPause > 0) {
-        await new Promise((resolve) => setTimeout(resolve, this.readPause));
+    this.lodWorker.tryExclusive(async (worker) => {
+      if (this.lodInitQueue.length > 0) {
+        const splats = this.lodInitQueue.shift() as PackedSplats;
+        await this.initLodTree(worker, splats);
+        return;
       }
 
-      const sort32 = true;
-
-      const { numSplats, maxSplats } = this.current;
-      const { maxSplats: orderingMaxSplats } = getTextureSize(
-        Math.max(maxSplats, 1),
+      const viewPos = new THREE.Vector3();
+      const viewQuat = new THREE.Quaternion();
+      this.current.viewToWorld.decompose(
+        viewPos,
+        viewQuat,
+        new THREE.Vector3(),
       );
-      this.maxSplats = Math.max(this.maxSplats, orderingMaxSplats);
-      const ordering = new Uint32Array(this.maxSplats);
-      const readback = reader.ensureBuffer(maxSplats, this.readback32);
-      this.readback32 = readback;
+      const viewChanged =
+        viewPos.distanceTo(this.lodPos) > 0.001 ||
+        viewQuat.dot(this.lodQuat) < 0.999;
 
-      // let readback: Uint32Array | Uint16Array;
-      // if (sort32) {
-      //   this.readback32 = reader.ensureBuffer(maxSplats, this.readback32);
-      //   readback = this.readback32;
-      // } else {
-      //   const halfMaxSplats = Math.ceil(maxSplats / 2);
-      //   this.readback16 = reader.ensureBuffer(halfMaxSplats, this.readback16);
-      //   readback = this.readback16;
-      // }
-
-      // dynoSort360.value = this.sort360;
-      // dynoSortRadial.value = dynoSort360.value
-      //   ? true
-      //   : (this.sortRadial ?? true);
-      // dynoOrigin.value.setFromMatrixColumn(this.current.viewToWorld, 3);
-      // dynoDirection.value.setFromMatrixColumn(this.current.viewToWorld, 2).negate().normalize();
-      // // dynoOrigin.value.set(0, 0, 0).applyMatrix4(this.current.viewToWorld);
-      // // dynoDirection.value
-      // //   .set(0, 0, -1)
-      // //   .applyMatrix4(this.current.viewToWorld)
-      // //   .sub(dynoOrigin.value)
-      // //   .normalize();
-      // dynoDepthBias.value = this.depthBias ?? 1.0;
-      // dynoNumSplats.value = numSplats;
-      // dynoPacked1.value = this.current.getTextures()[0];
-
-      // const sortReader = sort32 ? sort32Reader : doubleSortReader;
-      // const count = sort32 ? numSplats : Math.ceil(numSplats / 2);
-      // this.history.push(`renderReadback ${numSplats}`);
-      // await reader.renderReadback({
-      //   renderer: this.renderer,
-      //   reader: sortReader,
-      //   count,
-      //   readback,
-      // });
-
-      await this.readbackDepth({
-        renderer: this.renderer,
-        numSplats,
-        readback,
-      });
-
-      if (this.sortPause > 0) {
-        await new Promise((resolve) => setTimeout(resolve, this.sortPause));
+      if (this.lodDirty || viewChanged) {
+        this.lodPos.copy(viewPos);
+        this.lodQuat.copy(viewQuat);
+        this.lodDirty = false;
+        await this.updateLodInstances(worker, camera, lodMeshes);
+        return;
       }
 
-      const result = (await workerPool.withWorker(async (worker) => {
-        return worker.call(sort32 ? "sortSplats32" : "sortSplats16", {
-          numSplats,
-          readback,
-          ordering,
-        });
-      })) as {
-        readback: Uint16Array<ArrayBuffer> | Uint32Array<ArrayBuffer>;
-        ordering: Uint32Array<ArrayBuffer>;
-        activeSplats: number;
-      };
+      await this.cleanupLodTrees(worker);
+    });
+  }
 
-      if (this.sortDelay > 0) {
-        await new Promise((resolve) => setTimeout(resolve, this.sortDelay));
-      }
+  private async initLodTree(worker: NewSplatWorker, splats: PackedSplats) {
+    console.log("initLodTree", splats.extra.lodTree, splats);
+    const { lodId } = (await worker.call("initLodTree", {
+      numSplats: splats.numSplats ?? 0,
+      lodTree: (splats.extra.lodTree as Uint32Array).slice(),
+    })) as { lodId: number };
+    console.log("=> initLodTree: lodId =", lodId);
+    this.lodIds.set(splats, { lodId, lastTouched: performance.now() });
+  }
 
-      if (sort32) {
-        this.readback32 = result.readback as Uint32Array<ArrayBuffer>;
-      } else {
-        this.readback16 = result.readback as Uint16Array<ArrayBuffer>;
-      }
+  private async updateLodInstances(
+    worker: NewSplatWorker,
+    camera: THREE.Camera,
+    lodMeshes: SplatMesh[],
+  ) {
+    const splatCount =
+      this.lodSplatCount ?? (isAndroid() ? 500000 : isIos() ? 500000 : 1500000);
+    const maxSplats = splatCount * this.lodSplatScale;
+    let pixelScaleLimit = 0.0;
+    let fovXdegrees = Number.POSITIVE_INFINITY;
+    let fovYdegrees = Number.POSITIVE_INFINITY;
+    if (camera instanceof THREE.PerspectiveCamera) {
+      const tanYfov = Math.tan((0.5 * camera.fov * Math.PI) / 180);
+      pixelScaleLimit = (2.0 * tanYfov) / this.renderSize.y;
+      fovYdegrees = camera.fov;
+      fovXdegrees =
+        ((Math.atan(tanYfov * camera.aspect) * 180) / Math.PI) * 2.0;
+    }
 
-      this.activeSplats = result.activeSplats;
+    const uuidToMesh: Map<string, SplatMesh> = new Map();
 
-      if (this.orderingTexture) {
-        const { width, height, depth } = this.orderingTexture.image;
-        if (width * height * depth < result.ordering.length) {
-          console.log(
-            `Disposing orderingTexture: ${width}x${height}x${depth} < ${result.ordering.length}`,
-          );
-          this.orderingTexture.dispose();
-          this.orderingTexture = null;
-        }
-      }
-      if (!this.orderingTexture) {
-        const { width, height, depth } = getTextureSize(result.ordering.length);
-        console.log(`Allocating orderingTexture: ${width}x${height}x${depth}`);
-        this.orderingTexture = new THREE.DataArrayTexture(
-          result.ordering,
-          width,
-          height,
-          depth,
+    const instances = lodMeshes.reduce(
+      (instances, mesh) => {
+        const record = this.lodIds.get(
+          mesh.packedSplats.lodSplats as PackedSplats,
         );
-        this.orderingTexture.format = THREE.RedIntegerFormat;
-        this.orderingTexture.type = THREE.UnsignedIntType;
-        this.orderingTexture.internalFormat = "R32UI";
-      } else {
-        this.orderingTexture.image.data = result.ordering;
-        const { width, height } = this.orderingTexture.image;
-        const numLayers = Math.ceil(result.activeSplats / (width * height));
-        for (let layer = 0; layer < numLayers; ++layer) {
-          this.orderingTexture.addLayerUpdate(layer);
+        if (record) {
+          const viewToObject = mesh.matrixWorld
+            .clone()
+            .invert()
+            .multiply(camera.matrixWorld);
+          uuidToMesh.set(mesh.uuid, mesh);
+          instances[mesh.uuid] = {
+            lodId: record.lodId,
+            viewToObjectCols: viewToObject.elements,
+            lodScale: mesh.lodScale * this.lodScale,
+            outsideFoveate: mesh.outsideFoveate ?? this.outsideFoveate,
+            behindFoveate: mesh.behindFoveate ?? this.behindFoveate,
+          };
         }
-      }
-      this.orderingTexture.needsUpdate = true;
+        return instances;
+      },
+      {} as Record<
+        string,
+        {
+          lodId: number;
+          viewToObjectCols: number[];
+          lodScale: number;
+          outsideFoveate: number;
+          behindFoveate: number;
+        }
+      >,
+    );
+    // console.log("instances", instances);
 
-      // this.sortCenter.copy(this.current.viewCenterUniform.value);
-      // this.sortDir.copy(this.current.viewDirUniform.value);
+    const traverseStart = performance.now();
+    const { keyIndices } = (await worker.call("traverseLodTrees", {
+      maxSplats,
+      pixelScaleLimit,
+      fovXdegrees,
+      fovYdegrees,
+      instances,
+    })) as {
+      keyIndices: Record<string, { numSplats: number; indices: Uint32Array }>;
+    };
+    const debugSplats = Object.keys(keyIndices).map(
+      (uuid) => keyIndices[uuid].numSplats,
+    );
+    console.log(
+      `traverseLodTrees in ${performance.now() - traverseStart} ms`,
+      JSON.stringify(debugSplats),
+    );
 
-      if (this.current.mappingVersion > this.display.mappingVersion) {
-        this.accumulators.push(this.display);
-        this.display = this.current;
-        console.log("Updating display to current");
-      } else {
-        console.log("NOT updating display to current");
+    this.lodUpdate = { uuidToMesh, keyIndices };
+  }
+
+  private async cleanupLodTrees(worker: NewSplatWorker) {
+    const DISPOSE_TIMEOUT_MS = 3000;
+
+    let oldest = null;
+    for (const [splats, record] of this.lodIds.entries()) {
+      if (
+        oldest == null ||
+        record.lastTouched < (this.lodIds.get(oldest)?.lastTouched ?? 0)
+      ) {
+        oldest = splats;
       }
-    } finally {
-      this.sorting = false;
+    }
+
+    if (oldest != null) {
+      const now = performance.now();
+      const { lastTouched, lodId } = this.lodIds.get(oldest) ?? {
+        lastTouched: 0,
+        lodId: 0,
+      };
+      if (lastTouched < now - DISPOSE_TIMEOUT_MS) {
+        for (const [mesh, indices] of this.lodInstances.entries()) {
+          if (mesh.packedSplats.lodSplats === oldest) {
+            indices.texture.dispose();
+            this.lodInstances.delete(mesh);
+          }
+        }
+        await worker.call("disposeLodTree", { lodId });
+      }
     }
   }
 
-  async readbackDepth({
+  private updateLodIndices(
+    uuidToMesh: Map<string, SplatMesh>,
+    keyIndices: Record<string, { numSplats: number; indices: Uint32Array }>,
+  ) {
+    // console.log("updateLodIndices", keyIndices);
+    for (const [uuid, countIndices] of Object.entries(keyIndices)) {
+      const { numSplats, indices } = countIndices;
+      const mesh = uuidToMesh.get(uuid) as SplatMesh;
+      let instance = this.lodInstances.get(mesh);
+      if (instance) {
+        if (indices.length > instance.indices.length) {
+          instance.texture.dispose();
+          instance = undefined;
+        }
+      }
+
+      const rows = Math.ceil(indices.length / 16384);
+      if (!instance) {
+        const capacity = rows * 16384;
+        if (indices.length !== capacity) {
+          throw new Error("Indices length != capacity");
+        }
+        const texture = new THREE.DataTexture(
+          indices,
+          4096,
+          rows,
+          THREE.RGBAIntegerFormat,
+          THREE.UnsignedIntType,
+        );
+        texture.internalFormat = "RGBA32UI";
+        texture.needsUpdate = true;
+        instance = { numSplats, indices, texture };
+        this.lodInstances.set(mesh, instance);
+        console.log(
+          "updateLodIndices: new texture",
+          numSplats,
+          indices.slice(0, 10),
+        );
+      } else {
+        instance.numSplats = numSplats;
+        // TODO: Do we need to do this since we are directly uploading from indices?
+        instance.indices.set(indices);
+
+        // instance.texture.needsUpdate = true;
+        const renderer = this.renderer;
+        const gl = renderer.getContext() as WebGL2RenderingContext;
+        if (renderer.properties.has(instance.texture)) {
+          const props = renderer.properties.get(instance.texture) as {
+            __webglTexture: WebGLTexture;
+          };
+          const glTexture = props.__webglTexture;
+          if (!glTexture) {
+            throw new Error("lodIndices texture not found");
+          }
+          renderer.state.activeTexture(gl.TEXTURE0);
+          renderer.state.bindTexture(gl.TEXTURE_2D, glTexture);
+          gl.texSubImage2D(
+            gl.TEXTURE_2D,
+            0,
+            0,
+            0,
+            4096,
+            rows,
+            gl.RGBA_INTEGER,
+            gl.UNSIGNED_INT,
+            indices,
+          );
+          renderer.state.bindTexture(gl.TEXTURE_2D, null);
+        }
+        console.log(
+          "updateLodIndices: texture",
+          numSplats,
+          indices.slice(0, 10),
+        );
+      }
+      mesh.updateMappingVersion();
+    }
+  }
+
+  private async readbackDepth({
     renderer,
     numSplats,
     readback,
@@ -956,13 +988,11 @@ export class NewSparkRenderer extends THREE.Mesh {
       );
     }
     const readbackUint8 = new Uint8Array(readback.buffer);
-
     const renderState = this.saveRenderState(renderer);
 
     // We can only read back one 2D array layer of pixels at a time,
     // so loop through them, initiate the readback, and collect the
     // completion promises.
-
     const layerSize = SPLAT_TEX_WIDTH * SPLAT_TEX_HEIGHT;
     let baseIndex = 0;
     const promises = [];
@@ -1000,18 +1030,10 @@ export class NewSparkRenderer extends THREE.Mesh {
         gl.flush();
       }
 
-      // await new Promise((resolve) => {
-      //   requestAnimationFrame(() => {
-      //     setTimeout(resolve, 1);
-      //   });
-      // });
-
       baseIndex += SPLAT_TEX_WIDTH * layerYEnd;
     }
 
-    // renderer.setRenderTarget(null);
     this.resetRenderState(renderer, renderState);
-
     return Promise.all(promises).then(() => readback);
   }
 
@@ -1034,200 +1056,14 @@ export class NewSparkRenderer extends THREE.Mesh {
     renderer.autoClear = state.autoClear;
   }
 
-  static emptyOrdering = (() => {
-    const { width, height, depth, maxSplats } = getTextureSize(1);
-    const emptyArray = new Uint32Array(maxSplats);
-    const texture = new THREE.DataArrayTexture(
-      emptyArray,
-      width,
-      height,
-      depth,
-    );
-    texture.format = THREE.RedIntegerFormat;
+  private static emptyOrdering = (() => {
+    const numIndices = 4 * 4096 * 1;
+    const emptyArray = new Uint32Array(numIndices);
+    const texture = new THREE.DataTexture(emptyArray, 4096, 1);
+    texture.format = THREE.RGBAIntegerFormat;
     texture.type = THREE.UnsignedIntType;
-    texture.internalFormat = "R32UI";
+    texture.internalFormat = "RGBA32UI";
     texture.needsUpdate = true;
     return texture;
   })();
-}
-
-const dynoSortRadial = new dyno.DynoBool({ value: true });
-const dynoOrigin = new dyno.DynoVec3({ value: new THREE.Vector3() });
-const dynoDirection = new dyno.DynoVec3({ value: new THREE.Vector3() });
-const dynoDepthBias = new dyno.DynoFloat({ value: 1.0 });
-const dynoSort360 = new dyno.DynoBool({ value: false });
-const dynoNumSplats = new dyno.DynoInt({ value: 0 });
-const dynoPacked1 = new dyno.DynoUsampler2DArray({
-  value: new THREE.DataArrayTexture(),
-});
-
-const reader = new Readback();
-const sort32Reader = dyno.dynoBlock(
-  { index: "int" },
-  { rgba8: "vec4" },
-  ({ index }) => {
-    if (!index) {
-      throw new Error("No index");
-    }
-    const sortParams = {
-      sortRadial: dynoSortRadial,
-      sortOrigin: dynoOrigin,
-      sortDirection: dynoDirection,
-      sortDepthBias: dynoDepthBias,
-      sort360: dynoSort360,
-    };
-
-    const xyza = readPackedCenterAlpha({
-      packed1: dynoPacked1,
-      numSplats: dynoNumSplats,
-      index,
-    });
-    const metric = computeSortMetric({ xyza, ...sortParams });
-    const rgba8 = dyno.uintToRgba8(dyno.floatBitsToUint(metric));
-    return { rgba8 };
-  },
-);
-const doubleSortReader = dyno.dynoBlock(
-  { index: "int" },
-  { rgba8: "vec4" },
-  ({ index }) => {
-    if (!index) {
-      throw new Error("No index");
-    }
-    const sortParams = {
-      sortRadial: dynoSortRadial,
-      sortOrigin: dynoOrigin,
-      sortDirection: dynoDirection,
-      sortDepthBias: dynoDepthBias,
-      sort360: dynoSort360,
-    };
-    const index0 = dyno.mul(index, dyno.dynoConst("int", 2));
-    const index1 = dyno.add(index0, dyno.dynoConst("int", 1));
-
-    const xyza0 = readPackedCenterAlpha({
-      packed1: dynoPacked1,
-      numSplats: dynoNumSplats,
-      index: index0,
-    });
-    const xyza1 = readPackedCenterAlpha({
-      packed1: dynoPacked1,
-      numSplats: dynoNumSplats,
-      index: index1,
-    });
-
-    const metric0 = computeSortMetric({ xyza: xyza0, ...sortParams });
-    const metric1 = computeSortMetric({ xyza: xyza1, ...sortParams });
-
-    const combined = dyno.combine({
-      vectorType: "vec2",
-      x: metric0,
-      y: metric1,
-    });
-    const rgba8 = dyno.uintToRgba8(dyno.packHalf2x16(combined));
-    return { rgba8 };
-  },
-);
-
-const defineReadPackedCenterAlpha = dyno.unindent(`
-  vec4 readPackedCenterAlpha(usampler2DArray texture, int numSplats, int index) {
-    if ((index >= 0) && (index < numSplats)) {
-      uvec4 packed = texelFetch(texture, splatTexCoord(index), 0);
-      return unpackSplatExtCenterAlpha(packed);
-    } else {
-      return vec4(0.0);
-    }
-  }
-`);
-
-function readPackedCenterAlpha({
-  packed1,
-  numSplats,
-  index,
-}: {
-  packed1: dyno.DynoVal<"usampler2DArray">;
-  numSplats: dyno.DynoVal<"int">;
-  index: dyno.DynoVal<"int">;
-}) {
-  return dyno.dyno({
-    inTypes: { packed1: "usampler2DArray", numSplats: "int", index: "int" },
-    outTypes: { xyza: "vec4" },
-    inputs: { packed1, numSplats, index },
-    globals: () => [defineReadPackedCenterAlpha],
-    statements: ({ inputs, outputs }) => {
-      const { xyza } = outputs;
-      const { packed1, numSplats, index } = inputs;
-      if (!xyza || !packed1 || !numSplats || !index) {
-        return [];
-      }
-      return [
-        `${xyza} = readPackedCenterAlpha(${packed1}, ${numSplats}, ${index});`,
-      ];
-    },
-  }).outputs.xyza;
-}
-
-const defineComputeSortMetric = dyno.unindent(`
-float computeSort(vec4 xyza, bool sortRadial, vec3 sortOrigin, vec3 sortDirection, float sortDepthBias, bool sort360) {
-  if (xyza.a < (0.5 / 255.0)) {
-    return INFINITY;
-  }
-
-  vec3 center = xyza.xyz - sortOrigin;
-  float biasedDepth = dot(center, sortDirection) + sortDepthBias;
-  if (!sort360 && (biasedDepth <= 0.0)) {
-    return INFINITY;
-  }
-
-  return sortRadial ? length(center) : biasedDepth;
-}
-`);
-
-function computeSortMetric({
-  xyza,
-  sortRadial,
-  sortOrigin,
-  sortDirection,
-  sortDepthBias,
-  sort360,
-}: {
-  xyza: dyno.DynoVal<"vec4">;
-  sortRadial: dyno.DynoVal<"bool">;
-  sortOrigin: dyno.DynoVal<"vec3">;
-  sortDirection: dyno.DynoVal<"vec3">;
-  sortDepthBias: dyno.DynoVal<"float">;
-  sort360: dyno.DynoVal<"bool">;
-}) {
-  return dyno.dyno({
-    inTypes: {
-      xyza: "vec4",
-      sortRadial: "bool",
-      sortOrigin: "vec3",
-      sortDirection: "vec3",
-      sortDepthBias: "float",
-      sort360: "bool",
-    },
-    outTypes: { metric: "float" },
-    globals: () => [dyno.defineGsplat, defineComputeSortMetric],
-    inputs: {
-      xyza,
-      sortRadial,
-      sortOrigin,
-      sortDirection,
-      sortDepthBias,
-      sort360,
-    },
-    statements: ({ inputs, outputs }) => {
-      const {
-        xyza,
-        sortRadial,
-        sortOrigin,
-        sortDirection,
-        sortDepthBias,
-        sort360,
-      } = inputs;
-      return dyno.unindentLines(`
-        ${outputs.metric} = computeSort(${xyza}, ${sortRadial}, ${sortOrigin}, ${sortDirection}, ${sortDepthBias}, ${sort360});
-      `);
-    },
-  }).outputs.metric;
 }

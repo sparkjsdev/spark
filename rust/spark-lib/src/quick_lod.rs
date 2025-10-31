@@ -183,7 +183,7 @@ pub fn compute_lod_tree(splats: &mut GsplatArray, lod_base: f32) {
                 splats.extras[orig_parent].children = (indices.len()..(indices.len() + children.len())).collect();
             }
 
-            for node in children {
+            for &node in children.iter() {
                 let node_children: SmallVec<[usize; 8]> = splats.extras[node].children.drain(..).collect();
                 if !node_children.is_empty() {
                     // if node_children[0] >= splats.extras.len() {
@@ -217,8 +217,7 @@ pub fn compute_lod_tree(splats: &mut GsplatArray, lod_base: f32) {
         if splat.opacity() > 1.0 {
             let dilation = splat.dilation();
             // // Map 1..5 dilation to 1..2 opacity
-            // splat.set_opacity((0.25 * (dilation - 1.0) + 1.0).clamp(1.0, 2.0));
-            splat.set_opacity(dilation);
+            splat.set_opacity((0.25 * (dilation - 1.0) + 1.0).clamp(1.0, 2.0));
         }
     }
 

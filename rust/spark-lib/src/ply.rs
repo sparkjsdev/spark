@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use anyhow::anyhow;
 
-use crate::decoder::{ChunkReceiver, SplatInit, SplatProps, SplatReceiver};
+use crate::decoder::{ChunkReceiver, SplatGetter, SplatInit, SplatProps, SplatReceiver};
 
 pub const PLY_MAGIC: u32 = 0x00796c70; // "ply"
 const MAX_SPLAT_CHUNK: usize = 16384;
@@ -427,4 +427,175 @@ fn f_rest_name(max_sh_degree: usize, degree: usize, k: usize, d: usize) -> Strin
     let stride = f_rest_offset(max_sh_degree);
     let offset = f_rest_offset(degree - 1);
     format!("f_rest_{}", stride * d + offset + k)
+}
+
+pub struct PlyEncoder<T: SplatGetter> {
+    getter: T,
+    max_sh_out: Option<u8>,
+}
+
+impl<T: SplatGetter> PlyEncoder<T> {
+    pub fn new(getter: T) -> Self { Self { getter, max_sh_out: None } }
+
+    pub fn with_max_sh(mut self, max_sh: u8) -> Self {
+        self.max_sh_out = Some(max_sh.min(3));
+        self
+    }
+
+    pub fn encode_to_writer<W: std::io::Write>(mut self, writer: &mut W) -> anyhow::Result<()> {
+        let num_splats = self.getter.num_splats();
+        let sh_src = self.getter.max_sh_degree() as u8;
+        let sh_degree = self.max_sh_out.map(|m| m.min(sh_src)).unwrap_or(sh_src) as usize;
+
+        // Header (UTF-8 text)
+        let mut header = String::new();
+        header.push_str("ply\n");
+        header.push_str("format binary_little_endian 1.0\n");
+        header.push_str(&format!("element vertex {}\n", num_splats));
+        header.push_str("property float x\n");
+        header.push_str("property float y\n");
+        header.push_str("property float z\n");
+        header.push_str("property float scale_0\n");
+        header.push_str("property float scale_1\n");
+        header.push_str("property float scale_2\n");
+        header.push_str("property float rot_0\n");
+        header.push_str("property float rot_1\n");
+        header.push_str("property float rot_2\n");
+        header.push_str("property float rot_3\n");
+        header.push_str("property float opacity\n");
+        header.push_str("property float f_dc_0\n");
+        header.push_str("property float f_dc_1\n");
+        header.push_str("property float f_dc_2\n");
+        let num_f_rest = match sh_degree { 0 => 0, 1 => 9, 2 => 24, 3 => 45, _ => 0 };
+        for i in 0..num_f_rest {
+            header.push_str(&format!("property float f_rest_{}\n", i));
+        }
+        header.push_str("end_header\n");
+        writer.write_all(header.as_bytes())?;
+
+        // Temporary buffers
+        let mut centers: Vec<f32> = Vec::new();
+        let mut opacities: Vec<f32> = Vec::new();
+        let mut rgbs: Vec<f32> = Vec::new();
+        let mut scales: Vec<f32> = Vec::new();
+        let mut quats: Vec<f32> = Vec::new();
+        let mut sh1: Vec<f32> = Vec::new();
+        let mut sh2: Vec<f32> = Vec::new();
+        let mut sh3: Vec<f32> = Vec::new();
+
+        let stride = f_rest_offset(sh_degree);
+
+        let mut write_f32_le = |v: f32| -> anyhow::Result<()> {
+            writer.write_all(&v.to_le_bytes())?;
+            Ok(())
+        };
+
+        let mut base = 0usize;
+        loop {
+            if base >= num_splats { break; }
+            let count = (num_splats - base).min(MAX_SPLAT_CHUNK);
+
+            ensure_len(&mut centers, count * 3);
+            ensure_len(&mut opacities, count);
+            ensure_len(&mut rgbs, count * 3);
+            ensure_len(&mut scales, count * 3);
+            ensure_len(&mut quats, count * 4);
+            if sh_degree >= 1 { ensure_len(&mut sh1, count * 9); }
+            if sh_degree >= 2 { ensure_len(&mut sh2, count * 15); }
+            if sh_degree >= 3 { ensure_len(&mut sh3, count * 21); }
+
+            self.getter.get_center(base, count, &mut centers[..count * 3]);
+            self.getter.get_opacity(base, count, &mut opacities[..count]);
+            self.getter.get_rgb(base, count, &mut rgbs[..count * 3]);
+            self.getter.get_scale(base, count, &mut scales[..count * 3]);
+            self.getter.get_quat(base, count, &mut quats[..count * 4]);
+            if sh_degree >= 1 { self.getter.get_sh1(base, count, &mut sh1[..count * 9]); }
+            if sh_degree >= 2 { self.getter.get_sh2(base, count, &mut sh2[..count * 15]); }
+            if sh_degree >= 3 { self.getter.get_sh3(base, count, &mut sh3[..count * 21]); }
+
+            for i in 0..count {
+                let i3 = i * 3;
+                let i4 = i * 4;
+
+                // center
+                write_f32_le(centers[i3 + 0])?;
+                write_f32_le(centers[i3 + 1])?;
+                write_f32_le(centers[i3 + 2])?;
+
+                // ln scales
+                write_f32_le(scales[i3 + 0].ln())?;
+                write_f32_le(scales[i3 + 1].ln())?;
+                write_f32_le(scales[i3 + 2].ln())?;
+
+                // quat (rot_0..rot_3), write normalized to be safe
+                let mut qx = quats[i4 + 0];
+                let mut qy = quats[i4 + 1];
+                let mut qz = quats[i4 + 2];
+                let mut qw = quats[i4 + 3];
+                let norm = (qx*qx + qy*qy + qz*qz + qw*qw).sqrt();
+                if norm > 0.0 {
+                    qx /= norm; qy /= norm; qz /= norm; qw /= norm;
+                }
+                write_f32_le(qw)?; // rot_0
+                write_f32_le(qx)?; // rot_1
+                write_f32_le(qy)?; // rot_2
+                write_f32_le(qz)?; // rot_3
+
+                // opacity -> logit(opacity)
+                let op = opacities[i].clamp(1.0e-12, 1.0 - 1.0e-12);
+                let logit = (op / (1.0 - op)).ln();
+                let logit = logit.clamp(-100.0, 100.0);
+                write_f32_le(logit)?;
+
+                // f_dc from rgb
+                let r = rgbs[i3 + 0];
+                let g = rgbs[i3 + 1];
+                let b = rgbs[i3 + 2];
+                write_f32_le((r - 0.5) / SH_C0)?;
+                write_f32_le((g - 0.5) / SH_C0)?;
+                write_f32_le((b - 0.5) / SH_C0)?;
+
+                // f_rest (SH) interleaved by channel as decoder expects
+                if sh_degree > 0 {
+                    let write_sh_value = |deg: usize, k: usize, d: usize| -> f32 {
+                        match deg {
+                            1 => sh1[i * 9 + k * 3 + d],
+                            2 => sh2[i * 15 + k * 3 + d],
+                            3 => sh3[i * 21 + k * 3 + d],
+                            _ => 0.0,
+                        }
+                    };
+                    for idx in 0..num_f_rest {
+                        let d = if stride > 0 { idx / stride } else { 0 };
+                        let in_channel = if stride > 0 { idx % stride } else { 0 };
+                        if in_channel < 3 {
+                            let k = in_channel; // degree 1 (3 coeffs)
+                            write_f32_le(write_sh_value(1, k, d))?;
+                        } else if in_channel < 8 {
+                            let k = in_channel - 3; // degree 2 (5 coeffs)
+                            write_f32_le(write_sh_value(2, k, d))?;
+                        } else {
+                            let k = in_channel - 8; // degree 3 (7 coeffs)
+                            write_f32_le(write_sh_value(3, k, d))?;
+                        }
+                    }
+                }
+            }
+
+            base += count;
+        }
+
+        Ok(())
+    }
+
+    pub fn encode(self) -> anyhow::Result<Vec<u8>> {
+        let mut out: Vec<u8> = Vec::new();
+        self.encode_to_writer(&mut out)?;
+        Ok(out)
+    }
+}
+
+#[inline]
+fn ensure_len(buf: &mut Vec<f32>, len: usize) {
+    if buf.len() < len { buf.resize(len, 0.0); }
 }

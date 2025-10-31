@@ -2,8 +2,8 @@ import { unzipSync } from "fflate";
 import { FileLoader, Loader, type LoadingManager } from "three";
 import { workerPool } from "./NewSplatWorker";
 import {
-  DEFAULT_SPLAT_ENCODING,
   PackedSplats,
+  type PackedSplatsOptions,
   type SplatEncoding,
 } from "./PackedSplats";
 import { SplatMesh } from "./SplatMesh";
@@ -21,6 +21,7 @@ export class SplatLoader extends Loader {
   fileLoader: FileLoader;
   fileType?: SplatFileType;
   packedSplats?: PackedSplats;
+  nonLod?: boolean;
 
   constructor(manager?: LoadingManager) {
     super(manager);
@@ -28,27 +29,52 @@ export class SplatLoader extends Loader {
   }
 
   load(
-    url: string,
+    url: string | Uint8Array,
     onLoad?: (decoded: PackedSplats) => void,
     onProgress?: (event: ProgressEvent) => void,
     onError?: (error: unknown) => void,
   ) {
-    const resolvedURL = this.manager.resolveURL(
-      (this.path ?? "") + (url ?? ""),
-    );
+    const packedSplats = this.packedSplats;
+    const fileBytes = url instanceof Uint8Array ? url : undefined;
+    const resolvedURL =
+      url instanceof Uint8Array
+        ? undefined
+        : this.manager.resolveURL((this.path ?? "") + (url ?? ""));
 
     // const headers = new Headers(this.requestHeader);
     // const credentials = this.withCredentials ? "include" : "same-origin";
     // const request = new Request(resolvedURL, { headers, credentials });
     // let fileType = this.fileType;
 
-    this.manager.itemStart(resolvedURL);
+    this.manager.itemStart(resolvedURL ?? "");
 
     workerPool
       .withWorker(async (worker) => {
+        let lod = false;
+        let lodBase = 1.5;
+        // If LoD is set and not falsey
+        console.log("packedSplats", packedSplats);
+        if (packedSplats?.lod ?? null) {
+          if (packedSplats?.lod) {
+            lod = true;
+            if (typeof packedSplats.lod === "number") {
+              // Limit LoD base to 1.1-2.0
+              lodBase = Math.max(1.1, Math.min(2.0, packedSplats.lod));
+            }
+          }
+        }
+        console.log(`Loading with LoD=${lod}, lodBase=${lodBase}`);
+
+        let init: {
+          numSplats: number;
+          packedArray: Uint32Array;
+          extra: Record<string, unknown>;
+          splatEncoding: SplatEncoding;
+        } | null = null;
+
         const onStatus = (data: unknown) => {
           const { loaded, total } = data as { loaded: number; total: number };
-          if (onProgress) {
+          if (loaded !== undefined && onProgress) {
             onProgress(
               new ProgressEvent("progress", {
                 lengthComputable: total !== 0,
@@ -57,22 +83,40 @@ export class SplatLoader extends Loader {
               }),
             );
           }
-        };
-
-        let lod = false;
-        let lodBase = 1.5;
-        // If LoD is set and not falsey
-        console.log("packedSplats", this.packedSplats);
-        if (this.packedSplats?.lod ?? null) {
-          if (this.packedSplats?.lod) {
-            lod = true;
-            if (typeof this.packedSplats.lod === "number") {
-              // Limit LoD base to 1.1-2.0
-              lodBase = Math.max(1.1, Math.min(2.0, this.packedSplats.lod));
+          if ((data as { orig?: unknown }).orig) {
+            init = (data as { orig?: unknown }).orig as {
+              numSplats: number;
+              packedArray: Uint32Array;
+              extra: Record<string, unknown>;
+              splatEncoding: SplatEncoding;
+            };
+            if (packedSplats) {
+              const { numSplats, packedArray, extra, splatEncoding } = init as {
+                numSplats: number;
+                packedArray: Uint32Array;
+                extra: Record<string, unknown>;
+                splatEncoding: SplatEncoding;
+              };
+              console.log(
+                "Initializing packedSplats",
+                packedSplats,
+                numSplats,
+                packedArray,
+                extra,
+                splatEncoding,
+                splatEncoding.lodOpacity,
+              );
+              packedSplats.initialize({
+                numSplats,
+                packedArray,
+                extra,
+                splatEncoding,
+              });
+            } else {
+              console.log("No packedSplats to initialize");
             }
           }
-        }
-        console.log(`Loading with LoD=${lod}, lodBase=${lodBase}`);
+        };
 
         const decoded = (await worker.call(
           "loadSplats",
@@ -81,33 +125,65 @@ export class SplatLoader extends Loader {
             baseUri: window.location.href,
             requestHeader: this.requestHeader,
             withCredentials: this.withCredentials,
+            fileBytes: fileBytes?.slice(),
             fileType: this.fileType,
             pathName: resolvedURL,
             lod,
             lodBase,
+            nonLod: this.nonLod ?? false,
           },
           { onStatus },
         )) as {
           numSplats: number;
           packedArray: Uint32Array;
           extra: Record<string, unknown>;
-          encoding: SplatEncoding;
+          splatEncoding: SplatEncoding;
+          lodSplats?:
+            | {
+                numSplats: number;
+                packedArray: Uint32Array;
+                extra: Record<string, unknown>;
+                splatEncoding: SplatEncoding;
+              }
+            | PackedSplats;
         };
         console.log("loadSplats result", decoded);
 
-        if (this.packedSplats) {
-          this.packedSplats.initialize(decoded);
-          onLoad?.(this.packedSplats);
+        if (decoded.lodSplats) {
+          decoded.lodSplats = new PackedSplats(
+            decoded.lodSplats as {
+              numSplats: number;
+              packedArray: Uint32Array;
+              extra: Record<string, unknown>;
+              splatEncoding: SplatEncoding;
+            },
+          ) as {
+            numSplats: number;
+            packedArray: Uint32Array;
+            extra: Record<string, unknown>;
+            splatEncoding: SplatEncoding;
+            lodSplats: PackedSplats;
+          };
+        }
+
+        const initSplats = {
+          ...(init ?? {}),
+          ...decoded,
+        };
+        if (packedSplats) {
+          console.log("Initializing packedSplats", initSplats);
+          packedSplats.initialize(initSplats as PackedSplatsOptions);
+          onLoad?.(packedSplats);
         } else {
-          onLoad?.(new PackedSplats(decoded));
+          onLoad?.(new PackedSplats(initSplats as PackedSplatsOptions));
         }
       })
       .catch((error) => {
-        this.manager.itemError(resolvedURL);
+        this.manager.itemError(resolvedURL ?? "");
         onError?.(error);
       })
       .finally(() => {
-        this.manager.itemEnd(resolvedURL);
+        this.manager.itemEnd(resolvedURL ?? "");
       });
 
     // fetchWithProgress(request, onProgress)

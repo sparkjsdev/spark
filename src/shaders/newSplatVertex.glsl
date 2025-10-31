@@ -67,7 +67,7 @@ void main() {
     }
 
     adjustedStdDev = maxStdDev;
-    rgba.a *= 2.0;
+    // rgba.a *= 2.0;
     if (rgba.a > 1.0) {
         // Stretch 1..2 to 1..5
         rgba.a = min(rgba.a * 4.0 - 3.0, 5.0);

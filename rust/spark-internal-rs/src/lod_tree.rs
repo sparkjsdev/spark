@@ -91,19 +91,33 @@ struct LodInstance<'a> {
     right: Vec3A,
     up: Vec3A,
     output: Vec<u32>,
+    lod_scale: f32,
+    outside_foveate: f32,
+    behind_foveate: f32,
 }
 
 #[wasm_bindgen]
 pub fn traverse_lod_trees(
     max_splats: u32, pixel_scale_limit: f32,
     fov_x_degrees: f32, fov_y_degrees: f32,
-    outside_foveate: f32, behind_foveate: f32,
     lod_ids: &[u32], view_to_objects: &[f32],
-) -> Array {
+    lod_scales: &[f32], outside_foveates: &[f32], behind_foveates: &[f32],
+) -> anyhow::Result<Array, JsValue> {
     let max_splats = max_splats as usize;
     let num_instances = lod_ids.len();
-    assert_eq!(view_to_objects.len(), num_instances * 16);
-
+    if view_to_objects.len() != num_instances * 16 {
+        return Err(JsValue::from_str("Invalid view_to_objects length"));
+    }
+    if lod_scales.len() != num_instances {
+        return Err(JsValue::from_str("Invalid lod_scales length"));
+    }
+    if outside_foveates.len() != num_instances {
+        return Err(JsValue::from_str("Invalid outside_foveates length"));
+    }
+    if behind_foveates.len() != num_instances {
+        return Err(JsValue::from_str("Invalid behind_foveates length"));
+    }
+    
     let x_limit = (0.5 * fov_x_degrees).to_radians().tan();
     let y_limit = (0.5 * fov_y_degrees).to_radians().tan();
 
@@ -119,15 +133,17 @@ pub fn traverse_lod_trees(
             let forward = Vec3A::from_slice(&view_to_objects[(i16 + 8)..(i16 + 11)]).normalize().map(|x| -x);
             let origin = Vec3A::from_slice(&view_to_objects[(i16 + 12)..(i16 + 15)]);
             let output = Vec::new();
-            LodInstance { splats, origin, forward, right, up, output }
+            let lod_scale = lod_scales[index];
+            let outside_foveate = outside_foveates[index];
+            let behind_foveate = behind_foveates[index];
+            LodInstance { splats, origin, forward, right, up, output, lod_scale, outside_foveate, behind_foveate }
         }).collect();
 
         let mut num_splats = 0;
 
         for (inst_index, instance) in instances.iter().enumerate() {
             let pixel_scale = compute_pixel_scale(
-                &instance.splats[0], instance, 
-                x_limit, y_limit, outside_foveate, behind_foveate,
+                &instance.splats[0], instance, x_limit, y_limit,
             );
             frontier.push((OrderedFloat(pixel_scale), inst_index as u32, 0));
             num_splats += 1;
@@ -153,8 +169,7 @@ pub fn traverse_lod_trees(
                 for child in 0..child_count {
                     let child_index = child_start + child as u32;
                     let pixel_scale = compute_pixel_scale(
-                        &instance.splats[child_index as usize], instance,
-                        x_limit, y_limit, outside_foveate, behind_foveate,
+                        &instance.splats[child_index as usize], instance, x_limit, y_limit,
                     );
                     if pixel_scale <= pixel_scale_limit {
                         instance.output.push(child_index);
@@ -184,21 +199,23 @@ pub fn traverse_lod_trees(
             results.push(&JsValue::from(result));
         }
 
-        results
+        Ok(results)
     })
 }
 
 fn compute_pixel_scale(
     splat: &LodSplat, instance: &LodInstance, 
-    x_limit: f32, y_limit: f32, outside_foveate: f32, behind_foveate: f32,
+    x_limit: f32, y_limit: f32,
 ) -> f32 {
     let center = Vec3A::from_array(splat.center.map(|x| x.to_f32()));
     let delta = center - instance.origin;
     let distance = delta.length();
     let pixel_scale = splat.size.to_f32() / distance.max(1.0e-6);
+    let pixel_scale = pixel_scale * instance.lod_scale;
+    
     let forward = delta.dot(instance.forward);
     if forward <= 0.0 {
-        behind_foveate * pixel_scale
+        instance.behind_foveate * pixel_scale
     } else {
         // let right = delta.dot(instance.right);
         // if (right / forward).abs() > x_limit {
@@ -220,9 +237,9 @@ fn compute_pixel_scale(
 
         let frustum_pos = x_pos.abs().max(y_pos.abs());
         let foveate = if frustum_pos <= 1.0 {
-            1.0 - frustum_pos * (1.0 - outside_foveate)
+            1.0 - frustum_pos * (1.0 - instance.outside_foveate)
         } else {
-            outside_foveate - 1.0 / frustum_pos * (behind_foveate - outside_foveate)
+            instance.outside_foveate - 1.0 / frustum_pos * (instance.behind_foveate - instance.outside_foveate)
         };
         foveate * pixel_scale
     }

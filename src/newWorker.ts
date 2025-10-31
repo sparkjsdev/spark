@@ -6,12 +6,16 @@ import init_wasm, {
   init_lod_tree,
   dispose_lod_tree,
   traverse_lod_trees,
+  type ChunkDecoder,
+  quick_lod_packedsplats,
 } from "spark-internal-rs";
+import type { SplatEncoding } from "./PackedSplats";
 
 const rpcHandlers = {
   sortSplats16,
   sortSplats32,
   loadSplats,
+  quickLod,
   initLodTree,
   disposeLodTree,
   traverseLodTrees,
@@ -73,39 +77,23 @@ function sortSplats32({
   return { activeSplats, readback, ordering };
 }
 
-async function loadSplats(
-  {
-    url,
-    baseUri,
-    requestHeader,
-    withCredentials,
-    fileBytes,
-    fileType,
-    pathName,
-    lod,
-    lodBase,
-    encoding,
-  }: {
-    url?: string;
-    baseUri?: string;
-    requestHeader?: Record<string, string>;
-    withCredentials?: string;
-    fileBytes?: Uint8Array;
-    fileType?: string;
-    pathName?: string;
-    lod?: boolean;
-    lodBase?: number;
-    encoding?: unknown;
-  },
-  {
-    sendStatus,
-  }: {
-    sendStatus: (data: unknown) => void;
-  },
-) {
-  const decoder = lod
-    ? decode_to_gsplatarray(fileType, pathName ?? url)
-    : decode_to_packedsplats(fileType, pathName ?? url);
+async function decodeBytesUrl({
+  decoder,
+  fileBytes,
+  url,
+  baseUri,
+  requestHeader,
+  withCredentials,
+  sendStatus,
+}: {
+  decoder: ChunkDecoder;
+  fileBytes?: Uint8Array;
+  url?: string;
+  baseUri?: string;
+  requestHeader?: Record<string, string>;
+  withCredentials?: string;
+  sendStatus: (data: unknown) => void;
+}) {
   let decodeDuration = 0;
 
   if (fileBytes) {
@@ -141,13 +129,7 @@ async function loadSplats(
       sendStatus({ loaded, total });
 
       const start = performance.now();
-      // if (lod) {
-      //   console.log(`Pushing ${value.length} bytes to decoder`);
-      // }
       decoder.push(value);
-      // if (lod) {
-      //   console.log(`- Done pushing ${value.length} bytes to decoder`);
-      // }
       decodeDuration += performance.now() - start;
     }
   } else {
@@ -155,40 +137,148 @@ async function loadSplats(
   }
 
   console.log(`Finalizing decoding splats from ${url}`);
+  // Zero out decoding time while downloading
+  decodeDuration = 0;
   const finishStart = performance.now();
-  let decoded = decoder.finish();
+  const decoded = decoder.finish();
   decodeDuration += performance.now() - finishStart;
-  console.log(`Decoded ${decoded.numSplats} splats in ${decodeDuration} ms`);
+  console.log(
+    `Decoded final ${decoded.numSplats} splats in ${decodeDuration} ms`,
+  );
 
-  if (lod) {
-    if (!decoded.has_lod()) {
-      const initialSplats = decoded.len();
-      const base = Math.max(1.1, Math.min(2.0, lodBase ?? 1.5));
-      const lodStart = performance.now();
-      decoded.quick_lod(base);
-      const lodDuration = performance.now() - lodStart;
-      console.log(
-        `Quick LoD: ${initialSplats} -> ${decoded.len()} (${lodDuration} ms)`,
-      );
+  return decoded;
+}
+
+async function loadSplats(
+  {
+    url,
+    baseUri,
+    requestHeader,
+    withCredentials,
+    fileBytes,
+    fileType,
+    pathName,
+    lod,
+    lodBase,
+    encoding,
+    nonLod,
+  }: {
+    url?: string;
+    baseUri?: string;
+    requestHeader?: Record<string, string>;
+    withCredentials?: string;
+    fileBytes?: Uint8Array;
+    fileType?: string;
+    pathName?: string;
+    lod?: boolean;
+    lodBase?: number;
+    encoding?: unknown;
+    nonLod?: boolean;
+  },
+  {
+    sendStatus,
+  }: {
+    sendStatus: (data: unknown) => void;
+  },
+) {
+  console.log(
+    `Called loadSplats with lod=${lod}, lodBase=${lodBase}, encoding=${encoding}, nonLod=${nonLod}`,
+  );
+
+  type DecodedResult = {
+    numSplats: number;
+    packed: Uint32Array;
+    sh1: Uint32Array;
+    sh2: Uint32Array;
+    sh3: Uint32Array;
+    lodTree: Uint32Array;
+    splatEncoding: SplatEncoding;
+  };
+
+  const toPackedResult = (packed: DecodedResult) => ({
+    numSplats: packed.numSplats,
+    packedArray: packed.packed,
+    extra: {
+      sh1: packed.sh1,
+      sh2: packed.sh2,
+      sh3: packed.sh3,
+      lodTree: packed.lodTree,
+    },
+    splatEncoding: packed.splatEncoding,
+  });
+
+  if (!lod) {
+    const decoder = decode_to_packedsplats(fileType, pathName ?? url);
+    const decoded = await decodeBytesUrl({
+      decoder,
+      fileBytes,
+      url,
+      baseUri,
+      requestHeader,
+      withCredentials,
+      sendStatus,
+    });
+    const result = toPackedResult(decoded as DecodedResult);
+    if (result.splatEncoding.lodOpacity) {
+      return { lodSplats: result };
     }
-
-    const convertStart = performance.now();
-    decoded = decoded.to_packedsplats();
-    const convertDuration = performance.now() - convertStart;
-    console.log(`Convert to packedsplats in ${convertDuration} ms`);
+    return result;
   }
 
-  return {
-    numSplats: decoded.numSplats,
-    packedArray: decoded.packed,
-    extra: {
-      sh1: decoded.sh1,
-      sh2: decoded.sh2,
-      sh3: decoded.sh3,
-      lodTree: decoded.lodTree,
-    },
-    encoding: decoded.encoding,
-  };
+  const decoder = decode_to_gsplatarray(fileType, pathName ?? url);
+  const decoded = await decodeBytesUrl({
+    decoder,
+    fileBytes,
+    url,
+    baseUri,
+    requestHeader,
+    withCredentials,
+    sendStatus,
+  });
+
+  if (decoded.has_lod()) {
+    return {
+      lodSplats: toPackedResult(decoded.to_packedsplats_lod() as DecodedResult),
+    };
+  }
+
+  if (nonLod) {
+    const initialConvertStart = performance.now();
+    const packed = decoded.to_packedsplats();
+    const initialConvertDuration = performance.now() - initialConvertStart;
+    sendStatus({ orig: toPackedResult(packed as DecodedResult) });
+  }
+
+  const initialSplats = decoded.len();
+  const base = Math.max(1.1, Math.min(2.0, lodBase ?? 1.5));
+  const lodStart = performance.now();
+  decoded.quick_lod(base);
+  const lodDuration = performance.now() - lodStart;
+  console.log(
+    `Quick LoD: ${initialSplats} -> ${decoded.len()} (${lodDuration} ms)`,
+  );
+
+  const convertStart = performance.now();
+  const lodPacked = decoded.to_packedsplats_lod();
+  const convertDuration = performance.now() - convertStart;
+  console.log(`Convert to packedsplats in ${convertDuration} ms`);
+
+  return { lodSplats: toPackedResult(lodPacked as DecodedResult) };
+}
+
+async function quickLod({
+  numSplats,
+  packedArray,
+  extra,
+  lodBase,
+}: {
+  numSplats: number;
+  packedArray: Uint32Array;
+  extra?: unknown;
+  lodBase?: number;
+}) {
+  const base = Math.max(1.1, Math.min(2.0, lodBase ?? 1.5));
+  return quick_lod_packedsplats(numSplats, packedArray, extra as object, base);
 }
 
 function initLodTree({
@@ -211,17 +301,22 @@ function traverseLodTrees({
   pixelScaleLimit,
   fovXdegrees,
   fovYdegrees,
-  outsideFoveate,
-  behindFoveate,
   instances,
 }: {
   maxSplats: number;
   pixelScaleLimit: number;
   fovXdegrees: number;
   fovYdegrees: number;
-  outsideFoveate: number;
-  behindFoveate: number;
-  instances: Record<string, { lodId: number; viewToObjectCols: number[] }>;
+  instances: Record<
+    string,
+    {
+      lodId: number;
+      viewToObjectCols: number[];
+      lodScale: number;
+      outsideFoveate: number;
+      behindFoveate: number;
+    }
+  >;
 }) {
   const keyInstances = Object.entries(instances);
   const lodIds = new Uint32Array(
@@ -235,16 +330,27 @@ function traverseLodTrees({
       return instance.viewToObjectCols;
     }),
   );
+  const lodScales = new Float32Array(
+    keyInstances.map(([_key, instance]) => instance.lodScale),
+  );
+  const outsideFoveates = new Float32Array(
+    keyInstances.map(([_key, instance]) => instance.outsideFoveate),
+  );
+  const behindFoveates = new Float32Array(
+    keyInstances.map(([_key, instance]) => instance.behindFoveate),
+  );
 
+  // console.log(`traverseLodTrees: maxSplats=${maxSplats}, pixelScaleLimit=${pixelScaleLimit}, fovXdegrees=${fovXdegrees}, fovYdegrees=${fovYdegrees}, outsideFoveate=${outsideFoveate}, behindFoveate=${behindFoveate}, lodIds=${lodIds.length}, viewToObjects=${viewToObjects.length}`);
   const instanceIndices = traverse_lod_trees(
     maxSplats,
     pixelScaleLimit,
     fovXdegrees,
     fovYdegrees,
-    outsideFoveate,
-    behindFoveate,
     lodIds,
     viewToObjects,
+    lodScales,
+    outsideFoveates,
+    behindFoveates,
   ) as { numSplats: number; indices: Uint32Array }[];
 
   const indices = keyInstances.reduce(
@@ -254,6 +360,7 @@ function traverseLodTrees({
     },
     {} as Record<string, { numSplats: number; indices: Uint32Array }>,
   );
+  // console.log(`traverseLodTrees: instanceIndices=${instanceIndices.length}`);
   return { keyIndices: indices };
 }
 

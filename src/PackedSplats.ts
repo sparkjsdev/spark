@@ -94,6 +94,10 @@ export type PackedSplatsOptions = {
   // LoD it will use the "quick lod" algorithm to generate one on-the-fly with
   // the selected LoD level base. (default: undefined=false)
   lod?: boolean | number;
+  // Keep the original PackedSplats data before creating LoD version. (default: false)
+  nonLod?: boolean;
+  // The LoD version of the PackedSplats
+  lodSplats?: PackedSplats;
 };
 
 // A PackedSplats is a collection of Gaussian splats, packed into a format that
@@ -110,6 +114,7 @@ export class PackedSplats {
   extra: Record<string, unknown>;
   splatEncoding?: SplatEncoding;
   lod?: boolean | number;
+  lodSplats?: PackedSplats;
 
   initialized: Promise<PackedSplats>;
   isInitialized = false;
@@ -225,23 +230,23 @@ export class PackedSplats {
       this.numSplats = 0;
     }
     this.extra = options.extra ?? {};
+
+    this.lodSplats = options.lodSplats;
   }
 
   async asyncInitialize(options: PackedSplatsOptions) {
-    const { url, fileBytes, construct, lod } = options;
+    const { url, fileBytes, construct, lod, nonLod } = options;
     this.lod = lod;
+    const loader = new SplatLoader();
+    loader.packedSplats = this;
+    loader.nonLod = nonLod;
     if (url) {
-      const loader = new SplatLoader();
-      loader.packedSplats = this;
       await loader.loadAsync(url, options.onProgress);
     } else if (fileBytes) {
-      const unpacked = await unpackSplats({
-        input: fileBytes,
-        fileType: options.fileType,
-        pathOrUrl: options.fileName ?? url,
-        splatEncoding: options.splatEncoding ?? DEFAULT_SPLAT_ENCODING,
-      });
-      this.initialize(unpacked);
+      await loader.loadAsync(
+        fileBytes as unknown as string,
+        options.onProgress,
+      );
     }
 
     if (construct) {
@@ -266,24 +271,10 @@ export class PackedSplats {
       this.source.source.data = null;
       this.source = null;
     }
-
-    this.packedArray = null;
-
-    for (const key in this.extra) {
-      const dyno = this.extra[key] as DynoUniform<
-        DynoType,
-        string,
-        THREE.Texture
-      >;
-      if (dyno instanceof DynoUniform) {
-        const texture = dyno.value;
-        if (texture?.isTexture) {
-          texture.dispose();
-          texture.source.data = null;
-        }
-      }
+    if (this.lodSplats) {
+      this.lodSplats.dispose();
+      this.lodSplats = undefined;
     }
-    this.extra = {};
   }
 
   // Ensures that this.packedArray can fit numSplats Gsplats. If it's too small,
@@ -778,6 +769,7 @@ export class DynoPackedSplats extends DynoUniform<
         value.numSplats = this.packedSplats?.numSplats ?? 0;
         value.lodOpacity =
           this.packedSplats?.splatEncoding?.lodOpacity ?? false;
+        // console.log("Set lodOpacity", value.lodOpacity);
         value.rgbMinMaxLnScaleMinMax.set(
           this.packedSplats?.splatEncoding?.rgbMin ?? 0,
           this.packedSplats?.splatEncoding?.rgbMax ?? 1,

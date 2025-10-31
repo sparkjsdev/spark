@@ -32,7 +32,9 @@ export class SpzReader {
   constructor({ fileBytes }: { fileBytes: Uint8Array | ArrayBuffer }) {
     this.fileBytes =
       fileBytes instanceof ArrayBuffer ? new Uint8Array(fileBytes) : fileBytes;
-    this.reader = new GunzipReader({ fileBytes: this.fileBytes });
+    this.reader = new GunzipReader({
+      fileBytes: this.fileBytes as Uint8Array<ArrayBuffer>,
+    });
   }
 
   async parseHeader() {
