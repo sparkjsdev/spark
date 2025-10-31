@@ -753,7 +753,9 @@ export function isMobile(): boolean {
 // Heuristic function to determine if we are running on an Android device.
 // (does not include Oculus Quest)
 export function isAndroid(): boolean {
-  return /Android/.test(navigator.userAgent);
+  return (
+    /Android/.test(navigator.userAgent) || /Tizen/.test(navigator.userAgent)
+  );
 }
 
 // Heuristic function to determine if we are running on an Oculus Quest device.
@@ -763,6 +765,10 @@ export function isOculus(): boolean {
 
 export function isIos(): boolean {
   return /iPhone|iPad/.test(navigator.userAgent);
+}
+
+export function isVisionPro(): boolean {
+  return /Safari/.test(navigator.userAgent) && isMobile();
 }
 
 // Take an array of RGBA8 encoded pixels and flip them vertically in-place.

@@ -1,4 +1,5 @@
-use std::{fs::File, io::{BufReader, Read}};
+use std::fs::File;
+use std::io::{BufReader, BufWriter, Read, Write};
 
 use spark_lib::{
     decoder::{ChunkReceiver, MultiDecoder},
@@ -74,9 +75,9 @@ fn main() {
             output_filename.push_str("-lod.spz");
         }
 
-        match std::fs::write(&output_filename, &bytes) {
-            Ok(_) => println!("Wrote {} ({} bytes)", output_filename, bytes.len()),
-            Err(e) => eprintln!("Failed to write {}: {:?}", output_filename, e),
-        }
+        let mut writer = BufWriter::new(File::create(&output_filename).unwrap());
+        writer.write_all(&bytes).unwrap();
+        writer.flush().unwrap();
+        println!("Wrote {} ({} bytes)", output_filename, bytes.len());
     }
 }

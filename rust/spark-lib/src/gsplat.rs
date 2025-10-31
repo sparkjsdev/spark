@@ -756,9 +756,6 @@ impl SplatGetter for GsplatArray {
         for i in 0..count {
             let children = &self.extras[base + i].children;
             out[i] = children.first().copied().unwrap_or(0) as usize;
-            if (base + i) < 10 {
-                println!("get_child_start {}: => {}", base + i, out[i]);
-            }
         }
     }
 }

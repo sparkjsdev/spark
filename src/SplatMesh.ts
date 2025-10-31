@@ -1080,7 +1080,6 @@ const emptyLodIndices = (() => {
 
 const EMPTY_GEOMETRY = new THREE.BufferGeometry();
 const EMPTY_MATERIAL = new THREE.ShaderMaterial();
-const EMPTY_LOD_INDICES = new THREE.DataTexture();
 
 // Creates an empty mesh to hook into Three.js rendering.
 // This is used to detect if a SparkRenderer is present in the scene.

@@ -153,8 +153,9 @@ impl<T: SplatReceiver> SpzDecoder<T> {
                     if state.output.len() < chunk {
                         state.output.resize(chunk, 0.0);
                     }
+                    let opacity_scale = if state.flags & 0x80 != 0 { 2.0 } else { 1.0 };
                     for i in 0..chunk {
-                        state.output[i] = self.buffer[i] as f32 / 255.0;
+                        state.output[i] = self.buffer[i] as f32 / 255.0 * opacity_scale;
                     }
 
                     self.splats.set_opacity(state.next_splat, chunk, &state.output);
