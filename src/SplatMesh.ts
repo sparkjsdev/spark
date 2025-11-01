@@ -110,10 +110,10 @@ export type SplatMeshOptions = {
   // LoD scale to apply @default 1.0
   lodScale?: number;
   // Foveation scale to apply outside the view frustum (but not behind viewer)
-  // (default: 0.6)
+  // (default: 1.0)
   outsideFoveate?: number;
   // Foveation scale to apply behind viewer
-  // (default: 0.3)
+  // (default: 1.0)
   behindFoveate?: number;
 };
 

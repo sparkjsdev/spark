@@ -160,15 +160,15 @@ export interface NewSparkRendererOptions {
    * @default 1.0
    */
   lodSplatScale?: number;
-  /* LoD scale to apply @default 1.0
+  /* Global LoD scale to apply @default 1.0
    */
-  lodScale?: number;
+  globalLodScale?: number;
   /* Foveation scale to apply outside the view frustum (but not behind viewer)
-   * @default 0.6
+   * @default 1.0
    */
   outsideFoveate?: number;
   /* Foveation scale to apply behind viewer
-   * @default 0.3
+   * @default 1.0
    */
   behindFoveate?: number;
 }
@@ -230,7 +230,7 @@ export class NewSparkRenderer extends THREE.Mesh {
   minLodIntervalMs: number;
   lodSplatCount?: number;
   lodSplatScale: number;
-  lodScale: number;
+  globalLodScale: number;
   outsideFoveate: number;
   behindFoveate: number;
 
@@ -307,9 +307,9 @@ export class NewSparkRenderer extends THREE.Mesh {
     this.minLodIntervalMs = options.minLodIntervalMs ?? 10;
     this.lodSplatCount = options.lodSplatCount;
     this.lodSplatScale = options.lodSplatScale ?? 1.0;
-    this.lodScale = options.lodScale ?? 1.0;
-    this.outsideFoveate = options.outsideFoveate ?? 0.6;
-    this.behindFoveate = options.behindFoveate ?? 0.3;
+    this.globalLodScale = options.globalLodScale ?? 1.0;
+    this.outsideFoveate = options.outsideFoveate ?? 1.0;
+    this.behindFoveate = options.behindFoveate ?? 1.0;
 
     this.clock = options.clock ? cloneClock(options.clock) : new THREE.Clock();
 
@@ -845,7 +845,7 @@ export class NewSparkRenderer extends THREE.Mesh {
           instances[mesh.uuid] = {
             lodId: record.lodId,
             viewToObjectCols: viewToObject.elements,
-            lodScale: mesh.lodScale * this.lodScale,
+            lodScale: mesh.lodScale * this.globalLodScale,
             outsideFoveate: mesh.outsideFoveate ?? this.outsideFoveate,
             behindFoveate: mesh.behindFoveate ?? this.behindFoveate,
           };
