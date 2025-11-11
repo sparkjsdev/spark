@@ -61,7 +61,9 @@
       SplatMesh,
       SplatTransformer,
       SparkControls,
-      transcodeSpz,
+      SpzWriter,
+      unpackSplat,
+      PackedSplats,
     } from "@sparkjsdev/spark";
     import * as THREE from "three";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
@@ -85,8 +87,9 @@
     const MIN_BRUSH_DEPTH = 0.1;
     const MAX_BRUSH_DEPTH = 100.0;
 
-    const assetID = "painted-bedroom.spz";
+    const assetID = "greyscale-bedroom.spz";
     let currentSplatMesh = null;
+    let currentFileName = "painted-splat";
 
     function brushDyno(
         brushEnabled,
@@ -97,6 +100,8 @@
         brushDirection,
         brushColor,
     ) {
+        const flatColor = dyno.dynoVec3(new THREE.Vector3(1.0, 1.0, 1.0));
+        const luminanceThreshold = dyno.dynoFloat(0.1);
         return dyno.dynoBlock({ gsplat: dyno.Gsplat }, { gsplat: dyno.Gsplat }, ({ gsplat }) => {
             if (!gsplat) {
             throw new Error("No gsplat input");
@@ -108,7 +113,11 @@
             const isInside = dyno.and(dyno.lessThan(distance, brushRadius), 
                                       dyno.and(dyno.greaterThan(projectionAmplitude, dyno.dynoFloat(0.0)),
                                       dyno.lessThan(projectionAmplitude, brushDepth)));
-            const newRgb = dyno.select(brushEnabled, dyno.select(isInside, brushColor, rgb), rgb);
+            const luminanceOld = dyno.div(dyno.dot(rgb, flatColor), dyno.dynoFloat(3.0));
+            const luminanceNew = dyno.div(dyno.dot(brushColor, flatColor), dyno.dynoFloat(3.0));
+            const weightedRgb = dyno.mul(brushColor, dyno.div(luminanceOld, luminanceNew));
+            const isLuminanceAboveThreshold = dyno.greaterThan(luminanceOld, luminanceThreshold);
+            const newRgb = dyno.select(dyno.and(dyno.and(brushEnabled, isInside), isLuminanceAboveThreshold), weightedRgb, rgb);
             const newOpacity = dyno.select(eraseEnabled, dyno.select(isInside, dyno.dynoFloat(0.0), opacity), opacity);
             gsplat = dyno.combineGsplat({ gsplat, rgb: newRgb, opacity: newOpacity });
             return { gsplat };
@@ -181,7 +190,9 @@
     async function loadSplatFromFile(url) {
       if (currentSplatMesh) {
         scene.remove(currentSplatMesh);
-      }      
+      }
+      // Extract filename for export
+      currentFileName = url.split("/").pop().split("?")[0].split(".")[0] || "painted-splat";
       currentSplatMesh = await paintableSplatMesh(
         url,
         PARAMETERS.brushEnabled,
@@ -299,6 +310,170 @@
       PARAMETERS.brushColor.value = new THREE.Color(value).convertLinearToSRGB();
       console.log(PARAMETERS.brushColor.value);
     });
+    
+    // I/O functionality (load and export)
+    const ioOptions = {
+      filename: currentFileName,
+      maxSh: 0,  // Painted splats don't preserve SH data
+      fractionalBits: 12,
+      loadFile: () => {
+        // Create file input element
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.spz,.ply';
+        input.onchange = async (e) => {
+          const file = e.target.files[0];
+          if (!file) return;
+          
+          // Create a blob URL from the file
+          const url = URL.createObjectURL(file);
+          
+          try {
+            await loadSplatFromFile(url);
+            console.log("Loaded file:", file.name);
+            // Update filename for export
+            ioOptions.filename = file.name.split(".")[0] || "painted-splat";
+          } catch (error) {
+            console.error("Error loading file:", error);
+            alert("Failed to load file. Make sure it's a valid SPZ or PLY file.");
+          } finally {
+            // Clean up the object URL
+            URL.revokeObjectURL(url);
+          }
+        };
+        input.click();
+      },
+      saveToSpz: async () => {
+        if (!currentSplatMesh) {
+          console.error("Export failed - currentSplatMesh:", !!currentSplatMesh);
+          alert("No splat mesh loaded for export.");
+          return;
+        }
+        
+        try {
+          console.log("Starting SPZ export with painted changes...");
+          
+          if (!currentSplatMesh.splatRgba) {
+            currentSplatMesh.splatRgba = spark.getRgba({
+              generator: currentSplatMesh,
+              rgba: currentSplatMesh.splatRgba
+            });
+            currentSplatMesh.updateGenerator();
+          }
+          
+          const rgbaBytes = await spark.readRgba({ 
+            generator: currentSplatMesh,
+            rgba: currentSplatMesh.splatRgba 
+          });
+          
+          const ogSplats = currentSplatMesh.packedSplats;
+          const totalSplats = ogSplats.numSplats;
+          console.log("Total splats:", totalSplats);
+          
+          let nonZeroCount = 0;
+          for (let i = 0; i < totalSplats; i++) {
+            const opacity = rgbaBytes[i * 4 + 3] / 255;
+            if (opacity > 0) {
+              nonZeroCount++;
+            }
+          }
+          
+          // Create new PackedSplats with baked changes
+          const newPackedSplats = new PackedSplats({
+            maxSplats: nonZeroCount,
+            splatEncoding: ogSplats.splatEncoding,
+          });
+          
+          // Build splat array from baked RGBA
+          let processedCount = 0;
+          for (let i = 0; i < totalSplats; i++) {
+            const rgbaOffset = i * 4;
+            const opacity = rgbaBytes[rgbaOffset + 3] / 255;
+            
+            // Skip erased splats (zero opacity)
+            if (opacity === 0) {
+              continue;
+            }
+            
+            // Unpack geometry from original packed array
+            const unpacked = unpackSplat(
+              ogSplats.packedArray,
+              i,
+              ogSplats.splatEncoding
+            );
+            
+            // Replace color/opacity with baked painted values
+            unpacked.color.r = rgbaBytes[rgbaOffset + 0] / 255;
+            unpacked.color.g = rgbaBytes[rgbaOffset + 1] / 255;
+            unpacked.color.b = rgbaBytes[rgbaOffset + 2] / 255;
+            unpacked.opacity = opacity;
+            
+            // Push to new PackedSplats
+            newPackedSplats.pushSplat(
+              unpacked.center,
+              unpacked.scales,
+              unpacked.quaternion,
+              unpacked.opacity,
+              unpacked.color
+            );
+            
+            processedCount++;
+          }
+          
+          console.log(`Processed ${processedCount} splats`);
+          
+          // Now export the PackedSplats to SPZ
+          console.log("Creating SPZ writer...");
+          const maxSh = ioOptions.maxSh;
+          const spzWriter = new SpzWriter({
+            numSplats: nonZeroCount,
+            shDegree: maxSh,
+            fractionalBits: ioOptions.fractionalBits,
+            flagAntiAlias: true,
+          });
+          
+          console.log("Writing splats to SPZ...");
+          // Iterate through the new packed array
+          for (let i = 0; i < nonZeroCount; i++) {
+            const unpacked = unpackSplat(
+              newPackedSplats.packedArray,
+              i,
+              newPackedSplats.splatEncoding
+            );
+            
+            spzWriter.setCenter(i, unpacked.center.x, unpacked.center.y, unpacked.center.z);
+            spzWriter.setScale(i, unpacked.scales.x, unpacked.scales.y, unpacked.scales.z);
+            spzWriter.setQuat(i, unpacked.quaternion.x, unpacked.quaternion.y, unpacked.quaternion.z, unpacked.quaternion.w);
+            spzWriter.setAlpha(i, unpacked.opacity);
+            spzWriter.setRgb(i, unpacked.color.r, unpacked.color.g, unpacked.color.b);
+          }
+          const spzBytes = await spzWriter.finalize();
+          if (spzWriter.clippedCount > 0) {
+            console.log(`Clipped ${spzWriter.clippedCount} splats. Consider decreasing fractional-bits from ${ioOptions.fractionalBits} to reduce clipping.`);
+          }
+          
+          console.log("Creating download...");
+          const blob = new Blob([spzBytes], { type: "application/octet-stream" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = ioOptions.filename + "-painted.spz";
+          a.click();
+          URL.revokeObjectURL(url);
+          
+          console.log("SPZ file with painted changes downloaded successfully:", ioOptions.filename + "-painted.spz");
+        } catch (error) {
+          console.error("Error exporting SPZ:", error);
+          console.error("Error stack:", error.stack);
+        }
+      },
+    };
+    
+    const ioFolder = gui.addFolder("I/O");
+    ioFolder.add(ioOptions, "loadFile").name("Load Splats (SPZ/PLY)");
+    ioFolder.add(ioOptions, "saveToSpz").name("Save Splats (SPZ)");
+    ioFolder.open();
+
 
         // Keyboard controls
     window.addEventListener('keydown', (event) => {

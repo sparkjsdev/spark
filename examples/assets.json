@@ -67,6 +67,10 @@
     "url": "https://sparkjs.dev/assets/splats/furry-logo-pedestal.spz",
     "directory": "splats"
   },
+  "greyscale-bedroom.spz": {
+    "url": "https://storage.googleapis.com/forge-dev-public/marble-scenes/greyscale-room.spz",
+    "directory": "splats"
+  },
   "gyro.spz": {
     "url": "https://sparkjs.dev/assets/splats/food/gyro.spz",
     "directory": "splats/food"
