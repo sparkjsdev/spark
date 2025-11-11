@@ -15,6 +15,10 @@
     "url": "https://sparkjs.dev/assets/images/butterfly.png",
     "directory": "images"
   },
+  "fly.spz": {
+    "url": "https://pub-d11d595730904c798e26d172d3f3d070.r2.dev/splats/fly.spz",
+    "directory": "splats"
+  },
   "butterfly.spz": {
     "url": "https://sparkjs.dev/assets/splats/butterfly.spz",
     "directory": "splats"
