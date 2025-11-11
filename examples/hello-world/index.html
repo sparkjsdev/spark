@@ -23,7 +23,7 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { SplatMesh } from "@sparkjsdev/spark";
+    import { SplatLoader } from "@sparkjsdev/spark";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
     const scene = new THREE.Scene();
@@ -40,7 +40,8 @@
     }
 
     const splatURL = await getAssetFileURL("butterfly.spz");
-    const butterfly = new SplatMesh({ url: splatURL });
+    const loader = new SplatLoader();
+    const butterfly = await loader.loadAsync(splatURL);
     butterfly.quaternion.set(1, 0, 0, 0);
     butterfly.position.set(0, 0, -3);
     scene.add(butterfly);

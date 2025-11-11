@@ -32,14 +32,11 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import {
-      SparkRenderer,
-      PointerControls,
-      SplatMesh,
-      VRButton,
-    } from "@sparkjsdev/spark";
+    import { VRButton } from "three/addons/webxr/VRButton.js";
+    import { Splat } from "@sparkjsdev/spark";
     import GUI from "lil-gui";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+    import { PointerControls } from "/examples/js/controls.js";
 
     // cloud bounds
     const BOUNDS = {
@@ -140,7 +137,7 @@
     }
 
     // create splats from current params
-    function createClouds(splats, particleCount) {
+    function createClouds(splatEncoder, particleCount) {
       const topColor = new THREE.Color().copy(params.color1);
       const bottomColor = new THREE.Color().copy(params.color2);
 
@@ -203,7 +200,7 @@
         );
 
         center.set(x, y, z);
-        splats.pushSplat(center, scales, quaternion, opacity, color);
+        splatEncoder.setSplat(i, x, y, z, scales.x, scales.y, scales.z, 0, 0, 0, 1, opacity, color.r, color.g, color.b);
       }
     }
 
@@ -249,13 +246,7 @@
         params.particleCount * params.cloudDensity,
       );
 
-      return new SplatMesh({
-        maxSplats: actualParticleCount,
-        constructSplats: (splats) => {
-          createClouds(splats, actualParticleCount);
-        },
-        onFrame: createCloudAnimation(params, BOUNDS),
-      });
+      return Splat.constructFixed(actualParticleCount, createClouds);
     }
 
     // setup scene + environment
@@ -272,9 +263,6 @@
     const renderer = new THREE.WebGLRenderer();
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
-
-    const spark = new SparkRenderer({ renderer });
-    scene.add(spark);
 
     function handleResize() {
       const width = window.innerWidth;

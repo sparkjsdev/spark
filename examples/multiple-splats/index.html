@@ -35,7 +35,7 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { SplatMesh, PackedSplats } from "@sparkjsdev/spark";
+    import { SplatLoader } from "@sparkjsdev/spark";
     import { EXRLoader } from "three/addons/loaders/EXRLoader.js";
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
@@ -57,18 +57,20 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
+    const splatLoader = new SplatLoader();
+
     let splatURL = await getAssetFileURL("butterfly-ai.spz");
-    const butterflySplats = new PackedSplats({ url: splatURL });
+    const butterflySplat = await splatLoader.loadAsync(splatURL);
     const butterflies = [];
     for (let i = 0; i < 6; i++) {
-      const splat = new SplatMesh({ packedSplats: butterflySplats });
+      const splat = butterflySplat.clone();
       splat.quaternion.set(1, 0, 0, 0);
       scene.add(splat);
       butterflies.push(splat);
     }
 
     splatURL = await getAssetFileURL("cat.spz");
-    const cat = new SplatMesh({ url: splatURL });
+    const cat = await splatLoader.loadAsync(splatURL);
     cat.quaternion.set(1, 0, 0, 0);
     cat.scale.setScalar(0.5);
     scene.add(cat);
