@@ -44,6 +44,12 @@
 			renderer.setSize(window.innerWidth, window.innerHeight);
 		}
 
+		/*
+			Asset: fly.spz
+			Author: Danny Bittel (https://danybittel.ch/)
+			License: License: CC BY 4.0
+			Source: https://www.patreon.com/cw/DanyBittel
+		*/
 		const splatURL = await getAssetFileURL("fly.spz");
 		const fly = new SplatMesh({ url: splatURL });
 		const animateT = dyno.dynoFloat(0);
