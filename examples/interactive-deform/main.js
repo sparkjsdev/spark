@@ -49,8 +49,9 @@ const dragRadius = dyno.dynoFloat(0.5);
 const dragActive = dyno.dynoFloat(0.0);
 const bounceTime = dyno.dynoFloat(0.0);
 const bounceBaseDisplacement = dyno.dynoVec3(new THREE.Vector3(0, 0, 0));
-const dragIntensity = dyno.dynoFloat(3.0);
+const dragIntensity = dyno.dynoFloat(5.0);
 const bounceAmount = dyno.dynoFloat(0.5);
+const bounceSpeed = dyno.dynoFloat(0.5);
 let isBouncing = false;
 
 const gui = new GUI();
@@ -58,6 +59,7 @@ const guiParams = {
   intensity: dragIntensity.value,
   radius: 0.5,
   bounceAmount: 0.5,
+  bounceSpeed: 0.5,
 };
 gui
   .add(guiParams, "intensity", 0, 10.0, 0.1)
@@ -86,6 +88,15 @@ gui
       splatMesh.updateVersion();
     }
   });
+gui
+  .add(guiParams, "bounceSpeed", 0, 1.0, 0.01)
+  .name("Bounce Speed")
+  .onChange((value) => {
+    bounceSpeed.value = value;
+    if (splatMesh) {
+      splatMesh.updateVersion();
+    }
+  });
 
 let isDragging = false;
 let dragStartPoint = null;
@@ -109,6 +120,7 @@ function createDragBounceDynoshader() {
           bounceBaseDisplacement: "vec3",
           dragIntensity: "float",
           bounceAmount: "float",
+          bounceSpeed: "float",
         },
         outTypes: { gsplat: dyno.Gsplat },
         statements: ({ inputs, outputs }) =>
@@ -128,8 +140,9 @@ function createDragBounceDynoshader() {
           }
           
           // Apply elastic bounce effect
+          float bounceFrequency = 1.0 + ${inputs.bounceSpeed} * 8.0;
           vec3 bounceOffset = ${inputs.bounceBaseDisplacement} * dragInfluence * ${inputs.dragIntensity} * 50.0;
-          originalPos += bounceOffset * cos(time*3.0) * exp(-time*2.0*(1.0-${inputs.bounceAmount}*.9));
+          originalPos += bounceOffset * cos(time*bounceFrequency) * exp(-time*2.0*(1.0-${inputs.bounceAmount}*.9));
 
           ${outputs.gsplat}.center = originalPos;
         `),
@@ -146,6 +159,7 @@ function createDragBounceDynoshader() {
           bounceBaseDisplacement: bounceBaseDisplacement,
           dragIntensity: dragIntensity,
           bounceAmount: bounceAmount,
+          bounceSpeed: bounceSpeed,
         }).gsplat,
       };
     },
