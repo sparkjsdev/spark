@@ -30,6 +30,8 @@ fn main() {
         return;
     }
     let mut max_sh_out: Option<u8> = None;
+    let mut chunked: bool = false;
+    let mut merge_filter: bool = false;
     let mut filenames = Vec::new();
     for arg in args {
         if let Some(rest) = arg.strip_prefix("--max-sh=") {
@@ -37,6 +39,18 @@ fn main() {
                 Ok(v) => { max_sh_out = Some(v.min(3)); }
                 Err(_) => { eprintln!("Invalid --max-sh value: {}", rest); }
             }
+            continue;
+        }
+        if arg == "--chunked" {
+            chunked = true;
+            continue;
+        }
+        if arg == "--merge-filter" {
+            merge_filter = true;
+            continue;
+        }
+        if arg == "--no-merge-filter" {
+            merge_filter = false;
             continue;
         }
         filenames.push(arg);
@@ -58,26 +72,42 @@ fn main() {
         println!("num_splats: {}, max_sh: {}", splats.len(), splats.max_sh_degree);
 
         let mut splats = splats;
-        compute_lod_tree(&mut splats, 1.5);
-
-        let encoder = SpzEncoder::new(splats);
-        let encoder = if let Some(m) = max_sh_out { encoder.with_max_sh(m) } else { encoder };
-        let bytes = match encoder.encode() {
-            Ok(b) => b,
-            Err(e) => { eprintln!("Encoding failed: {:?}", e); continue; }
-        };
+        compute_lod_tree(&mut splats, 1.5, merge_filter);
 
         // Replace extension with -lod.spz
-        let mut output_filename = filename.clone();
+        let mut output_prefix = filename.clone();
         if let Some(dot) = filename.rfind('.') {
-            output_filename.replace_range(dot.., "-lod.spz");
+            output_prefix.replace_range(dot.., "-lod");
         } else {
-            output_filename.push_str("-lod.spz");
+            output_prefix.push_str("-lod");
         }
 
-        let mut writer = BufWriter::new(File::create(&output_filename).unwrap());
-        writer.write_all(&bytes).unwrap();
-        writer.flush().unwrap();
-        println!("Wrote {} ({} bytes)", output_filename, bytes.len());
+        if !chunked {
+            let encoder = SpzEncoder::new(splats);
+            let encoder = if let Some(m) = max_sh_out { encoder.with_max_sh(m) } else { encoder };
+            let bytes = encoder.encode().unwrap();
+
+            let output_filename = format!("{}.spz", output_prefix);
+            let mut writer = BufWriter::new(File::create(&output_filename).unwrap());
+            writer.write_all(&bytes).unwrap();
+            println!("Wrote {} ({} bytes)", output_filename, bytes.len());
+            return;
+        }
+
+        let num_splats = splats.len();
+        let num_chunks = num_splats.div_ceil(65536);
+        for chunk in 0..num_chunks {
+            let start = chunk * 65536;
+            let count = (num_splats - start).min(65536);
+            let subset = splats.clone_subset(start, count);
+            let encoder = SpzEncoder::new(subset);
+            let encoder = if let Some(m) = max_sh_out { encoder.with_max_sh(m) } else { encoder };
+            let bytes = encoder.encode().unwrap();
+
+            let output_filename = format!("{}-{}.spz", output_prefix, chunk);
+            let mut writer = BufWriter::new(File::create(&output_filename).unwrap());
+            writer.write_all(&bytes).unwrap();
+            println!("Chunk {}: Wrote {} ({} bytes)", chunk, output_filename, bytes.len());
+        }
     }
 }

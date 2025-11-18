@@ -9,7 +9,7 @@ export { NewSplatAccumulator } from "./NewSplatAccumulator";
 
 export * as dyno from "./dyno";
 
-export { RgbaArray } from "./RgbaArray";
+export { RgbaArray, readRgbaArray } from "./RgbaArray";
 
 export {
   SplatLoader,
@@ -60,6 +60,7 @@ export * as generators from "./generators";
 export * as modifiers from "./modifiers";
 
 export { VRButton } from "./vrButton";
+export { SparkXr, type SparkXrOptions, type SparkXrButton } from "./sparkXr";
 export {
   type JointId,
   JointEnum,

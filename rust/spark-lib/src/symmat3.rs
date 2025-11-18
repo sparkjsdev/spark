@@ -87,6 +87,16 @@ impl SymMat3 {
         self.1.y
     }
 
+    pub fn xx_mut(&mut self) -> &mut f32 {
+        &mut self.0.x
+    }
+    pub fn yy_mut(&mut self) -> &mut f32 {
+        &mut self.0.y
+    }
+    pub fn zz_mut(&mut self) -> &mut f32 {
+        &mut self.0.z
+    }
+
     pub fn add_weighted(&mut self, other: &Self, weight: f32) {
         self.0 = other.0.mul_add(Vec4::splat(weight), self.0);
         self.1 = other.1.mul_add(Vec2::splat(weight), self.1);

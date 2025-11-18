@@ -471,14 +471,17 @@ pub fn copy_getter_to_receiver<G: SplatGetter, R: SplatReceiver>(getter: &mut G,
         let (sh1_slice, sh2_slice, sh3_slice) = if max_sh_degree >= 1 {
             if sh1.len() < count * 9 { sh1.resize(count * 9, 0.0); }
             getter.get_sh1(base, count, &mut sh1[..count * 9]);
+
             if max_sh_degree >= 2 {
                 if sh2.len() < count * 15 { sh2.resize(count * 15, 0.0); }
                 getter.get_sh2(base, count, &mut sh2[..count * 15]);
             }
+
             if max_sh_degree >= 3 {
                 if sh3.len() < count * 21 { sh3.resize(count * 21, 0.0); }
                 getter.get_sh3(base, count, &mut sh3[..count * 21]);
             }
+
             (
                 &sh1[..count * 9],
                 if max_sh_degree >= 2 { &sh2[..count * 15] } else { &[][..] },

@@ -217,6 +217,17 @@ impl GsplatArray {
         Self::new_capacity(0, 0)
     }
 
+    pub fn clone_subset(&self, start: usize, count: usize) -> Self {
+        Self {
+            max_sh_degree: self.max_sh_degree,
+            splats: self.splats[start..start + count].to_vec(),
+            extras: if self.extras.is_empty() { Vec::new() } else { self.extras[start..start + count].to_vec() },
+            sh1: if self.sh1.is_empty() { Vec::new() } else { self.sh1[start..start + count].to_vec() },
+            sh2: if self.sh2.is_empty() { Vec::new() } else { self.sh2[start..start + count].to_vec() },
+            sh3: if self.sh3.is_empty() { Vec::new() } else { self.sh3[start..start + count].to_vec() },
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.splats.len()
     }
@@ -279,7 +290,7 @@ impl GsplatArray {
         &self.splats[index]
     }
 
-    pub fn new_merged(&mut self, indices: &[usize], _debug: bool) -> usize {
+    pub fn new_merged(&mut self, indices: &[usize], step: f32, _debug: bool) -> usize {
         let new_index = self.splats.len();
 
         let total_weight = indices.iter()
@@ -299,8 +310,8 @@ impl GsplatArray {
         });
 
         let mut total_cov = SymMat3::new_zeros();
-        // let filter2 = (0.6 * step).powi(2);
-        let filter2 = 0.0;
+        let filter2 = (0.5 * step).powi(2);
+        // let filter2 = 0.0;
         for &index in indices {
             let splat = &self.splats[index as usize];
             let extra = &self.extras[index as usize];
@@ -494,6 +505,15 @@ impl GsplatArray {
             }
         }
         sh3
+    }
+
+    pub fn inject_rgba8(&mut self, rgba: &[u8]) {
+        for i in 0..self.splats.len() {
+            let i4 = i * 4;
+            self.splats[i].set_opacity(rgba[i4 + 3] as f32 / 255.0);
+            let rgb = Vec3A::from_array(array::from_fn(|d| rgba[i4 + d] as f32 / 255.0));
+            self.splats[i].set_rgb(rgb);
+        }
     }
 }
 

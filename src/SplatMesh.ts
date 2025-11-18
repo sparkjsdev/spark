@@ -7,7 +7,7 @@ import {
   PackedSplats,
   type SplatEncoding,
 } from "./PackedSplats";
-import { type RgbaArray, readRgbaArray } from "./RgbaArray";
+import { type RgbaArray, TRgbaArray } from "./RgbaArray";
 import { SparkRenderer } from "./SparkRenderer";
 import { SplatEdit, SplatEditSdf, SplatEdits } from "./SplatEdit";
 import {
@@ -475,8 +475,12 @@ export class SplatMesh extends SplatGenerator {
 
         if (this.splatRgba) {
           // Overwrite RGBA with baked RGBA values
-          const rgba = readRgbaArray(this.splatRgba.dyno, index);
-          gsplat = combineGsplat({ gsplat, rgba });
+          gsplat = maybeInjectSplatRgba(
+            gsplat,
+            this.splatRgba.dyno,
+            index,
+            context.enableLod,
+          );
         }
 
         if (this.skinning) {
@@ -635,8 +639,8 @@ export class SplatMesh extends SplatGenerator {
 
     this.context.enableLod.value =
       this.packedSplats.lodSplats != null && lodIndices != null;
-    if (this.enableLod !== undefined) {
-      this.context.enableLod.value = this.enableLod;
+    if (this.enableLod === false) {
+      this.context.enableLod.value = false;
     }
     this.context.lodIndices.value = lodIndices?.texture ?? emptyLodIndices;
 
@@ -1063,6 +1067,31 @@ function maybeLookupIndex(
         }
       `),
   }).outputs.index;
+}
+
+function maybeInjectSplatRgba(
+  gsplat: DynoVal<typeof Gsplat>,
+  rgba: DynoVal<typeof TRgbaArray>,
+  index: DynoVal<"int">,
+  enableLod: DynoVal<"bool">,
+): DynoVal<typeof Gsplat> {
+  return dyno({
+    inTypes: {
+      gsplat: Gsplat,
+      rgba: TRgbaArray,
+      index: "int",
+      enableLod: "bool",
+    },
+    outTypes: { gsplat: Gsplat },
+    inputs: { gsplat, rgba, index, enableLod },
+    statements: ({ inputs, outputs }) =>
+      unindentLines(`
+        ${outputs.gsplat} = ${inputs.gsplat};
+        if (!${inputs.enableLod} && (${inputs.index} >= 0) && (${inputs.index} < ${inputs.rgba}.count)) {
+          ${outputs.gsplat}.rgba = texelFetch(${inputs.rgba}.texture, splatTexCoord(${inputs.index}), 0);
+        }
+      `),
+  }).outputs.gsplat;
 }
 
 const emptyLodIndices = (() => {

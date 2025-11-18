@@ -391,7 +391,7 @@ export class SparkRenderer extends THREE.Mesh {
       // Splat texture mid plane distance, or 0.0 to disable
       splatTexMid: { value: 0.0 },
       // Gsplat collection to render
-      packedSplats: { type: "t", value: PackedSplats.getEmpty() },
+      packedSplats: { type: "t", value: PackedSplats.getEmptyArray },
       // Splat encoding ranges
       rgbMinMaxLnScaleMinMax: { value: new THREE.Vector4() },
       // Time in seconds for time-based effects
@@ -452,6 +452,8 @@ export class SparkRenderer extends THREE.Mesh {
     scene: THREE.Scene,
     camera: THREE.Camera,
   ) {
+    // throw new Error("onBeforeRender disabled in SparkRenderer");
+
     // Called by Three.js before rendering this SparkRenderer.
     // At this point we can't modify the geometry or material, all these must
     // be set in the scene already before this is called. Update the uniforms
@@ -622,7 +624,7 @@ export class SparkRenderer extends THREE.Mesh {
     } else {
       // No Gsplats to display for this viewpoint yet
       this.uniforms.numSplats.value = 0;
-      this.uniforms.packedSplats.value = PackedSplats.getEmpty();
+      this.uniforms.packedSplats.value = PackedSplats.getEmptyArray;
       this.geometry = EMPTY_GEOMETRY;
     }
   }

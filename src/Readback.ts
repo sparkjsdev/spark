@@ -135,6 +135,7 @@ export class Readback {
 
   private saveRenderState(renderer: THREE.WebGLRenderer) {
     return {
+      target: renderer.getRenderTarget(),
       xrEnabled: renderer.xr.enabled,
       autoClear: renderer.autoClear,
     };
@@ -143,11 +144,12 @@ export class Readback {
   private resetRenderState(
     renderer: THREE.WebGLRenderer,
     state: {
+      target: THREE.WebGLRenderTarget | null;
       xrEnabled: boolean;
       autoClear: boolean;
     },
   ) {
-    renderer.setRenderTarget(null);
+    renderer.setRenderTarget(state.target);
     renderer.xr.enabled = state.xrEnabled;
     renderer.autoClear = state.autoClear;
   }

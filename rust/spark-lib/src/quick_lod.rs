@@ -8,7 +8,7 @@ use crate::gsplat::*;
 
 const CHUNK_LEVELS: i16 = 2;
 
-pub fn compute_lod_tree(splats: &mut GsplatArray, lod_base: f32) {
+pub fn compute_lod_tree(splats: &mut GsplatArray, lod_base: f32, merge_filter: bool) {
     splats.retain(|splat| {
         (splat.opacity() > 0.0) && (splat.max_scale() > 0.0)
     });
@@ -87,7 +87,9 @@ pub fn compute_lod_tree(splats: &mut GsplatArray, lod_base: f32) {
                 //     }
                 //     println!("--------------------------------");
                 // }
-                let merged = splats.new_merged(indices, splats.len() == DEBUG_INDEX);
+                let merge_step = if merge_filter { step } else { 0.0 };
+                let merged = splats.new_merged(indices, merge_step, splats.len() == DEBUG_INDEX);
+                splats.extras[merged].level = level + 1;
                 // if merged == DEBUG_INDEX {
                 //     println!("Merged splat: {:?}", splats.splats[merged]);
                 // }
@@ -154,11 +156,14 @@ pub fn compute_lod_tree(splats: &mut GsplatArray, lod_base: f32) {
 
     let root_index = if let Some(previous) = previous_level {
         if previous.len() > 1 {
+            level += 1;
+            let step = lod_base.powf(level as f32);
+            
             let indices: SmallVec<[usize; 8]> = previous.values()
                 .flat_map(|i| i.iter().copied())
                 .collect();
-            let merged = splats.new_merged(&indices, false);
-            level += 1;
+            let merge_step = if merge_filter { step } else { 0.0 };
+            let merged = splats.new_merged(&indices, merge_step, false);
             merged
         } else {
             let only = previous.values().next().unwrap();

@@ -22,14 +22,14 @@ export class NewSplatWorker {
     const { id, result, error, status } = event.data;
     const promise = this.messages[id];
     if (promise) {
-      if (error) {
+      if (error !== undefined) {
         delete this.messages[id];
         promise.reject(error);
-      } else if (result) {
+      } else if (status !== undefined) {
+        promise.onStatus?.(status);
+      } else {
         delete this.messages[id];
         promise.resolve(result);
-      } else if (status) {
-        promise.onStatus?.(status);
       }
     }
   }
@@ -78,6 +78,16 @@ export class NewSplatWorker {
       { transfer: getArrayBuffers(args) },
     );
     return await promise;
+  }
+
+  dispose() {
+    this.worker.terminate();
+
+    const messages = Object.values(this.messages);
+    this.messages = {};
+    for (const message of messages) {
+      message.reject(new Error("Worker terminate"));
+    }
   }
 }
 
