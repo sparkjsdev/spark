@@ -1,6 +1,6 @@
 {
   "name": "@sparkjsdev/spark",
-  "version": "0.1.9",
+  "version": "0.1.9.lod",
   "description": "An advanced 3D Gaussian Splatting renderer for THREE.js",
   "homepage": "https://sparkjs.dev/",
   "type": "module",
@@ -45,6 +45,7 @@
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
     "@types/three": "0.180.0",
+    "fflate": "^0.8.2",
     "lefthook": "1.11.12",
     "lil-gui": "^0.20.0",
     "onchange": "7.1.0",
