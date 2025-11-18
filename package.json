@@ -31,7 +31,7 @@
     "lint": "biome check .",
     "lint:fix": "biome check . --fix",
     "lint:summary": "biome check --reporter=summary",
-    "prepare": "npm run build:wasm && lefthook install",
+    "prepare": "npm run build:wasm",
     "site:build": "npm run build && npm run site:clean && node scripts/copy-site-files.js && mkdocs build && node scripts/rename-assets-to-static.js",
     "site:clean": "node scripts/clean-site-files.js && node scripts/clean-site.js",
     "site:deploy": "npm run site:build && node scripts/deploy-site.js",
