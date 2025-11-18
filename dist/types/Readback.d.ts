@@ -17,6 +17,7 @@ export declare class Readback {
         renderer?: THREE.WebGLRenderer;
     });
     dispose(): void;
+    static ensureBuffer<B extends ReadbackBuffer>(count: number, buffer: B): B;
     ensureBuffer<B extends ReadbackBuffer>(count: number, buffer: B): B;
     ensureCapacity(capacity: number): void;
     prepareProgramMaterial(reader: Rgba8Readback): {

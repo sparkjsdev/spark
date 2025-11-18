@@ -1,4 +1,5 @@
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+import { RgbaArray } from './RgbaArray';
 import { GsplatGenerator } from './SplatGenerator';
 import { SplatFileType } from './SplatLoader';
 import { DynoProgram, DynoProgramTemplate, DynoUniform } from './dyno';
@@ -15,6 +16,7 @@ export type SplatEncoding = {
     sh2Max?: number;
     sh3Min?: number;
     sh3Max?: number;
+    lodOpacity?: boolean;
 };
 export declare const DEFAULT_SPLAT_ENCODING: SplatEncoding;
 export type PackedSplatsOptions = {
@@ -26,8 +28,17 @@ export type PackedSplatsOptions = {
     packedArray?: Uint32Array;
     numSplats?: number;
     construct?: (splats: PackedSplats) => Promise<void> | void;
+    onProgress?: (event: ProgressEvent) => void;
     extra?: Record<string, unknown>;
     splatEncoding?: SplatEncoding;
+    lod?: boolean | number;
+    nonLod?: boolean;
+    lodSplats?: PackedSplats;
+    paged?: {
+        url: string;
+        requestHeader?: Record<string, string>;
+        withCredentials?: boolean;
+    };
 };
 export declare class PackedSplats {
     maxSplats: number;
@@ -35,6 +46,19 @@ export declare class PackedSplats {
     packedArray: Uint32Array | null;
     extra: Record<string, unknown>;
     splatEncoding?: SplatEncoding;
+    lod?: boolean | number;
+    nonLod?: boolean;
+    lodSplats?: PackedSplats;
+    paged?: {
+        url: string;
+        requestHeader?: Record<string, string>;
+        withCredentials?: boolean;
+    };
+    pageCache: THREE.DataTexture | null;
+    chunkToPage: Map<number, number>;
+    pageFreelist: number[];
+    pageMax: number;
+    pageTop: number;
     initialized: Promise<PackedSplats>;
     isInitialized: boolean;
     target: THREE.WebGLArrayRenderTarget | null;
@@ -71,9 +95,13 @@ export declare class PackedSplats {
         }[];
     };
     getTexture(): THREE.DataArrayTexture;
+    ensurePagedTexture(): void;
+    allocTexturePage(): number | undefined;
+    uploadTexturePage(renderer: THREE.WebGLRenderer, packedArray: Uint32Array, page: number): void;
+    getPagedTexture(): THREE.DataTexture;
     private maybeUpdateSource;
-    private static emptySource;
-    static getEmpty(): THREE.DataArrayTexture;
+    static getEmptyArray: THREE.DataArrayTexture;
+    static getEmptyFlat: THREE.DataTexture;
     prepareProgramMaterial(generator: GsplatGenerator): {
         program: DynoProgram;
         material: THREE.RawShaderMaterial;
@@ -88,15 +116,21 @@ export declare class PackedSplats {
     }): {
         nextBase: number;
     };
+    disposeLodSplats(): Promise<void>;
+    createLodSplats({ rgbaArray }?: {
+        rgbaArray?: RgbaArray;
+    }): Promise<void>;
     static programTemplate: DynoProgramTemplate | null;
     static generatorProgram: Map<GsplatGenerator, DynoProgram>;
     static fullScreenQuad: FullScreenQuad;
 }
 export declare const dynoPackedSplats: (packedSplats?: PackedSplats) => DynoPackedSplats;
 export declare class DynoPackedSplats extends DynoUniform<typeof TPackedSplats, "packedSplats", {
-    texture: THREE.DataArrayTexture;
+    textureArray: THREE.DataArrayTexture;
+    texture: THREE.DataTexture;
     numSplats: number;
     rgbMinMaxLnScaleMinMax: THREE.Vector4;
+    flagsFlatLodOpacity: number;
 }> {
     packedSplats?: PackedSplats;
     constructor({ packedSplats }?: {

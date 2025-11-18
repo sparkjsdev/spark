@@ -60,7 +60,7 @@ export * as generators from "./generators";
 export * as modifiers from "./modifiers";
 
 export { VRButton } from "./vrButton";
-export { SparkXr, type SparkXrOptions, type SparkXrButton } from "./sparkXr";
+export { SparkXr, type SparkXrOptions, type SparkXrButton } from "./SparkXr";
 export {
   type JointId,
   JointEnum,

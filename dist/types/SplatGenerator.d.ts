@@ -28,34 +28,38 @@ export declare class SplatTransformer {
     updateFromMatrix(transform: THREE.Matrix4): boolean;
     update(object: THREE.Object3D): boolean;
 }
+export interface FrameUpdateContext {
+    renderer: THREE.WebGLRenderer;
+    object: SplatGenerator;
+    time: number;
+    deltaTime: number;
+    viewToWorld: THREE.Matrix4;
+    camera?: THREE.Camera;
+    renderSize?: THREE.Vector2;
+    globalEdits: SplatEdit[];
+    lodIndices?: {
+        numSplats: number;
+        texture: THREE.DataTexture;
+    };
+}
 export declare class SplatGenerator extends THREE.Object3D {
     numSplats: number;
     generator?: GsplatGenerator;
     generatorError?: unknown;
-    frameUpdate?: ({ object, time, deltaTime, viewToWorld, globalEdits, }: {
-        object: SplatGenerator;
-        time: number;
-        deltaTime: number;
-        viewToWorld: THREE.Matrix4;
-        globalEdits: SplatEdit[];
-    }) => void;
+    frameUpdate?: (context: FrameUpdateContext) => void;
     version: number;
+    mappingVersion: number;
     constructor({ numSplats, generator, construct, update, }: {
         numSplats?: number;
         generator?: GsplatGenerator;
         construct?: (object: SplatGenerator) => {
             generator?: GsplatGenerator;
             numSplats?: number;
-            frameUpdate?: (object: SplatGenerator) => void;
+            frameUpdate?: (context: FrameUpdateContext) => void;
         };
-        update?: ({ object, time, deltaTime, viewToWorld, globalEdits, }: {
-            object: SplatGenerator;
-            time: number;
-            deltaTime: number;
-            viewToWorld: THREE.Matrix4;
-            globalEdits: SplatEdit[];
-        }) => void;
+        update?: (context: FrameUpdateContext) => void;
     });
     updateVersion(): void;
+    updateMappingVersion(): void;
     set needsUpdate(value: boolean);
 }

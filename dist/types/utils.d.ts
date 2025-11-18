@@ -1,4 +1,6 @@
 import * as THREE from "three";
+export declare const threeRevision: number;
+export declare const threeMrtArray: boolean;
 export declare function normalize(vec: number[]): number[];
 export declare function floatBitsToUint(f: number): number;
 export declare function uintBitsToFloat(u: number): number;
@@ -46,6 +48,7 @@ export declare function setPackedSplat(packedSplats: Uint32Array, index: number,
     rgbMax?: number;
     lnScaleMin?: number;
     lnScaleMax?: number;
+    lodOpacity?: boolean;
 }): void;
 export declare function setPackedSplatCenter(packedSplats: Uint32Array, index: number, x: number, y: number, z: number): void;
 export declare function setPackedSplatScales(packedSplats: Uint32Array, index: number, scaleX: number, scaleY: number, scaleZ: number, encoding?: {
@@ -56,6 +59,7 @@ export declare function setPackedSplatQuat(packedSplats: Uint32Array, index: num
 export declare function setPackedSplatRgba(packedSplats: Uint32Array, index: number, r: number, g: number, b: number, a: number, encoding?: {
     rgbMin?: number;
     rgbMax?: number;
+    lodOpacity?: boolean;
 }): void;
 export declare function setPackedSplatRgb(packedSplats: Uint32Array, index: number, r: number, g: number, b: number, encoding?: {
     rgbMin?: number;
@@ -67,6 +71,7 @@ export declare function unpackSplat(packedSplats: Uint32Array, index: number, en
     rgbMax?: number;
     lnScaleMin?: number;
     lnScaleMax?: number;
+    lodOpacity?: boolean;
 }): {
     center: THREE.Vector3;
     scales: THREE.Vector3;
@@ -84,6 +89,8 @@ export declare function computeMaxSplats(numSplats: number): number;
 export declare function isMobile(): boolean;
 export declare function isAndroid(): boolean;
 export declare function isOculus(): boolean;
+export declare function isIos(): boolean;
+export declare function isVisionPro(): boolean;
 export declare function flipPixels(pixels: Uint8Array, width: number, height: number): Uint8Array;
 export declare function pixelsToPngUrl(pixels: Uint8Array, width: number, height: number): string;
 export declare function cloneClock(clock: THREE.Clock): THREE.Clock;
@@ -173,7 +180,7 @@ export declare class GunzipReader {
     totalBytes: number;
     reader: ReadableStreamDefaultReader;
     constructor({ fileBytes, chunkBytes, }: {
-        fileBytes: Uint8Array;
+        fileBytes: Uint8Array<ArrayBuffer>;
         chunkBytes?: number;
     });
     read(numBytes: number): Promise<Uint8Array>;

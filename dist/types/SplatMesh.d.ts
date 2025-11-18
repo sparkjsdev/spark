@@ -1,10 +1,10 @@
-import { PackedSplats, SplatEncoding } from './PackedSplats';
+import { DynoPackedSplats, PackedSplats, SplatEncoding } from './PackedSplats';
 import { RgbaArray } from './RgbaArray';
 import { SplatEdit } from './SplatEdit';
-import { GsplatModifier, SplatGenerator, SplatTransformer } from './SplatGenerator';
+import { FrameUpdateContext, GsplatModifier, SplatGenerator, SplatTransformer } from './SplatGenerator';
 import { SplatFileType } from './SplatLoader';
 import { SplatSkinning } from './SplatSkinning';
-import { DynoFloat, DynoUsampler2DArray, DynoVal, DynoVec4, Gsplat } from './dyno';
+import { DynoBool, DynoFloat, DynoInt, DynoUsampler2D, DynoUsampler2DArray, DynoVal, DynoVec4, Gsplat } from './dyno';
 import * as THREE from "three";
 export type SplatMeshOptions = {
     url?: string;
@@ -14,6 +14,7 @@ export type SplatMeshOptions = {
     packedSplats?: PackedSplats;
     maxSplats?: number;
     constructSplats?: (splats: PackedSplats) => Promise<void> | void;
+    onProgress?: (event: ProgressEvent) => void;
     onLoad?: (mesh: SplatMesh) => Promise<void> | void;
     editable?: boolean;
     onFrame?: ({ mesh, time, deltaTime, }: {
@@ -24,6 +25,12 @@ export type SplatMeshOptions = {
     objectModifier?: GsplatModifier;
     worldModifier?: GsplatModifier;
     splatEncoding?: SplatEncoding;
+    lod?: boolean | number;
+    nonLod?: boolean;
+    enableLod?: boolean;
+    lodScale?: number;
+    outsideFoveate?: number;
+    behindFoveate?: number;
 };
 export type SplatMeshContext = {
     transform: SplatTransformer;
@@ -33,6 +40,10 @@ export type SplatMeshContext = {
     recolor: DynoVec4<THREE.Vector4>;
     time: DynoFloat;
     deltaTime: DynoFloat;
+    numSplats: DynoInt<string>;
+    splats: DynoPackedSplats;
+    enableLod: DynoBool<string>;
+    lodIndices: DynoUsampler2D<"lodIndices", THREE.DataTexture>;
 };
 export declare class SplatMesh extends SplatGenerator {
     initialized: Promise<SplatMesh>;
@@ -57,6 +68,10 @@ export declare class SplatMesh extends SplatGenerator {
     private rgbaDisplaceEdits;
     splatRgba: RgbaArray | null;
     maxSh: number;
+    enableLod?: boolean;
+    lodScale: number;
+    outsideFoveate?: number;
+    behindFoveate?: number;
     constructor(options?: SplatMeshOptions);
     asyncInitialize(options: SplatMeshOptions): Promise<void>;
     static staticInitialized: Promise<void>;
@@ -69,12 +84,7 @@ export declare class SplatMesh extends SplatGenerator {
     getBoundingBox(centers_only?: boolean): THREE.Box3;
     constructGenerator(context: SplatMeshContext): void;
     updateGenerator(): void;
-    update({ time, viewToWorld, deltaTime, globalEdits, }: {
-        time: number;
-        viewToWorld: THREE.Matrix4;
-        deltaTime: number;
-        globalEdits: SplatEdit[];
-    }): void;
+    update({ renderer, time, deltaTime, viewToWorld, camera, renderSize, globalEdits, lodIndices, }: FrameUpdateContext): void;
     raycast(raycaster: THREE.Raycaster, intersects: {
         distance: number;
         point: THREE.Vector3;

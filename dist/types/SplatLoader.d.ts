@@ -5,8 +5,10 @@ export declare class SplatLoader extends Loader {
     fileLoader: FileLoader;
     fileType?: SplatFileType;
     packedSplats?: PackedSplats;
+    static lod: boolean;
+    static nonLod: boolean;
     constructor(manager?: LoadingManager);
-    load(url: string, onLoad?: (decoded: PackedSplats) => void, onProgress?: (event: ProgressEvent) => void, onError?: (error: unknown) => void): void;
+    load(url: string | Uint8Array | ArrayBuffer, onLoad?: (decoded: PackedSplats) => void, onProgress?: (event: ProgressEvent) => void, onError?: (error: unknown) => void): void;
     loadAsync(url: string, onProgress?: (event: ProgressEvent) => void): Promise<PackedSplats>;
     parse(packedSplats: PackedSplats): SplatMesh;
 }
