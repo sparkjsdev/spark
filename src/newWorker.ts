@@ -8,6 +8,8 @@ import init_wasm, {
   traverse_lod_trees,
   type ChunkDecoder,
   quick_lod_packedsplats,
+  insert_lod_trees,
+  clear_lod_trees,
 } from "spark-internal-rs";
 import type { SplatEncoding } from "./PackedSplats";
 
@@ -18,6 +20,8 @@ const rpcHandlers = {
   quickLod,
   initLodTree,
   disposeLodTree,
+  insertLodTrees,
+  clearLodTrees,
   traverseLodTrees,
 };
 
@@ -81,7 +85,6 @@ async function decodeBytesUrl({
   decoder,
   fileBytes,
   url,
-  baseUri,
   requestHeader,
   withCredentials,
   sendStatus,
@@ -89,20 +92,14 @@ async function decodeBytesUrl({
   decoder: ChunkDecoder;
   fileBytes?: Uint8Array;
   url?: string;
-  baseUri?: string;
   requestHeader?: Record<string, string>;
   withCredentials?: string;
   sendStatus: (data: unknown) => void;
 }) {
-  let decodeDuration = 0;
-
   if (fileBytes) {
-    const start = performance.now();
     decoder.push(fileBytes);
-    decodeDuration += performance.now() - start;
   } else if (url) {
-    const basedUrl = new URL(url, baseUri);
-    const request = new Request(basedUrl, {
+    const request = new Request(url, {
       headers: requestHeader ? new Headers(requestHeader) : undefined,
       credentials: withCredentials ? "include" : "same-origin",
     });
@@ -128,31 +125,43 @@ async function decodeBytesUrl({
       loaded += value.length;
       sendStatus({ loaded, total });
 
-      const start = performance.now();
       decoder.push(value);
-      decodeDuration += performance.now() - start;
     }
   } else {
     throw new Error("No url or fileBytes provided");
   }
 
-  console.log(`Finalizing decoding splats from ${url}`);
-  // Zero out decoding time while downloading
-  decodeDuration = 0;
-  const finishStart = performance.now();
   const decoded = decoder.finish();
-  decodeDuration += performance.now() - finishStart;
-  console.log(
-    `Decoded final ${decoded.numSplats} splats in ${decodeDuration} ms`,
-  );
-
   return decoded;
+}
+
+type DecodedResult = {
+  numSplats: number;
+  packed: Uint32Array;
+  sh1: Uint32Array;
+  sh2: Uint32Array;
+  sh3: Uint32Array;
+  lodTree: Uint32Array;
+  splatEncoding: SplatEncoding;
+};
+
+function toPackedResult(packed: DecodedResult) {
+  return {
+    numSplats: packed.numSplats,
+    packedArray: packed.packed,
+    extra: {
+      sh1: packed.sh1,
+      sh2: packed.sh2,
+      sh3: packed.sh3,
+      lodTree: packed.lodTree,
+    },
+    splatEncoding: packed.splatEncoding,
+  };
 }
 
 async function loadSplats(
   {
     url,
-    baseUri,
     requestHeader,
     withCredentials,
     fileBytes,
@@ -164,7 +173,6 @@ async function loadSplats(
     nonLod,
   }: {
     url?: string;
-    baseUri?: string;
     requestHeader?: Record<string, string>;
     withCredentials?: string;
     fileBytes?: Uint8Array;
@@ -181,31 +189,9 @@ async function loadSplats(
     sendStatus: (data: unknown) => void;
   },
 ) {
-  console.log(
-    `Called loadSplats with lod=${lod}, lodBase=${lodBase}, encoding=${encoding}, nonLod=${nonLod}`,
-  );
-
-  type DecodedResult = {
-    numSplats: number;
-    packed: Uint32Array;
-    sh1: Uint32Array;
-    sh2: Uint32Array;
-    sh3: Uint32Array;
-    lodTree: Uint32Array;
-    splatEncoding: SplatEncoding;
-  };
-
-  const toPackedResult = (packed: DecodedResult) => ({
-    numSplats: packed.numSplats,
-    packedArray: packed.packed,
-    extra: {
-      sh1: packed.sh1,
-      sh2: packed.sh2,
-      sh3: packed.sh3,
-      lodTree: packed.lodTree,
-    },
-    splatEncoding: packed.splatEncoding,
-  });
+  // console.log(
+  //   `Called loadSplats with lod=${lod}, lodBase=${lodBase}, encoding=${encoding}, nonLod=${nonLod}`,
+  // );
 
   if (!lod) {
     const decoder = decode_to_packedsplats(fileType, pathName ?? url);
@@ -213,7 +199,6 @@ async function loadSplats(
       decoder,
       fileBytes,
       url,
-      baseUri,
       requestHeader,
       withCredentials,
       sendStatus,
@@ -230,7 +215,6 @@ async function loadSplats(
     decoder,
     fileBytes,
     url,
-    baseUri,
     requestHeader,
     withCredentials,
     sendStatus,
@@ -243,25 +227,20 @@ async function loadSplats(
   }
 
   if (nonLod) {
-    const initialConvertStart = performance.now();
     const packed = decoded.to_packedsplats();
-    const initialConvertDuration = performance.now() - initialConvertStart;
     sendStatus({ orig: toPackedResult(packed as DecodedResult) });
   }
 
   const initialSplats = decoded.len();
   const base = Math.max(1.1, Math.min(2.0, lodBase ?? 1.5));
   const lodStart = performance.now();
-  decoded.quick_lod(base);
+  decoded.quick_lod(base, true);
   const lodDuration = performance.now() - lodStart;
   console.log(
     `Quick LoD: ${initialSplats} -> ${decoded.len()} (${lodDuration} ms)`,
   );
 
-  const convertStart = performance.now();
   const lodPacked = decoded.to_packedsplats_lod();
-  const convertDuration = performance.now() - convertStart;
-  console.log(`Convert to packedsplats in ${convertDuration} ms`);
 
   return { lodSplats: toPackedResult(lodPacked as DecodedResult) };
 }
@@ -271,14 +250,30 @@ async function quickLod({
   packedArray,
   extra,
   lodBase,
+  rgba,
 }: {
   numSplats: number;
   packedArray: Uint32Array;
-  extra?: unknown;
+  extra?: Record<string, unknown>;
   lodBase?: number;
+  rgba?: Uint8Array;
 }) {
   const base = Math.max(1.1, Math.min(2.0, lodBase ?? 1.5));
-  return quick_lod_packedsplats(numSplats, packedArray, extra as object, base);
+  const lodStart = performance.now();
+  const decoded = quick_lod_packedsplats(
+    numSplats,
+    packedArray,
+    extra as object,
+    base,
+    true,
+    rgba,
+  );
+  const lodDuration = performance.now() - lodStart;
+  const result = toPackedResult(decoded as DecodedResult);
+  console.log(
+    `Quick LoD: ${numSplats} -> ${result.numSplats} (${lodDuration} ms)`,
+  );
+  return result;
 }
 
 function initLodTree({
@@ -288,12 +283,67 @@ function initLodTree({
   numSplats: number;
   lodTree: Uint32Array;
 }) {
-  const lodId = init_lod_tree(numSplats, lodTree);
-  return { lodId };
+  const { lodId, chunkToPage } = init_lod_tree(numSplats, lodTree) as {
+    lodId: number;
+    chunkToPage: Uint32Array;
+  };
+  return { lodId, chunkToPage };
 }
 
 function disposeLodTree({ lodId }: { lodId: number }) {
   dispose_lod_tree(lodId);
+}
+
+function insertLodTrees({
+  ranges,
+}: {
+  ranges: {
+    lodId: number;
+    pageBase: number;
+    chunkBase: number;
+    count: number;
+    lodTreeData: Uint32Array;
+  }[];
+}) {
+  console.log("insertLodTrees", ranges);
+  const lodIds = new Uint32Array(ranges.map(({ lodId }) => lodId));
+  const pageBases = new Uint32Array(ranges.map(({ pageBase }) => pageBase));
+  const chunkBases = new Uint32Array(ranges.map(({ chunkBase }) => chunkBase));
+  const counts = new Uint32Array(ranges.map(({ count }) => count));
+  const lodTreeData = ranges.map(({ lodTreeData }) => lodTreeData);
+
+  const lodIdToChunkToPages = insert_lod_trees(
+    lodIds,
+    pageBases,
+    chunkBases,
+    counts,
+    lodTreeData,
+  ) as Record<number, Uint32Array>;
+  console.log("=> done insertLodTrees", lodIdToChunkToPages);
+  return lodIdToChunkToPages;
+}
+
+function clearLodTrees({
+  ranges,
+}: {
+  ranges: {
+    lodId: number;
+    pageBase: number;
+    chunkBase: number;
+    count: number;
+  }[];
+}) {
+  const lodIds = new Uint32Array(ranges.map(({ lodId }) => lodId));
+  const pageBases = new Uint32Array(ranges.map(({ pageBase }) => pageBase));
+  const chunkBases = new Uint32Array(ranges.map(({ chunkBase }) => chunkBase));
+  const counts = new Uint32Array(ranges.map(({ count }) => count));
+  const lodIdToChunkToPages = clear_lod_trees(
+    lodIds,
+    pageBases,
+    chunkBases,
+    counts,
+  ) as Record<number, Uint32Array>;
+  return lodIdToChunkToPages;
 }
 
 function traverseLodTrees({
@@ -341,7 +391,7 @@ function traverseLodTrees({
   );
 
   // console.log(`traverseLodTrees: maxSplats=${maxSplats}, pixelScaleLimit=${pixelScaleLimit}, fovXdegrees=${fovXdegrees}, fovYdegrees=${fovYdegrees}, outsideFoveate=${outsideFoveate}, behindFoveate=${behindFoveate}, lodIds=${lodIds.length}, viewToObjects=${viewToObjects.length}`);
-  const instanceIndices = traverse_lod_trees(
+  const { instanceIndices, chunks } = traverse_lod_trees(
     maxSplats,
     pixelScaleLimit,
     fovXdegrees,
@@ -351,17 +401,32 @@ function traverseLodTrees({
     lodScales,
     outsideFoveates,
     behindFoveates,
-  ) as { numSplats: number; indices: Uint32Array }[];
+  ) as {
+    instanceIndices: {
+      lodId: number;
+      numSplats: number;
+      indices: Uint32Array;
+    }[];
+    chunks: [number, number][];
+  };
 
   const indices = keyInstances.reduce(
     (indices, [key, _instance], index) => {
       indices[key] = instanceIndices[index];
       return indices;
     },
-    {} as Record<string, { numSplats: number; indices: Uint32Array }>,
+    {} as Record<
+      string,
+      { lodId: number; numSplats: number; indices: Uint32Array }
+    >,
   );
   // console.log(`traverseLodTrees: instanceIndices=${instanceIndices.length}`);
-  return { keyIndices: indices };
+  // console.log(`traverseLodTrees: chunks=${chunks.length}`, JSON.stringify(chunks));
+  return {
+    keyIndices: indices,
+    // chunks: chunks.map(([instIndex, chunk]) => [keyInstances[instIndex][0], chunk]),
+    chunks,
+  };
 }
 
 // Recursively finds all ArrayBuffers in an object and returns them as an array

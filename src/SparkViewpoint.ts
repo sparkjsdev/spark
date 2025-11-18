@@ -345,6 +345,7 @@ export class SparkViewpoint {
     }
     this.viewToWorld = camera.matrixWorld.clone();
 
+    const previousTarget = this.spark.renderer.getRenderTarget();
     try {
       this.spark.renderer.setRenderTarget(target);
       this.spark.prepareViewpoint(this);
@@ -352,7 +353,7 @@ export class SparkViewpoint {
       this.spark.renderer.render(scene, camera);
     } finally {
       this.spark.prepareViewpoint(this.spark.defaultView);
-      this.spark.renderer.setRenderTarget(null);
+      this.spark.renderer.setRenderTarget(previousTarget);
     }
 
     if (target !== this.target) {

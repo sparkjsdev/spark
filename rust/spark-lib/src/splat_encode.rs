@@ -3,6 +3,11 @@ use std::array;
 use half::f16;
 use crate::decoder::SplatEncoding;
 
+pub const SPLAT_PAGED_WIDTH_BITS: usize = 12;
+pub const SPLAT_PAGED_HEIGHT_BITS: usize = 12;
+pub const SPLAT_PAGED_WIDTH: usize = 1 << SPLAT_PAGED_WIDTH_BITS;
+pub const SPLAT_PAGED_HEIGHT: usize = 1 << SPLAT_PAGED_HEIGHT_BITS;
+
 pub const SPLAT_TEX_WIDTH_BITS: usize = 11;
 pub const SPLAT_TEX_HEIGHT_BITS: usize = 11;
 pub const SPLAT_TEX_DEPTH_BITS: usize = 11;
@@ -19,9 +24,11 @@ pub const SPLAT_TEX_HEIGHT_MASK: usize = SPLAT_TEX_HEIGHT - 1;
 pub const SPLAT_TEX_DEPTH_MASK: usize = SPLAT_TEX_DEPTH - 1;
 
 pub fn get_splat_tex_size(num_splats: usize) -> (usize, usize, usize, usize) {
+    // Make sure the size is both a multiple of 2048 and 4096 for paged splats.
+    let alt_num_splats = num_splats.div_ceil(SPLAT_PAGED_WIDTH) * SPLAT_PAGED_WIDTH;
     let width = SPLAT_TEX_WIDTH;
-    let height = num_splats.div_ceil(SPLAT_TEX_WIDTH).clamp(SPLAT_TEX_MIN_HEIGHT, SPLAT_TEX_HEIGHT);
-    let depth = num_splats.div_ceil(SPLAT_TEX_LAYER_SIZE).max(1);
+    let height = alt_num_splats.div_ceil(SPLAT_TEX_WIDTH).clamp(SPLAT_TEX_MIN_HEIGHT, SPLAT_TEX_HEIGHT);
+    let depth = alt_num_splats.div_ceil(SPLAT_TEX_LAYER_SIZE).max(1);
     let max_splats = width * height * depth;
     (width, height, depth, max_splats)
 }
@@ -72,11 +79,29 @@ pub fn encode_packed_splat_rgb(packed: &mut [u32], rgb: [f32; 3], encoding: &Spl
     packed[0] = (packed[0] & 0xff000000) | (u_rgb[0] as u32) | ((u_rgb[1] as u32) << 8) | ((u_rgb[2] as u32) << 16);
 }
 
+pub fn decode_packed_splat_rgb(packed: &[u32], encoding: &SplatEncoding) -> [f32; 3] {
+    let SplatEncoding { rgb_min, rgb_max, .. } = encoding;
+    let u_rgb = [packed[0] as u8, (packed[0] >> 8) as u8, (packed[0] >> 16) as u8];
+    u_rgb.map(|x| u8_to_float(x, *rgb_min, *rgb_max))
+}
+
 pub fn encode_packed_splat_rgba(packed: &mut [u32], rgba: [f32; 4], encoding: &SplatEncoding) {
     let SplatEncoding { rgb_min, rgb_max, lod_opacity, .. } = encoding;
     let u_rgb = rgba.map(|x| float_to_u8(x, *rgb_min, *rgb_max));
     let u_a = float_to_u8(rgba[3], 0.0, if *lod_opacity { 2.0 } else { 1.0 });
     packed[0] = (u_rgb[0] as u32) | ((u_rgb[1] as u32) << 8) | ((u_rgb[2] as u32) << 16) | ((u_a as u32) << 24);
+}
+
+pub fn decode_packed_splat_rgba(packed: &[u32], encoding: &SplatEncoding) -> [f32; 4] {
+    let SplatEncoding { rgb_min, rgb_max, lod_opacity, .. } = encoding;
+    let u_rgb = [packed[0] as u8, (packed[0] >> 8) as u8, (packed[0] >> 16) as u8];
+    let u_a = (packed[0] >> 24) & 0xff;
+    [
+        u8_to_float(u_rgb[0], *rgb_min, *rgb_max),
+        u8_to_float(u_rgb[1], *rgb_min, *rgb_max),
+        u8_to_float(u_rgb[2], *rgb_min, *rgb_max),
+        u8_to_float(u_a as u8, 0.0, if *lod_opacity { 2.0 } else { 1.0 }),
+    ]
 }
 
 pub fn encode_packed_splat_scale(packed: &mut [u32], scale: [f32; 3], encoding: &SplatEncoding) {
@@ -98,7 +123,11 @@ pub fn encode_packed_splat_quat(packed: &mut [u32], quat_xyzw: [f32; 4]) {
 }
 
 pub fn decode_packed_splat_quat(packed: &[u32]) -> [f32; 4] {
-    let u_quat = [packed[2] as u8, (packed[2] >> 8) as u8, (packed[2] >> 16) as u8];
+    let u_quat = [
+        (packed[2] >> 16) as u8,
+        (packed[2] >> 24) as u8,
+        (packed[3] >> 24) as u8,
+    ];
     decode_quat_oct888(u_quat)
 }
 

@@ -21,9 +21,11 @@ export class NewSplatAccumulator {
   time = 0;
   deltaTime = 0;
   viewToWorld = new THREE.Matrix4();
-  viewCenterUniform: DynoVec3<THREE.Vector3>;
-  viewDirUniform: DynoVec3<THREE.Vector3>;
-  sortRadialUniform: DynoBool<string>;
+  viewOrigin = new THREE.Vector3();
+  viewDirection = new THREE.Vector3();
+  static viewCenterUniform = new DynoVec3({ value: new THREE.Vector3() });
+  static viewDirUniform = new DynoVec3({ value: new THREE.Vector3() });
+  static sortRadialUniform = new DynoBool({ value: true });
   maxSplats = 0;
   numSplats = 0;
   target: THREE.WebGLArrayRenderTarget | null = null;
@@ -35,9 +37,6 @@ export class NewSplatAccumulator {
     if (!threeMrtArray) {
       throw new Error("Spark requires THREE.js r179 or above");
     }
-    this.viewCenterUniform = new DynoVec3({ value: new THREE.Vector3() });
-    this.viewDirUniform = new DynoVec3({ value: new THREE.Vector3() });
-    this.sortRadialUniform = new DynoBool({ value: true });
   }
 
   dispose() {
@@ -141,6 +140,7 @@ export class NewSplatAccumulator {
 
   private saveRenderState(renderer: THREE.WebGLRenderer) {
     return {
+      target: renderer.getRenderTarget(),
       xrEnabled: renderer.xr.enabled,
       autoClear: renderer.autoClear,
     };
@@ -149,11 +149,12 @@ export class NewSplatAccumulator {
   private resetRenderState(
     renderer: THREE.WebGLRenderer,
     state: {
+      target: THREE.WebGLRenderTarget | null;
       xrEnabled: boolean;
       autoClear: boolean;
     },
   ) {
-    renderer.setRenderTarget(null);
+    renderer.setRenderTarget(state.target);
     renderer.xr.enabled = state.xrEnabled;
     renderer.autoClear = state.autoClear;
   }
@@ -171,9 +172,9 @@ export class NewSplatAccumulator {
           const output = outputExtendedSplat(generator.outputs.gsplat);
           const outputDepth = outputSplatDepth(
             generator.outputs.gsplat,
-            this.viewCenterUniform,
-            this.viewDirUniform,
-            this.sortRadialUniform,
+            NewSplatAccumulator.viewCenterUniform,
+            NewSplatAccumulator.viewDirUniform,
+            NewSplatAccumulator.sortRadialUniform,
           );
           roots.push(output, outputDepth);
           return undefined;
@@ -283,16 +284,17 @@ export class NewSplatAccumulator {
     sortRadial: boolean;
     renderSize: THREE.Vector2;
     previous: NewSplatAccumulator;
-    lodInstances: Map<
+    lodInstances?: Map<
       SplatMesh,
       { numSplats: number; texture: THREE.DataTexture }
     >;
   }) {
     this.viewToWorld.copy(camera.matrixWorld);
-
-    camera.getWorldPosition(this.viewCenterUniform.value);
-    camera.getWorldDirection(this.viewDirUniform.value);
-    this.sortRadialUniform.value = sortRadial;
+    camera.getWorldPosition(this.viewOrigin);
+    camera.getWorldDirection(this.viewDirection);
+    NewSplatAccumulator.viewCenterUniform.value.copy(this.viewOrigin);
+    NewSplatAccumulator.viewDirUniform.value.copy(this.viewDirection);
+    NewSplatAccumulator.sortRadialUniform.value = sortRadial;
 
     this.time = time;
     this.deltaTime = time - previous.time;
@@ -333,7 +335,9 @@ export class NewSplatAccumulator {
           renderSize,
           globalEdits,
           lodIndices:
-            object instanceof SplatMesh ? lodInstances.get(object) : undefined,
+            lodInstances && object instanceof SplatMesh
+              ? lodInstances.get(object)
+              : undefined,
         });
       } catch (error) {
         console.error("frameUpdate error", error);
@@ -369,7 +373,7 @@ export class NewSplatAccumulator {
       const node = visibleGenerators[index];
       const previousNode = previousMappings.get(node);
       if (previousNode && previousNode.count !== node.numSplats) {
-        node.updateVersion();
+        // console.log("Updating version for node", node.uuid, previousNode.count, node.numSplats);
         node.updateMappingVersion();
       }
 
@@ -387,7 +391,6 @@ export class NewSplatAccumulator {
         this.numSplats = Math.max(this.numSplats, base + count);
       }
     });
-    // const sameMapping = previous.hasCorrespondence(this.mapping);
     const { splatsUpdated, mappingUpdated } = previous.checkVersions(
       this.mapping,
     );
@@ -411,28 +414,6 @@ export class NewSplatAccumulator {
       },
     };
   }
-
-  // // Check if this accumulator has exactly the same generator mapping as
-  // // the previous one. If so, we can reuse the Gsplat sort order.
-  // hasCorrespondence(mapping: GeneratorMapping[]) {
-  //   if (this.mapping.length !== mapping.length) {
-  //     return false;
-  //   }
-  //   return this.mapping.every(({ node, mappingVersion, base, count }, i) => {
-  //     const {
-  //       node: otherNode,
-  //       base: otherBase,
-  //       count: otherCount,
-  //       mappingVersion: otherMappingVersion,
-  //     } = mapping[i];
-  //     return (
-  //       node === otherNode &&
-  //       base === otherBase &&
-  //       count === otherCount &&
-  //       mappingVersion === otherMappingVersion
-  //     );
-  //   });
-  // }
 
   // Check if this accumulator has exactly the same generator mapping as
   // the previous one. If so, we can reuse the Gsplat sort order.

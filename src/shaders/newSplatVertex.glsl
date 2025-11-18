@@ -11,7 +11,7 @@ out vec3 vNdc;
 flat out uint vSplatIndex;
 flat out float adjustedStdDev;
 
-uniform uint numSplats;
+// uniform uint numSplats;
 uniform vec2 renderSize;
 uniform vec4 renderToViewQuat;
 uniform vec3 renderToViewPos;
@@ -31,8 +31,8 @@ uniform float clipXY;
 uniform float focalAdjustment;
 
 uniform usampler2D ordering;
-uniform usampler2DArray packedSplats;
-uniform usampler2DArray packedSplats2;
+uniform usampler2DArray extSplats;
+uniform usampler2DArray extSplats2;
 
 void main() {
     // Default to outside the frustum so it's discarded if we return early
@@ -53,13 +53,13 @@ void main() {
     vec3 center, scales;
     vec4 quaternion, rgba;
 
-    uvec4 packed = texelFetch(packedSplats, texCoord, 0);
-    float alpha = unpackSplatExtAlpha(packed);
+    uvec4 ext1 = texelFetch(extSplats, texCoord, 0);
+    float alpha = unpackSplatExtAlpha(ext1);
     if ((alpha == 0.0) || (alpha < minAlpha)) {
         return;
     }
-    uvec4 packed2 = texelFetch(packedSplats2, texCoord, 0);
-    unpackSplatExt(packed, packed2, center, scales, quaternion, rgba);
+    uvec4 ext2 = texelFetch(extSplats2, texCoord, 0);
+    unpackSplatExt(ext1, ext2, center, scales, quaternion, rgba);
 
     bvec3 zeroScales = equal(scales, vec3(0.0));
     if (all(zeroScales)) {

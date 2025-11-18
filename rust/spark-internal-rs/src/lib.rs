@@ -1,6 +1,6 @@
 
 use std::cell::RefCell;
-use js_sys::{Float32Array, Object, Reflect, Uint16Array, Uint32Array};
+use js_sys::{Float32Array, Object, Reflect, Uint8Array, Uint16Array, Uint32Array};
 use spark_lib::decoder::{ChunkReceiver, MultiDecoder, SplatFileType};
 use spark_lib::gsplat::GsplatArray as GsplatArrayInner;
 use wasm_bindgen::prelude::*;
@@ -17,8 +17,6 @@ mod decoder;
 mod packed_splats;
 
 mod lod_tree;
-pub use lod_tree::{init_lod_tree, dispose_lod_tree, traverse_lod_trees};
-
 
 #[wasm_bindgen]
 pub fn simd_enabled() -> bool {
@@ -178,8 +176,8 @@ impl GsplatArray {
         !self.inner.extras.is_empty()
     }
 
-    pub fn quick_lod(&mut self, lod_base: f32) {
-        spark_lib::quick_lod::compute_lod_tree(&mut self.inner, lod_base);
+    pub fn quick_lod(&mut self, lod_base: f32, merge_filter: bool) {
+        spark_lib::quick_lod::compute_lod_tree(&mut self.inner, lod_base, merge_filter);
     }
 
     pub fn to_packedsplats(&self) -> Result<Object, JsValue> {
@@ -196,6 +194,10 @@ impl GsplatArray {
             Ok(splats) => splats,
         };
         Ok(splats.into_splat_object())
+    }
+
+    pub fn inject_rgba8(&mut self, rgba: Uint8Array) {
+        self.inner.inject_rgba8(&rgba.to_vec());
     }
 }
 
@@ -226,19 +228,22 @@ pub fn decode_to_gsplatarray(file_type: Option<String>, path_name: Option<String
 pub fn packedsplats_to_gsplatarray(num_splats: u32, packed: Uint32Array, extra: Option<Object>) -> Result<GsplatArray, JsValue> {
     use crate::packed_splats::PackedSplatsData;
     let mut receiver = match PackedSplatsData::from_js_arrays(packed, num_splats as usize, extra.as_ref()) {
-        Ok(r) => r,
+        Ok(receiver) => receiver,
         Err(err) => { return Err(JsValue::from(err.to_string())); }
     };
-    let inner = match receiver.to_gsplat_array() {
+    let splats = match receiver.to_gsplat_array() {
         Ok(inner) => inner,
         Err(err) => { return Err(JsValue::from(err.to_string())); }
     };
-    Ok(GsplatArray::new(inner))
+    Ok(GsplatArray::new(splats))
 }
 
 #[wasm_bindgen]
-pub fn quick_lod_packedsplats(num_splats: u32, packed: Uint32Array, extra: Option<Object>, lod_base: f32) -> Result<Object, JsValue> {
+pub fn quick_lod_packedsplats(num_splats: u32, packed: Uint32Array, extra: Option<Object>, lod_base: f32, merge_filter: bool, rgba: Option<Uint8Array>) -> Result<Object, JsValue> {
     let mut gs = packedsplats_to_gsplatarray(num_splats, packed, extra)?;
-    gs.quick_lod(lod_base);
-    gs.to_packedsplats()
+    if let Some(rgba) = rgba {
+        gs.inject_rgba8(rgba);
+    }
+    gs.quick_lod(lod_base, merge_filter);
+    gs.to_packedsplats_lod()
 }

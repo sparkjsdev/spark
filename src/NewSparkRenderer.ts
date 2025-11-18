@@ -8,7 +8,7 @@ import {
 } from ".";
 import { NewSplatAccumulator } from "./NewSplatAccumulator";
 import { NewSplatGeometry } from "./NewSplatGeometry";
-import { NewSplatWorker } from "./NewSplatWorker";
+import { NewSplatWorker, workerPool } from "./NewSplatWorker";
 import { SPLAT_TEX_HEIGHT, SPLAT_TEX_WIDTH } from "./defines";
 import { getShaders } from "./shaders";
 import { cloneClock, isAndroid, isIos, isOculus, isVisionPro } from "./utils";
@@ -126,29 +126,26 @@ export interface NewSparkRendererOptions {
   focalAdjustment?: number;
   /**
    * Whether to sort splats radially (geometric distance) from the viewpoint (true)
-   * or by Z-depth (false). Most scenes are trained with the Z-depth sort metric
+   * or by Z-depth (false). Most scenes are trained with the Z-depth `sort `metric
    * and will render more accurately at certain viewpoints. However, radial sorting
    * is more stable under viewpoint rotations.
    * @default true
    */
   sortRadial?: boolean;
   /**
-   * Constant added to Z-depth to bias values into the positive range for
-   * sortRadial: false, but also used for culling Gsplats "well behind"
-   * the viewpoint origin
-   * @default 1.0
-   */
-  depthBias?: number;
-  /**
    * Minimum interval between sort calls in milliseconds.
-   * @default 10
+   * @default 1
    */
   minSortIntervalMs?: number;
   /**
    * Minimum interval between LOD calls in milliseconds.
-   * @default 10
+   * @default 1
    */
   minLodIntervalMs?: number;
+  /*
+   * Flag to control whether LoD is enabled. @default true
+   */
+  enableLod?: boolean;
   /**
    * Set the target # splats for LoD. Recommended # splats is 500K for mobile and 1.5M for desktop,
    * which is set automatically if this isn't set.
@@ -171,6 +168,31 @@ export interface NewSparkRendererOptions {
    * @default 1.0
    */
   behindFoveate?: number;
+  numLodFetchers?: number;
+  target?: {
+    /**
+     * Width of the render target in pixels.
+     */
+    width: number;
+    /**
+     * Height of the render target in pixels.
+     */
+    height: number;
+    /**
+     * If you want to be able to render a scene that depends on this target's
+     * output (for example, a recursive viewport), set this to true to enable
+     * double buffering.
+     * @default false
+     */
+    doubleBuffer?: boolean;
+    /**
+     * Super-sampling factor for the render target. Values 1-4 are supported.
+     * Note that re-sampling back down to .width x .height is done on the CPU
+     * with simple averaging only when calling readTarget().
+     * @default 1
+     */
+    superXY?: number;
+  };
 }
 
 export class NewSparkRenderer extends THREE.Mesh {
@@ -181,6 +203,7 @@ export class NewSparkRenderer extends THREE.Mesh {
 
   autoUpdate: boolean;
   preUpdate: boolean;
+  static sparkOverride?: NewSparkRenderer;
 
   renderSize = new THREE.Vector2();
   maxStdDev: number;
@@ -198,8 +221,6 @@ export class NewSparkRenderer extends THREE.Mesh {
   encodeLinear: boolean;
 
   sortRadial: boolean;
-  depthBias?: number;
-  // sort32: boolean;
 
   clock: THREE.Clock;
   time?: number;
@@ -219,36 +240,52 @@ export class NewSparkRenderer extends THREE.Mesh {
   lastSortTime = 0;
   sortWorker: NewSplatWorker | null = null;
   sortTimeoutId = -1;
-  sortedVersion = -1;
-  sortedMappingVersion = -1;
   sortedCenter = new THREE.Vector3().setScalar(Number.NEGATIVE_INFINITY);
   sortedDir = new THREE.Vector3().setScalar(0);
-  sortedTime = 0;
   readback32 = new Uint32Array(0);
 
   minSortIntervalMs: number;
   minLodIntervalMs: number;
+
+  enableLod: boolean;
   lodSplatCount?: number;
   lodSplatScale: number;
   globalLodScale: number;
   outsideFoveate: number;
   behindFoveate: number;
+  numLodFetchers: number;
 
   lodWorker: NewSplatWorker | null = null;
-  lodMeshes: SplatMesh[] = [];
+  lodMeshes: { mesh: SplatMesh; version: number }[] = [];
   lodDirty = false;
   lodIds: Map<PackedSplats, { lodId: number; lastTouched: number }> = new Map();
+  lodIdToSplats: Map<number, PackedSplats> = new Map();
   lodInitQueue: PackedSplats[] = [];
   lodPos = new THREE.Vector3().setScalar(Number.NEGATIVE_INFINITY);
   lodQuat = new THREE.Quaternion().set(0, 0, 0, 0);
   lodInstances: Map<
     SplatMesh,
-    { numSplats: number; indices: Uint32Array; texture: THREE.DataTexture }
+    {
+      lodId: number;
+      numSplats: number;
+      indices: Uint32Array;
+      texture: THREE.DataTexture;
+    }
   > = new Map();
-  lodUpdate: {
-    uuidToMesh: Map<string, SplatMesh>;
-    keyIndices: Record<string, { numSplats: number; indices: Uint32Array }>;
-  } | null = null;
+  lodFetchers: Promise<void>[] = [];
+  lodInserts: {
+    lodId: number;
+    pageBase: number;
+    chunkBase: number;
+    count: number;
+    lodTreeData: Uint32Array;
+  }[] = [];
+
+  target?: THREE.WebGLRenderTarget;
+  backTarget?: THREE.WebGLRenderTarget;
+  superPixels?: Uint8Array;
+  targetPixels?: Uint8Array;
+  superXY = 1;
 
   flushAfterGenerate = false;
   flushAfterRead = false;
@@ -301,15 +338,16 @@ export class NewSparkRenderer extends THREE.Mesh {
     this.encodeLinear = options.encodeLinear ?? false;
 
     this.sortRadial = options.sortRadial ?? true;
-    this.depthBias = options.depthBias;
-    // this.sort32 = options.sort32 ?? true;
-    this.minSortIntervalMs = options.minSortIntervalMs ?? 10;
-    this.minLodIntervalMs = options.minLodIntervalMs ?? 10;
+    this.minSortIntervalMs = options.minSortIntervalMs ?? 0;
+    this.minLodIntervalMs = options.minLodIntervalMs ?? 0;
+
+    this.enableLod = options.enableLod ?? true;
     this.lodSplatCount = options.lodSplatCount;
     this.lodSplatScale = options.lodSplatScale ?? 1.0;
     this.globalLodScale = options.globalLodScale ?? 1.0;
     this.outsideFoveate = options.outsideFoveate ?? 1.0;
     this.behindFoveate = options.behindFoveate ?? 1.0;
+    this.numLodFetchers = options.numLodFetchers ?? 4;
 
     this.clock = options.clock ? cloneClock(options.clock) : new THREE.Clock();
 
@@ -317,12 +355,37 @@ export class NewSparkRenderer extends THREE.Mesh {
     this.current = this.display;
     this.accumulators.push(new NewSplatAccumulator());
     this.accumulators.push(new NewSplatAccumulator());
+
+    if (options.target) {
+      const { width, height, doubleBuffer } = options.target;
+      const superXY = Math.max(1, Math.min(4, options.target.superXY ?? 1));
+      if (width * superXY > 8192 || height * superXY > 8192) {
+        throw new Error("Target size too large");
+      }
+      this.superXY = superXY;
+
+      const superWidth = width * superXY;
+      const superHeight = height * superXY;
+      this.target = new THREE.WebGLRenderTarget(superWidth, superHeight, {
+        format: THREE.RGBAFormat,
+        type: THREE.UnsignedByteType,
+        colorSpace: THREE.SRGBColorSpace,
+      });
+      if (doubleBuffer) {
+        this.backTarget = new THREE.WebGLRenderTarget(superWidth, superHeight, {
+          format: THREE.RGBAFormat,
+          type: THREE.UnsignedByteType,
+          colorSpace: THREE.SRGBColorSpace,
+        });
+      }
+      this.encodeLinear = options.encodeLinear ?? true;
+    }
   }
 
   static makeUniforms() {
     const uniforms = {
-      // number of active splats to render
-      numSplats: { value: 0 },
+      // // number of active splats to render
+      // numSplats: { value: 0 },
       // Size of render viewport in pixels
       renderSize: { value: new THREE.Vector2() },
       // Near and far plane distances
@@ -362,8 +425,8 @@ export class NewSparkRenderer extends THREE.Mesh {
       // Back-to-front sort ordering of splat indices
       ordering: { type: "t", value: NewSparkRenderer.emptyOrdering },
       // Gsplat collection to render
-      packedSplats: { type: "t", value: NewSplatAccumulator.emptyTexture },
-      packedSplats2: { type: "t", value: NewSplatAccumulator.emptyTexture },
+      extSplats: { type: "t", value: NewSplatAccumulator.emptyTexture },
+      extSplats2: { type: "t", value: NewSplatAccumulator.emptyTexture },
       // Time in seconds for time-based effects
       time: { value: 0 },
       // Delta time in seconds since last frame
@@ -374,28 +437,75 @@ export class NewSparkRenderer extends THREE.Mesh {
     return uniforms;
   }
 
+  dispose() {
+    if (this.target) {
+      this.target.dispose();
+      this.target = undefined;
+    }
+    if (this.backTarget) {
+      this.backTarget.dispose();
+      this.backTarget = undefined;
+    }
+    if (this.orderingTexture) {
+      this.orderingTexture.dispose();
+      this.orderingTexture = null;
+    }
+
+    const accumulators = new Set<NewSplatAccumulator>();
+    accumulators.add(this.display);
+    accumulators.add(this.current);
+    for (const accumulator of this.accumulators) {
+      accumulators.add(accumulator);
+    }
+    for (const accumulator of accumulators) {
+      accumulator.dispose();
+    }
+
+    const instances = this.lodInstances.values();
+    this.lodInstances.clear();
+    for (const instance of instances) {
+      instance.texture.dispose();
+    }
+
+    if (this.sortWorker) {
+      this.sortWorker.dispose();
+      this.sortWorker = null;
+    }
+    if (this.lodWorker) {
+      this.lodWorker.dispose();
+      this.lodWorker = null;
+    }
+  }
+
   onBeforeRender(
     renderer: THREE.WebGLRenderer,
     scene: THREE.Scene,
     camera: THREE.Camera,
   ) {
-    const frame = renderer.info.render.frame;
-    const isNewFrame = frame !== this.lastFrame;
-    this.lastFrame = frame;
+    const spark = NewSparkRenderer.sparkOverride ?? this;
 
-    const renderSize = renderer.getDrawingBufferSize(this.renderSize);
-    if (renderer.xr.isPresenting) {
-      if (renderSize.x === 1 && renderSize.y === 1) {
-        // WebXR mode on Apple Vision Pro returns 1x1 when presenting.
-        // Use a different means to figure out the render size.
-        const baseLayer = renderer.xr.getSession()?.renderState.baseLayer;
-        if (baseLayer) {
-          renderSize.x = baseLayer.framebufferWidth;
-          renderSize.y = baseLayer.framebufferHeight;
+    const frame = renderer.info.render.frame;
+    const isNewFrame = frame !== spark.lastFrame;
+    spark.lastFrame = frame;
+
+    if (spark.target) {
+      spark.renderSize.set(spark.target.width, spark.target.height);
+    } else {
+      const renderSize = renderer.getDrawingBufferSize(spark.renderSize);
+      // console.log(`onBeforeRender: renderSize=(${renderSize.toArray().join(", ")})`);
+      if (renderer.xr.isPresenting) {
+        if (renderSize.x === 1 && renderSize.y === 1) {
+          // WebXR mode on Apple Vision Pro returns 1x1 when presenting.
+          // Use a different means to figure out the render size.
+          const baseLayer = renderer.xr.getSession()?.renderState.baseLayer;
+          if (baseLayer) {
+            renderSize.x = baseLayer.framebufferWidth;
+            renderSize.y = baseLayer.framebufferHeight;
+          }
         }
       }
     }
-    this.uniforms.renderSize.value.copy(renderSize);
+    this.uniforms.renderSize.value.copy(spark.renderSize);
 
     const typedCamera = camera as
       | THREE.PerspectiveCamera
@@ -405,8 +515,8 @@ export class NewSparkRenderer extends THREE.Mesh {
     this.uniforms.far.value = typedCamera.far;
 
     const geometry = this.geometry as NewSplatGeometry;
-    geometry.instanceCount = this.activeSplats;
-    this.uniforms.numSplats.value = this.activeSplats;
+    geometry.instanceCount = spark.activeSplats;
+    // this.uniforms.numSplats.value = spark.activeSplats;
 
     const worldToCamera = camera.matrixWorld.clone().invert();
     worldToCamera.decompose(
@@ -415,49 +525,47 @@ export class NewSparkRenderer extends THREE.Mesh {
       new THREE.Vector3(),
     );
 
-    this.uniforms.maxStdDev.value = this.maxStdDev;
-    this.uniforms.minPixelRadius.value = this.minPixelRadius;
-    this.uniforms.maxPixelRadius.value = this.maxPixelRadius;
-    this.uniforms.minAlpha.value = this.minAlpha;
-    this.uniforms.enable2DGS.value = this.enable2DGS;
-    this.uniforms.preBlurAmount.value = this.preBlurAmount;
-    this.uniforms.blurAmount.value = this.blurAmount;
-    this.uniforms.focalDistance.value = this.focalDistance;
-    this.uniforms.apertureAngle.value = this.apertureAngle;
-    this.uniforms.falloff.value = this.falloff;
-    this.uniforms.clipXY.value = this.clipXY;
-    this.uniforms.focalAdjustment.value = this.focalAdjustment;
-    this.uniforms.encodeLinear.value = this.encodeLinear;
+    this.uniforms.maxStdDev.value = spark.maxStdDev;
+    this.uniforms.minPixelRadius.value = spark.minPixelRadius;
+    this.uniforms.maxPixelRadius.value = spark.maxPixelRadius;
+    this.uniforms.minAlpha.value = spark.minAlpha;
+    this.uniforms.enable2DGS.value = spark.enable2DGS;
+    this.uniforms.preBlurAmount.value = spark.preBlurAmount;
+    this.uniforms.blurAmount.value = spark.blurAmount;
+    this.uniforms.focalDistance.value = spark.focalDistance;
+    this.uniforms.apertureAngle.value = spark.apertureAngle;
+    this.uniforms.falloff.value = spark.falloff;
+    this.uniforms.clipXY.value = spark.clipXY;
+    this.uniforms.focalAdjustment.value = spark.focalAdjustment;
+    this.uniforms.encodeLinear.value = spark.encodeLinear;
 
     this.uniforms.ordering.value =
-      this.orderingTexture ?? NewSparkRenderer.emptyOrdering;
-    const packedSplats = this.display.getTextures();
-    this.uniforms.packedSplats.value = packedSplats[0];
-    this.uniforms.packedSplats2.value = packedSplats[1];
+      spark.orderingTexture ?? NewSparkRenderer.emptyOrdering;
+    const extSplats = spark.display.getTextures();
+    this.uniforms.extSplats.value = extSplats[0];
+    this.uniforms.extSplats2.value = extSplats[1];
 
-    this.uniforms.time.value = this.display.time;
-    this.uniforms.deltaTime.value = this.display.deltaTime;
+    this.uniforms.time.value = spark.display.time;
+    this.uniforms.deltaTime.value = spark.display.deltaTime;
     // Alternating debug flag that can aid in visual debugging
     this.uniforms.debugFlag.value = (performance.now() / 1000.0) % 2.0 < 1.0;
 
-    if (this.autoUpdate && isNewFrame) {
-      const preUpdate = this.preUpdate && !renderer.xr.isPresenting;
+    if (spark.autoUpdate && isNewFrame) {
+      const preUpdate = spark.preUpdate && !renderer.xr.isPresenting;
       const useCamera = renderer.xr.isPresenting
         ? renderer.xr.getCamera()
         : camera;
       if (preUpdate) {
-        this.updateInternal({
-          renderer,
+        spark.updateInternal({
           scene,
           camera: useCamera,
           autoUpdate: true,
         });
       } else {
-        if (this.updateTimeoutId === -1) {
-          this.updateTimeoutId = setTimeout(() => {
-            this.updateTimeoutId = -1;
-            this.updateInternal({
-              renderer,
+        if (spark.updateTimeoutId === -1) {
+          spark.updateTimeoutId = setTimeout(() => {
+            spark.updateTimeoutId = -1;
+            spark.updateInternal({
               scene,
               camera: useCamera,
               autoUpdate: true,
@@ -468,67 +576,50 @@ export class NewSparkRenderer extends THREE.Mesh {
     }
   }
 
-  update({
-    renderer,
+  async update({
     scene,
     camera,
   }: {
-    renderer: THREE.WebGLRenderer;
     scene: THREE.Scene;
     camera: THREE.Camera;
   }) {
-    this.updateInternal({ renderer, scene, camera, autoUpdate: false });
+    await this.updateInternal({ scene, camera, autoUpdate: false });
   }
 
-  private updateInternal({
-    renderer,
+  private async updateInternal({
     scene,
     camera,
     autoUpdate,
   }: {
-    renderer: THREE.WebGLRenderer;
     scene: THREE.Scene;
     camera: THREE.Camera;
     autoUpdate: boolean;
   }) {
+    const renderer = this.renderer;
     const time = this.time ?? this.clock.getElapsedTime();
 
     const center = camera.getWorldPosition(new THREE.Vector3());
     const dir = camera.getWorldDirection(new THREE.Vector3());
 
-    const currentToWorld = this.current.viewToWorld.clone().invert();
-    const currentCenter = new THREE.Vector3().applyMatrix4(currentToWorld);
-    const currentDir = new THREE.Vector3(0, 0, -1)
-      .applyMatrix4(currentToWorld)
-      .sub(currentCenter)
-      .normalize();
-
     const viewChanged =
-      center.distanceTo(currentCenter) > 0.001 || dir.dot(currentDir) < 0.999;
-
-    const lodUpdate = this.lodUpdate;
-    if (lodUpdate) {
-      const { uuidToMesh, keyIndices } = lodUpdate;
-      this.lodUpdate = null;
-      this.updateLodIndices(uuidToMesh, keyIndices);
-    }
+      center.distanceTo(this.sortedCenter) > 0.001 ||
+      dir.dot(this.sortedDir) < 0.999;
 
     const next = this.accumulators.pop();
     if (!next) {
       // Should never happen
       throw new Error("No next accumulator");
     }
-    const { version, mappingVersion, visibleGenerators, generate } =
-      next.prepareGenerate({
-        renderer,
-        scene,
-        time,
-        camera,
-        sortRadial: this.sortRadial ?? true,
-        renderSize: this.renderSize,
-        previous: this.current,
-        lodInstances: this.lodInstances,
-      });
+    const { version, visibleGenerators, generate } = next.prepareGenerate({
+      renderer,
+      scene,
+      time,
+      camera,
+      sortRadial: this.sortRadial ?? true,
+      renderSize: this.renderSize,
+      previous: this.current,
+      lodInstances: this.enableLod ? this.lodInstances : undefined,
+    });
 
     this.driveLod({ visibleGenerators, camera });
     this.driveSort();
@@ -557,16 +648,15 @@ export class NewSparkRenderer extends THREE.Mesh {
       this.accumulators.push(this.display);
       this.display = next;
     } else {
-      this.accumulators.push(this.current);
+      if (this.display !== this.current) {
+        this.accumulators.push(this.current);
+      }
     }
 
-    if (this.display !== this.current) {
-      this.accumulators.push(this.current);
-    }
     this.current = next;
     this.sortDirty = true;
 
-    this.driveSort();
+    await this.driveSort();
   }
 
   private async driveSort() {
@@ -594,19 +684,15 @@ export class NewSparkRenderer extends THREE.Mesh {
     this.sorting = true;
     this.sortDirty = false;
     this.lastSortTime = now;
-    const current = this.current;
-
-    const currentToWorld = current.viewToWorld.clone().invert();
-    this.sortedCenter.set(0, 0, 0).applyMatrix4(currentToWorld);
-    this.sortedDir
-      .set(0, 0, -1)
-      .applyMatrix4(currentToWorld)
-      .sub(this.sortedCenter)
-      .normalize();
 
     if (this.readPause > 0) {
       await new Promise((resolve) => setTimeout(resolve, this.readPause));
     }
+
+    const current = this.current;
+
+    this.sortedCenter.copy(current.viewOrigin);
+    this.sortedDir.copy(current.viewDirection);
 
     const { numSplats, maxSplats } = current;
     const rows = Math.max(1, Math.ceil(maxSplats / 16384));
@@ -618,6 +704,7 @@ export class NewSparkRenderer extends THREE.Mesh {
     this.readback32 = readback;
 
     await this.readbackDepth({
+      current,
       renderer: this.renderer,
       numSplats,
       readback,
@@ -665,12 +752,9 @@ export class NewSparkRenderer extends THREE.Mesh {
         THREE.UnsignedIntType,
       );
       orderingTexture.internalFormat = "RGBA32UI";
+      orderingTexture.needsUpdate = true;
       this.orderingTexture = orderingTexture;
     } else {
-      const data = new Uint32Array(this.orderingTexture.image.data.buffer);
-      data.set(result.ordering);
-      // console.log("Setting ordering", result.ordering.slice(0, 10));
-
       const renderer = this.renderer;
       const gl = renderer.getContext() as WebGL2RenderingContext;
       if (!renderer.properties.has(this.orderingTexture)) {
@@ -694,18 +778,18 @@ export class NewSparkRenderer extends THREE.Mesh {
           rows,
           gl.RGBA_INTEGER,
           gl.UNSIGNED_INT,
-          data,
+          // data,
+          result.ordering,
         );
         renderer.state.bindTexture(gl.TEXTURE_2D, null);
       }
     }
-    this.orderingTexture.needsUpdate = true;
 
-    // console.log(`Sorted ${numSplats} splats in ${performance.now() - now} ms`);
+    // console.log(`Sorted (${this.minSortIntervalMs}) ${numSplats} splats in ${(performance.now() - now).toFixed(0)} ms`);
 
-    if (this.display !== current) {
+    if (this.display.mappingVersion !== current.mappingVersion) {
       this.accumulators.push(this.display);
-      this.display = current;
+      this.display = this.current;
     }
     this.sorting = false;
 
@@ -716,22 +800,31 @@ export class NewSparkRenderer extends THREE.Mesh {
     visibleGenerators,
     camera: inputCamera,
   }: { visibleGenerators: SplatGenerator[]; camera: THREE.Camera }) {
-    const lodMeshes = visibleGenerators.filter((generator) => {
-      return (
-        generator instanceof SplatMesh &&
-        generator.packedSplats.lodSplats &&
-        generator.enableLod !== false
-      );
-    }) as SplatMesh[];
+    const lodMeshes = !this.enableLod
+      ? []
+      : (visibleGenerators.filter((generator) => {
+          return (
+            generator instanceof SplatMesh &&
+            generator.packedSplats.lodSplats &&
+            generator.enableLod !== false
+          );
+        }) as SplatMesh[]);
 
     let forceUpdate = this.lodMeshes.length !== lodMeshes.length;
     if (
       !forceUpdate &&
-      this.lodMeshes.some((mesh, i) => mesh !== lodMeshes[i])
+      lodMeshes.some(
+        (m, i) =>
+          m !== this.lodMeshes[i].mesh || m.version > this.lodMeshes[i].version,
+      )
     ) {
       forceUpdate = true;
     }
-    this.lodMeshes = lodMeshes;
+    this.lodMeshes = lodMeshes.map((mesh) => ({
+      mesh,
+      version: mesh.version + 1,
+    }));
+    // console.log(`lodMeshes versions: ${JSON.stringify(this.lodMeshes.map(m => m.version))}`);
 
     if (forceUpdate) {
       this.lodDirty = true;
@@ -765,9 +858,20 @@ export class NewSparkRenderer extends THREE.Mesh {
     }
     this.lodWorker.tryExclusive(async (worker) => {
       if (this.lodInitQueue.length > 0) {
-        const splats = this.lodInitQueue.shift() as PackedSplats;
-        await this.initLodTree(worker, splats);
-        return;
+        const lodInitQueue = this.lodInitQueue;
+        this.lodInitQueue = [];
+        while (lodInitQueue.length > 0) {
+          const splats = lodInitQueue.shift() as PackedSplats;
+          await this.initLodTree(worker, splats);
+        }
+        // return;
+      }
+
+      if (this.lodInserts.length > 0) {
+        const lodInserts = this.lodInserts;
+        this.lodInserts = [];
+        await worker.call("insertLodTrees", { ranges: lodInserts });
+        // return;
       }
 
       const viewPos = new THREE.Vector3();
@@ -786,7 +890,7 @@ export class NewSparkRenderer extends THREE.Mesh {
         this.lodQuat.copy(viewQuat);
         this.lodDirty = false;
         await this.updateLodInstances(worker, camera, lodMeshes);
-        return;
+        // return;
       }
 
       await this.cleanupLodTrees(worker);
@@ -794,13 +898,14 @@ export class NewSparkRenderer extends THREE.Mesh {
   }
 
   private async initLodTree(worker: NewSplatWorker, splats: PackedSplats) {
-    // console.log("initLodTree", splats.extra.lodTree, splats);
-    const { lodId } = (await worker.call("initLodTree", {
+    // console.log("initLodTree", splats.extra.lodTree, JSON.stringify(new Array(100).fill().map((_, i) => [splats.extra.lodTree[i*4 + 2], splats.extra.lodTree[i*4 + 3]])));
+    const { lodId, chunkToPage } = (await worker.call("initLodTree", {
       numSplats: splats.numSplats ?? 0,
       lodTree: (splats.extra.lodTree as Uint32Array).slice(),
-    })) as { lodId: number };
-    // console.log("=> initLodTree: lodId =", lodId);
+    })) as { lodId: number; chunkToPage: Uint32Array };
+    // console.log("initLodTree: lodId =", lodId);
     this.lodIds.set(splats, { lodId, lastTouched: performance.now() });
+    this.lodIdToSplats.set(lodId, splats);
   }
 
   private async updateLodInstances(
@@ -866,69 +971,147 @@ export class NewSparkRenderer extends THREE.Mesh {
     // console.log("instances", instances);
 
     const traverseStart = performance.now();
-    const { keyIndices } = (await worker.call("traverseLodTrees", {
+    const { keyIndices, chunks } = (await worker.call("traverseLodTrees", {
       maxSplats,
       pixelScaleLimit,
       fovXdegrees,
       fovYdegrees,
       instances,
     })) as {
-      keyIndices: Record<string, { numSplats: number; indices: Uint32Array }>;
+      keyIndices: Record<
+        string,
+        { lodId: number; numSplats: number; indices: Uint32Array }
+      >;
+      chunks: [number, number][];
     };
-    const debugSplats = Object.keys(keyIndices).map(
+    // const splatCounts = Object.keys(keyIndices).map(
+    //   (uuid) => ({ count: keyIndices[uuid].numSplats, indices: Array.from(keyIndices[uuid].indices.slice(keyIndices[uuid].numSplats - 100, keyIndices[uuid].numSplats)) }),
+    // );
+    const splatCounts = Object.keys(keyIndices).map(
       (uuid) => keyIndices[uuid].numSplats,
     );
-    console.log(
-      `traverseLodTrees in ${performance.now() - traverseStart} ms`,
-      JSON.stringify(debugSplats),
-    );
+    // if (Math.random() < 0.1) {
+    //   console.log(
+    //     `traverseLodTrees in ${(performance.now() - traverseStart).toFixed(0)} ms, splatCounts=${JSON.stringify(splatCounts)}`,
+    //     // JSON.stringify(chunks),
+    //   );
+    // }
 
-    for (const mesh of lodMeshes) {
-      mesh.updateMappingVersion();
-    }
-
-    // this.lodUpdate = { uuidToMesh, keyIndices };
     this.updateLodIndices(uuidToMesh, keyIndices);
+
+    let availableFetchers = this.numLodFetchers - this.lodFetchers.length;
+    if (availableFetchers > 0) {
+      for (const [lodId, chunk] of chunks) {
+        const splats = this.lodIdToSplats.get(lodId) as PackedSplats;
+        if (!splats.paged) {
+          continue;
+        }
+
+        let page = splats.chunkToPage.get(chunk);
+        if (page !== undefined) {
+          splats.chunkToPage.delete(chunk);
+          splats.chunkToPage.set(chunk, page);
+          continue;
+        }
+
+        page = splats.allocTexturePage();
+        if (page === undefined) {
+          continue;
+        }
+
+        const promise = (async () => {
+          const start = performance.now();
+          const url = (splats.paged?.url ?? "").replace(
+            /-lod-0\./,
+            `-lod-${chunk}.`,
+          );
+          const decoded = await workerPool.withWorker(async (worker) => {
+            const decoded = (await worker.call("loadSplats", {
+              url,
+              requestHeader: splats.paged?.requestHeader,
+              withCredentials: splats.paged?.withCredentials,
+            })) as {
+              lodSplats: {
+                numSplats: number;
+                packedArray: Uint32Array;
+                extra: Record<string, unknown>;
+              };
+            };
+            return decoded.lodSplats;
+          });
+
+          console.log(`Uploading chunk ${chunk} to page ${page}`);
+          splats.uploadTexturePage(this.renderer, decoded.packedArray, page);
+          splats.chunkToPage.set(chunk, page);
+          console.log("chunkToPage", splats.chunkToPage);
+          this.lodInserts.push({
+            lodId,
+            pageBase: page * 65536,
+            chunkBase: chunk * 65536,
+            count: decoded.numSplats,
+            lodTreeData: decoded.extra.lodTree as Uint32Array,
+          });
+          this.lodDirty = true;
+          console.log(
+            "Fetched LOD chunk",
+            chunk,
+            decoded.numSplats,
+            performance.now() - start,
+          );
+          this.lodFetchers = this.lodFetchers.filter((p) => p !== promise);
+        })();
+        this.lodFetchers.push(promise);
+
+        availableFetchers -= 1;
+        if (availableFetchers === 0) {
+          break;
+        }
+      }
+    }
   }
 
   private async cleanupLodTrees(worker: NewSplatWorker) {
     const DISPOSE_TIMEOUT_MS = 3000;
+    const now = performance.now();
 
     let oldest = null;
     for (const [splats, record] of this.lodIds.entries()) {
-      if (
-        oldest == null ||
-        record.lastTouched < (this.lodIds.get(oldest)?.lastTouched ?? 0)
-      ) {
-        oldest = splats;
+      if (oldest == null || record.lastTouched < oldest.lastTouched) {
+        oldest = {
+          splats,
+          lastTouched: record.lastTouched,
+          lodId: record.lodId,
+        };
+      }
+    }
+    if (!oldest || oldest.lastTouched > now - DISPOSE_TIMEOUT_MS) {
+      return;
+    }
+
+    this.lodIds.delete(oldest.splats);
+    this.lodIdToSplats.delete(oldest.lodId);
+
+    for (const [mesh, instance] of this.lodInstances.entries()) {
+      if (instance.lodId === oldest.lodId) {
+        instance.texture.dispose();
+        this.lodInstances.delete(mesh);
       }
     }
 
-    if (oldest != null) {
-      const now = performance.now();
-      const { lastTouched, lodId } = this.lodIds.get(oldest) ?? {
-        lastTouched: 0,
-        lodId: 0,
-      };
-      if (lastTouched < now - DISPOSE_TIMEOUT_MS) {
-        for (const [mesh, indices] of this.lodInstances.entries()) {
-          if (mesh.packedSplats.lodSplats === oldest) {
-            indices.texture.dispose();
-            this.lodInstances.delete(mesh);
-          }
-        }
-        await worker.call("disposeLodTree", { lodId });
-      }
-    }
+    await worker.call("disposeLodTree", { lodId: oldest.lodId });
+    // console.log("disposed lodTree", oldest.lodId);
   }
 
   private updateLodIndices(
     uuidToMesh: Map<string, SplatMesh>,
-    keyIndices: Record<string, { numSplats: number; indices: Uint32Array }>,
+    keyIndices: Record<
+      string,
+      { lodId: number; numSplats: number; indices: Uint32Array }
+    >,
   ) {
     // console.log("updateLodIndices", keyIndices);
     for (const [uuid, countIndices] of Object.entries(keyIndices)) {
-      const { numSplats, indices } = countIndices;
+      const { lodId, numSplats, indices } = countIndices;
       const mesh = uuidToMesh.get(uuid) as SplatMesh;
       let instance = this.lodInstances.get(mesh);
       if (instance) {
@@ -953,19 +1136,10 @@ export class NewSparkRenderer extends THREE.Mesh {
         );
         texture.internalFormat = "RGBA32UI";
         texture.needsUpdate = true;
-        instance = { numSplats, indices, texture };
+        instance = { lodId, numSplats, indices, texture };
         this.lodInstances.set(mesh, instance);
-        // console.log(
-        //   "updateLodIndices: new texture",
-        //   numSplats,
-        //   indices.slice(0, 10),
-        // );
       } else {
         instance.numSplats = numSplats;
-        // TODO: Do we need to do this since we are directly uploading from indices?
-        instance.indices.set(indices);
-
-        // instance.texture.needsUpdate = true;
         const renderer = this.renderer;
         const gl = renderer.getContext() as WebGL2RenderingContext;
         if (renderer.properties.has(instance.texture)) {
@@ -991,21 +1165,18 @@ export class NewSparkRenderer extends THREE.Mesh {
           );
           renderer.state.bindTexture(gl.TEXTURE_2D, null);
         }
-        // console.log(
-        //   "updateLodIndices: texture",
-        //   numSplats,
-        //   indices.slice(0, 10),
-        // );
       }
       mesh.updateMappingVersion();
     }
   }
 
   private async readbackDepth({
+    current,
     renderer,
     numSplats,
     readback,
   }: {
+    current: NewSplatAccumulator;
     renderer: THREE.WebGLRenderer;
     numSplats: number;
     readback: Uint32Array;
@@ -1013,7 +1184,7 @@ export class NewSparkRenderer extends THREE.Mesh {
     if (!renderer) {
       throw new Error("No renderer");
     }
-    if (!this.current.target) {
+    if (!current.target) {
       throw new Error("No target");
     }
 
@@ -1048,10 +1219,10 @@ export class NewSparkRenderer extends THREE.Mesh {
         layerBase * 4,
         layerBase * 4 + readbackSize,
       );
-      renderer.setRenderTarget(this.current.target, layer);
+      renderer.setRenderTarget(current.target, layer);
 
       const promise = renderer.readRenderTargetPixelsAsync(
-        this.current.target,
+        current.target,
         0,
         0,
         SPLAT_TEX_WIDTH,
@@ -1076,6 +1247,7 @@ export class NewSparkRenderer extends THREE.Mesh {
 
   private saveRenderState(renderer: THREE.WebGLRenderer) {
     return {
+      target: renderer.getRenderTarget(),
       xrEnabled: renderer.xr.enabled,
       autoClear: renderer.autoClear,
     };
@@ -1084,11 +1256,12 @@ export class NewSparkRenderer extends THREE.Mesh {
   private resetRenderState(
     renderer: THREE.WebGLRenderer,
     state: {
+      target: THREE.WebGLRenderTarget | null;
       xrEnabled: boolean;
       autoClear: boolean;
     },
   ) {
-    renderer.setRenderTarget(null);
+    renderer.setRenderTarget(state.target);
     renderer.xr.enabled = state.xrEnabled;
     renderer.autoClear = state.autoClear;
   }
@@ -1103,4 +1276,105 @@ export class NewSparkRenderer extends THREE.Mesh {
     texture.needsUpdate = true;
     return texture;
   })();
+
+  renderTarget({
+    scene,
+    camera,
+  }: { scene: THREE.Scene; camera: THREE.Camera }): THREE.WebGLRenderTarget {
+    const target = this.backTarget ?? this.target;
+    if (!target) {
+      throw new Error("No target");
+    }
+
+    const previousTarget = this.renderer.getRenderTarget();
+    try {
+      this.renderer.setRenderTarget(target);
+      NewSparkRenderer.sparkOverride = this;
+      this.renderer.render(scene, camera);
+    } finally {
+      NewSparkRenderer.sparkOverride = undefined;
+      this.renderer.setRenderTarget(previousTarget);
+    }
+
+    if (target !== this.target) {
+      // Swap back buffer and target
+      [this.target, this.backTarget] = [this.backTarget, this.target];
+    }
+    return target;
+  }
+
+  // Read back the previously rendered target image as a Uint8Array of packed
+  // RGBA values (in that order). Subsequent calls to this.readTarget()
+  // will reuse the same buffers to minimize memory allocations.
+  async readTarget(): Promise<Uint8Array> {
+    if (!this.target) {
+      throw new Error("Must initialize with target");
+    }
+    const { width, height } = this.target;
+    const byteSize = width * height * 4;
+    if (!this.superPixels || this.superPixels.length < byteSize) {
+      this.superPixels = new Uint8Array(byteSize);
+      // console.log(`Allocated superPixels: ${width}x${height} = ${byteSize} bytes`);
+    }
+    const superPixels = this.superPixels;
+
+    await this.renderer.readRenderTargetPixelsAsync(
+      this.target,
+      0,
+      0,
+      width,
+      height,
+      superPixels,
+    );
+
+    const { superXY } = this;
+    if (superXY === 1) {
+      return superPixels;
+    }
+
+    const subWidth = width / superXY;
+    const subHeight = height / superXY;
+    const subSize = subWidth * subHeight * 4;
+    if (!this.targetPixels || this.targetPixels.length < subSize) {
+      this.targetPixels = new Uint8Array(subSize);
+      // console.log(`Allocated targetPixels: ${subWidth}x${subHeight} = ${subSize} bytes`);
+    }
+    const targetPixels = this.targetPixels;
+
+    const super2 = superXY * superXY;
+    for (let y = 0; y < subHeight; y++) {
+      const row = y * subWidth;
+      for (let x = 0; x < subWidth; x++) {
+        const superCol = x * superXY;
+        let r = 0;
+        let g = 0;
+        let b = 0;
+        let a = 0;
+        for (let sy = 0; sy < superXY; sy++) {
+          const superRow = (y * superXY + sy) * width;
+          for (let sx = 0; sx < superXY; sx++) {
+            const superIndex = (superRow + superCol + sx) * 4;
+            r += superPixels[superIndex];
+            g += superPixels[superIndex + 1];
+            b += superPixels[superIndex + 2];
+            a += superPixels[superIndex + 3];
+          }
+        }
+        const pixelIndex = (row + x) * 4;
+        targetPixels[pixelIndex] = r / super2;
+        targetPixels[pixelIndex + 1] = g / super2;
+        targetPixels[pixelIndex + 2] = b / super2;
+        targetPixels[pixelIndex + 3] = a / super2;
+      }
+    }
+    return targetPixels;
+  }
+
+  async renderReadTarget({
+    scene,
+    camera,
+  }: { scene: THREE.Scene; camera: THREE.Camera }): Promise<Uint8Array> {
+    this.renderTarget({ scene, camera });
+    return this.readTarget();
+  }
 }

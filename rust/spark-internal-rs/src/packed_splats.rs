@@ -3,25 +3,10 @@ use std::array;
 use half::f16;
 use js_sys::{Object, Reflect, Uint32Array};
 use spark_lib::{
-    decoder::{SetSplatEncoding, SplatEncoding, SplatInit, SplatProps, SplatReceiver, SplatGetter, copy_getter_to_receiver},
+    decoder::{SetSplatEncoding, SplatEncoding, SplatGetter, SplatInit, SplatProps, SplatReceiver, copy_getter_to_receiver},
     gsplat::GsplatArray,
     splat_encode::{
-        decode_packed_splat_center,
-        decode_packed_splat_opacity,
-        decode_packed_splat_quat,
-        decode_packed_splat_scale,
-        encode_packed_splat,
-        encode_packed_splat_center,
-        encode_packed_splat_opacity,
-        encode_packed_splat_quat,
-        encode_packed_splat_rgb,
-        encode_packed_splat_rgba,
-        encode_packed_splat_scale,
-        encode_sh1_array,
-        encode_sh2_array,
-        encode_sh3_array,
-        get_splat_tex_size,
-        u8_to_float,
+        decode_packed_splat_center, decode_packed_splat_opacity, decode_packed_splat_quat, decode_packed_splat_rgb, decode_packed_splat_scale, encode_packed_splat, encode_packed_splat_center, encode_packed_splat_opacity, encode_packed_splat_quat, encode_packed_splat_rgb, encode_packed_splat_rgba, encode_packed_splat_scale, encode_sh1_array, encode_sh2_array, encode_sh3_array, get_splat_tex_size,
     },
 };
 use wasm_bindgen::JsValue;
@@ -81,50 +66,36 @@ impl PackedSplatsData {
         object
     }
 
-    // Construct a getter from JS typed arrays.
-    // - packed: required Uint32Array with 4 words per splat
-    // - num_splats: limits count (<= packed.length()/4)
-    // - extra: optional Object with optional fields:
-    //   - maxShDegree: number
-    //   - encoding: SplatEncoding-like object
-    //   - sh1, sh2, sh3, lodTree: Uint32Array
     pub fn from_js_arrays(packed: Uint32Array, num_splats: usize, extra: Option<&Object>) -> anyhow::Result<Self> {
         let mut data = Self::new();
-        let packed_len_words = packed.length() as usize;
-        let max_splats_from_packed = packed_len_words / 4;
+        data.max_splats = packed.length() as usize / 4;
+        data.num_splats = num_splats;
         data.packed = packed;
-        data.max_splats = max_splats_from_packed;
-        data.num_splats = num_splats.min(max_splats_from_packed);
-
-        // Defaults
-        data.max_sh_degree = 0;
-        data.encoding = SplatEncoding::default();
 
         if let Some(extra) = extra {
-            // maxShDegree
-            if let Ok(val) = Reflect::get(extra, &JsValue::from_str("maxShDegree")) {
-                if let Some(n) = val.as_f64() { data.max_sh_degree = n as usize; }
+            if let Ok(sh1) = Reflect::get(extra, &JsValue::from_str("sh1")) {
+                if !sh1.is_falsy() {
+                    data.sh1 = Some(Uint32Array::from(sh1));
+                    data.max_sh_degree = 1;
+                }
             }
-
-            // encoding: optional; if provided but not decodable, we keep defaults to avoid dependency on Deserialize
-            // (we only look for structural arrays below per request)
-
-            // Optional typed arrays
-            let read_u32array = |key: &str| -> Option<Uint32Array> {
-                if let Ok(v) = Reflect::get(extra, &JsValue::from_str(key)) {
-                    if v.is_object() { Some(Uint32Array::from(v)) } else { None }
-                } else { None }
-            };
-            data.sh1 = read_u32array("sh1");
-            data.sh2 = read_u32array("sh2");
-            data.sh3 = read_u32array("sh3");
-            data.lod_tree = read_u32array("lodTree");
-
-            // If degree unspecified, infer from presence
-            if data.max_sh_degree == 0 {
-                if data.sh3.is_some() { data.max_sh_degree = 3; }
-                else if data.sh2.is_some() { data.max_sh_degree = 2; }
-                else if data.sh1.is_some() { data.max_sh_degree = 1; }
+            if let Ok(sh2) = Reflect::get(extra, &JsValue::from_str("sh2")) {
+                if !sh2.is_falsy() {
+                    data.sh2 = Some(Uint32Array::from(sh2));
+                    data.max_sh_degree = 2;
+                }
+            }
+            if let Ok(sh3) = Reflect::get(extra, &JsValue::from_str("sh3")) {
+                if !sh3.is_falsy() {
+                    data.sh3 = Some(Uint32Array::from(sh3));
+                    data.max_sh_degree = 3;
+                }
+                data.max_sh_degree = 3;
+            }
+            if let Ok(lod_tree) = Reflect::get(extra, &JsValue::from_str("lodTree")) {
+                if !lod_tree.is_falsy() {
+                    data.lod_tree = Some(Uint32Array::from(lod_tree));
+                }
             }
         }
 
@@ -571,9 +542,8 @@ impl SplatGetter for PackedSplatsData {
         let mut tmp = vec![0u32; count * 4];
         sub.copy_to(&mut tmp);
         for i in 0..count {
-            let i4 = i * 4;
+            let [i3, i4] = [i * 3, i * 4];
             let c = decode_packed_splat_center(&tmp[i4..i4 + 4]);
-            let i3 = i * 3;
             out[i3] = c[0]; out[i3 + 1] = c[1]; out[i3 + 2] = c[2];
         }
     }
@@ -595,14 +565,9 @@ impl SplatGetter for PackedSplatsData {
         let mut tmp = vec![0u32; count * 4];
         sub.copy_to(&mut tmp);
         for i in 0..count {
-            let word0 = tmp[i * 4 + 0];
-            let r = (word0 & 0xff) as u8;
-            let g = ((word0 >> 8) & 0xff) as u8;
-            let b = ((word0 >> 16) & 0xff) as u8;
-            let i3 = i * 3;
-            out[i3] = u8_to_float(r, self.encoding.rgb_min, self.encoding.rgb_max);
-            out[i3 + 1] = u8_to_float(g, self.encoding.rgb_min, self.encoding.rgb_max);
-            out[i3 + 2] = u8_to_float(b, self.encoding.rgb_min, self.encoding.rgb_max);
+            let [i3, i4] = [i * 3, i * 4];
+            let rgb = decode_packed_splat_rgb(&tmp[i4..i4 + 4], &self.encoding);
+            out[i3] = rgb[0]; out[i3 + 1] = rgb[1]; out[i3 + 2] = rgb[2];
         }
     }
 
@@ -612,9 +577,8 @@ impl SplatGetter for PackedSplatsData {
         let mut tmp = vec![0u32; count * 4];
         sub.copy_to(&mut tmp);
         for i in 0..count {
-            let i4 = i * 4;
+            let [i3, i4] = [i * 3, i * 4];
             let s = decode_packed_splat_scale(&tmp[i4..i4 + 4], &self.encoding);
-            let i3 = i * 3;
             out[i3] = s[0]; out[i3 + 1] = s[1]; out[i3 + 2] = s[2];
         }
     }
@@ -627,8 +591,7 @@ impl SplatGetter for PackedSplatsData {
         for i in 0..count {
             let i4 = i * 4;
             let q = decode_packed_splat_quat(&tmp[i4..i4 + 4]);
-            let o = i * 4;
-            out[o] = q[0]; out[o + 1] = q[1]; out[o + 2] = q[2]; out[o + 3] = q[3];
+            out[i4] = q[0]; out[i4 + 1] = q[1]; out[i4 + 2] = q[2]; out[i4 + 3] = q[3];
         }
     }
 
@@ -641,11 +604,11 @@ impl SplatGetter for PackedSplatsData {
             let sh1_mid = 0.5 * (self.encoding.sh1_min + self.encoding.sh1_max);
             let sh1_scale = 126.0 / (self.encoding.sh1_max - self.encoding.sh1_min);
             for i in 0..count {
-                let w0 = tmp[i * 2];
-                let w1 = tmp[i * 2 + 1];
+                let [i2, i9] = [i * 2, i * 9];
+                let w0 = tmp[i2];
+                let w1 = tmp[i2 + 1];
                 let decoded = decode_sh1_internal_words([w0, w1], sh1_mid, sh1_scale);
-                let o = i * 9;
-                for k in 0..9 { out[o + k] = decoded[k]; }
+                for k in 0..9 { out[i9 + k] = decoded[k]; }
             }
         }
     }
@@ -659,10 +622,10 @@ impl SplatGetter for PackedSplatsData {
             let sh2_mid = 0.5 * (self.encoding.sh2_min + self.encoding.sh2_max);
             let sh2_scale = 254.0 / (self.encoding.sh2_max - self.encoding.sh2_min);
             for i in 0..count {
-                let words: [u32; 4] = [tmp[i * 4], tmp[i * 4 + 1], tmp[i * 4 + 2], tmp[i * 4 + 3]];
+                let [i4, i15] = [i * 4, i * 15];
+                let words: [u32; 4] = [tmp[i4], tmp[i4 + 1], tmp[i4 + 2], tmp[i4 + 3]];
                 let decoded = decode_sh2_internal_words(words, sh2_mid, sh2_scale);
-                let o = i * 15;
-                for k in 0..15 { out[o + k] = decoded[k]; }
+                for k in 0..15 { out[i15 + k] = decoded[k]; }
             }
         }
     }
@@ -676,10 +639,10 @@ impl SplatGetter for PackedSplatsData {
             let sh3_mid = 0.5 * (self.encoding.sh3_min + self.encoding.sh3_max);
             let sh3_scale = 62.0 / (self.encoding.sh3_max - self.encoding.sh3_min);
             for i in 0..count {
-                let words: [u32; 4] = [tmp[i * 4], tmp[i * 4 + 1], tmp[i * 4 + 2], tmp[i * 4 + 3]];
+                let [i4, i21] = [i * 4, i * 21];
+                let words: [u32; 4] = [tmp[i4], tmp[i4 + 1], tmp[i4 + 2], tmp[i4 + 3]];
                 let decoded = decode_sh3_internal_words(words, sh3_mid, sh3_scale);
-                let o = i * 21;
-                for k in 0..21 { out[o + k] = decoded[k]; }
+                for k in 0..21 { out[i21 + k] = decoded[k]; }
             }
         }
     }
