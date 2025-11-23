@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>Spark • Hello World</title>
+	<style>
+		body {
+			margin: 0;
+		}
+	</style>
+</head>
+
+<body>
+	<script type="importmap">
+    {
+      "imports": {
+        "three": "/examples/js/vendor/three/build/three.module.js",
+        "@sparkjsdev/spark": "/dist/spark.module.js"
+      }
+    }
+  </script>
+	<script type="module">
+		import * as THREE from "three";
+		import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+		import { SplatMesh, dyno } from "@sparkjsdev/spark";
+		import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+
+		const flyPos = new THREE.Vector3(0, 0, -0.5);
+		const scene = new THREE.Scene();
+		const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+		const renderer = new THREE.WebGLRenderer();
+		const controls = new OrbitControls(camera, renderer.domElement);
+		controls.target.copy(flyPos);
+		controls.enablePan = false;
+		renderer.setSize(window.innerWidth, window.innerHeight);
+		document.body.appendChild(renderer.domElement);
+
+		window.addEventListener('resize', onWindowResize, false);
+		function onWindowResize() {
+			camera.aspect = window.innerWidth / window.innerHeight;
+			camera.updateProjectionMatrix();
+			renderer.setSize(window.innerWidth, window.innerHeight);
+		}
+
+		/*
+			Asset: fly.spz
+			Author: Danny Bittel (https://danybittel.ch/)
+			License: License: CC BY 4.0
+			Source: https://www.patreon.com/cw/DanyBittel
+		*/
+		const splatURL = await getAssetFileURL("fly.spz");
+		const fly = new SplatMesh({ url: splatURL });
+		const animateT = dyno.dynoFloat(0);
+		fly.quaternion.set(1, 0, 0, 0);
+		fly.position.copy(flyPos);
+		scene.add(fly);
+
+		fly.objectModifier = dyno.dynoBlock({ gsplat: dyno.Gsplat }, { gsplat: dyno.Gsplat }, ({ gsplat }) => {
+			const d = new dyno.Dyno({
+				inTypes: {
+					gsplat: dyno.Gsplat,
+					t: "float",
+				},
+				outTypes: { gsplat: dyno.Gsplat },
+				globals: () => [
+					dyno.unindent(`
+            vec3 hash(vec3 p) {
+              return fract(sin(p*123.456)*123.456);
+            }
+            `),
+				],
+				statements: ({ inputs, outputs }) =>
+					dyno.unindentLines(`
+            ${outputs.gsplat} = ${inputs.gsplat};
+            vec3 localPos = ${inputs.gsplat}.center;
+            vec3 hashVal = hash(localPos);
+            float startTime = hashVal.x * 100.0;
+            float shouldOscillate = step(startTime, ${inputs.t});
+            float oscillation = sin(${inputs.t} * 2.0 + hashVal.y * 6.28) * 0.5 + 0.5; // 0 to 1
+            vec4 whiteColor = vec4(1.0, 1.0, 1.0, 1.0);
+						vec3 moveDirection = normalize(vec3(
+							1.0,
+							(hashVal.y - 0.5) * 0.9,
+							(hashVal.z - 0.5) * 0.9
+						));
+						float randomSpeed = fract(sin(dot(${inputs.gsplat}.center, vec3(12., 78., 45.))) * 43758.);
+						float moveAmount = ${inputs.t} * 0.1 * randomSpeed * shouldOscillate;
+						${outputs.gsplat}.center = ${inputs.gsplat}.center + moveDirection * moveAmount;
+						${outputs.gsplat}.rgba = mix(${inputs.gsplat}.rgba, 
+							mix(${inputs.gsplat}.rgba, whiteColor, oscillation),
+							shouldOscillate);
+						// Slow fade out
+						${outputs.gsplat}.rgba.w *= mix(1.0, 1.0 - clamp(moveAmount / 2.0, 0.0, 1.0), shouldOscillate);
+			  	`),
+			});
+
+			gsplat = d.apply({
+				gsplat,
+				t: animateT,
+			}).gsplat;
+
+			return { gsplat };
+		});
+
+
+		let startTime = 0;
+		const animate = (time) => {
+			if (startTime === 0) startTime = time;
+			const elapsedTime = (time - startTime) / 1000;
+
+			controls.update();
+			animateT.value = elapsedTime;
+			renderer.render(scene, camera);
+			fly.needsUpdate = true;
+		};
+		renderer.setAnimationLoop(animate);
+	</script>
+</body>
+
+</html>
