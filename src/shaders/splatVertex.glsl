@@ -4,43 +4,80 @@ precision highp int;
 precision highp usampler2DArray;
 
 #include <splatDefines>
-#include <logdepthbuf_pars_vertex>
+#include <packedSplat>
+#include <extendedSplat>
 
+#define decodeSplat SPLAT_DECODE_FN
+#define decodeSplatSh SPLAT_SH_DECODE_FN
+
+#ifdef STOCHASTIC
+#define splatIndex uint(gl_InstanceID)
+#else
 attribute uint splatIndex;
+#endif
+
+#ifdef USE_BATCHING
+uniform highp sampler2D batchingTexture;
+mat4 getBatchingMatrix( const in uint i ) {
+    int size = textureSize( batchingTexture, 0 ).x;
+    int j = int( i ) * 4;
+    int x = j % size;
+    int y = j / size;
+    vec4 v1 = texelFetch( batchingTexture, ivec2( x, y ), 0 );
+    vec4 v2 = texelFetch( batchingTexture, ivec2( x + 1, y ), 0 );
+    vec4 v3 = texelFetch( batchingTexture, ivec2( x + 2, y ), 0 );
+    vec4 v4 = texelFetch( batchingTexture, ivec2( x + 3, y ), 0 );
+    return mat4( v1, v2, v3, v4 );
+}
+#endif
 
 out vec4 vRgba;
 out vec2 vSplatUv;
-out vec3 vNdc;
 flat out uint vSplatIndex;
+
+uniform float opacity;
 
 uniform vec2 renderSize;
 uniform uint numSplats;
 uniform vec4 renderToViewQuat;
-uniform vec3 renderToViewPos;
 uniform float maxStdDev;
 uniform float minPixelRadius;
 uniform float maxPixelRadius;
-uniform float time;
-uniform float deltaTime;
-uniform bool debugFlag;
 uniform float minAlpha;
-uniform bool stochastic;
 uniform bool enable2DGS;
 uniform float blurAmount;
 uniform float preBlurAmount;
-uniform float focalDistance;
-uniform float apertureAngle;
 uniform float clipXY;
 uniform float focalAdjustment;
 
-uniform usampler2DArray packedSplats;
-uniform vec4 rgbMinMaxLnScaleMinMax;
-
-#ifdef USE_LOGDEPTHBUF
-    bool isPerspectiveMatrix( mat4 m ) {
-      return m[ 2 ][ 3 ] == - 1.0;
-    }
+// Shader hooks
+#ifdef HOOK_GLOBAL
+{{HOOK_GLOBAL}}
 #endif
+
+#ifdef HOOK_UNIFORMS
+{{HOOK_UNIFORMS}}
+#endif
+
+#ifdef HOOK_OBJECT_MODIFIER
+void _shader_hook_object_modifier(inout vec3 center, inout vec3 scales, inout vec4 quaternion, inout vec4 rgba) {
+    {{HOOK_OBJECT_MODIFIER}}
+}
+#endif
+
+#ifdef HOOK_WORLD_MODIFIER
+void _shader_hook_world_modifier(inout vec3 center, inout vec3 scales, inout vec4 quaternion, inout vec4 rgba) {
+    {{HOOK_WORLD_MODIFIER}}
+}
+#endif
+
+#ifdef HOOK_SPLAT_COLOR
+vec4 _shader_hook_splat_color(in vec3 center, in vec3 scales, in vec4 quaternion, inout vec4 rgba, in vec3 viewCenter) {
+    {{HOOK_SPLAT_COLOR}}
+    return rgba;
+}
+#endif
+
 
 void main() {
     // Default to outside the frustum so it's discarded if we return early
@@ -50,29 +87,36 @@ void main() {
         return;
     }
 
-    ivec3 texCoord;
-    if (stochastic) {
-        texCoord = ivec3(
-            uint(gl_InstanceID) & SPLAT_TEX_WIDTH_MASK,
-            (uint(gl_InstanceID) >> SPLAT_TEX_WIDTH_BITS) & SPLAT_TEX_HEIGHT_MASK,
-            (uint(gl_InstanceID) >> SPLAT_TEX_LAYER_BITS)
-        );
-    } else {
-        if (splatIndex == 0xffffffffu) {
-            // Special value reserved for "no splat"
-            return;
-        }
-        texCoord = ivec3(
-            splatIndex & SPLAT_TEX_WIDTH_MASK,
-            (splatIndex >> SPLAT_TEX_WIDTH_BITS) & SPLAT_TEX_HEIGHT_MASK,
-            splatIndex >> SPLAT_TEX_LAYER_BITS
-        );
-    }
-    uvec4 packed = texelFetch(packedSplats, texCoord, 0);
-
+    // Decode Splat data
     vec3 center, scales;
     vec4 quaternion, rgba;
-    unpackSplatEncoding(packed, center, scales, quaternion, rgba, rgbMinMaxLnScaleMinMax);
+    uint sIndex = splatIndex & 0x3FFFFFu;
+    uint objectIndex = splatIndex >> 26u;
+    decodeSplat(sIndex, center, scales, quaternion, rgba);
+#ifdef HOOK_OBJECT_MODIFIER
+    _shader_hook_object_modifier(center, scales, quaternion, rgba);
+#endif
+
+#ifdef USE_BATCHING
+    mat4 splatModelMatrix = getBatchingMatrix(objectIndex);
+#else
+    mat4 splatModelMatrix = modelMatrix;
+#endif
+    mat4 splatViewMatrix = viewMatrix * splatModelMatrix;
+
+    // Compute viewDir for sh evaluation
+    vec3 cameraInObjectSpace = (inverse(splatModelMatrix) * vec4(cameraPosition, 1.0)).xyz;
+    vec3 viewDir = normalize(center - cameraInObjectSpace);
+
+    // Transform into world space
+    float modelScale = length(splatModelMatrix[0]);
+    center = (splatModelMatrix * vec4(center, 1.0)).xyz;
+    scales *= modelScale;
+    rgba.a *= opacity;
+
+#ifdef HOOK_WORLD_MODIFIER
+    _shader_hook_world_modifier(center, scales, quaternion, rgba);
+#endif
 
     if (rgba.a < minAlpha) {
         return;
@@ -83,7 +127,7 @@ void main() {
     }
 
     // Compute the view space center of the splat
-    vec3 viewCenter = quatVec(renderToViewQuat, center) + renderToViewPos;
+    vec3 viewCenter = (viewMatrix * vec4(center, 1.0)).xyz;
 
     // Discard splats behind the camera
     if (viewCenter.z >= 0.0) {
@@ -105,10 +149,10 @@ void main() {
     }
 
     // Record the splat index for entropy
-    vSplatIndex = splatIndex;
+    vSplatIndex = sIndex;
 
     // Compute view space quaternion of splat
-    vec4 viewQuaternion = quatQuat(renderToViewQuat, quaternion);
+    mat3 viewRotation = mat3(splatViewMatrix) * (1.0/modelScale) * quaternionToMatrix(quaternion);
 
     if (enable2DGS && any(zeroScales)) {
         vRgba = rgba;
@@ -123,9 +167,8 @@ void main() {
             offset = vec3(0.0, vSplatUv.xy * scales.yz);
         }
 
-        vec3 viewPos = viewCenter + quatVec(viewQuaternion, offset);
+        vec3 viewPos = viewCenter + viewRotation * offset;
         gl_Position = projectionMatrix * vec4(viewPos, 1.0);
-        vNdc = gl_Position.xyz / gl_Position.w;
         return;
     }
 
@@ -133,7 +176,7 @@ void main() {
     vec3 ndcCenter = clipCenter.xyz / clipCenter.w;
 
     // Compute the 3D covariance matrix of the splat
-    mat3 RS = scaleQuaternionToMatrix(scales, viewQuaternion);
+    mat3 RS = matrixCompMult(viewRotation, mat3(vec3(scales.x), vec3(scales.y), vec3(scales.z)));
     mat3 cov3D = RS * transpose(RS);
 
     // Compute the Jacobian of the splat's projection at its center
@@ -160,11 +203,6 @@ void main() {
 
     // Compute the 2D covariance by projecting the 3D covariance
     // and picking out the XY plane components.
-    // Keeping below because we may need it in the future
-    // for skinning deformations.
-    // mat3 W = transpose(mat3(viewMatrix));
-    // mat3 T = W * J;
-    // mat3 cov2D = transpose(T) * cov3D * T;
     mat3 cov2D = transpose(J) * cov3D * J;
     float a = cov2D[0][0];
     float d = cov2D[1][1];
@@ -174,21 +212,10 @@ void main() {
     a += preBlurAmount;
     d += preBlurAmount;
 
-    float fullBlurAmount = blurAmount;
-    if ((focalDistance > 0.0) && (apertureAngle > 0.0)) {
-        float focusRadius = maxPixelRadius;
-        if (viewCenter.z < 0.0) {
-            float focusBlur = abs((-viewCenter.z - focalDistance) / viewCenter.z);
-            float apertureRadius = focal.x * tan(0.5 * apertureAngle);
-            focusRadius = focusBlur * apertureRadius;
-        }
-        fullBlurAmount = clamp(sqr(focusRadius), blurAmount, sqr(maxPixelRadius));
-    }
-
     // Do convolution with a 0.5-pixel Gaussian for anti-aliasing: sqrt(0.3) ~= 0.5
     float detOrig = a * d - b * b;
-    a += fullBlurAmount;
-    d += fullBlurAmount;
+    a += blurAmount;
+    d += blurAmount;
     float det = a * d - b * b;
 
     // Compute anti-aliasing intensity scaling factor
@@ -218,9 +245,20 @@ void main() {
     vec2 ndcOffset = (2.0 / scaledRenderSize) * pixelOffset;
     vec3 ndc = vec3(ndcCenter.xy + ndcOffset, ndcCenter.z);
 
+    // Evaluate spherical harmonics
+    #if NUM_SH > 0
+    vec3[3] sh1;
+    vec3[5] sh2;
+    vec3[7] sh3;
+    decodeSplatSh(splatIndex, sh1, sh2, sh3);
+    rgba.rgb += evaluateSH(viewDir, sh1, sh2, sh3);
+    #endif
+
+#ifdef HOOK_SPLAT_COLOR
+    rgba = _shader_hook_splat_color(center, scales, quaternion, rgba, viewCenter);
+#endif
+
     vRgba = rgba;
     vSplatUv = position.xy * maxStdDev;
-    vNdc = ndc;
     gl_Position = vec4(ndc.xy * clipCenter.w, clipCenter.zw);
-    #include <logdepthbuf_vertex>
 }

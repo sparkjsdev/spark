@@ -26,8 +26,9 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { SparkControls, SplatMesh, dyno } from "@sparkjsdev/spark";
+    import { SplatLoader } from "@sparkjsdev/spark";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+    import { SparkControls } from "/examples/js/controls.js";
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -42,87 +43,48 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
+    const loader = new SplatLoader();
     const splatURL = await getAssetFileURL("butterfly.spz");
-    const butterfly = new SplatMesh({ url: splatURL });
+    const butterfly = await loader.loadAsync(splatURL);
     butterfly.quaternion.set(1, 0, 0, 0);
     butterfly.position.set(0, 0, -1.5);
     scene.add(butterfly);
 
-    // A Gsplat type is defined in GLSL in src/dyno/splats.ts as follows:
-    // struct Gsplat {
-    //   vec3 center;
-    //   uint flags;
-    //   vec3 scales;
-    //   int index;
-    //   vec4 quaternion;
-    //   vec4 rgba;
-    // };
-    // const uint GSPLAT_FLAG_ACTIVE = 1u << 0u;
-
-    // Inject GLSL color shader into world-space SplatMesh modifier
-    butterfly.worldModifier = new dyno.Dyno({
-      inTypes: { gsplat: dyno.Gsplat },
-      outTypes: { gsplat: dyno.Gsplat },
-      globals: () => [dyno.unindent(`
-        vec3 waveRgb(vec3 pos) {
-          return vec3(
-            0.6 + 0.4 * sin(pos.x * 56.0),
-            0.6 + 0.4 * sin(pos.y * 78.0),
-            0.6 + 0.4 * cos(pos.z * 90.0)
-          );
-        }
-      `)],
-      statements: ({ inputs, outputs }) => dyno.unindentLines(`
-        ${outputs.gsplat} = ${inputs.gsplat};
-        ${outputs.gsplat}.rgba.rgb *= waveRgb(${inputs.gsplat}.center);
-      `),
+    const timeUniform = { type: 'float', value: 0.0 };
+    butterfly.setShaderHooks({
+      vertex: {
+        uniforms: {
+          time: timeUniform
+        },
+        global: /*glsl*/`
+          vec3 waveRgb(vec3 pos) {
+            return vec3(
+              0.6 + 0.4 * sin(pos.x * 56.0),
+              0.6 + 0.4 * sin(pos.y * 78.0),
+              0.6 + 0.4 * cos(pos.z * 90.0)
+            );
+          }
+          float warpRadial(float r, float t) {
+            return r * (1.0 + 0.1 * sin(r * 15.0 + t * 3.0));
+          }
+          vec3 warp(vec3 pos, float t) {
+            float r = length(pos);
+            float newR = warpRadial(r, t);
+            return pos * (newR / r);
+          }
+        `,
+        worldModifier: /*glsl*/`
+          rgba.rgb *= waveRgb(center);
+        `,
+        objectModifier: /*glsl*/`
+          center = warp(center, time);
+        `
+      }
     });
-
-    // Inject DynoBlock with embedded GLSL shader that uses an external
-    // uniform value animateT to control motion. Any GLSL statements can only
-    // uses references provided in inputs + outputs, so we create a DynoBlock
-    // that allows us to get `t` as an input parameter to our GLSL block.
-    const animateT = dyno.dynoFloat(0);
-
-    butterfly.objectModifier = dyno.dynoBlock(
-      { gsplat: dyno.Gsplat },
-      { gsplat: dyno.Gsplat },
-      ({ gsplat }) => {
-        // Create an inline GLSL block that has all the inputs we need
-        const d = new dyno.Dyno({
-          inTypes: { gsplat: dyno.Gsplat, t: "float" },
-          outTypes: { gsplat: dyno.Gsplat },
-          globals: () => [
-            dyno.unindent(`
-              float warpRadial(float r, float t) {
-                return r * (1.0 + 0.1 * sin(r * 15.0 + t * 3.0));
-              }
-              vec3 warp(vec3 pos, float t) {
-                float r = length(pos);
-                float newR = warpRadial(r, t);
-                return pos * (newR / r);
-              }
-            `)
-          ],
-          statements: ({ inputs, outputs }) => dyno.unindentLines(`
-            ${outputs.gsplat} = ${inputs.gsplat};
-            ${outputs.gsplat}.center = warp(${inputs.gsplat}.center, ${inputs.t});
-          `),
-        });
-        // Apply the GLSL block with appropriate inputs and return the output
-        gsplat = d.apply({ gsplat, t: animateT }).gsplat;
-        return { gsplat };
-      },
-    );
-
-    // Make sure to update the generator after updating modifiers
-    butterfly.updateGenerator();
 
     const controls = new SparkControls({ canvas: renderer.domElement });
     renderer.setAnimationLoop(function animate(time) {
-      animateT.value = time / 1000;
-      butterfly.updateVersion();
-
+      timeUniform.value = time / 1000;
       controls.update(camera);
       renderer.render(scene, camera);
     });

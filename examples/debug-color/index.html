@@ -26,7 +26,7 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { SplatMesh, PackedSplats, dyno, modifiers } from "@sparkjsdev/spark";
+    import { SplatLoader } from "@sparkjsdev/spark";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
     const scene = new THREE.Scene();
@@ -42,19 +42,58 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
+    const loader = new SplatLoader();
+
     let splatURL = await getAssetFileURL("butterfly.spz");
-    const butterfly = new SplatMesh({ url: splatURL });
+    const butterfly = await loader.loadAsync(splatURL);
     butterfly.scale.setScalar(0.5);
     butterfly.quaternion.set(1, 0, 0, 0);
     butterfly.position.set(-0.5, 0, -1.5);
-    modifiers.setWorldNormalColor(butterfly);
+    butterfly.setShaderHooks({
+      vertex: {
+        global: /*glsl*/`
+          vec3 gsplatNormal(vec3 scales, vec4 quaternion) {
+            float minScale = min(scales.x, min(scales.y, scales.z));
+            vec3 normal;
+            if (scales.z == minScale) {
+              normal = vec3(0.0, 0.0, 1.0);
+            } else if (scales.y == minScale) {
+              normal = vec3(0.0, 1.0, 0.0);
+            } else {
+              normal = vec3(1.0, 0.0, 0.0);
+            }
+            return quatVec(quaternion, normal);
+          }
+
+          vec3 objectNormal;
+        `,
+        objectModifier: /*glsl*/`
+          // Determine normal in object space
+          objectNormal = gsplatNormal(scales, quaternion);
+        `,
+        splatColor: /*glsl*/`
+          // Transform normal into world space
+          vec3 worldNormal = normalize(mat3(modelMatrix) * objectNormal);
+          // TODO: Handle flipped normals
+          rgba.rgb = 0.5 + objectNormal * 0.5;
+        `
+      }
+    })
     scene.add(butterfly);
 
     splatURL = await getAssetFileURL("butterfly-ai.spz");
-    const butterfly2 = new SplatMesh({ url: splatURL });
+    const butterfly2 = await loader.loadAsync(splatURL);
     butterfly2.quaternion.set(1, 0, 0, 0);
     butterfly2.position.set(0.5, 0, -1.5);
-    modifiers.setDepthColor(butterfly2, 1, 2, true);
+    butterfly2.setShaderHooks({
+      vertex: {
+        splatColor: /*glsl*/`
+          float clamped = clamp(-viewCenter.z, 1.0, 2.0);
+          float depth = 1.0 - (log2(clamped + 1.0) - log2(1.0 + 1.0)) / (log2(2.0 + 1.0) - log2(1.0 + 1.0));
+          rgba.rgb = vec3(depth);
+        `
+      }
+    })
     scene.add(butterfly2);
 
     let lastTime;
