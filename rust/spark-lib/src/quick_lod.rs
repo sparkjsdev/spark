@@ -220,9 +220,9 @@ pub fn compute_lod_tree(splats: &mut GsplatArray, lod_base: f32, merge_filter: b
 
     for splat in splats.splats.iter_mut() {
         if splat.opacity() > 1.0 {
-            let dilation = splat.dilation();
-            // // Map 1..5 dilation to 1..2 opacity
-            splat.set_opacity((0.25 * (dilation - 1.0) + 1.0).clamp(1.0, 2.0));
+            let d = splat.lod_opacity();
+            // // Map 1..5 LOD-encoded opacity to 1..2 opacity
+            splat.set_opacity((0.25 * (d - 1.0) + 1.0).clamp(1.0, 2.0));
         }
     }
 

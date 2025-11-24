@@ -71,6 +71,7 @@ void main() {
     if (rgba.a > 1.0) {
         // Stretch 1..2 to 1..5
         rgba.a = min(rgba.a * 4.0 - 3.0, 5.0);
+        // Expand the maximum std dev to approximately cover the larger range
         adjustedStdDev = maxStdDev + 0.7 * (rgba.a - 1.0);
     }
 
@@ -104,7 +105,7 @@ void main() {
 
     if (enable2DGS && any(zeroScales)) {
         vRgba = rgba;
-        vSplatUv = position.xy * maxStdDev;
+        vSplatUv = position.xy * adjustedStdDev;
 
         vec3 offset;
         if (zeroScales.z) {
@@ -199,8 +200,8 @@ void main() {
     vec2 eigenVec1 = normalize(vec2((abs(b) < 0.001) ? 1.0 : b, eigen1 - a));
     vec2 eigenVec2 = vec2(eigenVec1.y, -eigenVec1.x);
 
-    float scale1 = min(maxPixelRadius, maxStdDev * sqrt(eigen1));
-    float scale2 = min(maxPixelRadius, maxStdDev * sqrt(eigen2));
+    float scale1 = min(maxPixelRadius, adjustedStdDev * sqrt(eigen1));
+    float scale2 = min(maxPixelRadius, adjustedStdDev * sqrt(eigen2));
     if (scale1 < minPixelRadius && scale2 < minPixelRadius) {
         return;
     }
@@ -211,7 +212,7 @@ void main() {
     vec3 ndc = vec3(ndcCenter.xy + ndcOffset, ndcCenter.z);
 
     vRgba = rgba;
-    vSplatUv = position.xy * maxStdDev;
+    vSplatUv = position.xy * adjustedStdDev;
     vNdc = ndc;
     gl_Position = vec4(ndc.xy * clipCenter.w, clipCenter.zw);
 }

@@ -170,8 +170,18 @@ impl Gsplat {
         }
     }
 
+    pub fn lod_opacity(&self) -> f32 {
+        let opacity = self.opacity();
+        if opacity > 1.0 {
+            (1.0 + core::f32::consts::E * opacity.ln()).sqrt()
+        } else {
+            1.0
+        }
+    }
+
     pub fn feature_size(&self) -> f32 {
-        2.0 * self.max_scale() * self.dilation()
+        // 2.0 * self.max_scale() * self.dilation()
+        2.0 * self.max_scale() * self.lod_opacity()
     }
 
     pub fn grid(&self, step_size: f32) -> I64Vec3 {
