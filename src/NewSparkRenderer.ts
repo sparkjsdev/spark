@@ -919,9 +919,7 @@ export class NewSparkRenderer extends THREE.Mesh {
         : isIos()
           ? 500000
           : 1500000;
-    const splatCount =
-      this.lodSplatCount ??
-      (isAndroid() || isOculus() ? 500000 : isIos() ? 500000 : 1500000);
+    const splatCount = this.lodSplatCount ?? defaultSplatCount;
     const maxSplats = splatCount * this.lodSplatScale;
     let pixelScaleLimit = 0.0;
     let fovXdegrees = Number.POSITIVE_INFINITY;
