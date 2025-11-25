@@ -1,6 +1,31 @@
-# Spark LoD Rendering
+# <a id="spark-lod-rendering"></a>Spark LoD Rendering
 
-## NewSparkRenderer
+## <a id="page-outline"></a>Page Outline
+
+- [NewSparkRenderer](#new-spark-renderer)
+  - [Enabling LoD](#enabling-lod)
+- [Level-of-Detail Gaussian Splat Tree](#level-of-detail-gaussian-splat-tree)
+  - [Downsampling Splats](#downsampling-splats)
+  - [Quick LoD Algorithm](#quick-lod-algorithm)
+  - [Non-Integer LoD Tree Base](#non-integer-lod-tree-base)
+  - [Re-Creating LoD Splat Tree](#re-creating-lod-splat-tree)
+  - [Splat Tree Traversal](#splat-tree-traversal)
+  - [Multi-Splat Tree Traversal](#multi-splat-tree-traversal)
+  - [Continuous LoD / Splat Tree Interpolation](#continuous-lod-splat-tree-interpolation)
+  - [LoD Worker](#lod-worker)
+- [Extended Splat Encoding for Rendered Splats](#extended-splat-encoding-for-rendered-splats)
+  - [Byte Layout of "Extended Splat" Encoding](#byte-layout-of-extended-splat-encoding)
+  - [Requires Three.js r179 or later](#requires-threejs-r179-or-later)
+  - [Loading as Extended Splats in SplatMesh](#loading-as-extended-splats-in-splatmesh)
+- [Splat Sorting](#splat-sorting)
+  - [NewSplatGeometry](#newsplatgeometry)
+- [Pre-built SPZ LoD Splat Trees](#pre-built-spz-lod-splat-trees)
+- [Multi-Viewpoint Rendering](#multi-viewpoint-rendering)
+- [NewSplatWorker, newWorker](#newsplatworker-newworker)
+- [Streaming File Download and Decoding](#streaming-file-download-and-decoding)
+- [TODO](#todo)
+
+## <a id="new-spark-renderer"></a>NewSparkRenderer
 
 The new class `NewSparkRenderer` is an experimental rewrite of `SparkRenderer` that features a number of new capabilities, including:
 - Level-of-Detail Gaussian splat rendering with a fixed splat rendering budget N, with near-constant rendering complexity regardless of viewpoint or number of total splats.
@@ -10,7 +35,7 @@ The new class `NewSparkRenderer` is an experimental rewrite of `SparkRenderer` t
 - High-precision intermediate global splat encoding, no need for camera-renderer tricks
 - Eliminted render pass for splat sort metric computation, folded it into splat generation pass, using multiple render targets
 
-### Enabling LoD
+### <a id="enabling-lod"></a>Enabling LoD
 
 Unlike in `SparkRenderer`, the `NewSparkRenderer` must be explicitly added to the scene to enable rendering.
 
@@ -26,7 +51,7 @@ Each `SplatMesh` also has its own individual `outsideFoveate` and `behindFoveate
 
 ---
 
-## Level-of-Detail Gaussian Splat Tree
+## <a id="level-of-detail-gaussian-splat-tree"></a>Level-of-Detail Gaussian Splat Tree
 
 "Level-of-Detail" (LoD) refers to a graphics technique where 3D geometry is represented by multiple versions with varying levels of detail, selected at render-time to balance rendering speed and rendering quality/detail. One example of this is MipMap texturing, where a 2D texture is downsampled in powers of 2 to form a "pyramid" of textures where the level is selected during rendering so that texture pixel sizes roughly match the rendered screen pixel size.
 
@@ -43,7 +68,7 @@ For details on this algorithm, refer to `lod_tree::traverse_lod_trees()` in [rus
 
 ---
 
-### Downsampling Splats
+### <a id="downsampling-splats"></a>Downsampling Splats
 
 We downsample splats by merging a set of splats into a single "average" splat. We follow the literature cited by Kerbl et al. to efficiently compute the center and 3D covariance of a downsampled splat that best represents the input splats, analgous how the convolution of Gaussian kernels yields another Gaussian. The splat contributions are weighted by the product of their opacity and "surface area" (modeled as an ellipsoid): `weight = opacity * area`. Splat colors (including spherical harmonics) are computed as a weighted sum of the individal slat colors.
 
@@ -83,7 +108,7 @@ Depending on the initial range of maxStdDev (typically in the range sqrt(5)..3) 
 
 ---
 
-### Quick LoD Algorithm
+### <a id="quick-lod-algorithm"></a>Quick LoD Algorithm
 
 Using our downsampling method and extended opacity rendering profile, Spark implements an LoD splat tree construction method based on voxel octrees. We partition space into series of recursive cube grids with width/step 2^level, where level is an integer (can be negative and positive).
 
@@ -101,7 +126,7 @@ For more details on the algorithm, refer to `quick_lod::compute_lod_tree()` in [
 
 ---
 
-### Non-Integer LoD Tree Base
+### <a id="non-integer-lod-tree-base"></a>Non-Integer LoD Tree Base
 
 The above Quick LoD algorithm uses a voxel octree method, where each level is a power of 2 larger than the previous level. This method can be generalized to use a different "LoD base" than 2, however. In fact the default Quick LoD algorithm uses a base of 1.5, which was found to produce smoother-looking transitions between LoD levels. When setting `lod: true` dudring `SplatMesh` or `PackedSplats` construction, you can optionally set `lod: 2.0` or any other value between 1.1 and 2.0 to use a different exponential base when constructing the tree. A value of 2.0 downsamples splats in sizes that follow powers of 2, which can feel "discontinuous" and jarring sometimes.
 
@@ -109,13 +134,13 @@ The default setting of 1.5 makes the transitions between LoD levels less apparen
 
 ---
 
-### Re-Creating LoD Splat Tree
+### <a id="re-creating-lod-splat-tree"></a>Re-Creating LoD Splat Tree
 
 In addition to the `lod: true` and `nonLod: true` options for `SplatMesh` and `PackedSplats` Spark has the ability to re-create the LoD splats on-demand, for example after modifying the original non-LoD `PackedSplats` (deleting splats, changing colors, positions, etc.). Simply call `await packedSplats.createLodSplats()` to asynchronously create the LoD splats from the current `packedSplats`. Once the operation is complete the `packedSplats.lodSplats` will be updated to a new LoD version. You can also optionally pass in a `RgbaArray` with new RGBA values for each corresponding splat. Any splat with `alpha=0` will be removed from the LoD splat tree. Note that setting `SplatMesh.splatRgba` only applies when the non-LoD splats are being displayed, because otherwise there is no direct correspondence between the RGBA values and the splats.
 
 ---
 
-### Splat Tree Traversal
+### <a id="splat-tree-traversal"></a>Splat Tree Traversal
 
 With an LoD splat tree Spark is able to compute a subset of the splats in the tree with the "right amount of detail for the screen" and "within a maximum splat budget of N".
 
@@ -141,7 +166,7 @@ For details of this encoding, refer to `packed_splats::encode_lod_tree()` in [ru
 
 ---
 
-### Multi-Splat Tree Traversal
+### <a id="multi-splat-tree-traversal"></a>Multi-Splat Tree Traversal
 
 Spark extends this algorithm to support multiple splat trees, including multiple instances of the same splat tree, each positioned independently relative to the viewpoint. We take the root of each splat tree instance and add it to the initial splat priority queue. The same metric can be used to prioritize splats across multiple objects simultaneously, balancing the splat count evenly across all objects within a viewpoint.
 
@@ -149,13 +174,13 @@ For details, refer to `lod_tree::traverse_lod_trees()` in [rust/spark-internal-r
 
 ---
 
-### Continuous LoD / Splat Tree Interpolation
+### <a id="continuous-lod-splat-tree-interpolation"></a>Continuous LoD / Splat Tree Interpolation
 
 *This has not been implemented/experimented with yet, but there is the possibility we could extend this method to do "continuous LoD" by interpolating continuously between parent and child splats as the detail changes. This would come at a slightly higher rendering cost because we would have to render the parents of all the splats selected in the traversal boundary.*
 
 ---
 
-### LoD Worker
+### <a id="lod-worker"></a>LoD Worker
 
 The splat tree traversal algorithm runs in a background WebWorker so as not to impact the main rendering/UI thread. It is implemented in Rust and compiled to WebAssembly for efficient execution. After loading a splat tree (or after running Quick LoD with input splats) we precompute a `LodTree` as described at the end of "Splat Tree Traversal" above. Because the traversal is implemented in Rust, the `LodTree` is also stored in a Wasm instance's memory. To limit the memory footprint of these precomputed data structures, we create a single, dedicated `NewSparkRenderer.lodWorker` instance whose sole purpose is to perform tree traversals on behalf of the renderer, serialized through an async/await RPC mechanism.
 
@@ -191,13 +216,13 @@ Each `SplatMesh` LoD instance is passed to the worker via the `instances` parame
 
 ---
 
-## Extended Splat Encoding for Rendered Splats
+## <a id="extended-splat-encoding-for-rendered-splats"></a>Extended Splat Encoding for Rendered Splats
 
 `NewSparkRenderer` makes use of `NewSplatAccumulator` to collect splats generated by instances of `SplatGenerator`/`SplatMesh` in the scene hierarchy. In the old `SparkRenderer` these were transformed to the local space of a `SparkRenderer` in the scene, which could be attached to the camera to reduce artifacts from float16 encoding in `PackedSplats`. In `NewSparkRenderer` we always accumulate in world-space using a new "extended splat encoding" that uses *two* 4 x Uint32 (32 bytes total) to store the centers with 32-bit precision, RGB and alpha/D as float16, log(scale x/y/z) as float16, and orientation with 32 bits of octahedral encoding, eliminating most precision issues.
 
 Extended splats are written into two Uint32Arrays, with 4 consecutive Uint32 values per splat, for a total of 8 Uint32s or 32 bytes. 
 
-### Byte Layout of "Extended Splat" Encoding
+### <a id="byte-layout-of-extended-splat-encoding"></a>Byte Layout of "Extended Splat" Encoding
 
 Each "Extended Splat" occupies **32 bytes** (8 × `uint32`, stored as two consecutive `uvec4` values), with the following layout by byte offset, as implemented by `packSplatExt()` and `unpackSplatExt()` in shader code (see [`src/shaders/splatDefines.glsl`](../../src/shaders/splatDefines.glsl)):
 
@@ -236,25 +261,25 @@ packed2.w = encodeQuatOctXy1010R12(quaternion);              // bytes 28–31
 
 See [src/shaders/splatDefines.glsl](../../src/shaders/splatDefines.glsl) for packing/unpacking code.
 
-### Requires Three.js r179 or later
+### <a id="requires-threejs-r179-or-later"></a>Requires Three.js r179 or later
 
 In order to render to multiple `THREE.WebGLArrayRenderTarget`s simultaneously, you must use Three.js version `0.179.0` or later. This allows us to render to two RGBAUint32 (32 bytes) targets simultaneously.
 
 As detailed in "Splat Sorting" below, we also render a third target, a RGBA8 target to encode the float32 distance/depth of each splat, which we can read back to the CPU to sort the splats.
 
-### Loading as Extended Splats in SplatMesh
+### <a id="loading-as-extended-splats-in-splatmesh"></a>Loading as Extended Splats in SplatMesh
 
 *This is a planned feature for the future, allowing you to load and store higher-precision source splats (at the cost of twice the memory footprint).*
 
 ---
 
-## Splat Sorting
+## <a id="splat-sorting"></a>Splat Sorting
 
 In the original `SparkRenderer` after generating the splats via `SplatAccumulator` we perform a render pass to take the global list of scene splats to compute the distance metric per splat, which we then read back to the CPU. Finally, we sort the splats by this metric in a background WebWorker so it doesn't impact the main rendering/UI thread.
 
 In `NewSparkRenderer` this additional render pass is eliminated, instead generating a float32 sort metric at the same time as generating the extended splats. We read back the sort metric rendering target as a RGBA8 texture and decode it as a float32 array for sorting in a dedicated `NewSparkRenderer.sortWorker` instance. Because of this, we only support the more-accurate (but slower) sort32 mode. Eliminating a render pass should result in more stable and lower latency sorting.
 
-### NewSplatGeometry
+### <a id="newsplatgeometry"></a>NewSplatGeometry
 
 In the old `SparkRenderer` we used a custom `SplatGeometry` that is a `THREE.InstancedBufferGeometry` with a `Uint32Array` of splat indices. Unfortunate internal plumbing in Three.js during rendering makes it impossible to modify this geometry during its `SparkRenderer.onBeforeRender()` callback.
 
@@ -264,7 +289,7 @@ When a new sort order is generated by the sortWorker, it is written to the RGBAU
 
 LoD splat tree indices produced by `traverseLodTrees()` above are also stored in a RGBAUint32 texture, directly calling `gl.texSubImage2D()` to update a minimal subset of its rows as well (in `NewSparkRenderer.updateLodIndices()`).
 
-## Pre-built SPZ LoD Splat Trees
+## <a id="pre-built-spz-lod-splat-trees"></a>Pre-built SPZ LoD Splat Trees
 
 Although Spark can build LoD splat trees on the fly in a background WebWorker, for the best user experience we can pre-build the LoD tree and store it in an SPZ file for faster loading. The same Quick LoD method is accessible within Rust crate `spark-lib` in an on-demand WebWorker fashion (accessible through `NewSplatWorker`), but also as a standalone executable to build one or more files offline:
 ```
@@ -282,7 +307,7 @@ In order to store the LoD tree in a SPZ file, we make a few modifications:
 
 Spark will auto-detect and decode these extended SPZ files and render them in LoD mode. See [rust/spark-lib/src/spz.rs](../../rust/spark-lib/src/spz.rs)
 
-## Multi-Viewpoint Rendering
+## <a id="multi-viewpoint-rendering"></a>Multi-Viewpoint Rendering
 
 In old `SparkRenderer` we called `sparkRenderer.newViewpoint()` to create a `SparkViewpoint` that could be sorted and rendered independently from the main canvas render. In `NewSparkRenderer` we change this abstraction: Each `NewSparkRenderer` is its own independent viewpoint, and multiple `NewSparkRenderer`s can be created with different render layers, sort options, or dyno programs. Creating more `NewSparkRenderer`s allows to create both multi-viewport programs as well as off-screen frame renders for video output.
 
@@ -327,7 +352,7 @@ If you are rendering intermittently and want higher quality, set `autoUpdate: fa
 
 Once you are finished with any additional viewpoints / `NewSparkRenderer` instances, make sure you dispose it with `newSparkRenderer.dispose()` to free up render targets, textures, and other resources.
 
-## NewSplatWorker, newWorker
+## <a id="newsplatworker-newworker"></a>NewSplatWorker, newWorker
 
 In the new version of Spark we've re-written `SplatWorker/worker.ts` into `NewSplatWorker/newWorker.ts` to simplify and streamline the code. The class `NewSplatWorker` encapsulates an async RPC mechanism to call worker methods and get back an async result, an exception, or any number of async status updates. To get an exclusive lock on (or wait in a queue for) exclusive access to the worker, call `newSplatWorker.exclusive(async_callback)`. To test whether it's possible to get an exclusive lock without blocking, call `newSplatWorker.tryExclusive(async_callback)`. To invoke an RPC method once holding the worker, call `await newSplatWorker.call(method_name, args, { onStatus? })`, which will return a result Promise, an exception, or may have its `onStatus` callback invoked any number of times with updates from the worker.
 
@@ -335,7 +360,7 @@ We also have `workerPool` in `NewSplatWorker` which creates a pool of (default 4
 
 In `NewSparkRenderer` we allocate two dedicated workers, `.sortWorker` and `.lodWorker` to perform those time-sensitive operations respectively, without being blocked by another operation in the the worker pool.
 
-## Streaming File Download and Decoding
+## <a id="streaming-file-download-and-decoding"></a>Streaming File Download and Decoding
 
 The `NewSparkRenderer` splat file downloading and decoding has been revamped to enable large-file download, streaming, and pipelined decoding. In the old `SplatLoader` we fetched the entire splat file as a series of byte chunks, then combined them into one big ArrayBuffer, which would sometimes overflow the size limitations of the browser and required large memory allocations.
 
@@ -343,6 +368,6 @@ The new architecture sends the URL of the file to fetch to a WebWorker, where ch
 
 This functionality is crucial for LoD creation on-demand: We fetch and parse a SPZ/PLY file into a `GsplatArray` if LoD creation was requested, then construct the LoD tree using the Quick LoD method, and finally convert the LoD tree splats into a `PackedSplats` for rendering by Spark.
 
-## TODO
+## <a id="todo"></a>TODO
 
 - Paged loading / streaming LoD
