@@ -1165,137 +1165,88 @@ export function decodeQuatEulerXyz888(
   return out;
 }
 
-// Pack four signed 8-bit values into a single uint32.
-function packSint8Bytes(
-  b0: number,
-  b1: number,
-  b2: number,
-  b3: number,
-): number {
-  const clampedB0 = Math.max(-127, Math.min(127, b0 * 127));
-  const clampedB1 = Math.max(-127, Math.min(127, b1 * 127));
-  const clampedB2 = Math.max(-127, Math.min(127, b2 * 127));
-  const clampedB3 = Math.max(-127, Math.min(127, b3 * 127));
-  return (
-    (clampedB0 & 0xff) |
-    ((clampedB1 & 0xff) << 8) |
-    ((clampedB2 & 0xff) << 16) |
-    ((clampedB3 & 0xff) << 24)
-  );
+export function getShDegrees(
+  hasSh1?: Float32Array | boolean,
+  hasSh2?: Float32Array | boolean,
+  hasSh3?: Float32Array | boolean,
+  encoding?: {
+    maxSh?: number;
+  },
+): 0 | 1 | 2 | 3 {
+  return Math.min(
+    encoding?.maxSh ?? 3,
+    hasSh3 ? 3 : hasSh2 ? 2 : hasSh1 ? 1 : 0,
+  ) as 0 | 1 | 2 | 3;
 }
 
-// Encode an array of 9 signed RGB SH1 coefficients (clamped to [-1,1]) into
-// a pair of uint32 values, where each coefficient is stored as a sint7
-export function encodeSh1Rgb(
-  sh1Array: Uint32Array,
+export function getShArrayStride(shDegrees: 0 | 1 | 2 | 3): number {
+  return [0, 12, 24, 48][shDegrees];
+}
+
+export function encodeShRgb(
+  shArray: Uint8Array,
+  shDegrees: 0 | 1 | 2 | 3,
   index: number,
-  sh1Rgb: Float32Array,
+  sh1Rgb?: Float32Array,
+  sh2Rgb?: Float32Array,
+  sh3Rgb?: Float32Array,
   encoding?: {
     sh1Min?: number;
     sh1Max?: number;
+    sh2Min?: number;
+    sh2Max?: number;
+    sh3Min?: number;
+    sh3Max?: number;
+    maxSh?: number;
   },
 ) {
-  const sh1Min = encoding?.sh1Min ?? -1;
-  const sh1Max = encoding?.sh1Max ?? 1;
-  const sh1Mid = 0.5 * (sh1Min + sh1Max);
-  const sh1Scale = 126 / (sh1Max - sh1Min);
-
-  // Pack sint7 values into 2 x uint32
-  const base = index * 2;
-  for (let i = 0; i < 9; ++i) {
-    const s = (sh1Rgb[i] - sh1Mid) * sh1Scale;
-    const value = Math.round(Math.max(-63, Math.min(63, s))) & 0x7f;
-    const bitStart = i * 7;
-    const bitEnd = bitStart + 7;
-
-    const wordStart = Math.floor(bitStart / 32);
-    const bitOffset = bitStart - wordStart * 32;
-    const firstWord = (value << bitOffset) & 0xffffffff;
-    sh1Array[base + wordStart] |= firstWord;
-
-    if (bitEnd > wordStart * 32 + 32) {
-      const secondWord = (value >>> (32 - bitOffset)) & 0xffffffff;
-      sh1Array[base + wordStart + 1] |= secondWord;
-    }
+  const coefficientsWithPadding = getShArrayStride(shDegrees);
+  if (sh1Rgb && shDegrees >= 1) {
+    encodeShCoefficientsRgb(
+      shArray,
+      index * coefficientsWithPadding,
+      sh1Rgb,
+      encoding?.sh1Min ?? -1,
+      encoding?.sh1Max ?? 1,
+    );
+  }
+  if (sh2Rgb && shDegrees >= 2) {
+    encodeShCoefficientsRgb(
+      shArray,
+      index * coefficientsWithPadding + 9,
+      sh2Rgb,
+      encoding?.sh2Min ?? -1,
+      encoding?.sh2Max ?? 1,
+    );
+  }
+  if (sh3Rgb && shDegrees >= 3) {
+    encodeShCoefficientsRgb(
+      shArray,
+      index * coefficientsWithPadding + 24,
+      sh3Rgb,
+      encoding?.sh3Min ?? -1,
+      encoding?.sh3Max ?? 1,
+    );
   }
 }
 
-// Encode an array of 15 signed RGB SH2 coefficients (clamped to [-1,1]) into
-// an array of 4 uint32 values, where each coefficient is stored as a sint8.
-export function encodeSh2Rgb(
-  sh2Array: Uint32Array,
+// Encode an array of signed RGB SH coefficients (clamped to [-1,1]) into
+// an uint8 array, where each coefficient is stored as a sint8
+function encodeShCoefficientsRgb(
+  shArray: Uint8Array,
   index: number,
-  sh2Rgb: Float32Array,
-  encoding?: {
-    sh2Min?: number;
-    sh2Max?: number;
-  },
+  shRgb: Float32Array,
+  shMin: number,
+  shMax: number,
 ) {
-  const sh2Min = encoding?.sh2Min ?? -1;
-  const sh2Max = encoding?.sh2Max ?? 1;
-  const sh2Mid = 0.5 * (sh2Min + sh2Max);
-  const sh2Scale = 2 / (sh2Max - sh2Min);
+  const sh1Mid = 0.5 * (shMin + shMax);
+  const sh1Scale = 2 / (shMax - shMin);
 
-  // Pack sint8 values into 4 x uint32
-  sh2Array[index * 4 + 0] = packSint8Bytes(
-    (sh2Rgb[0] - sh2Mid) * sh2Scale,
-    (sh2Rgb[1] - sh2Mid) * sh2Scale,
-    (sh2Rgb[2] - sh2Mid) * sh2Scale,
-    (sh2Rgb[3] - sh2Mid) * sh2Scale,
-  );
-  sh2Array[index * 4 + 1] = packSint8Bytes(
-    (sh2Rgb[4] - sh2Mid) * sh2Scale,
-    (sh2Rgb[5] - sh2Mid) * sh2Scale,
-    (sh2Rgb[6] - sh2Mid) * sh2Scale,
-    (sh2Rgb[7] - sh2Mid) * sh2Scale,
-  );
-  sh2Array[index * 4 + 2] = packSint8Bytes(
-    (sh2Rgb[8] - sh2Mid) * sh2Scale,
-    (sh2Rgb[9] - sh2Mid) * sh2Scale,
-    (sh2Rgb[10] - sh2Mid) * sh2Scale,
-    (sh2Rgb[11] - sh2Mid) * sh2Scale,
-  );
-  sh2Array[index * 4 + 3] = packSint8Bytes(
-    (sh2Rgb[12] - sh2Mid) * sh2Scale,
-    (sh2Rgb[13] - sh2Mid) * sh2Scale,
-    (sh2Rgb[14] - sh2Mid) * sh2Scale,
-    0,
-  );
-}
-
-// Encode an array of 21 signed RGB SH3 coefficients (clamped to [-1,1]) into
-// an array of 4 uint32 values, where each coefficient is stored as a sint6.
-export function encodeSh3Rgb(
-  sh3Array: Uint32Array,
-  index: number,
-  sh3Rgb: Float32Array,
-  encoding?: {
-    sh3Min?: number;
-    sh3Max?: number;
-  },
-) {
-  const sh3Min = encoding?.sh3Min ?? -1;
-  const sh3Max = encoding?.sh3Max ?? 1;
-  const sh3Mid = 0.5 * (sh3Min + sh3Max);
-  const sh3Scale = 62 / (sh3Max - sh3Min);
-
-  // Pack sint6 values into 4 x uint32
-  const base = index * 4;
-  for (let i = 0; i < 21; ++i) {
-    const s = (sh3Rgb[i] - sh3Mid) * sh3Scale;
-    const value = Math.round(Math.max(-31, Math.min(31, s))) & 0x3f;
-    const bitStart = i * 6;
-    const bitEnd = bitStart + 6;
-
-    const wordStart = Math.floor(bitStart / 32);
-    const bitOffset = bitStart - wordStart * 32;
-    const firstWord = (value << bitOffset) & 0xffffffff;
-    sh3Array[base + wordStart] |= firstWord;
-
-    if (bitEnd > wordStart * 32 + 32) {
-      const secondWord = (value >>> (32 - bitOffset)) & 0xffffffff;
-      sh3Array[base + wordStart + 1] |= secondWord;
-    }
+  for (let i = 0; i < shRgb.length; ++i) {
+    shArray[index + i] = Math.max(
+      -127,
+      Math.min(127, (shRgb[i] - sh1Mid) * sh1Scale * 127),
+    );
   }
 }
 
