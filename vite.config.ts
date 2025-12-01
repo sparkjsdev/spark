@@ -1,8 +1,35 @@
 import fs from "node:fs";
 import path from "node:path";
+import type { Plugin } from "vite";
 import { defineConfig } from "vite";
 import dts from "vite-plugin-dts";
 import glsl from "vite-plugin-glsl";
+
+/**
+ * Vite plugin to fix WASM data URL compatibility with webpack/Next.js.
+ *
+ * wasm-pack generates code like: new URL("data:...", import.meta.url)
+ * The import.meta.url argument is unnecessary for data: URLs and causes
+ * webpack/Vite to incorrectly try to rewrite the URL as a file path.
+ *
+ * This plugin transforms:
+ *   new URL("data:...", import.meta.url) → new URL("data:...")
+ *
+ * See: https://github.com/sparkjsdev/spark/issues/95
+ */
+function fixWasmDataUrl(): Plugin {
+  return {
+    name: "fix-wasm-data-url",
+    renderChunk(code) {
+      // Match: new URL("data:...", import.meta.url)
+      // The data URL can contain any characters including quotes (escaped)
+      const dataUrlPattern =
+        /new\s+URL\(\s*("data:[^"]*")\s*,\s*import\.meta\.url\s*\)/g;
+      const result = code.replace(dataUrlPattern, "new URL($1)");
+      return result !== code ? result : null;
+    },
+  };
+}
 
 const assetsDirectory = "examples/assets";
 const localAssetsDirectoryExist = fs.existsSync(assetsDirectory);
@@ -32,6 +59,9 @@ export default defineConfig(({ mode }) => {
       }),
 
       dts({ outDir: "dist/types" }),
+
+      // Fix webpack/Next.js compatibility for WASM data URLs
+      fixWasmDataUrl(),
       {
         name: "serve-node-modules-alias",
         configureServer(server) {
