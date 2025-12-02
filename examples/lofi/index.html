@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lofi Worlds Mable • Spark</title>
+  <style>
+    body {
+      margin: 0;
+      color: white;
+      background-color: black;
+    }
+    #canvas {
+      position: absolute;
+      touch-action: none;
+    }
+    #instructions {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 10px;
+      text-align: center;
+      text-shadow: 4px 4px 4px rgba(0, 0, 0, 1.0);
+    }
+  </style>
+</head>
+
+<body>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.180.0/three.module.js",
+        "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.20.0/+esm",
+        "@sparkjsdev/spark": "/dist/spark.module.js"
+      }
+    }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/stats.js@0.17.0/build/stats.min.js"></script>
+  <canvas id="canvas"></canvas>
+  <div id="instructions"></div>
+  <script type="module">
+    import * as THREE from "three";
+    import GUI from "lil-gui";
+    import { NewSparkRenderer, SparkRenderer, PackedSplats, SplatMesh, SparkControls, SparkXr, JOINT_IDS, JOINT_TIPS, dyno, generators, isMobile } from "@sparkjsdev/spark";
+    import { WORLDS, getWorldUrl, WORLD_RUSTLE, WORLD_EFFECT } from "./worlds.js";
+    import { AUDIOS, getAudioUrl } from "./audio.js";
+    import { shuffleArray } from "./util.js";
+
+    const TRANSITION_DURATION_MS = 1500;
+    const ADVANCE_INTERVAL_SEC = 12;
+
+    shuffleArray(WORLDS);
+    shuffleArray(AUDIOS);
+
+    // A simple utility class for caching a fixed number of items
+    class DataCache {
+      constructor({
+        asyncFetch,
+        dispose,
+        maxItems = 5,
+      }) {
+        this.asyncFetch = asyncFetch;
+        this.dispose = dispose;
+        this.maxItems = maxItems;
+        this.items = [];
+        this.pending = new Map();
+      }
+
+      has(key) {
+        return this.items.some((item) => item.key === key);
+      }
+
+      getImmediate(key) {
+        const index = this.items.findIndex((item) => item.key === key);
+        if (index >= 0) {
+          // Data exists in our cache, move it to the end of the array
+          const item = this.items.splice(index, 1)[0];
+          this.items.push(item);
+          // Return the cached data
+          return item.data;
+        }
+        return undefined;
+      }
+
+      // Fetch data for the key, returning cached data if available.
+      async getFetch(key) {
+        const immediate = this.getImmediate(key);
+        if (immediate !== undefined) {
+          return immediate;
+        }
+
+        let pending = this.pending.get(key);
+        if (pending) {
+          return pending;
+        }
+
+        pending = this.asyncFetch(key).then((data) => {
+          this.pending.delete(key);
+          
+          // Add the data to the cache
+          this.items.push({ key, data });
+
+          // If the cache is too large, remove the oldest accessed item
+          while (this.items.length > this.maxItems) {
+            const removed = this.items.shift();
+            if (removed && this.dispose) {
+              this.dispose(removed.data);
+            }
+          }
+          return data;
+        });
+        this.pending.set(key, pending);
+        return pending;
+      }
+    }
+
+    const worldCache = new DataCache({
+      maxItems: 10,
+      asyncFetch: async (name) => {
+        const url = getWorldUrl(name);
+        const packedSplats = new PackedSplats({ url });
+        await packedSplats.initialized;
+        return packedSplats;
+      },
+      dispose: (packedSplats) => {
+        packedSplats.dispose();
+      },
+    });
+
+    let audioIndex = 0;
+    const audio = new Audio(getAudioUrl(AUDIOS[audioIndex]));
+    audio.loop = false;
+    audio.volume = 0.75;
+    audio.preload = "auto";
+
+    function playCurrent() {
+      audio.src = getAudioUrl(AUDIOS[audioIndex]);
+      audio.currentTime = 0;
+      audio.play().catch(console.error);
+    }
+
+    audio.addEventListener("ended", () => {
+      audioIndex = (audioIndex + 1) % AUDIOS.length;
+      playCurrent();
+    });
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0, 0, 0);
+    const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.01, 1000);
+    const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById("canvas") });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+
+    scene.add(new THREE.AmbientLight(0x4444ff, 0.1));
+    scene.add(new THREE.DirectionalLight(0xffffcc, 1.0));
+
+    window.addEventListener("resize", onWindowResize, false);
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    // Make a local frame of reference that we can move to control
+    // the camera, or as a frame of reference in WebXR mode
+    const localFrame = new THREE.Group();
+    scene.add(localFrame);
+
+    // NewSparkRenderer can be swapped in, but rendering is slower in VR.
+    // const spark = new NewSparkRenderer({
+    const spark = new SparkRenderer({
+      renderer,
+      // Lower the splat rendering width to sqrt(4) std devs for more performance
+      maxStdDev: Math.sqrt(4),
+      view: { sort360: true, sort32: true },
+    });
+    scene.add(spark);
+    console.log("SPARK: ", spark);
+
+    localFrame.add(camera);
+
+    function play() {
+      audio.play();
+      idleBeeCountdown = 0;
+      transitionTotal = 0.5 * TRANSITION_DURATION_MS / 1000;
+    }
+
+    function pause() {
+      audio.pause();
+      idleBeeCountdown = IDLE_BEE_START;
+    }
+
+    function makePlayButton() {
+      const button = document.createElement("button");
+      button.textContent = "Play";
+      document.body.appendChild(button);
+      Object.assign(button.style, {
+        position: "absolute",
+        bottom: "20px",
+        left: "50%",
+        transform: "translateX(-50%)",
+        padding: "20px 40px",
+        border: "2px solid #fff",
+        borderRadius: "16px",
+        background: "rgba(0,0,0,0.1)",
+        color: "#fff",
+        font: "bold 16px sans-serif",
+        textAlign: "center",
+        userSelect: "none",
+        zIndex: "999",
+      });
+      return button;
+    }
+
+    const xr = new SparkXr({
+      renderer,
+      onMouseLeaveOpacity: 0.5,
+      enableHands: true,
+      frameBufferScaleFactor: 0.5,
+      referenceSpaceType: "local",
+      onEnterXr: () => {
+        play();
+        idleBee.position.set(0, 0, 0);
+        idleBee.quaternion.set(0, 0, 0, 1);
+      },
+      onExitXr: () => {
+        pause();
+      },
+      onReady: (supported) => {
+        let element = xr.element;
+        let button = null;
+        
+        if (!supported) {
+          button = makePlayButton();
+          element = button;
+        }
+
+        element.addEventListener("click", () => {
+          if (audio.paused) {
+            play();
+            if (button) {
+              button.textContent = "Pause";
+            }
+          } else {
+            pause();
+            if (button) {
+              button.textContent = "Play";
+            }
+          }
+        });
+
+        if (supported) {
+          const div = document.createElement("div");
+          // div.innerHTML = "In VR: <u>Touch the world</u> with your hands. <u>Tap wrists together</u> to toggle spotlight mode.";
+          div.innerHTML = `
+            <div>
+              <div>Click ENTER VR to begin</div>
+              <div>Enable hand tracking - <strong>Touch the world</strong></div>
+              <div><strong>Tap wrists together</strong> - Toggle spotlights</div>
+            </div>
+          `;
+          document.getElementById("instructions")?.appendChild(div);
+        } else {
+          const div = document.createElement("div");
+          if (isMobile()) {
+            document.getElementById("instructions").style.top = "50px";
+            div.innerHTML = `
+              <div>
+                <div>👆 Look around</div>
+                <div>👆👆 Move</div>
+              </div>
+            `;
+          } else {
+            div.innerHTML = `
+              <div>
+                <div><u>WASDRF</u> to move, mouse <strong>Click 👆</strong> to turn, <strong>Middle / 👆👆</strong> for XZ slide, <strong>Right / 👆👆+Click</strong> for XY slide</div>
+                <div><strong>[ ]</strong> to switch worlds</div>
+              </div>
+            `;
+          }
+          document.getElementById("instructions")?.appendChild(div);
+        }
+      },
+    });
+
+    const controls = new SparkControls({ canvas: renderer.domElement });
+    controls.fpsMovement.xr = renderer.xr;
+    controls.pointerControls.rotateSpeed *= 2.0;
+
+    let lastTime = 0;
+    let transitionTotal = 0;
+    let lastWristsTouching = null;
+    let handMode = 0;
+
+    const gui = new GUI({ title: "Settings" }).close();
+    
+    const transitionInterval = { value: ADVANCE_INTERVAL_SEC };
+    gui.add(transitionInterval, "value", 1.0, 20.0, 1).name("Transition interval");
+
+    let transitioning = null;
+    let curWorld = null;
+    let targetWorld = 0;
+    let autoDir = 1;
+
+    const transitionT = dyno.dynoFloat(0);
+    const idleBeeTranslate = dyno.dynoFloat(0);
+    const rustleBlend = dyno.dynoFloat(0);
+    const globalT = dyno.dynoFloat(0);
+    const dynoTips = new dyno.DynoUniform({
+      key: "tips",
+      type: "vec4",
+      count: 10,
+      value: new Array(10).fill().map(() => new THREE.Vector4()),
+    });
+    const spotlightOrigins = new dyno.DynoUniform({
+      // key: "spotlightOrigins",
+      type: "vec3",
+      count: 2,
+      value: new Array(2).fill().map(() => new THREE.Vector3()),
+    });
+    const spotlightDirs = new dyno.DynoUniform({
+      // key: "spotlightDirs",
+      type: "vec3",
+      count: 2,
+      value: new Array(2).fill().map(() => new THREE.Vector3()),
+    });
+    const spotlightFovs = new dyno.DynoUniform({
+      // key: "spotlightFovs",
+      type: "float",
+      count: 2,
+      value: new Array(2).fill().map(() => 90),
+    });
+
+    function nextWorld(target, inc) {
+      let nextTarget = target + inc;
+      if (nextTarget < 0) nextTarget = WORLDS.length - 1;
+      if (nextTarget >= WORLDS.length) nextTarget = 0;
+      return nextTarget;
+    }
+
+    async function incWorld(inc) {
+      targetWorld = nextWorld(targetWorld, inc);
+      autoDir = inc;
+      transitionTotal = 0;
+
+      console.log("Fetching targetWorld", WORLDS[targetWorld]);
+      await worldCache.getFetch(WORLDS[targetWorld]);
+      console.log("Fetch complete");
+    }
+
+    async function advanceWorld() {
+      targetWorld = nextWorld(targetWorld, autoDir);
+      await worldCache.getFetch(WORLDS[targetWorld]);
+    }
+
+    // Initiated prefetch of first world
+    await worldCache.getFetch(WORLDS[targetWorld]);
+
+    const world = new SplatMesh();
+    world.quaternion.set(1, 0, 0, 0);
+    // world.scale.setScalar(0.5);
+    world.position.set(0, 0, 0);
+
+    world.worldModifier = makeWorldModifier();
+    world.updateGenerator();
+
+    const idleBee = new THREE.Group();
+    scene.add(idleBee);
+    idleBee.add(world);
+
+    const snowBox = generators.snowBox({
+      density: 40,
+      box: new THREE.Box3(
+        new THREE.Vector3(-4, -1, -4),
+        new THREE.Vector3(4, 5, 4),
+      ),
+    });
+    snowBox.opacity.value = 0;
+    idleBee.add(snowBox.snow);
+
+    const snowGenerator = snowBox.snow.generator;
+    snowBox.snow.generator = dyno.dynoBlock(
+      { index: "int" },
+      { gsplat: dyno.Gsplat },
+      ({ index }) => {
+        snowGenerator.inputs.index = index;
+        const modifier = makeWorldModifier();
+        modifier.inputs.gsplat = snowGenerator.outputs.gsplat;
+        return { gsplat: modifier.outputs.gsplat };
+      },
+    );
+
+    function updateSnowRain(snow, snowRain) {
+      // Smoothly interpolate between snow and rain
+      const { DEFAULT_SNOW, DEFAULT_RAIN } = generators;
+      const t = snowRain * snowRain * (3 - 2 * snowRain);
+      snow.fallDirection.value
+        .lerpVectors(DEFAULT_SNOW.fallDirection, DEFAULT_RAIN.fallDirection, t)
+        .normalize();
+      snow.fallVelocity.value = 0.05 + t * (DEFAULT_RAIN.fallVelocity - 0.05);
+      snow.wanderScale.value =
+        DEFAULT_SNOW.wanderScale +
+        t * (DEFAULT_RAIN.wanderScale - DEFAULT_SNOW.wanderScale);
+      snow.wanderVariance.value =
+        DEFAULT_SNOW.wanderVariance +
+        t * (DEFAULT_RAIN.wanderVariance - DEFAULT_SNOW.wanderVariance);
+      snow.color2.value.lerpColors(DEFAULT_SNOW.color2, DEFAULT_RAIN.color2, t);
+      snow.minScale.value =
+        DEFAULT_SNOW.minScale + t * (DEFAULT_RAIN.minScale - DEFAULT_SNOW.minScale);
+      snow.maxScale.value =
+        DEFAULT_SNOW.maxScale + t * (DEFAULT_RAIN.maxScale - DEFAULT_SNOW.maxScale);
+      snow.anisoScale.value.lerpVectors(
+        DEFAULT_SNOW.anisoScale,
+        DEFAULT_RAIN.anisoScale,
+        t,
+      );
+    }
+
+    const badWeather = { enable: false };
+    gui.add(badWeather, "enable").name("Bad weather");
+
+    function updateSceneEffect(scene) {
+      let effect = WORLD_EFFECT[scene] ?? (badWeather.enable ? ["", "snow", "rain"] : undefined);
+      if (!effect) {
+        snowBox.opacity.value = 0;
+        return;
+      }
+      if (!Array.isArray(effect)) {
+        effect = [effect];
+      }
+      const arrayIndex = Math.floor(Math.random() * effect.length);
+      const effectName = effect[arrayIndex] ?? "";
+
+      console.log("Random effect", effectName, effect);
+      if (!effectName) {
+        snowBox.opacity.value = 0;
+        return;
+      }
+
+      snowBox.opacity.value = 1;
+      updateSnowRain(snowBox, (effectName === "snow") ? 0 : 1);
+    }
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "]") {
+        incWorld(1);
+      } else if (event.key === "[") {
+        incWorld(-1);
+      }
+    });
+
+    const IDLE_BEE_START = 5.0;
+    const IDLE_BEE_SCALE = 0.2;
+    const IDLE_BEE_ROT = 0.1;
+    const IDLE_BEE_BLEND_DURATION = 2.0;
+    const IDLE_BEE_RESET_DURATION = 1.0;
+    let idleBeeTime = 0;
+    let idleBeeCountdown = IDLE_BEE_START;
+    let idleBeeBlend = 0;
+
+    function idlePositionRotation(t, blend = 1.0) {
+      const position = new THREE.Vector3(
+          IDLE_BEE_SCALE * Math.sin(t * 0.3),
+          IDLE_BEE_SCALE * Math.sin(t * 0.2),
+          IDLE_BEE_SCALE * Math.sin(t * 0.5),
+      ).multiplyScalar(blend);
+
+      let euler = new THREE.Euler(0, 0, 0, "YXZ");
+      euler.y = IDLE_BEE_ROT * Math.sin(t * 0.37) * blend;
+      return { position, euler };
+    }
+
+    function updateIdleBee(deltaT) {
+      idleBeeTime += deltaT;
+      idleBeeCountdown -= deltaT;
+
+      if (idleBeeCountdown < 0) {
+        idleBeeBlend = Math.min(1.0, idleBeeBlend + deltaT / IDLE_BEE_BLEND_DURATION);
+
+        localFrame.position.multiplyScalar(Math.exp(-deltaT));
+        localFrame.quaternion.slerp(new THREE.Quaternion(), Math.exp(-deltaT) / 500);
+      } else {
+        idleBeeBlend = Math.max(0.0, idleBeeBlend - deltaT / IDLE_BEE_RESET_DURATION);
+      }
+      // Compute smoothstep
+      const blend = idleBeeBlend * idleBeeBlend * (3 - 2 * idleBeeBlend);
+
+      const { position, euler } = idlePositionRotation(idleBeeTime);
+      idleBee.position.copy(position).multiplyScalar(blend);
+
+      euler.y *= blend;
+      idleBee.quaternion.setFromEuler(euler);
+    }
+
+    function resetIdleBee() {
+      idleBeeCountdown = IDLE_BEE_START;
+    }
+
+    //////////////////////////
+    // Splat shader effects
+
+    function makeWorldModifier() {
+      return dyno.dynoBlock(
+        { gsplat: dyno.Gsplat },
+        { gsplat: dyno.Gsplat },
+        ({ gsplat }) => {
+          gsplat = rustle({ gsplat, rustleBlend, t: globalT });
+          gsplat = applyInteractors({ gsplat, tips: dynoTips });
+          gsplat = applySpotlights({ gsplat, spotlightOrigins, spotlightDirs, spotlightFovs });
+          return { gsplat };
+        },
+      )
+    }
+
+    function transitionSplats(inputs) {
+      return new dyno.Dyno({
+        inTypes: { gsplat1: dyno.Gsplat, gsplat2: dyno.Gsplat, t: "float", translate: "float" },
+        outTypes: { gsplat: dyno.Gsplat },
+        inputs,
+        statements: ({ inputs, outputs }) => dyno.unindentLines(`
+          ${outputs.gsplat} = ${inputs.gsplat1};
+          vec3 center2 = ${inputs.gsplat2}.center + vec3(0.0, 0.0, ${inputs.translate});
+          ${outputs.gsplat}.center = mix(${inputs.gsplat1}.center, center2, ${inputs.t});
+          ${outputs.gsplat}.scales = mix(${inputs.gsplat1}.scales, ${inputs.gsplat2}.scales, ${inputs.t});
+          ${outputs.gsplat}.quaternion = slerp(${inputs.gsplat1}.quaternion, ${inputs.gsplat2}.quaternion, ${inputs.t});
+          ${outputs.gsplat}.rgba = mix(${inputs.gsplat1}.rgba, ${inputs.gsplat2}.rgba, ${inputs.t});
+        `),
+      }).outputs.gsplat;
+    }
+
+    function rustle({ gsplat, rustleBlend, t }) {
+      return new dyno.Dyno({
+        inTypes: { gsplat: dyno.Gsplat, rustleBlend: "float", t: "float" },
+        outTypes: { gsplat: dyno.Gsplat },
+        inputs: { gsplat, rustleBlend, t },
+        globals: () => [dyno.unindent(`
+          vec4 colorWave(vec4 rgba, vec3 p, float t) {
+            float len = length(p);
+            float magnitude = sin(len + t + 1.7 * p.x + 2.3 * p.z + 0.9 * p.y);
+            magnitude *= sin(1.3 * len - t * 0.88 + 0.9 * p.y);
+            magnitude *= exp(-0.01 * len * len);
+            vec3 dir = p / len;
+            vec3 color = abs(dir);
+            vec4 target = vec4(color, rgba.a * magnitude);
+            return mix(rgba, target, 1.0 - sqr(1.0 - magnitude));
+          }
+        `)],
+        statements: ({ inputs, outputs }) => dyno.unindentLines(`
+          ${outputs.gsplat} = ${inputs.gsplat};
+          vec4 displace = colorWave(${outputs.gsplat}.rgba, ${outputs.gsplat}.center, ${inputs.t});
+          displace.w = 1.0 - displace.w;
+          ${outputs.gsplat}.center += ${inputs.rustleBlend} * displace.xyz * displace.w;
+        `),
+      }).outputs.gsplat;
+    }
+
+    function applyInteractors({ gsplat, tips }) {
+      return new dyno.Dyno({
+        inTypes: { gsplat: dyno.Gsplat, tips: "vec4" },
+        outTypes: { gsplat: dyno.Gsplat },
+        inputs: { gsplat, tips },
+        statements: ({ inputs, outputs }) => {
+          return dyno.unindentLines(`
+            ${outputs.gsplat} = ${inputs.gsplat};
+            vec3 center = ${outputs.gsplat}.center;
+
+            vec4 force = vec4(0.0);
+            for (uint i = 0u; i < 10u; ++i) {
+              vec4 centerRadius = ${inputs.tips}[i];
+              float radius = centerRadius.w;
+              if (radius == 0.0) {
+                continue;
+              }
+              radius *= 10.0;
+
+              vec3 delta = center - centerRadius.xyz;
+              float distance = length(delta);
+              if (distance < radius) {
+                vec3 dir = delta / distance;
+                float weight = 1.0 - distance / radius;
+                force += vec4(dir * weight, weight);
+              }
+            }
+            
+            if (force.w > 0.0) {
+              ${outputs.gsplat}.center += 0.025 * force.xyz;
+              ${outputs.gsplat}.rgba.rgb += 0.15 * abs(force.xyz);
+            }
+          `);
+        },
+      }).outputs.gsplat;
+    }
+
+    function applySpotlights({ gsplat, spotlightOrigins, spotlightDirs, spotlightFovs }) {
+      return new dyno.Dyno({
+        inTypes: { gsplat: dyno.Gsplat, spotlightOrigins: "vec3", spotlightDirs: "vec3", spotlightFovs: "float" },
+        outTypes: { gsplat: dyno.Gsplat },
+        inputs: { gsplat, spotlightOrigins, spotlightDirs, spotlightFovs },
+        globals: () => [dyno.unindent(`
+          float computeSpotlight(
+            vec3 worldVertex,
+            vec3 worldOrigin,
+            vec3 worldDir,
+            float spreadFov,
+            float smoothDeg,
+            float brightness,
+            float attenuation
+          ) {
+            // Normalize the vector from the light to the vertex
+            vec3 lightToPoint = worldVertex - worldOrigin;
+            float distance = length(lightToPoint);
+            lightToPoint /= distance;
+
+            // Calculate the cosine of the angle between the light direction and the point
+            float cosAngle = dot(lightToPoint, worldDir);
+
+            // Convert spreadFov and smooth from degrees to radians and compute cutoffs
+            float outerAngle = radians(spreadFov * 0.5);
+            float innerAngle = outerAngle - radians(smoothDeg);
+
+            float outerCutoff = cos(outerAngle);
+            float innerCutoff = cos(innerAngle);
+
+            // Compute the intensity using smoothstep for smooth edge blending
+            float intensity = smoothstep(outerCutoff, innerCutoff, cosAngle);
+
+            intensity *= brightness / (attenuation * distance * distance);
+
+            // Clamp the intensity to the [0, 1] range
+            intensity = clamp(intensity, 0.0, 1.0);
+
+            return intensity;
+          }
+        `)],
+        statements: ({ inputs, outputs }) => {
+          return dyno.unindentLines(`
+            ${outputs.gsplat} = ${inputs.gsplat};
+            if (${inputs.spotlightFovs}[0] > 0.0 || ${inputs.spotlightFovs}[1] > 0.0) {
+              float lighting = 0.0;
+              for (uint i = 0u; i < 2u; ++i) {
+                vec3 origin = ${inputs.spotlightOrigins}[i];
+                vec3 dir = ${inputs.spotlightDirs}[i];
+                float fov = ${inputs.spotlightFovs}[i];
+                lighting += computeSpotlight(${outputs.gsplat}.center, origin, dir, fov, 10.0, 1.0, 0.05);
+              }
+              ${outputs.gsplat}.rgba.rgb *= lighting;
+            }
+          `);
+        },
+      }).outputs.gsplat;
+    }
+
+    const joints = new Map();
+    // const leftHand = xr.makeJointSplats(SparkXr.Hand.left);
+    // const rightHand = xr.makeJointSplats(SparkXr.Hand.right);
+    // localFrame.add(leftHand);
+    // localFrame.add(rightHand);
+
+    function updateHands(xr) {
+      let wristsTouching = null;
+      if (xr.hands.every((hand) => hand?.valid())) {
+        const wrists = xr.hands.map((hand) => hand?.joints?.w);
+        if (wrists[0] && wrists[1]) {
+          const distance = wrists[0].position.distanceTo(wrists[1].position);
+          if (lastWristsTouching) {
+            wristsTouching = distance < 0.125;
+          } else {
+            wristsTouching = distance < 0.075;
+          }
+        }
+      }
+
+      if (wristsTouching && !lastWristsTouching) {
+        handMode = (handMode + 1) % 2;
+      }
+      lastWristsTouching = wristsTouching;
+
+      for (let i = 0; i < 10; ++i) {
+        dynoTips.value[i].set(0, 0, 0, 0);
+      }
+      for (let i = 0; i < 2; ++i) {
+        spotlightOrigins.value[i].set(0, 0, 0);
+        spotlightDirs.value[i].set(0, 0, 0);
+        spotlightFovs.value[i] = 0;
+      }
+
+      let tipIndex = 0;
+
+      for (const hand of xr.hands) {
+        if (hand && hand.joints) {
+          for (const jointId of JOINT_IDS) {
+            const name = `${hand.hand}-${jointId}`;
+            if (!joints.has(name)) {
+              const r = Math.random();
+              const g = Math.random();
+              const b = Math.random();
+              const mesh = new THREE.Mesh(
+                new THREE.SphereGeometry(1, 16, 16),
+                new THREE.MeshStandardMaterial({ color: new THREE.Color(r, g, b) }),
+              );
+              localFrame.add(mesh);
+              joints.set(name, mesh);
+            }
+            const joint = hand.joints[jointId];
+            const mesh = joints.get(name);
+            if (joint && mesh) {
+              mesh.position.copy(joint.position);
+              mesh.quaternion.copy(joint.quaternion);
+              mesh.scale.set(joint.radius, 0.75 * joint.radius, 1.5 * joint.radius);
+            }
+          }
+
+          if (handMode === 0) {
+            for (const jointId of JOINT_TIPS) {
+              const name = `${hand.hand}-${jointId}`;
+              const mesh = joints.get(name);
+              if (mesh) {
+                const worldPosition = mesh.getWorldPosition(new THREE.Vector3());
+                dynoTips.value[tipIndex].set(
+                  worldPosition.x,
+                  worldPosition.y,
+                  worldPosition.z,
+                  mesh.scale.x,
+                );
+                tipIndex += 1;
+              }
+            }
+          }
+        }
+      }
+
+      if (handMode === 1) {
+        if (xr.left()?.valid()) {
+          const joint = joints.get(`left-m0`);
+          joint.getWorldPosition(spotlightOrigins.value[0]);
+          const worldQuaternion = joint.getWorldQuaternion(new THREE.Quaternion());
+          spotlightDirs.value[0].set(0, -1, 0).applyQuaternion(worldQuaternion);
+
+          const { t3, i4, m4, r4, p4 } = xr.left()?.joints ?? {};
+          const distances = [[t3, i4], [t3, m4], [t3, r4], [t3, p4]].map(([a, b]) => a.position.distanceTo(b.position));
+          const avgDistance = distances.reduce((a, b) => a + b, 0) / distances.length;
+          spotlightFovs.value[0] = Math.max(11.0, Math.min(170.0, avgDistance * 1000));
+        }
+
+        if (xr.right()?.valid()) {
+          const joint = joints.get(`right-m0`);
+          joint.getWorldPosition(spotlightOrigins.value[1]);
+          const worldQuaternion = joint.getWorldQuaternion(new THREE.Quaternion());
+          spotlightDirs.value[1].set(0, -1, 0).applyQuaternion(worldQuaternion);
+
+          const { t3, i4, m4, r4, p4 } = xr.right()?.joints ?? {};
+          const distances = [[t3, i4], [t3, m4], [t3, r4], [t3, p4]].map(([a, b]) => a.position.distanceTo(b.position));
+          const avgDistance = distances.reduce((a, b) => a + b, 0) / distances.length;
+          spotlightFovs.value[1] = Math.max(11.0, Math.min(170.0, avgDistance * 1000));
+        }
+      }
+    }
+
+    const stats = new Stats();
+    document.body.appendChild(stats.dom);
+
+    renderer.setAnimationLoop(function animate(time, xrFrame) {
+      stats.begin();
+
+      const deltaTime = time - (lastTime || time);
+      lastTime = time;
+
+      xr.updateHands({ xrFrame });
+      updateHands(xr);
+
+      globalT.value = time / 1000;
+      if (curWorld != null) {
+        const curScene = WORLDS[curWorld];
+        const rustleTarget = WORLD_RUSTLE[curScene] ?? 0;
+        if (rustleBlend.value < rustleTarget) {
+          rustleBlend.value = Math.min(rustleTarget, rustleBlend.value + deltaTime / 100000);
+        } else if (rustleBlend.value > rustleTarget) {
+          rustleBlend.value = Math.max(rustleTarget, rustleBlend.value - deltaTime / 100000);
+        }
+      }
+      if (rustleBlend.value > 0) {
+        world.updateVersion();
+      }
+
+      if (renderer.xr.isPresenting) {
+        if (!audio.paused) {
+          idleBee.position.z += (deltaTime / 1000) * (1 / transitionInterval.value);
+        }
+      } else {
+        updateIdleBee(deltaTime / 1000);
+      }
+
+      if (!audio.paused) {
+        transitionTotal += deltaTime / 1000;
+        if (transitionTotal >= transitionInterval.value) {
+          transitionTotal -= transitionInterval.value;
+          advanceWorld();
+        }
+      }
+
+      const localFramePos = new THREE.Vector3().copy(localFrame.position);
+      const localFrameQuat = new THREE.Quaternion().copy(localFrame.quaternion);
+
+      controls.update(localFrame);
+
+      const posDelta = localFramePos.distanceTo(localFrame.position);
+      const quatDot = localFrameQuat.dot(localFrame.quaternion);
+      const moved = (posDelta > 0.00001) || (quatDot < 0.999999);
+      if (moved) {
+        resetIdleBee();
+      }
+
+      if (transitioning) {
+        const again = transitioning();
+        if (!again) {
+          transitioning = null;
+        }
+      }
+
+      const target = targetWorld;
+      if (!transitioning && (curWorld !== target)) {
+        const next = worldCache.getImmediate(WORLDS[target]);
+        if (next) {
+          if (curWorld == null) {
+            world.packedSplats = next;
+            curWorld = target;
+            updateSceneEffect(WORLDS[curWorld]);
+          } else {
+            world.objectModifier = dyno.dynoBlock({ gsplat: dyno.Gsplat }, { gsplat: dyno.Gsplat }, ({ gsplat }) => {
+              const { index } = dyno.splitGsplat(gsplat).outputs;
+              const nextSplat = dyno.readPackedSplat(next.dyno, index);
+              const blend = dyno.smoothstep(dyno.dynoConst("float", 0), dyno.dynoConst("float", 1), transitionT);
+              gsplat = transitionSplats({ gsplat1: gsplat, gsplat2: nextSplat, t: blend, translate: idleBeeTranslate });
+              return { gsplat };
+            });
+            transitionT.value = 0;
+            idleBeeTranslate.value = renderer.xr.isPresenting ? idleBee.position.z : 0;
+            world.updateGenerator();
+            updateSceneEffect(WORLDS[target]);
+
+            console.log("Starting transition");
+            const start = performance.now();
+            transitioning = () => {
+              const now = performance.now();
+              const t = Math.max(0, Math.min(1, (now - start) / TRANSITION_DURATION_MS));
+              transitionT.value = t;
+              // console.log("transitionT", t);
+              const done = t >= 1.0;
+              if (done) {
+                curWorld = target;
+                world.packedSplats = next;
+                world.objectModifier = undefined;
+                idleBee.position.z -= renderer.xr.isPresenting ? idleBeeTranslate.value : 0;
+                world.updateGenerator();
+                console.log("Transition complete");
+
+                const nextTarget = nextWorld(targetWorld, autoDir);
+                (async () => {
+                  console.log("Prefetching next world:", WORLDS[nextTarget]);
+                  await worldCache.getFetch(WORLDS[nextTarget]);
+                  console.log("Prefetch complete");
+                })();
+              }
+              world.updateVersion();
+              return !done;
+            };
+          }
+        }
+      }
+
+      renderer.render(scene, camera);
+
+      stats.end();
+    });
+  </script>
+</body>
+
+</html>
