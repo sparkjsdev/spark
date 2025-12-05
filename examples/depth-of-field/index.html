@@ -27,9 +27,10 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { SparkRenderer, SplatMesh, SparkControls } from "@sparkjsdev/spark";
+    import { SplatLoader } from "@sparkjsdev/spark";
     import GUI from "lil-gui";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+    import { SparkControls } from "/examples/js/controls.js";
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -44,36 +45,61 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    const spark = new SparkRenderer({
-      renderer,
-      apertureAngle: 0.02,
-      focalDistance: 5.0,
-    });
-    scene.add(spark);
+    const splatLoader = new SplatLoader();
+    const splatURL = await getAssetFileURL("valley.spz");
+    const background = await splatLoader.loadAsync(splatURL);
+    background.quaternion.set(1, 0, 0, 0);
+    background.scale.setScalar(0.5);
+    scene.add(background);
 
-    const apertureSize = {
+    const depthOfFieldUniforms = {
+      // Depth-of-field distance to focal plane
+      focalDistance: { type: 'float', value: 0.0 },
+      // Full-width angle of aperture opening (in radians)
+      apertureAngle: { type: 'float', value: 0.0 },
+    };
+    background.setShaderHooks({
+      vertex: {
+        uniforms: depthOfFieldUniforms
+      },
+      onBeforeCompile: (program, renderer) => {
+        program.vertexShader = program.vertexShader.replace(/a \+= blurAmount;\n\s+d \+= blurAmount;/,
+        /*glsl*/`
+            float fullBlurAmount = blurAmount;
+            if ((focalDistance > 0.0) && (apertureAngle > 0.0)) {
+                float focusRadius = maxPixelRadius;
+                if (viewCenter.z < 0.0) {
+                    float focusBlur = abs((-viewCenter.z - focalDistance) / viewCenter.z);
+                    float apertureRadius = focal.x * tan(0.5 * apertureAngle);
+                    focusRadius = focusBlur * apertureRadius;
+                }
+                fullBlurAmount = clamp(sqr(focusRadius), blurAmount, sqr(maxPixelRadius));
+            }
+            a += fullBlurAmount;
+            d += fullBlurAmount;
+        `);
+      }
+    });
+
+    const settings = {
+      focalDistance: 5.0,
       apertureSize: 0.1,
     };
     function updateApertureAngle() {
-      if (spark.focalDistance > 0) {
-        spark.apertureAngle = 2 * Math.atan(0.5 * apertureSize.apertureSize / spark.focalDistance);
+      depthOfFieldUniforms.focalDistance.value = settings.focalDistance;
+      if (settings.focalDistance > 0) {
+        depthOfFieldUniforms.apertureAngle.value = 2 * Math.atan(0.5 * settings.apertureSize / settings.focalDistance);
       } else {
-        spark.apertureAngle = 0.0;
+        depthOfFieldUniforms.apertureAngle.value = 0.0;
       }
     }
     updateApertureAngle();
 
     const gui = new GUI({ title: "DoF settings" });
-    gui.add(spark, "focalDistance", 0, 15, 0.01).name("Focal plane dist")
+    gui.add(settings, "focalDistance", 0, 15, 0.01).name("Focal plane dist")
       .onChange(updateApertureAngle);
-    gui.add(apertureSize, "apertureSize", 0, 0.4, 0.01).name("Aperture size")
+    gui.add(settings, "apertureSize", 0, 0.4, 0.01).name("Aperture size")
       .onChange(updateApertureAngle);
-
-    const splatURL = await getAssetFileURL("valley.spz");
-    const background = new SplatMesh({ url: splatURL });
-    background.quaternion.set(1, 0, 0, 0);
-    background.scale.setScalar(0.5);
-    scene.add(background);
 
     const controls = new SparkControls({ canvas: renderer.domElement });
     renderer.setAnimationLoop(function animate(time) {

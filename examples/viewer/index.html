@@ -185,7 +185,8 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { SplatMesh, transcodeSpz, SparkControls } from "@sparkjsdev/spark";
+    import { SplatLoader, transcodeSpz } from "@sparkjsdev/spark";
+    import { SparkControls } from "/examples/js/controls.js";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
     const sparkCanvasEl = document.querySelector(".spark-canvas");
@@ -199,7 +200,8 @@
     var fileBytes;
     renderer.setSize(width, height, false);
 
-    debugger;
+    const loader = new SplatLoader();
+
     const controls = new SparkControls({ canvas: sparkCanvasEl });
     // const orbitControls = new OrbitControls(camera, renderer.domElement);
     // orbitControls.target.set(0, 0, 0);
@@ -268,21 +270,26 @@
     };
 
     async function loadSplatFile(splatFile) {
-      fileBytes = new Uint8Array(await splatFile.arrayBuffer());
+      fileBytes = await splatFile.arrayBuffer();
       fileName = splatFile.name;
-      setSplatFile({ fileBytes: fileBytes.slice(), fileName });
+      // Create copy of fileBytes to transfer to the worker
+      setSplatFile(fileBytes.slice(), fileName);
     }
 
     var loadedSplat;
-    function setSplatFile(init) {
+    async function setSplatFile(urlOrArrayBuffer, fileName) {
       if (loadedSplat) { scene.remove(loadedSplat); }
-
-      loadedSplat = new SplatMesh(init);
-      loadedSplat.quaternion.set(1, 0, 0, 0);
-      scene.add(loadedSplat);
 
       document.querySelector('.container').classList.add('hidden');
       document.querySelector('.canvas-container').classList.remove('invisible');
+
+      if (urlOrArrayBuffer instanceof ArrayBuffer) {
+        loadedSplat = await loader.parseAsync(urlOrArrayBuffer, { fileName });
+      } else {
+        loadedSplat = await loader.loadAsync(urlOrArrayBuffer);
+      }
+      loadedSplat.quaternion.set(1, 0, 0, 0);
+      scene.add(loadedSplat);
     }
 
     let params = new URLSearchParams(document.location.search);
@@ -295,7 +302,7 @@
       fileName = splatURL.split("/").pop().split("?")[0];
       document.querySelector('.container').classList.add('hidden');
       document.querySelector('.canvas-container').classList.remove('invisible');
-      setSplatFile({ url: splatURL });
+      setSplatFile(splatURL);
     }
 
     const urlFormEl = document.querySelector('.url-form');
@@ -311,7 +318,7 @@
 
     document.querySelector('.spz-button').addEventListener('click', async function () {
       const fileInfo =  {
-        fileBytes: fileBytes,
+        fileBytes: new Uint8Array(fileBytes),
         pathOrUrl: fileName,
       };
 

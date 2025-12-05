@@ -33,7 +33,7 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { SplatMesh, PackedSplats } from "@sparkjsdev/spark";
+    import { PackedSplats, SplatLoader, Splat, createPreciseRaycastMethod } from "@sparkjsdev/spark";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
     const scene = new THREE.Scene();
@@ -54,10 +54,20 @@
     // Add robots
     const NUM_ROBOTS = 5;
     const robots = [];
+    const splatLoader = new SplatLoader({ splatEncoding: PackedSplats });
     const splatURL = await getAssetFileURL("robot-head.spz");
-    const packedSplats = new PackedSplats({ url: splatURL });
+    const robotSplat = await splatLoader.loadAsync(splatURL);
     for (let i = 0; i < NUM_ROBOTS; i++) {
-      const robot = new SplatMesh({ packedSplats });
+      const robot = robotSplat.clone();
+      robot.raycastMethod = await createPreciseRaycastMethod();
+      robot.setShaderHooks({
+        vertex: {
+          uniforms: {
+            recolor: { type: 'vec3', value: new THREE.Color() }
+          },
+          splatColor: 'rgba.rgb *= recolor;'
+        }
+      })
       robot.rotation.x = Math.PI;
       robot.scale.setScalar(0.2);
       robot.position.set(0, 0, i);
@@ -81,12 +91,12 @@
       const hits = raycaster.intersectObjects(scene.children);
 
       // Find first SplatMesh
-      const index = hits.findIndex(hit => hit.object instanceof SplatMesh);
+      const index = hits.findIndex(hit => hit.object instanceof Splat);
       if (index >= 0) {
         const robot = hits[index].object;
         if (!robot.clickedTimer) {
           // Tint object and start countdown timer to remove tint
-          robot.recolor.set(1, 0.5, 0.5);
+          robot.shaderHooks.vertex.uniforms.recolor.value.set(1, 0.5, 0.5);
           robot.clickedTimer = 40;
         }
       }
@@ -105,7 +115,7 @@
           robot.clickedTimer -= 1;
           if (robot.clickedTimer == 0) {
             // Clicked timer expired, remove tint
-            robot.recolor.set(1, 1, 1);
+            robot.shaderHooks.vertex.uniforms.recolor.value.set(1, 1, 1);
           }
         }
       }
