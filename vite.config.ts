@@ -34,7 +34,8 @@ function fixWasmDataUrl(): Plugin {
 
       const s = new MagicString(code);
       for (const match of matches) {
-        const start = match.index!;
+        if (match.index === undefined) continue;
+        const start = match.index;
         const end = start + match[0].length;
         const replacement = `new URL(${match[1]})`;
         s.overwrite(start, end, replacement);
