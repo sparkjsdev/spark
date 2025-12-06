@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import MagicString from "magic-string";
 import type { Plugin } from "vite";
 import { defineConfig } from "vite";
 import dts from "vite-plugin-dts";
@@ -15,6 +16,8 @@ import glsl from "vite-plugin-glsl";
  * This plugin transforms:
  *   new URL("data:...", import.meta.url) → new URL("data:...")
  *
+ * Uses magic-string to ensure proper source map generation.
+ *
  * See: https://github.com/sparkjsdev/spark/issues/95
  */
 function fixWasmDataUrl(): Plugin {
@@ -25,8 +28,23 @@ function fixWasmDataUrl(): Plugin {
       // The data URL can contain any characters including quotes (escaped)
       const dataUrlPattern =
         /new\s+URL\(\s*("data:[^"]*")\s*,\s*import\.meta\.url\s*\)/g;
-      const result = code.replace(dataUrlPattern, "new URL($1)");
-      return result !== code ? result : null;
+
+      const matches = [...code.matchAll(dataUrlPattern)];
+      if (matches.length === 0) return null;
+
+      const s = new MagicString(code);
+      for (const match of matches) {
+        if (match.index === undefined) continue;
+        const start = match.index;
+        const end = start + match[0].length;
+        const replacement = `new URL(${match[1]})`;
+        s.overwrite(start, end, replacement);
+      }
+
+      return {
+        code: s.toString(),
+        map: s.generateMap({ hires: true }),
+      };
     },
   };
 }
