@@ -130,19 +130,124 @@ pub trait SplatReceiver: 'static {
     fn finish(&mut self) -> anyhow::Result<()> { Ok(()) }
     fn debug(&self, value: usize) { println!("debug: {}", value); }
     fn set_encoding(&mut self, encoding: &SetSplatEncoding) -> anyhow::Result<()> { Ok(()) }
+
     fn set_batch(&mut self, base: usize, count: usize, batch: &SplatProps);
+
     fn set_center(&mut self, base: usize, count: usize, center: &[f32]);
     fn set_opacity(&mut self, base: usize, count: usize, opacity: &[f32]);
     fn set_rgb(&mut self, base: usize, count: usize, rgb: &[f32]);
     fn set_rgba(&mut self, base: usize, count: usize, rgba: &[f32]);
     fn set_scale(&mut self, base: usize, count: usize, scale: &[f32]);
     fn set_quat(&mut self, base: usize, count: usize, quat: &[f32]);
+
     fn set_sh(&mut self, base: usize, count: usize, sh1: &[f32], sh2: &[f32], sh3: &[f32]) {}
     fn set_sh1(&mut self, base: usize, count: usize, sh1: &[f32]) {}
     fn set_sh2(&mut self, base: usize, count: usize, sh2: &[f32]) {}
     fn set_sh3(&mut self, base: usize, count: usize, sh3: &[f32]) {}
+
     fn set_child_count(&mut self, base: usize, count: usize, child_count: &[u16]) {}
     fn set_child_start(&mut self, base: usize, count: usize, child_start: &[usize]) {}
+}
+
+#[derive(Default)]
+pub struct SplatPropsArray {
+    pub base: usize,
+    pub count: usize,
+    pub center: Vec<f32>,
+    pub opacity: Vec<f32>,
+    pub rgb: Vec<f32>,
+    pub scale: Vec<f32>,
+    pub quat: Vec<f32>,
+    pub sh1: Vec<f32>,
+    pub sh2: Vec<f32>,
+    pub sh3: Vec<f32>,
+    pub child_count: Vec<u16>,
+    pub child_start: Vec<usize>,
+}
+
+impl SplatPropsArray {
+    pub fn new(base: usize, count: usize) -> Self {
+        Self {
+            base,
+            count,
+            center: vec![0.0; count * 3],
+            opacity: vec![0.0; count],
+            rgb: vec![0.0; count * 3],
+            scale: vec![0.0; count * 3],
+            quat: vec![0.0; count * 4],
+            sh1: vec![0.0; count * 9],
+            sh2: vec![0.0; count * 15],
+            sh3: vec![0.0; count * 21],
+            child_count: vec![0; count],
+            child_start: vec![0; count],
+        }
+    }
+
+    pub fn new_empty(base: usize, count: usize) -> Self {
+        Self {
+            base,
+            count,
+            ..Default::default()
+        }
+    }
+
+    pub fn has(&self, index: usize) -> bool {
+        index >= self.base && index < self.base + self.count
+    }
+
+    pub fn get_index(&self, index: usize) -> Option<usize> {
+        if self.has(index) {
+            Some(index - self.base)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_mut<'a>(&'a mut self) -> SplatPropsMut<'a> {
+        SplatPropsMut {
+            center: &mut self.center,
+            opacity: &mut self.opacity,
+            rgb: &mut self.rgb,
+            scale: &mut self.scale,
+            quat: &mut self.quat,
+            sh1: &mut self.sh1,
+            sh2: &mut self.sh2,
+            sh3: &mut self.sh3,
+            child_count: &mut self.child_count,
+            child_start: &mut self.child_start,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct SplatPropsMut<'a> {
+    pub center: &'a mut [f32],
+    pub opacity: &'a mut [f32],
+    pub rgb: &'a mut [f32],
+    pub scale: &'a mut [f32],
+    pub quat: &'a mut [f32],
+    pub sh1: &'a mut [f32],
+    pub sh2: &'a mut [f32],
+    pub sh3: &'a mut [f32],
+    pub child_count: &'a mut [u16],
+    pub child_start: &'a mut [usize],
+}
+
+impl<'a> Default for SplatPropsMut<'a> {
+    fn default() -> Self {
+        Self {
+            center: &mut [],
+            opacity: &mut [],
+            rgb: &mut [],
+            scale: &mut [],
+            quat: &mut [],
+            sh1: &mut [],
+            sh2: &mut [],
+            sh3: &mut [],
+            child_count: &mut [],
+            child_start: &mut [],
+        }
+    }
 }
 
 #[allow(unused)]
@@ -154,15 +259,30 @@ pub trait SplatGetter: 'static {
     fn has_lod_tree(&self) -> bool { false }
     fn get_encoding(&mut self) -> SplatEncoding { SplatEncoding::default() }
 
+    fn get_batch(&mut self, base: usize, count: usize, out: &mut SplatPropsMut) {
+        self.get_center(base, count, out.center);
+        self.get_opacity(base, count, out.opacity);
+        self.get_rgb(base, count, out.rgb);
+        self.get_scale(base, count, out.scale);
+        self.get_quat(base, count, out.quat);
+        self.get_sh1(base, count, out.sh1);
+        self.get_sh2(base, count, out.sh2);
+        self.get_sh3(base, count, out.sh3);
+        self.get_child_count(base, count, out.child_count);
+        self.get_child_start(base, count, out.child_start);
+    }
+
     // Batched property fetchers
     fn get_center(&mut self, base: usize, count: usize, out: &mut [f32]);
     fn get_opacity(&mut self, base: usize, count: usize, out: &mut [f32]);
     fn get_rgb(&mut self, base: usize, count: usize, out: &mut [f32]);
     fn get_scale(&mut self, base: usize, count: usize, out: &mut [f32]);
     fn get_quat(&mut self, base: usize, count: usize, out: &mut [f32]);
+
     fn get_sh1(&mut self, _base: usize, _count: usize, _out: &mut [f32]) {}
     fn get_sh2(&mut self, _base: usize, _count: usize, _out: &mut [f32]) {}
     fn get_sh3(&mut self, _base: usize, _count: usize, _out: &mut [f32]) {}
+
     fn get_child_count(&mut self, _base: usize, _count: usize, _out: &mut [u16]) {}
     fn get_child_start(&mut self, _base: usize, _count: usize, _out: &mut [usize]) {}
 }

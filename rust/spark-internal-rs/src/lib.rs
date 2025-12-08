@@ -18,6 +18,11 @@ mod packed_splats;
 
 mod lod_tree;
 
+#[wasm_bindgen(start)]
+pub fn wasm_start() {
+    console_error_panic_hook::set_once();
+}
+
 #[wasm_bindgen]
 pub fn simd_enabled() -> bool {
     cfg!(target_feature = "simd128")
@@ -177,7 +182,8 @@ impl GsplatArray {
     }
 
     pub fn quick_lod(&mut self, lod_base: f32, merge_filter: bool) {
-        spark_lib::quick_lod::compute_lod_tree(&mut self.inner, lod_base, merge_filter);
+        // spark_lib::quick_lod::compute_lod_tree(&mut self.inner, lod_base, merge_filter, |s| web_sys::console::log_1(&JsValue::from(s)));
+        spark_lib::quick_lod::compute_lod_tree(&mut self.inner, lod_base, merge_filter, |s| {});
     }
 
     pub fn to_packedsplats(&self) -> Result<Object, JsValue> {

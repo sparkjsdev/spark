@@ -12,7 +12,8 @@ const DEFAULT_ROTATE_INERTIA = 0.15;
 const DEFAULT_MOVE_INERTIA = 0.15;
 const DEFAULT_STICK_THRESHOLD = 0.1;
 const DEFAULT_FPS_ROTATE_SPEED = 2.0;
-const DEFAULT_POINTER_ROLL_SCALE = 1.0;
+// const DEFAULT_POINTER_ROLL_SCALE = 1.0;
+const DEFAULT_POINTER_ROLL_SCALE = 0.0;
 
 // Time limit for double-finger press (pinch etc)
 const DUAL_PRESS_MS = 200;

@@ -168,6 +168,14 @@ export interface NewSparkRendererOptions {
    * @default 1.0
    */
   behindFoveate?: number;
+  /* Full-width angle in degrees of fixed foveation cone along the view direction
+   * @default 0.0 (disables cone foveation)
+   */
+  coneFov?: number;
+  /* Foveation scale to apply at the edge of the cone
+   * @default 1.0
+   */
+  coneFoveate?: number;
   numLodFetchers?: number;
   target?: {
     /**
@@ -253,6 +261,8 @@ export class NewSparkRenderer extends THREE.Mesh {
   globalLodScale: number;
   outsideFoveate: number;
   behindFoveate: number;
+  coneFov: number;
+  coneFoveate: number;
   numLodFetchers: number;
 
   lodWorker: NewSplatWorker | null = null;
@@ -273,6 +283,7 @@ export class NewSparkRenderer extends THREE.Mesh {
     }
   > = new Map();
   lodFetchers: Promise<void>[] = [];
+  chunksToFetch: { lodId: number; chunk: number }[] = [];
   lodInserts: {
     lodId: number;
     pageBase: number;
@@ -347,6 +358,8 @@ export class NewSparkRenderer extends THREE.Mesh {
     this.globalLodScale = options.globalLodScale ?? 1.0;
     this.outsideFoveate = options.outsideFoveate ?? 1.0;
     this.behindFoveate = options.behindFoveate ?? 1.0;
+    this.coneFov = options.coneFov ?? 0.0;
+    this.coneFoveate = options.coneFoveate ?? 1.0;
     this.numLodFetchers = options.numLodFetchers ?? 4;
 
     this.clock = options.clock ? cloneClock(options.clock) : new THREE.Clock();
@@ -886,6 +899,25 @@ export class NewSparkRenderer extends THREE.Mesh {
         viewQuat.dot(this.lodQuat) < 0.999;
 
       if (this.lodDirty || viewChanged) {
+        const evict = [];
+        for (const splat of lodSplats) {
+          for (const chunk of splat.chunkEvict) {
+            const page = splat.chunkToPage.get(chunk) as number;
+            evict.push({
+              lodId: this.lodIds.get(splat)?.lodId as number,
+              pageBase: page * 65536,
+              chunkBase: chunk * 65536,
+              count: 65536,
+            });
+          }
+        }
+
+        if (evict.length > 0) {
+          console.log("evict", evict);
+          await worker.call("clearLodTrees", { ranges: evict });
+          evict.length = 0;
+        }
+
         this.lodPos.copy(viewPos);
         this.lodQuat.copy(viewQuat);
         this.lodDirty = false;
@@ -951,6 +983,8 @@ export class NewSparkRenderer extends THREE.Mesh {
             lodScale: mesh.lodScale * this.globalLodScale,
             outsideFoveate: mesh.outsideFoveate ?? this.outsideFoveate,
             behindFoveate: mesh.behindFoveate ?? this.behindFoveate,
+            coneFov: mesh.coneFov ?? this.coneFov,
+            coneFoveate: mesh.coneFoveate ?? this.coneFoveate,
           };
         }
         return instances;
@@ -963,12 +997,14 @@ export class NewSparkRenderer extends THREE.Mesh {
           lodScale: number;
           outsideFoveate: number;
           behindFoveate: number;
+          coneFov: number;
+          coneFoveate: number;
         }
       >,
     );
     // console.log("instances", instances);
 
-    const traverseStart = performance.now();
+    // const traverseStart = performance.now();
     const { keyIndices, chunks } = (await worker.call("traverseLodTrees", {
       maxSplats,
       pixelScaleLimit,
@@ -983,11 +1019,8 @@ export class NewSparkRenderer extends THREE.Mesh {
       chunks: [number, number][];
     };
     // const splatCounts = Object.keys(keyIndices).map(
-    //   (uuid) => ({ count: keyIndices[uuid].numSplats, indices: Array.from(keyIndices[uuid].indices.slice(keyIndices[uuid].numSplats - 100, keyIndices[uuid].numSplats)) }),
+    //   (uuid) => keyIndices[uuid].numSplats,
     // );
-    const splatCounts = Object.keys(keyIndices).map(
-      (uuid) => keyIndices[uuid].numSplats,
-    );
     // if (Math.random() < 0.1) {
     //   console.log(
     //     `traverseLodTrees in ${(performance.now() - traverseStart).toFixed(0)} ms, splatCounts=${JSON.stringify(splatCounts)}`,
@@ -996,76 +1029,137 @@ export class NewSparkRenderer extends THREE.Mesh {
     // }
 
     this.updateLodIndices(uuidToMesh, keyIndices);
+    // console.log("chunks.length =", chunks.length);
 
-    let availableFetchers = this.numLodFetchers - this.lodFetchers.length;
-    if (availableFetchers > 0) {
-      for (const [lodId, chunk] of chunks) {
-        const splats = this.lodIdToSplats.get(lodId) as PackedSplats;
-        if (!splats.paged) {
-          continue;
-        }
+    const splatStats = new Map();
 
-        let page = splats.chunkToPage.get(chunk);
-        if (page !== undefined) {
-          splats.chunkToPage.delete(chunk);
-          splats.chunkToPage.set(chunk, page);
-          continue;
-        }
+    // Update chunk LRU ordering. Touch in reverse order so first chunk is MRU.
+    for (let i = chunks.length - 1; i >= 0; --i) {
+      const [lodId, chunk] = chunks[i];
+      const splats = this.lodIdToSplats.get(lodId);
+      if (!splats || !splats.paged) {
+        continue;
+      }
 
-        page = splats.allocTexturePage();
-        if (page === undefined) {
-          continue;
-        }
+      const page = splats.chunkToPage.get(chunk);
+      if (page !== undefined) {
+        // Update LRU ordering
+        splats.chunkToPage.delete(chunk);
+        splats.chunkToPage.set(chunk, page);
+      }
+    }
 
-        const promise = (async () => {
-          const start = performance.now();
-          const url = (splats.paged?.url ?? "").replace(
-            /-lod-0\./,
-            `-lod-${chunk}.`,
-          );
-          const decoded = await workerPool.withWorker(async (worker) => {
-            const decoded = (await worker.call("loadSplats", {
-              url,
-              requestHeader: splats.paged?.requestHeader,
-              withCredentials: splats.paged?.withCredentials,
-            })) as {
-              lodSplats: {
-                numSplats: number;
-                packedArray: Uint32Array;
-                extra: Record<string, unknown>;
-              };
-            };
-            return decoded.lodSplats;
-          });
+    this.chunksToFetch = [];
 
-          console.log(`Uploading chunk ${chunk} to page ${page}`);
-          splats.uploadTexturePage(this.renderer, decoded.packedArray, page);
-          splats.chunkToPage.set(chunk, page);
-          console.log("chunkToPage", splats.chunkToPage);
-          this.lodInserts.push({
-            lodId,
-            pageBase: page * 65536,
-            chunkBase: chunk * 65536,
-            count: decoded.numSplats,
-            lodTreeData: decoded.extra.lodTree as Uint32Array,
-          });
-          this.lodDirty = true;
-          console.log(
-            "Fetched LOD chunk",
-            chunk,
-            decoded.numSplats,
-            performance.now() - start,
-          );
-          this.lodFetchers = this.lodFetchers.filter((p) => p !== promise);
-        })();
-        this.lodFetchers.push(promise);
+    for (const [lodId, chunk] of chunks) {
+      const splats = this.lodIdToSplats.get(lodId);
+      if (!splats || !splats.paged) {
+        continue;
+      }
 
-        availableFetchers -= 1;
-        if (availableFetchers === 0) {
-          break;
+      let stats = splatStats.get(splats);
+      if (!stats) {
+        const maxPages = Math.ceil(splats.maxSplats / 65536);
+        // const buffer = Math.max(1, Math.min(16, Math.round(0.1 * maxPages)));
+        const buffer = 0;
+        const pageLimit = maxPages - buffer;
+        const pages = 0;
+        splats.chunkEvict = [];
+        stats = { pageLimit, pages };
+        splatStats.set(splats, stats);
+      }
+      stats.pages += 1;
+
+      const page = splats.chunkToPage.get(chunk);
+      if (page === undefined) {
+        this.chunksToFetch.push({ lodId, chunk });
+      } else if (page !== null) {
+        if (stats.pages > stats.pageLimit) {
+          splats.chunkEvict.push(chunk);
         }
       }
     }
+
+    this.driveLodFetchers();
+  }
+
+  private driveLodFetchers() {
+    if (this.lodFetchers.length >= this.numLodFetchers) {
+      return;
+    }
+
+    this.chunksToFetch = this.chunksToFetch.filter(({ lodId, chunk }) => {
+      if (this.lodFetchers.length >= this.numLodFetchers) {
+        return true;
+      }
+
+      const splats = this.lodIdToSplats.get(lodId);
+      if (!splats || !splats.paged) {
+        return false;
+      }
+
+      const page = splats.allocTexturePage();
+      if (page === undefined) {
+        // Out of free pages, skip for now
+        return true;
+      }
+
+      const promise = this.fetchLodChunk(lodId, splats, chunk, page).then(
+        () => {
+          this.lodFetchers = this.lodFetchers.filter((p) => p !== promise);
+        },
+      );
+      this.lodFetchers.push(promise);
+
+      promise.then(() => this.driveLodFetchers());
+      return false;
+    });
+  }
+
+  private async fetchLodChunk(
+    lodId: number,
+    splats: PackedSplats,
+    chunk: number,
+    page: number,
+  ) {
+    // Mark the chunk as "in progress" by setting to null
+    splats.chunkToPage.set(chunk, null);
+
+    const start = performance.now();
+    const url = (splats.paged?.url ?? "").replace(/-lod-0\./, `-lod-${chunk}.`);
+    const decoded = await workerPool.withWorker(async (worker) => {
+      const decoded = (await worker.call("loadSplats", {
+        url,
+        requestHeader: splats.paged?.requestHeader,
+        withCredentials: splats.paged?.withCredentials,
+      })) as {
+        lodSplats: {
+          numSplats: number;
+          packedArray: Uint32Array;
+          extra: Record<string, unknown>;
+        };
+      };
+      return decoded.lodSplats;
+    });
+
+    // console.log(`Uploading chunk ${chunk} to page ${page}`);
+    splats.uploadTexturePage(this.renderer, decoded.packedArray, page);
+    splats.chunkToPage.set(chunk, page);
+    // console.log("chunkToPage.size", splats.chunkToPage.size);
+    this.lodInserts.push({
+      lodId,
+      pageBase: page * 65536,
+      chunkBase: chunk * 65536,
+      count: decoded.numSplats,
+      lodTreeData: decoded.extra.lodTree as Uint32Array,
+    });
+    this.lodDirty = true;
+    console.log(
+      "Fetched LOD chunk",
+      chunk,
+      decoded.numSplats,
+      performance.now() - start,
+    );
   }
 
   private async cleanupLodTrees(worker: NewSplatWorker) {

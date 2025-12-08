@@ -121,6 +121,25 @@ export class SplatSkinning {
     this.boneData[i16 + 15] = 0;
   }
 
+  getRestQuatPos(
+    boneIndex: number,
+    quat: THREE.Quaternion,
+    pos: THREE.Vector3,
+  ) {
+    const i16 = boneIndex * 16;
+    quat.set(
+      this.boneData[i16 + 0],
+      this.boneData[i16 + 1],
+      this.boneData[i16 + 2],
+      this.boneData[i16 + 3],
+    );
+    pos.set(
+      this.boneData[i16 + 4],
+      this.boneData[i16 + 5],
+      this.boneData[i16 + 6],
+    );
+  }
+
   // Set the "current" position and orientation of a bone.
   setBoneQuatPos(
     boneIndex: number,

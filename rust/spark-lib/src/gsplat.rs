@@ -25,6 +25,7 @@ pub struct GsplatExtra {
     pub level: i16,
     pub covariance: SymMat3,
     pub children: SmallVec<[usize; 8]>,
+    pub parent: usize,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -187,6 +188,51 @@ impl Gsplat {
     pub fn grid(&self, step_size: f32) -> I64Vec3 {
         (self.center / step_size).floor().as_i64vec3()
     }
+
+    pub fn distance(&self, other: &Gsplat) -> f32 {
+        self.center.distance(other.center)
+    }
+
+    pub fn similarity_metric(&self, extra: &GsplatExtra, other: &Gsplat, other_extra: &GsplatExtra) -> f32 {
+        let (color, other_color) = (self.rgb(), other.rgb());
+        let color_delta2 = (color[0] - other_color[0]).powi(2) +
+            (color[1] - other_color[1]).powi(2) +
+            (color[2] - other_color[2]).powi(2);
+        self.bhattacharyya_coeff(extra, other, other_extra) * (-color_delta2).exp()
+    }
+
+    pub fn bhattacharyya_coeff(&self, extra: &GsplatExtra, other: &Gsplat, other_extra: &GsplatExtra) -> f32 {
+        (-self.bhattacharyya_distance(extra, other, other_extra)).exp()
+    }
+
+    pub fn bhattacharyya_distance(&self, extra: &GsplatExtra, other: &Gsplat, other_extra: &GsplatExtra) -> f32 {
+        // Compute the average covariance
+        let sigma = SymMat3::new_average(&extra.covariance, &other_extra.covariance);
+        let Some(inv) = sigma.inverse() else {
+            return f32::INFINITY;
+        };
+
+        // First term: (1/8) * diff^T * Sigma_inv * diff for symmetric 3x3 stored as [xx, yy, zz, xy, xz, yz]
+        let dx = other.center.x - self.center.x;
+        let dy = other.center.y - self.center.y;
+        let dz = other.center.z - self.center.z;
+        let quad = inv.xx() * dx * dx
+            + inv.yy() * dy * dy
+            + inv.zz() * dz * dz
+            + 2.0 * inv.xy() * dx * dy
+            + 2.0 * inv.xz() * dx * dz
+            + 2.0 * inv.yz() * dy * dz;
+        let term1_val = 0.125 * quad;
+
+        // Second term: (1/2) * ln(det(Sigma) / sqrt(det(Sigma_A)*det(Sigma_B)))
+        let det_sigma = sigma.determinant();
+        let det_a = extra.covariance.determinant();
+        let det_b = other_extra.covariance.determinant();
+        let term2 = 0.5 * (det_sigma / (det_a * det_b).sqrt()).ln();
+
+        // Bhattacharyya distance
+        term1_val + term2
+    }
 }
 
 impl GsplatExtra {
@@ -196,6 +242,7 @@ impl GsplatExtra {
             level: 0,
             covariance,
             children,
+            parent: usize::MAX,
         }
     }
 
@@ -255,6 +302,10 @@ impl GsplatArray {
     }
 
     pub fn compute_extras(&mut self) {
+        if self.extras.len() < self.splats.len() {
+            self.extras.reserve(self.splats.len() - self.extras.len());
+        }
+
         while self.extras.len() < self.splats.len() {
             let splat = &self.splats[self.extras.len()];
             self.extras.push(GsplatExtra::new_from_gsplat(splat));
@@ -347,6 +398,10 @@ impl GsplatArray {
         let opacity = (total_weight / ellipsoid_area(scales)).min(1000.0);
         let children: SmallVec<[usize; 8]> = indices.iter().copied().collect();
 
+        for &index in indices.iter() {
+            self.extras[index].parent = new_index;
+        }
+
         self.splats.push(Gsplat::new(center, opacity, rgb, scales, quaternion));
         self.extras.push(GsplatExtra::new(total_weight, total_cov, children));
 
@@ -392,8 +447,30 @@ impl GsplatArray {
         new_index
     }
 
-    pub fn retain<F: (Fn(&Gsplat) -> bool)>(&mut self, f: F) {
-        let keep: Vec<bool> = self.splats.iter().map(|splat| f(splat)).collect();
+    pub fn retain<F: (FnMut(&mut Gsplat) -> bool)>(&mut self, mut f: F) {
+        let keep: Vec<bool> = self.splats.iter_mut().map(|splat| f(splat)).collect();
+        let mut bits = keep.iter();
+        self.splats.retain(|_splat| *bits.next().unwrap());
+        if !self.extras.is_empty() {
+            let mut bits = keep.iter();
+            self.extras.retain(|_extra| *bits.next().unwrap());
+        }
+        if !self.sh1.is_empty() {
+            let mut bits = keep.iter();
+            self.sh1.retain(|_sh1| *bits.next().unwrap());
+        }
+        if !self.sh2.is_empty() {
+            let mut bits = keep.iter();
+            self.sh2.retain(|_sh2| *bits.next().unwrap());
+        }
+        if !self.sh3.is_empty() {
+            let mut bits = keep.iter();
+            self.sh3.retain(|_sh3| *bits.next().unwrap());
+        }
+    }
+
+    pub fn retain_extra<F: (FnMut(&mut Gsplat, &mut GsplatExtra) -> bool)>(&mut self, mut f: F) {
+        let keep: Vec<bool> = self.splats.iter_mut().zip(self.extras.iter_mut()).map(|(splat, extra)| f(splat, extra)).collect();
         let mut bits = keep.iter();
         self.splats.retain(|_splat| *bits.next().unwrap());
         if !self.extras.is_empty() {
@@ -429,6 +506,33 @@ impl GsplatArray {
         }
         if !self.sh3.is_empty() {
             apply_swaps(&mut self.sh3, &swaps);
+        }
+    }
+
+    pub fn new_from_index_map(&mut self, index_map: &[usize]) -> Self {
+        Self {
+            max_sh_degree: self.max_sh_degree,
+            splats: index_map.iter().map(|&i| self.splats[i].clone()).collect(),
+            extras: if !self.extras.is_empty() {
+                index_map.iter().map(|&i| self.extras[i].clone()).collect()
+            } else {
+                Vec::new()
+            },
+            sh1: if !self.sh1.is_empty() {
+                index_map.iter().map(|&i| self.sh1[i].clone()).collect()
+            } else {
+                Vec::new()
+            },
+            sh2: if !self.sh2.is_empty() {
+                index_map.iter().map(|&i| self.sh2[i].clone()).collect()
+            } else {
+                Vec::new()
+            },
+            sh3: if !self.sh3.is_empty() {
+                index_map.iter().map(|&i| self.sh3[i].clone()).collect()
+            } else {
+                Vec::new()
+            },
         }
     }
 

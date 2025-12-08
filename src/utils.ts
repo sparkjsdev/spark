@@ -189,22 +189,37 @@ export class DataCache {
   // Function to fetch data for a key
   asyncFetch: (key: string) => Promise<unknown>;
 
+  // Function to dispose of data when it is no longer needed
+  dispose?: (data: unknown) => void;
+
   // Array of cached items
   items: { key: string; data: unknown }[];
+
+  // In-progress fetch promises
+  pending: Map<string, Promise<unknown>>;
 
   // Create a DataCache with a given function that fetches data not in the cache.
   constructor({
     asyncFetch,
+    dispose,
     maxItems = 5,
-  }: { asyncFetch: (key: string) => Promise<unknown>; maxItems?: number }) {
+  }: {
+    asyncFetch: (key: string) => Promise<unknown>;
+    dispose?: (data: unknown) => void;
+    maxItems?: number;
+  }) {
     this.asyncFetch = asyncFetch;
+    this.dispose = dispose;
     this.maxItems = maxItems;
     this.items = [];
+    this.pending = new Map();
   }
 
-  // Fetch data for the key, returning cached data if available.
-  async getFetch(key: string): Promise<unknown> {
-    // Fetches data for a key and caches it, returns cached data if available.
+  has(key: string): boolean {
+    return this.items.some((item) => item.key === key);
+  }
+
+  getImmediate(key: string): unknown | undefined {
     const index = this.items.findIndex((item) => item.key === key);
     if (index >= 0) {
       // Data exists in our cache, move it to the end of the array
@@ -213,17 +228,38 @@ export class DataCache {
       // Return the cached data
       return item.data;
     }
+    return undefined;
+  }
 
-    // Fetch the data from the asyncFetch function
-    const data = await this.asyncFetch(key);
-    // Add the data to the cache
-    this.items.push({ key, data });
-    // If the cache is too large, remove the oldest accessed item
-    while (this.items.length > this.maxItems) {
-      this.items.shift();
+  // Fetch data for the key, returning cached data if available.
+  async getFetch(key: string): Promise<unknown> {
+    const immediate = this.getImmediate(key);
+    if (immediate !== undefined) {
+      return immediate;
     }
-    // Return the fetched data
-    return data;
+
+    let pending = this.pending.get(key);
+    if (pending) {
+      return pending;
+    }
+
+    pending = this.asyncFetch(key).then((data) => {
+      this.pending.delete(key);
+
+      // Add the data to the cache
+      this.items.push({ key, data });
+      // If the cache is too large, remove the oldest accessed item
+      while (this.items.length > this.maxItems) {
+        const removed = this.items.shift();
+        if (removed && this.dispose) {
+          this.dispose(removed.data);
+        }
+      }
+      // Return the fetched data
+      return data;
+    });
+    this.pending.set(key, pending);
+    return pending;
   }
 }
 

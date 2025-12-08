@@ -8,10 +8,13 @@ use crate::gsplat::*;
 
 const CHUNK_LEVELS: i16 = 2;
 
-pub fn compute_lod_tree(splats: &mut GsplatArray, lod_base: f32, merge_filter: bool) {
+pub fn compute_lod_tree(splats: &mut GsplatArray, lod_base: f32, merge_filter: bool, logger: impl Fn(&str)) {
+    logger(&format!("compute_lod_tree: splats.len={}, lod_base={}, merge_filter={}", splats.len(), lod_base, merge_filter));
+
     splats.retain(|splat| {
         (splat.opacity() > 0.0) && (splat.max_scale() > 0.0)
     });
+    logger(&format!("Removed empty splats, splats.len={}", splats.len()));
 
     splats.sort_by(|splat| splat.feature_size());
     splats.compute_extras();
@@ -25,8 +28,8 @@ pub fn compute_lod_tree(splats: &mut GsplatArray, lod_base: f32, merge_filter: b
         level_min_max = [min.min(extra.level), max.max(extra.level)];
     }
     let [level_min, level_max] = level_min_max;
-    println!("level_min: {}, level_max: {}", level_min, level_max);
-    println!("level_counts: {:?}", level_counts);
+    logger(&format!("level_min: {}, level_max: {}", level_min, level_max));
+    logger(&format!("level_counts: {:?}", level_counts.into_iter().collect::<Vec<_>>().sort_by_key(|(level, _)| *level)));
 
     let mut level = level_min;
     let initial_splats = splats.splats.len();
@@ -49,7 +52,7 @@ pub fn compute_lod_tree(splats: &mut GsplatArray, lod_base: f32, merge_filter: b
             cells.entry(grid.to_array()).or_default().push(frontier);
             frontier += 1;
         }
-        println!("Level: {}, step: {}, frontier: {} / {}", level, step, frontier, initial_splats);
+        logger(&format!("Level: {}, step: {}, frontier: {} / {}", level, step, frontier, initial_splats));
 
         // for index in 0..frontier {
         //     let splat = &splats.splats[index];
@@ -98,7 +101,7 @@ pub fn compute_lod_tree(splats: &mut GsplatArray, lod_base: f32, merge_filter: b
                 merged_count += 1;
             }
         }
-        println!("Merged: {} / {}", merged_count, cells.len());
+        logger(&format!("Merged: {} / {}", merged_count, cells.len()));
         // let mut cell_counts: Vec<_> = cell_counts.into_iter().collect();
         // cell_counts.sort_by_key(|(len, _)| *len);
         // println!("Cell counts: {:?}", cell_counts);
@@ -172,13 +175,13 @@ pub fn compute_lod_tree(splats: &mut GsplatArray, lod_base: f32, merge_filter: b
     } else {
         unreachable!()
     };
-    println!("Root index: {}", root_index);
+    logger(&format!("Root index: {}", root_index));
 
     let mut indices = Vec::new();
     let mut frontier: VecDeque<(usize, SmallVec<[usize; 8]>)> = VecDeque::from([(usize::MAX, smallvec![root_index])]);
 
     while !frontier.is_empty() {
-        println!("Chunking from level={}, # frontier={}", level, frontier.len());
+        logger(&format!("Chunking from level={}, # frontier={}", level, frontier.len()));
         let mut remaining = VecDeque::new();
         std::mem::swap(&mut frontier, &mut remaining);
 
@@ -212,10 +215,10 @@ pub fn compute_lod_tree(splats: &mut GsplatArray, lod_base: f32, merge_filter: b
 
         level -= CHUNK_LEVELS;
     }
-    println!("# chunks={}", indices.len() / 65536);
+    logger(&format!("# chunks={}", indices.len() / 65536));
 
-    println!("Orig root: {:?}", splats.splats[root_index]);
-    println!("indices.len(): {}", indices.len());
+    logger(&format!("Orig root: {:?}", splats.splats[root_index]));
+    logger(&format!("indices.len(): {}", indices.len()));
     splats.permute(&indices);
 
     for splat in splats.splats.iter_mut() {
@@ -226,7 +229,7 @@ pub fn compute_lod_tree(splats: &mut GsplatArray, lod_base: f32, merge_filter: b
         }
     }
 
-    println!("New root: {:?}", splats.splats[0]);
+    logger(&format!("New root: {:?}", splats.splats[0]));
     
     // fn print_splat_children(splats: &GsplatArray, index: usize, depth: usize) {
     //     if depth > 3 {

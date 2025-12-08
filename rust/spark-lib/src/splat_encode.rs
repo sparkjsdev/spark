@@ -3,11 +3,6 @@ use std::array;
 use half::f16;
 use crate::decoder::SplatEncoding;
 
-pub const SPLAT_PAGED_WIDTH_BITS: usize = 12;
-pub const SPLAT_PAGED_HEIGHT_BITS: usize = 12;
-pub const SPLAT_PAGED_WIDTH: usize = 1 << SPLAT_PAGED_WIDTH_BITS;
-pub const SPLAT_PAGED_HEIGHT: usize = 1 << SPLAT_PAGED_HEIGHT_BITS;
-
 pub const SPLAT_TEX_WIDTH_BITS: usize = 11;
 pub const SPLAT_TEX_HEIGHT_BITS: usize = 11;
 pub const SPLAT_TEX_DEPTH_BITS: usize = 11;
@@ -24,11 +19,9 @@ pub const SPLAT_TEX_HEIGHT_MASK: usize = SPLAT_TEX_HEIGHT - 1;
 pub const SPLAT_TEX_DEPTH_MASK: usize = SPLAT_TEX_DEPTH - 1;
 
 pub fn get_splat_tex_size(num_splats: usize) -> (usize, usize, usize, usize) {
-    // Make sure the size is both a multiple of 2048 and 4096 for paged splats.
-    let alt_num_splats = num_splats.div_ceil(SPLAT_PAGED_WIDTH) * SPLAT_PAGED_WIDTH;
     let width = SPLAT_TEX_WIDTH;
-    let height = alt_num_splats.div_ceil(SPLAT_TEX_WIDTH).clamp(SPLAT_TEX_MIN_HEIGHT, SPLAT_TEX_HEIGHT);
-    let depth = alt_num_splats.div_ceil(SPLAT_TEX_LAYER_SIZE).max(1);
+    let height = num_splats.div_ceil(SPLAT_TEX_WIDTH).clamp(SPLAT_TEX_MIN_HEIGHT, SPLAT_TEX_HEIGHT);
+    let depth = num_splats.div_ceil(SPLAT_TEX_LAYER_SIZE).max(1);
     let max_splats = width * height * depth;
     (width, height, depth, max_splats)
 }
