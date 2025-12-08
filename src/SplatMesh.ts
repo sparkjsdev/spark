@@ -78,6 +78,8 @@ export type SplatMeshOptions = {
   onLoad?: (mesh: SplatMesh) => Promise<void> | void;
   // Controls whether SplatEdits have any effect on this mesh. (default: true)
   editable?: boolean;
+  // Controls whether SplatMesh participates in Three.js raycasting (default: true)
+  raycastable?: boolean;
   // Callback function that is called every frame to update the mesh.
   // Call mesh.updateVersion() if splats need to be regenerated due to some change.
   // Calling updateVersion() is not necessary for object transformations, recoloring,
@@ -104,7 +106,7 @@ export type SplatMeshOptions = {
   // the selected LoD level base. (default: undefined=false)
   lod?: boolean | number;
   // Keep the original PackedSplats data before creating LoD version. (default: false)
-  nonLod?: boolean;
+  nonLod?: boolean | "wait";
   // Force enable/disable LoD (default: enabled iff packedSplats.lodSplats is not null)
   enableLod?: boolean;
   // LoD scale to apply @default 1.0
@@ -115,6 +117,12 @@ export type SplatMeshOptions = {
   // Foveation scale to apply behind viewer
   // (default: 1.0)
   behindFoveate?: number;
+  // Full-width angle in degrees of fixed foveation cone along the view direction. 0.0=disable
+  // (default: 0.0)
+  coneFov?: number;
+  // Foveation scale to apply at the edge of the cone
+  // (default: 1.0)
+  coneFoveate?: number;
 };
 
 export type SplatMeshContext = {
@@ -181,6 +189,7 @@ export class SplatMesh extends SplatGenerator {
   // children in the scene graph will be added automatically. (default: null)
   edits: SplatEdit[] | null = null;
   editable: boolean;
+  raycastable: boolean;
   // Compiled SplatEdits for applying SDF edits to splat RGBA + centers
   private rgbaDisplaceEdits: SplatEdits | null = null;
   // Optional RgbaArray to overwrite splat RGBA values with custom values.
@@ -195,6 +204,8 @@ export class SplatMesh extends SplatGenerator {
   lodScale: number;
   outsideFoveate?: number;
   behindFoveate?: number;
+  coneFov?: number;
+  coneFoveate?: number;
 
   constructor(options: SplatMeshOptions = {}) {
     const context = {
@@ -226,6 +237,7 @@ export class SplatMesh extends SplatGenerator {
     };
     this.numSplats = this.packedSplats.numSplats;
     this.editable = options.editable ?? true;
+    this.raycastable = options.raycastable ?? true;
     this.onFrame = options.onFrame;
 
     this.context = context;
@@ -236,6 +248,8 @@ export class SplatMesh extends SplatGenerator {
     this.lodScale = options.lodScale ?? 1.0;
     this.outsideFoveate = options.outsideFoveate;
     this.behindFoveate = options.behindFoveate;
+    this.coneFov = options.coneFov;
+    this.coneFoveate = options.coneFoveate;
 
     this.updateGenerator();
 
@@ -672,7 +686,11 @@ export class SplatMesh extends SplatGenerator {
       object: THREE.Object3D;
     }[],
   ) {
-    if (!this.packedSplats.packedArray || !this.packedSplats.numSplats) {
+    if (
+      !this.raycastable ||
+      !this.packedSplats.packedArray ||
+      !this.packedSplats.numSplats
+    ) {
       return;
     }
 

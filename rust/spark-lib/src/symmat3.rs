@@ -102,54 +102,54 @@ impl SymMat3 {
         self.1 = other.1.mul_add(Vec2::splat(weight), self.1);
     }
 
-    // fn new_average(a: &Self, b: &Self) -> Self {
-    //     Self(
-    //         a.0.mul_add(Vec4::splat(0.5), b.0 * 0.5),
-    //         a.1.mul_add(Vec2::splat(0.5), b.1 * 0.5),
-    //     )
-    // }
+    pub fn new_average(a: &Self, b: &Self) -> Self {
+        Self(
+            a.0.mul_add(Vec4::splat(0.5), b.0 * 0.5),
+            a.1.mul_add(Vec2::splat(0.5), b.1 * 0.5),
+        )
+    }
 
-    // fn determinant(&self) -> f32 {
-    //     let m00 = self.0.x;
-    //     let m11 = self.0.y;
-    //     let m22 = self.0.z;
-    //     let m01 = self.0.w;
-    //     let m02 = self.1.x;
-    //     let m12 = self.1.y;
+    pub fn determinant(&self) -> f32 {
+        let m00 = self.0.x;
+        let m11 = self.0.y;
+        let m22 = self.0.z;
+        let m01 = self.0.w;
+        let m02 = self.1.x;
+        let m12 = self.1.y;
 
-    //     m00 * (m11 * m22 - m12 * m12) -
-    //     m01 * (m01 * m22 - m12 * m02) +
-    //     m02 * (m01 * m12 - m11 * m02)
-    // }
+        m00 * (m11 * m22 - m12 * m12) -
+        m01 * (m01 * m22 - m12 * m02) +
+        m02 * (m01 * m12 - m11 * m02)
+    }
 
-    // fn inverse(&self) -> Option<Self> {
-    //     let m00 = self.0.x;
-    //     let m11 = self.0.y;
-    //     let m22 = self.0.z;
-    //     let m01 = self.0.w;
-    //     let m02 = self.1.x;
-    //     let m12 = self.1.y;
+    pub fn inverse(&self) -> Option<Self> {
+        let m00 = self.0.x;
+        let m11 = self.0.y;
+        let m22 = self.0.z;
+        let m01 = self.0.w;
+        let m02 = self.1.x;
+        let m12 = self.1.y;
 
-    //     let det = self.determinant();
-    //     // Use a relative tolerance based on matrix scale (diagonal magnitudes)
-    //     let diag_max = self.0[0].abs().max(self.0[1].abs()).max(self.0[2].abs());
-    //     let rel_tol = 1e-9_f32 * (diag_max * diag_max * diag_max).max(1e-30_f32);
-    //     if det.abs() < rel_tol {
-    //         // println!("Matrix: {:?}", self);
-    //         // panic!("Matrix is singular or too close to singular");
-    //         return None;
-    //     }
-    //     let inv_det = 1.0 / det;
+        let det = self.determinant();
+        // Use a relative tolerance based on matrix scale (diagonal magnitudes)
+        let diag_max = self.0[0].abs().max(self.0[1].abs()).max(self.0[2].abs());
+        let rel_tol = 1e-9_f32 * (diag_max * diag_max * diag_max).max(1e-30_f32);
+        if det.abs() < rel_tol {
+            // println!("Matrix: {:?}", self);
+            // panic!("Matrix is singular or too close to singular");
+            return None;
+        }
+        let inv_det = 1.0 / det;
         
-    //     let inv_xx = (m11 * m22 - m12 * m12) * inv_det;
-    //     let inv_yy = (m00 * m22 - m02 * m02) * inv_det;
-    //     let inv_zz = (m00 * m11 - m01 * m01) * inv_det;
-    //     let inv_xy = (m02 * m12 - m01 * m22) * inv_det;
-    //     let inv_xz = (m01 * m12 - m02 * m11) * inv_det;
-    //     let inv_yz = (m01 * m02 - m00 * m12) * inv_det;
+        let inv_xx = (m11 * m22 - m12 * m12) * inv_det;
+        let inv_yy = (m00 * m22 - m02 * m02) * inv_det;
+        let inv_zz = (m00 * m11 - m01 * m01) * inv_det;
+        let inv_xy = (m02 * m12 - m01 * m22) * inv_det;
+        let inv_xz = (m01 * m12 - m02 * m11) * inv_det;
+        let inv_yz = (m01 * m02 - m00 * m12) * inv_det;
         
-    //     Some(Self(Vec4::from_array([inv_xx, inv_yy, inv_zz, inv_xy]), Vec2::from_array([inv_xz, inv_yz])))
-    // }
+        Some(Self(Vec4::from_array([inv_xx, inv_yy, inv_zz, inv_xy]), Vec2::from_array([inv_xz, inv_yz])))
+    }
 
     pub fn eigens(&self) -> ([f32; 3], [Vec3A; 3]) {
         const MAX_ITERS: usize = 32;

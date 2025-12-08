@@ -42,6 +42,8 @@ export interface SparkXrOptions {
   // Callback function called when exiting XR
   // Default is undefined - no callback
   onExitXr?: () => void | Promise<void>;
+  // ztroller movement and rotation options
+  controllers?: SparkXrControllers;
 }
 
 export interface SparkXrButton {
@@ -62,6 +64,51 @@ export interface SparkXrButton {
   exitStyle?: CSSStyleDeclaration;
   zIndex?: number;
 }
+
+export type XrGamepads = { left?: Gamepad; right?: Gamepad };
+
+export interface SparkXrControllers {
+  moveSpeed?: number;
+  rotateSpeed?: number;
+  rollSpeed?: number;
+  fastMultiplier?: number;
+  slowMultiplier?: number;
+  moveHeading?: boolean;
+  getMove?: (gamepads: XrGamepads, sparkXr: SparkXr) => THREE.Vector3;
+  getRotate?: (gamepads: XrGamepads, sparkXr: SparkXr) => THREE.Vector3;
+  getFast?: (gamepads: XrGamepads, sparkXr: SparkXr) => boolean;
+  getSlow?: (gamepads: XrGamepads, sparkXr: SparkXr) => boolean;
+}
+
+export const DEFAULT_CONTROLLER_MOVE_SPEED = 1.0;
+export const DEFAULT_CONTROLLER_ROTATE_SPEED = 4.0;
+export const DEFAULT_CONTROLLER_ROLL_SPEED = 2.0;
+export const DEFAULT_CONTROLLER_FAST_MULTIPLIER = 5;
+export const DEFAULT_CONTROLLER_SLOW_MULTIPLIER = 1 / 5;
+export const DEFAULT_CONTROLLER_MOVE_HEADING = false;
+
+export const DEFAULT_CONTROLLER_GETMOVE = (
+  gamepads: XrGamepads,
+  sparkXr: SparkXr,
+) =>
+  new THREE.Vector3(
+    gamepads.left?.axes[2] ?? 0,
+    (gamepads.left?.buttons[0].value ?? 0) -
+      (gamepads.left?.buttons[1].value ?? 0),
+    gamepads.left?.axes[3] ?? 0,
+  );
+export const DEFAULT_CONTROLLER_GETROTATE = (
+  gamepads: XrGamepads,
+  sparkXr: SparkXr,
+) => new THREE.Vector3(gamepads.right?.axes[2] ?? 0, 0, 0);
+export const DEFAULT_CONTROLLER_GETFAST = (
+  gamepads: XrGamepads,
+  sparkXr: SparkXr,
+) => gamepads.right?.buttons[0]?.pressed ?? false;
+export const DEFAULT_CONTROLLER_GETSLOW = (
+  gamepads: XrGamepads,
+  sparkXr: SparkXr,
+) => gamepads.right?.buttons[1]?.pressed ?? false;
 
 export enum JointEnum {
   w = "wrist",
@@ -184,6 +231,11 @@ function isLikelyMobilePhone() {
     return false;
   }
 
+  const androidMobile = /Android/i.test(ua) || /Mobile/i.test(ua);
+  if (androidMobile) {
+    return true;
+  }
+
   const uaData = (
     navigator as Navigator & {
       userAgentData?: { mobile?: boolean };
@@ -193,7 +245,7 @@ function isLikelyMobilePhone() {
     return uaData.mobile;
   }
 
-  return /Android/i.test(ua) && /Mobile/i.test(ua);
+  return false;
 }
 
 export type Joint = {
@@ -215,6 +267,9 @@ export class SparkXr {
   onEnterXr?: () => void;
   onExitXr?: () => void;
 
+  controllers?: SparkXrControllers;
+  lastControllersUpdate = 0;
+
   enableHands: boolean;
   hands: XrHand[] = [];
 
@@ -225,6 +280,7 @@ export class SparkXr {
     this.onEnterXr = options.onEnterXr;
     this.onExitXr = options.onExitXr;
     this.enableHands = options.enableHands ?? false;
+    this.controllers = options.controllers;
 
     Promise.resolve()
       .then(() => {
@@ -489,6 +545,82 @@ export class SparkXr {
 
   right() {
     return this.hands[1];
+  }
+
+  updateControllers(camera: THREE.Camera) {
+    const cameraFrame = camera.parent as THREE.Group;
+
+    const now = performance.now();
+    const deltaTime = (now - (this.lastControllersUpdate || now)) / 1000;
+    this.lastControllersUpdate = now;
+
+    const xrGamepads: XrGamepads = {};
+    for (const source of this.renderer.xr.getSession()?.inputSources ?? []) {
+      const gamepad = source.gamepad;
+      if (
+        gamepad &&
+        (source.handedness === "left" || source.handedness === "right")
+      ) {
+        xrGamepads[source.handedness] = gamepad;
+      }
+    }
+
+    const rotate = (
+      this.controllers?.getRotate ?? DEFAULT_CONTROLLER_GETROTATE
+    )(xrGamepads, this);
+    rotate.multiply(
+      new THREE.Vector3(
+        this.controllers?.rotateSpeed ?? DEFAULT_CONTROLLER_ROTATE_SPEED,
+        this.controllers?.rotateSpeed ?? DEFAULT_CONTROLLER_ROTATE_SPEED,
+        this.controllers?.rollSpeed ?? DEFAULT_CONTROLLER_ROLL_SPEED,
+      ),
+    );
+
+    if (rotate.manhattanLength() > 0.0) {
+      rotate.multiplyScalar(deltaTime);
+      const eulers = new THREE.Euler(-rotate.y, -rotate.x, rotate.z, "YXZ");
+      const quat = new THREE.Quaternion().setFromEuler(eulers);
+
+      const pivot = camera.getWorldPosition(new THREE.Vector3());
+      cameraFrame.parent?.worldToLocal(pivot);
+
+      cameraFrame.position.sub(pivot);
+      cameraFrame.position.applyQuaternion(quat);
+      cameraFrame.position.add(pivot);
+      cameraFrame.quaternion.premultiply(quat);
+    }
+
+    const move = (this.controllers?.getMove ?? DEFAULT_CONTROLLER_GETMOVE)(
+      xrGamepads,
+      this,
+    );
+
+    let moveSpeed =
+      this.controllers?.moveSpeed ?? DEFAULT_CONTROLLER_MOVE_SPEED;
+    if (
+      (this.controllers?.getFast ?? DEFAULT_CONTROLLER_GETFAST)(
+        xrGamepads,
+        this,
+      )
+    ) {
+      moveSpeed *= DEFAULT_CONTROLLER_FAST_MULTIPLIER;
+    }
+    if (
+      (this.controllers?.getSlow ?? DEFAULT_CONTROLLER_GETSLOW)(
+        xrGamepads,
+        this,
+      )
+    ) {
+      moveSpeed *= DEFAULT_CONTROLLER_SLOW_MULTIPLIER;
+    }
+
+    if (this.controllers?.moveHeading) {
+      move.applyQuaternion(camera.quaternion);
+    }
+    move.applyQuaternion(cameraFrame.quaternion);
+
+    move.multiplyScalar(deltaTime * moveSpeed);
+    cameraFrame.position.add(move);
   }
 
   updateHands({ xrFrame }: { xrFrame: XRFrame }) {

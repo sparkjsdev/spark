@@ -10,6 +10,7 @@ import init_wasm, {
   quick_lod_packedsplats,
   insert_lod_trees,
   clear_lod_trees,
+  traverse_bones,
 } from "spark-internal-rs";
 import type { SplatEncoding } from "./PackedSplats";
 
@@ -107,7 +108,7 @@ async function decodeBytesUrl({
     const response = await fetch(request);
     if (!response.ok || !response.body) {
       throw new Error(
-        `Failed to fetch: ${response.status} ${response.statusText}`,
+        `Failed to fetch "${url}": ${response.status} ${response.statusText}`,
       );
     }
     const reader = response.body.getReader();
@@ -138,10 +139,10 @@ async function decodeBytesUrl({
 type DecodedResult = {
   numSplats: number;
   packed: Uint32Array;
-  sh1: Uint32Array;
-  sh2: Uint32Array;
-  sh3: Uint32Array;
-  lodTree: Uint32Array;
+  sh1?: Uint32Array;
+  sh2?: Uint32Array;
+  sh3?: Uint32Array;
+  lodTree?: Uint32Array;
   splatEncoding: SplatEncoding;
 };
 
@@ -154,10 +155,21 @@ function toPackedResult(packed: DecodedResult) {
       sh2: packed.sh2,
       sh3: packed.sh3,
       lodTree: packed.lodTree,
+      boneWeights: undefined as Uint16Array | undefined,
     },
     splatEncoding: packed.splatEncoding,
   };
 }
+
+type LoadSplatsResult = { lodSplats?: ReturnType<typeof toPackedResult> } & (
+  | ReturnType<typeof toPackedResult>
+  | Record<never, never>
+) & {
+    boneSplats?: ReturnType<typeof toPackedResult> & {
+      childCounts: Uint32Array;
+      childStarts: Uint32Array;
+    };
+  };
 
 async function loadSplats(
   {
@@ -171,6 +183,9 @@ async function loadSplats(
     lodBase,
     encoding,
     nonLod,
+    maxBoneSplats,
+    computeBoneWeights,
+    minBoneOpacity,
   }: {
     url?: string;
     requestHeader?: Record<string, string>;
@@ -181,18 +196,107 @@ async function loadSplats(
     lod?: boolean;
     lodBase?: number;
     encoding?: unknown;
-    nonLod?: boolean;
+    nonLod?: boolean | "wait";
+    maxBoneSplats?: number;
+    computeBoneWeights?: boolean;
+    minBoneOpacity?: number;
   },
   {
     sendStatus,
   }: {
     sendStatus: (data: unknown) => void;
   },
-) {
-  // console.log(
-  //   `Called loadSplats with lod=${lod}, lodBase=${lodBase}, encoding=${encoding}, nonLod=${nonLod}`,
-  // );
+): Promise<LoadSplatsResult> {
+  const options = {
+    url,
+    requestHeader,
+    withCredentials,
+    fileBytes,
+    fileType,
+    pathName,
+    lod,
+    lodBase,
+    nonLod,
+  };
+  const result = await loadSplatsInternal(options, { sendStatus });
 
+  if (maxBoneSplats && result.lodSplats && result.lodSplats.extra.lodTree) {
+    const { numSplats, packedArray } = result as ReturnType<
+      typeof toPackedResult
+    >;
+    const {
+      numSplats: numLodSplats,
+      packedArray: lodPackedArray,
+      extra: lodExtra,
+      splatEncoding: lodSplatEncoding,
+    } = result.lodSplats;
+
+    console.log("Running traverse_bones", numLodSplats, maxBoneSplats);
+    const bones = traverse_bones(
+      numLodSplats,
+      lodPackedArray,
+      lodExtra,
+      maxBoneSplats,
+      numSplats ?? 0,
+      packedArray,
+      computeBoneWeights ?? false,
+      minBoneOpacity ?? 0,
+    ) as {
+      numSplats: number;
+      packed: Uint32Array;
+      splatEncoding: SplatEncoding;
+      childCounts: Uint32Array;
+      childStarts: Uint32Array;
+      boneWeights?: Uint16Array;
+      lodBoneWeights?: Uint16Array;
+    };
+    console.log("traverse_bones", bones);
+
+    if (bones.boneWeights && bones.boneWeights.length > 0) {
+      (result as ReturnType<typeof toPackedResult>).extra.boneWeights =
+        bones.boneWeights;
+    }
+    if (bones.lodBoneWeights && bones.lodBoneWeights.length > 0) {
+      result.lodSplats.extra.boneWeights = bones.lodBoneWeights;
+    }
+
+    (result as LoadSplatsResult).boneSplats = {
+      ...toPackedResult(bones),
+      childCounts: bones.childCounts,
+      childStarts: bones.childStarts,
+    };
+  }
+  return result;
+}
+
+async function loadSplatsInternal(
+  {
+    url,
+    requestHeader,
+    withCredentials,
+    fileBytes,
+    fileType,
+    pathName,
+    lod,
+    lodBase,
+    nonLod,
+  }: {
+    url?: string;
+    requestHeader?: Record<string, string>;
+    withCredentials?: string;
+    fileBytes?: Uint8Array;
+    fileType?: string;
+    pathName?: string;
+    lod?: boolean;
+    lodBase?: number;
+    nonLod?: boolean | "wait";
+  },
+  {
+    sendStatus,
+  }: {
+    sendStatus: (data: unknown) => void;
+  },
+): Promise<LoadSplatsResult> {
   if (!lod) {
     const decoder = decode_to_packedsplats(fileType, pathName ?? url);
     const decoded = await decodeBytesUrl({
@@ -226,23 +330,34 @@ async function loadSplats(
     };
   }
 
-  if (nonLod) {
-    const packed = decoded.to_packedsplats();
+  const packed = decoded.to_packedsplats();
+  let result:
+    | (ReturnType<typeof toPackedResult> & {
+        lodSplats?: ReturnType<typeof toPackedResult>;
+      })
+    | { lodSplats?: ReturnType<typeof toPackedResult> } = {};
+
+  if (nonLod === true) {
     sendStatus({ orig: toPackedResult(packed as DecodedResult) });
+  } else if (nonLod === "wait") {
+    // Wait until LoD computation is complete before resolving full PackedSplats result
+    result = toPackedResult(packed as DecodedResult);
   }
 
   const initialSplats = decoded.len();
   const base = Math.max(1.1, Math.min(2.0, lodBase ?? 1.5));
+
   const lodStart = performance.now();
-  decoded.quick_lod(base, true);
+  decoded.quick_lod(base, false);
   const lodDuration = performance.now() - lodStart;
+
   console.log(
     `Quick LoD: ${initialSplats} -> ${decoded.len()} (${lodDuration} ms)`,
   );
 
   const lodPacked = decoded.to_packedsplats_lod();
-
-  return { lodSplats: toPackedResult(lodPacked as DecodedResult) };
+  result.lodSplats = toPackedResult(lodPacked as DecodedResult);
+  return result;
 }
 
 async function quickLod({
@@ -305,7 +420,6 @@ function insertLodTrees({
     lodTreeData: Uint32Array;
   }[];
 }) {
-  console.log("insertLodTrees", ranges);
   const lodIds = new Uint32Array(ranges.map(({ lodId }) => lodId));
   const pageBases = new Uint32Array(ranges.map(({ pageBase }) => pageBase));
   const chunkBases = new Uint32Array(ranges.map(({ chunkBase }) => chunkBase));
@@ -319,7 +433,6 @@ function insertLodTrees({
     counts,
     lodTreeData,
   ) as Record<number, Uint32Array>;
-  console.log("=> done insertLodTrees", lodIdToChunkToPages);
   return lodIdToChunkToPages;
 }
 
@@ -365,6 +478,8 @@ function traverseLodTrees({
       lodScale: number;
       outsideFoveate: number;
       behindFoveate: number;
+      coneFov: number;
+      coneFoveate: number;
     }
   >;
 }) {
@@ -389,6 +504,12 @@ function traverseLodTrees({
   const behindFoveates = new Float32Array(
     keyInstances.map(([_key, instance]) => instance.behindFoveate),
   );
+  const coneFovs = new Float32Array(
+    keyInstances.map(([_key, instance]) => instance.coneFov),
+  );
+  const coneFoveates = new Float32Array(
+    keyInstances.map(([_key, instance]) => instance.coneFoveate),
+  );
 
   // console.log(`traverseLodTrees: maxSplats=${maxSplats}, pixelScaleLimit=${pixelScaleLimit}, fovXdegrees=${fovXdegrees}, fovYdegrees=${fovYdegrees}, outsideFoveate=${outsideFoveate}, behindFoveate=${behindFoveate}, lodIds=${lodIds.length}, viewToObjects=${viewToObjects.length}`);
   const { instanceIndices, chunks } = traverse_lod_trees(
@@ -401,6 +522,8 @@ function traverseLodTrees({
     lodScales,
     outsideFoveates,
     behindFoveates,
+    coneFovs,
+    coneFoveates,
   ) as {
     instanceIndices: {
       lodId: number;

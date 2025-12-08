@@ -114,16 +114,15 @@ export const defineGsplat = unindent(`
   }
 `);
 
-// flagsFlatLodOpacity:
+// flagsPagedLodOpacity:
 // - 0x1: paged
 // - 0x2: lod opacity
 export const definePackedSplats = unindent(`
   struct PackedSplats {
     usampler2DArray textureArray;
-    usampler2D texture;
     int numSplats;
     vec4 rgbMinMaxLnScaleMinMax;
-    int flagsFlatLodOpacity;
+    int flagsPagedLodOpacity;
   };
 `);
 
@@ -154,10 +153,10 @@ const defineReadPackedArray = unindent(`
   }
 `);
 
-const defineReadPackedFlat = unindent(`
-  bool readPackedFlat(usampler2D texture, int numSplats, vec4 rgbMinMaxLnScaleMinMax, int index, out Gsplat gsplat) {
+const defineReadPackedPaged = unindent(`
+  bool readPackedPaged(usampler2DArray texture, int numSplats, vec4 rgbMinMaxLnScaleMinMax, int index, out Gsplat gsplat) {
     if ((index >= 0) && (index < numSplats)) {
-      ivec2 coord = ivec2(index & 4095, index >> 12);
+      ivec3 coord = ivec3(index & 255, (index >> 8) & 255, index >> 16);
       uvec4 packed = texelFetch(texture, coord, 0);
       unpackSplatEncoding(packed, gsplat.center, gsplat.scales, gsplat.quaternion, gsplat.rgba, rgbMinMaxLnScaleMinMax);
       return true;
@@ -186,7 +185,7 @@ export class ReadPackedSplat
         defineGsplat,
         definePackedSplats,
         defineReadPackedArray,
-        defineReadPackedFlat,
+        defineReadPackedPaged,
       ],
       statements: ({ inputs, outputs }) => {
         const { gsplat } = outputs;
@@ -198,9 +197,9 @@ export class ReadPackedSplat
         if (packedSplats && index) {
           statements = unindentLines(`
             ${gsplat}.flags = 0u;
-            if ((${packedSplats}.flagsFlatLodOpacity & 0x1) != 0) {
-              if (readPackedFlat(${packedSplats}.texture, ${packedSplats}.numSplats, ${packedSplats}.rgbMinMaxLnScaleMinMax, ${index}, ${gsplat})) {
-                if ((${packedSplats}.flagsFlatLodOpacity & 0x2) != 0) {
+            if ((${packedSplats}.flagsPagedLodOpacity & 0x1) != 0) {
+              if (readPackedPaged(${packedSplats}.textureArray, ${packedSplats}.numSplats, ${packedSplats}.rgbMinMaxLnScaleMinMax, ${index}, ${gsplat})) {
+                if ((${packedSplats}.flagsPagedLodOpacity & 0x2) != 0) {
                   ${gsplat}.rgba.a = 2.0 * ${gsplat}.rgba.a;
                 }
                 bool zeroSize = all(equal(${gsplat}.scales, vec3(0.0, 0.0, 0.0)));
@@ -208,7 +207,7 @@ export class ReadPackedSplat
               }
             } else {
               if (readPackedArray(${packedSplats}.textureArray, ${packedSplats}.numSplats, ${packedSplats}.rgbMinMaxLnScaleMinMax, ${index}, ${gsplat})) {
-                if ((${packedSplats}.flagsFlatLodOpacity & 0x2) != 0) {
+                if ((${packedSplats}.flagsPagedLodOpacity & 0x2) != 0) {
                   ${gsplat}.rgba.a = 2.0 * ${gsplat}.rgba.a;
                 }
                 bool zeroSize = all(equal(${gsplat}.scales, vec3(0.0, 0.0, 0.0)));
@@ -266,7 +265,7 @@ export class ReadPackedSplatRange
         defineGsplat,
         definePackedSplats,
         defineReadPackedArray,
-        defineReadPackedFlat,
+        defineReadPackedPaged,
       ],
       statements: ({ inputs, outputs }) => {
         const { gsplat } = outputs;
@@ -278,9 +277,9 @@ export class ReadPackedSplatRange
         if (packedSplats && index && base && count) {
           statements = unindentLines(`
             ${gsplat}.flags = 0u;
-            if ((${packedSplats}.flagsFlatLodOpacity & 0x1) != 0) {
-              if (readPackedFlat(${packedSplats}.texture, ${packedSplats}.numSplats, ${packedSplats}.rgbMinMaxLnScaleMinMax, ${index}, ${gsplat})) {
-                if ((${packedSplats}.flagsFlatLodOpacity & 0x2) != 0) {
+            if ((${packedSplats}.flagsPagedLodOpacity & 0x1) != 0) {
+              if (readPackedPaged(${packedSplats}.textureArray, ${packedSplats}.numSplats, ${packedSplats}.rgbMinMaxLnScaleMinMax, ${index}, ${gsplat})) {
+                if ((${packedSplats}.flagsPagedLodOpacity & 0x2) != 0) {
                   ${gsplat}.rgba.a = 2.0 * ${gsplat}.rgba.a;
                 }
                 bool zeroSize = all(equal(${gsplat}.scales, vec3(0.0, 0.0, 0.0)));
@@ -288,7 +287,7 @@ export class ReadPackedSplatRange
               }
             } else {
               if (readPackedArray(${packedSplats}.textureArray, ${packedSplats}.numSplats, ${packedSplats}.rgbMinMaxLnScaleMinMax, ${index}, ${gsplat})) {
-                if ((${packedSplats}.flagsFlatLodOpacity & 0x2) != 0) {
+                if ((${packedSplats}.flagsPagedLodOpacity & 0x2) != 0) {
                   ${gsplat}.rgba.a = 2.0 * ${gsplat}.rgba.a;
                 }
                 bool zeroSize = all(equal(${gsplat}.scales, vec3(0.0, 0.0, 0.0)));

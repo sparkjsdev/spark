@@ -9,6 +9,9 @@
     body {
       margin: 0;
     }
+    canvas {
+      touch-action: none;
+    }
   </style>
 </head>
 
@@ -16,23 +19,141 @@
   <script type="importmap">
     {
       "imports": {
-        "three": "/examples/js/vendor/three/build/three.module.js",
+        "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.180.0/three.module.js",
+        "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.20.0/+esm",
         "@sparkjsdev/spark": "/dist/spark.module.js"
       }
     }
   </script>
+  <script src="https://cdn.jsdelivr.net/npm/stats.js@0.17.0/build/stats.min.js"></script>
   <script type="module">
     import * as THREE from "three";
-    import { SparkRenderer, SplatMesh, SplatEdit, SplatEditRgbaBlendMode, SplatEditSdf, SplatEditSdfType, VRButton, XrHands } from "@sparkjsdev/spark";
-    import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+    import { NewSparkRenderer, PackedSplats, SplatMesh, SplatEdit, SplatEditRgbaBlendMode, SplatEditSdf, SplatEditSdfType, SparkControls, SparkXr, textSplats, SplatSkinning } from "@sparkjsdev/spark";
+    // import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+    import GUI from "lil-gui";
+    // import initBurnGesture, { HandGestureClassifier } from "./pkg/burn_gesture.js";
+    // import RAPIER from "https://cdn.skypack.dev/@dimforge/rapier3d-compat";
+
+    const RENDER_TIMEOUT_MS = 120 * 1000;
+    const XR_INPUT = {
+      useAimSpace: true,
+      stickThreshold: 0.1,
+      stickMinOpacity: 0.1,
+      stickOpacityRangeMultiplier: 5,
+      triggerActivation: 0.5,
+      triggerResetThreshold: 0.1,
+      stickSmoothing: 6.0,
+      stickRange: 2.0,
+      stickResetMs: 500,
+      directionBasis: {
+        preview: "controller",
+        teleport: "controller",
+      },
+      snapTurn: {
+        enabled: true,
+        maxDegrees: 45,
+        threshold: 0.1,
+      },
+      triggerDirectionalMode: true, // true => trigger + stick axis controls snap turn or locomotion
+    };
+
+    const stats = new Stats();
+    document.body.appendChild(stats.dom);
+
+    // await initBurnGesture();
+    // const gestureClassifier = new HandGestureClassifier();
+    // console.log("gestureClassifier", gestureClassifier);
+
+    // await RAPIER.init();
+    // console.log("RAPIER initialized");
+
+    // const data = await fetch("/capture_20251121_003125.json").then((response) => response.json());
+    // const data = await fetch("/capture_20251121_003448.json").then((response) => response.json());
+    // console.log("data", data);
+    // for (const snapshot of data) {
+    //   if (snapshot.hands[0]) {
+    //     const hand = XrHand.newFromSnapshot(SparkXr.Hand.left, snapshot.hands[0]);
+    //     const array = hand.toFlatArray();
+    //     const probs = gestureClassifier.predict_probs(array);
+    //     const cl = gestureClassifier.predict(array);
+    //     // console.log("Left probs:", cl, probs);
+    //   }
+    //   if (snapshot.hands[1]) {
+    //     const hand = XrHand.newFromSnapshot(SparkXr.Hand.right, snapshot.hands[1]);
+    //     const array = hand.toFlatArray();
+    //     const probs = gestureClassifier.predict_probs(array);
+    //     const cl = gestureClassifier.predict(array);
+    //     console.log("Right probs:", cl, probs);
+    //   }
+    // }
+    // console.log("Done");
+
+    // const URL_BASE = ".";
+    const URL_BASE = "https://storage.googleapis.com/forge-dev-public/asundqui/hobbitverse";
+
+    // const UNIVERSE_URL = "./universe.json";
+    // const universe = await fetch(UNIVERSE_URL).then((response) => response.json()).catch(() => ({}));
+    const universe = {
+      // "cozy_cottage": {
+      //   "url": "../lod/cozy_cottage-lod-0.spz",
+      //   "position": [0, -1, 0],
+      //   "quaternion": [0, 0, 0, 1],
+      // },
+      // "cozy_ship": {
+      //   "url": "../lod/cozy_ship-lod-0.spz",
+      //   "position": [0, -8, 0],
+      //   "quaternion": [0, 0, 0, 1],
+      // },
+      "hobbiton5": {
+        "url": `${URL_BASE}/Hobbiton5-lod-0.spz`,
+        "position": [0, 0, 0],
+        "quaternion": [1, 0, 0, 0],
+      },
+      "toad": {
+        "url": `${URL_BASE}/toad-lod.spz`,
+        // "position": [4, 0, -1.5],
+        // "quaternion": [1, 0, 0, 0],
+        "position": [0.5725474387367916,-0.5078618461254829,-6.010018709628705],
+        // "quaternion": [0.00369239160875215,0.991726932692277,-0.029313744194850087,0.12491902024213399],
+        "quaternion": [0.15645282834721824,-0.04146967440804525,0.9867925564627197,0.00657488527784835],
+      },
+      "turkey": {
+        "url": `${URL_BASE}/turkey-lod.spz`,
+        "position": [-4.462805577234763,-0.30321350004495659,-7.792976287661906],
+        "quaternion": [-0.443958268524857,-0.050133086580300315,0.8942976756110581,-0.02488768440417606],
+      },
+      "butterfly": {
+        "url": `${URL_BASE}/butterfly-ai-lod.spz`,
+        // "position": [4, 0, -0.5],
+        // "quaternion": [1, 0, 0, 0],
+        "position": [-0.9836462197504537,-0.2845185012733539,-24.644897758757953],
+        // "quaternion": [-0.040984003785188565,-0.25715196950178787,-0.010916389904014001,0.965439800529557],
+        "quaternion": [-0.28968658389767193,-0.00646881131936965,0.9570976983098036,-0.0019579274470059634],
+      },
+      "snowbot": {
+        "url": `${URL_BASE}/snowbot-lod.spz`,
+        "position": [10.007435110070176,-0.36677329781066834,-10.678563326021761],
+        "quaternion": [0.9047756617124982,0.060176222293330445,0.39891279333979945,-0.13648592437703339],
+      },
+    };
+
+    console.log("universe", universe);
 
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    scene.background = new THREE.Color(0, 0, 0);
+    const camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.1, 1000);
     const renderer = new THREE.WebGLRenderer();
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
 
-    window.addEventListener('resize', onWindowResize, false);
+    window.THREE = THREE;
+    window.scene = scene;
+    window.renderer = renderer;
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.1));
+    scene.add(new THREE.DirectionalLight(0xffffff, 1.0));
+
+    window.addEventListener("resize", onWindowResize, false);
     function onWindowResize() {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
@@ -42,98 +163,647 @@
     // Make a local frame of reference that we can move to control
     // the camera, or as a frame of reference in WebXR mode
     const localFrame = new THREE.Group();
+    // localFrame.position.set(0, 0.25, 1);
     scene.add(localFrame);
 
     // Lower the splat rendering width to sqrt(5) std devs for more performance
-    const spark = new SparkRenderer({ renderer, maxStdDev: Math.sqrt(5) });
-    localFrame.add(spark);
+    const spark = new NewSparkRenderer({
+      renderer,
+      maxStdDev: Math.sqrt(4),
+      // maxStdDev: 1.0,
+      lodSplatScale: 0.5,
+      // lodSplatCount: 500000 * 0.5,
+      // outsideFoveate: 0.35,
+      behindFoveate: 0.1,
+      coneFov: 150.0,
+      coneFoveate: 0.3,
+    });
+    scene.add(spark);
     localFrame.add(camera);
 
-    const splatURL = await getAssetFileURL("valley.spz");
-    const background = new SplatMesh({ url: splatURL });
-    background.quaternion.set(1, 0, 0, 0);
-    background.scale.setScalar(0.5);
-    scene.add(background);
+    let renderEnabled = true;
+    let lastMoved = 0;
+    let lastPos = new THREE.Vector3().setScalar(Number.NEGATIVE_INFINITY);
+    let lastDir = new THREE.Vector3();
 
-    const vrButton = VRButton.createButton(renderer, {
-      optionalFeatures: ["hand-tracking"],
-    });
-    let xrHands = null;
-    if (vrButton) {
-        // WebXR is available, so show the button
-        document.body.appendChild(vrButton);
+    // // const splatURL = await getAssetFileURL("valley.spz");
+    // const splatURL = "./cozy_cottage-lod.spz";
+    // const background = new SplatMesh({
+    //   url: splatURL,
+    //   onLoad: () => {
+    //     if (!renderEnabled) {
+    //       console.log("Render enabled by onLoad");
+    //     }
+    //     renderEnabled = true;
+    //     lastMoved = performance.now();
+    //   }
+    // });
+    // // background.quaternion.set(1, 0, 0, 0);
+    // // background.position.set(0, 0, -1);
+    // background.position.set(0, -1, 0);
+    // // background.scale.setScalar(0.5);
+    // scene.add(background);
 
-        xrHands = new XrHands();
-        const handMesh = xrHands.makeGhostMesh();
-        handMesh.editable = false;
-        localFrame.add(handMesh);
-    }
+    let animations = [];
 
-    // Create a layer of color edits to apply to editable splats
-    const edit = new SplatEdit({
-      rgbaBlendMode: SplatEditRgbaBlendMode.ADD_RGBA,
-      sdfSmooth: 0.02,
-      softEdge: 0.02,
-    });
-    localFrame.add(edit);
-    const sdfs = new Map();
+    async function loadUniverse() {
+      for (const key of Object.keys(universe)) {
+        const { url, position, quaternion, scale, opacity } = universe[key];
+        const absoluteURL = new URL(url, window.location.href).href;
+        const isCharacter = key.startsWith("toad") || key.startsWith("butterfly") || key.startsWith("turkey") || key.startsWith("snowbot");
+        // const isCharacter = true;
 
-    let lastCameraPos = new THREE.Vector3(0, 0, 0);
+        const packedSplats = new PackedSplats({
+          url: absoluteURL,
+          lod: true,
+          maxBoneSplats: isCharacter ? 32 : 256,
+          computeBoneWeights: isCharacter,
+          minBoneOpacity: 0.5,
+          maxSplats: isCharacter ? undefined : (65536 * 512),
+        });
+        await packedSplats.initialized;
+        console.log("Loaded PackedSplats", key, packedSplats);
 
-    renderer.setAnimationLoop(function animate(time, xrFrame) {
-      // This is a hack to make a "local" frame work reliably across
-      // Quest 3 and Vision Pro. Any big discontinuity in the camera
-      // results in a reverse shift of the local frame to compensate.
-      if (lastCameraPos.distanceTo(camera.position) > 0.5) {
-        localFrame.position.copy(camera.position).multiplyScalar(-1);
-      }
-      lastCameraPos.copy(camera.position);
+        const bones = new SplatMesh({ packedSplats: packedSplats.boneSplats });
+        bones.position.fromArray(position ?? [0, 0, 0]);
+        bones.quaternion.fromArray(quaternion ?? [0, 0, 0, 1]);
+        bones.scale.setScalar(scale ?? 1);
+        // scene.add(bones);
+        // console.log("ADDED BONES", bones);
+        // bones.forEachSplat((index, center, scales, quaternion, opacity, color) => {
+        //   // console.log(`BONE ${index}:`, "center", center, "scales", scales, "quaternion", quaternion, "opacity", opacity, "color", color);
+        //   bones.packedSplats.setSplat(index, center, scales, quaternion, 1, color);
+        // });
 
-      if (xrHands) {
-        // Updates the xrHands object with coordinates
-        // and also updates ghost mesh
-        xrHands.update({ xr: renderer.xr, xrFrame });
+        const mesh = new SplatMesh({ packedSplats });
+        mesh.position.fromArray(position ?? [0, 0, 0]);
+        mesh.quaternion.fromArray(quaternion ?? [0, 0, 0, 1]);
+        mesh.scale.setScalar(scale ?? 1);
+        const meshOpacity = opacity ?? 1.0;
 
-        // Create interactor SDFs for each hand tip
-        for (const hand of ["left", "right"]) {
-          for (const [index, tip] of ["t3", "i4", "m4", "r4", "p4"].entries()) {
-            // Make a sphere SDF for each hand tip with different colors
-            const key = `${hand}-${tip}`;
-            if (!sdfs.has(key)) {
-              const sdf = new SplatEditSdf({
-                type: SplatEditSdfType.SPHERE,
-                radius: 0.03,
-                color: new THREE.Color(
-                  (index % 5 < 3) ? 1 : 0,
-                  (index % 5 % 2),
-                  ((index % 5) > 1) ? 1 : 0
-                ),
-                opacity: 0,
-              });
-              sdfs.set(key, sdf);
-            }
+        mesh.opacity = 0;
+        scene.add(mesh);
 
-            const sdf = sdfs.get(key);
-            // Make each SDF wobble in different directions
-            sdf.displace.set(
-              0.01 * Math.sin(time * 0.007 + index * 1),
-              0.01 * Math.sin(time * 0.002 + index * 2),
-              0.01 * Math.sin(time * 0.009 + index * 3),
-            );
+        animations.push({
+          start: performance.now(),
+          animate: (elapsedMs) => {
+            const t = (elapsedMs - 1000) / 1500;
+            mesh.opacity = meshOpacity * Math.pow(Math.max(0, Math.min(1, t)), 2);
+            return t < 1;
+          },
+          dispose: () => {
+            mesh.opacity = meshOpacity;
+          },
+        });
 
-            if (xrHands.hands[hand] && xrHands.hands[hand][tip]) {
-              // Make the SDF follow the hand tips
-              sdf.position.copy(xrHands.hands[hand][tip].position);
-              edit.add(sdf);
-            } else {
-              // Remove the SDF when the hand is not detected
-              edit.remove(sdf);
-            }
-          }
+        // bones.forEachSplat((index, center, scales, quaternion, opacity, color) => {
+        //   // Add an ellipsoid at the bone's center
+        //   const ellipsoid = new THREE.Mesh(
+        //     new THREE.SphereGeometry(1, 8, 8),
+        //     new THREE.MeshStandardMaterial({ color: new THREE.Color(color.x, color.y, color.z) }),
+        //   );
+        //   ellipsoid.position.copy(center);
+        //   const multiplier = isCharacter ? 1.5 : 2.0;
+        //   ellipsoid.scale.set(scales.x, scales.y, scales.z).multiplyScalar(multiplier * Math.max(1, opacity * 4 - 3));
+        //   // ellipsoid.scale.set(scales.x, scales.y, scales.z);
+        //   ellipsoid.quaternion.copy(quaternion);
+        //   // ellipsoid.material.opacity = 0.1;
+        //   // ellipsoid.material.transparent = true;
+        //   mesh.add(ellipsoid);
+        // });
+
+        if (isCharacter) {
+          const skinning = new SplatSkinning({
+            mesh,
+            numSplats: mesh.packedSplats.lodSplats.numSplats,
+            numBones: mesh.packedSplats.boneSplats.numSplats,
+          });
+          skinning.skinData.set(mesh.packedSplats.lodSplats.extra.boneWeights);
+
+          mesh.packedSplats.boneSplats.forEachSplat((index, center, scales, quaternion, opacity, color) => {
+            skinning.setRestQuatPos(index, quaternion, center);
+          });
+          mesh.skinning = skinning;
+
+          mesh.onFrame = ({ mesh, time, deltaTime }) => {
+            mesh.packedSplats.boneSplats.forEachSplat((index, center, scales, quaternion, opacity, color) => {
+              skinning.getRestQuatPos(index, quaternion, center);
+
+              const avgScale = (scales.x + scales.y + scales.z) / 3;
+              // const avgScale = 1.0;
+              // const delta = Math.sin(time) * 1;
+              // if (Math.random() < 0.01) {
+              //   console.log("DELTA", delta, avgScale);
+              // }
+              center.x += Math.sin(time) * 0.15 * 1/Math.log(avgScale);
+              // quaternion.x += Math.sin(time) * 0.1;
+              // quaternion.normalize();
+              // const rotate = new THREE.Quaternion()
+              //   .setFromAxisAngle(new THREE.Vector3(1, 1, 0).normalize(), time);
+              // quaternion.multiply(rotate);
+              skinning.setBoneQuatPos(index, quaternion, center);
+              // bones.packedSplats.setSplat(index, center, scales, quaternion, opacity, color);
+            });
+            // bones.packedSplats.needsUpdate = true;
+            // bones.packedSplats.source.needsUpdate = true;
+            skinning.updateBones();
+          };
+        } else {
+          
         }
       }
+    }
 
-      renderer.render(scene, camera);
+    loadUniverse();
+
+    // setTimeout(() => {
+    //   const agent = navigator.userAgent;
+    //   alert("AGENT: '" + agent + "'");
+    // }, 5000);
+
+    // const vrButton = VRButton.createButton(renderer, {
+    //   // optionalFeatures: ["hand-tracking"],
+    // });
+    // let xrHands = null;
+    // if (vrButton) {
+    //     // WebXR is available, so show the button
+    //     document.body.appendChild(vrButton);
+
+    //     // xrHands = new XrHands();
+    //     // const handMesh = xrHands.makeGhostMesh();
+    //     // handMesh.editable = false;
+    //     // localFrame.add(handMesh);
+    // }
+
+    // let toad = null;
+    // let butterfly = null;
+    let grapple = null;
+    const snapshots = [];
+
+    const xr = new SparkXr({
+      renderer,
+      onMouseLeaveOpacity: 0.5,
+      onReady: async (supported) => {
+        console.log(`SparkXr ready: ${supported ? "supported" : "not supported"}`);
+        if (supported) {
+          // toad = new PackedSplats({ url: "./toad-lod.spz" });
+          // await toad.initialized;
+          // butterfly = new PackedSplats({ url: "./butterfly-ai-lod.spz" });
+          // await butterfly.initialized;
+          // console.log("Loaded toad and butterfly");
+          // grapple = new PackedSplats({ url: "./grapple-lod.spz" });
+        }
+      },
+      onEnterXr: () => {
+        console.log("Enter XR");
+      },
+      onExitXr: () => {
+        console.log("Exit XR");
+        if (snapshots.length > 0) {
+          const body = JSON.stringify(snapshots);
+          snapshots.length = 0;
+          fetch("/capture", { method: "POST", body });
+        }
+      },
+      enableHands: true,
+      controllers: {
+        moveHeading: true,
+        // getRotate: (gamepads) => {
+        //   return new THREE.Vector3(
+        //     gamepads.right?.axes[2] ?? 0,
+        //     gamepads.right?.axes[3] ?? 0,
+        //     0,
+        //   )
+        // },
+      },
+    });
+
+    localFrame.add(xr.makeJointSplats(SparkXr.Hand.left));
+    localFrame.add(xr.makeJointSplats(SparkXr.Hand.right));
+
+    // Create a layer of color edits to apply to editable splats
+    // const edit = new SplatEdit({
+    //   rgbaBlendMode: SplatEditRgbaBlendMode.ADD_RGBA,
+    //   sdfSmooth: 0.02,
+    //   softEdge: 0.02,
+    // });
+    // localFrame.add(edit);
+    // const sdfs = new Map();
+
+
+    // let lastCameraPos = new THREE.Vector3(0, 0, 0);
+
+    const controllerMeshes = [null, null];
+    const controllerOffsetLocked = [false, false];
+    const controllerUnlockTimeouts = [null, null];
+    const controllerSnapActive = [false, false];
+    const controllerOffset = new THREE.Vector3();
+    const tempCameraPos = new THREE.Vector3();
+    const tempCameraQuat = new THREE.Quaternion();
+    const tempControllerQuat = new THREE.Quaternion();
+    const tempMeshPos = new THREE.Vector3();
+    const tempForward = new THREE.Vector3();
+    const tempRight = new THREE.Vector3();
+    const tempControllerPos = new THREE.Vector3();
+    const controllerForwardBasis = new THREE.Vector3();
+    const controllerRightBasis = new THREE.Vector3();
+    const tempPreviewWorld = new THREE.Vector3();
+    const tempUp = new THREE.Vector3(0, 1, 0);
+    const controllerSmoothing = [new THREE.Vector3(), new THREE.Vector3()];
+    const cameraBasis = { forward: tempForward, right: tempRight };
+    const controllerBasis = {
+      forward: controllerForwardBasis,
+      right: controllerRightBasis,
+    };
+    const curveAxis = (value) => Math.sign(value) * value * value;
+    const getBasisVectors = (mode, controller) => {
+      if (mode === "controller" && controller) {
+        controller.getWorldQuaternion(tempControllerQuat);
+        controllerBasis.forward.set(0, 0, -1).applyQuaternion(tempControllerQuat).normalize();
+        controllerBasis.right.set(1, 0, 0).applyQuaternion(tempControllerQuat).normalize();
+        return controllerBasis;
+      }
+      return cameraBasis;
+    };
+    const degreesToRadians = (deg) => (deg * Math.PI) / 180;
+    const joystickHelper = {
+      stickThreshold: XR_INPUT.stickThreshold,
+      minOpacity: XR_INPUT.stickMinOpacity,
+      opacityRangeMultiplier: XR_INPUT.stickOpacityRangeMultiplier,
+      applyDeadzone(value) {
+        return Math.abs(value) < this.stickThreshold ? 0 : value;
+      },
+      computeOpacity(magnitudeSq) {
+        const fadeStart = this.stickThreshold;
+        const fadeEnd = this.stickThreshold * this.opacityRangeMultiplier;
+        if (fadeEnd <= fadeStart) {
+          return 1;
+        }
+        const fadeStartSq = fadeStart * fadeStart;
+        const fadeEndSq = fadeEnd * fadeEnd;
+        const t = THREE.MathUtils.clamp((magnitudeSq - fadeStartSq) / (fadeEndSq - fadeStartSq), 0, 1);
+        return this.minOpacity + (1 - this.minOpacity) * t;
+      },
+    };
+    // const controllerNodes = XR_INPUT.useAimSpace
+    //   ? [renderer.xr.getController(0), renderer.xr.getController(1)]
+    //   : [renderer.xr.getControllerGrip(0), renderer.xr.getControllerGrip(1)];
+    const controllerNodes = [];
+    controllerNodes.forEach((controller, index) => {
+      localFrame.add(controller);
+
+      const onConnected = (event) => {
+        const handedness = event.data?.handedness ?? (index === 0 ? "left" : "right");
+        const slot = handedness === "left" ? 0 : 1;
+        if (!controllerMeshes[slot]) {
+          // const packedSplats = slot === 0 ? toad : butterfly;
+          const packedSplats = grapple;
+          if (!packedSplats) {
+            throw new Error("Packed splats not loaded");
+          }
+          const mesh = new SplatMesh({ packedSplats, lodScale: 1.25 });
+          mesh.quaternion.set(0, -1, 1, 0).normalize();
+          mesh.scale.setScalar(0.2);
+          controllerMeshes[slot] = mesh;
+        }
+        if (!controllerMeshes[slot].parent) {
+          controller.add(controllerMeshes[slot]);
+        }
+        controller.userData.slot = slot;
+      };
+
+      const onDisconnected = () => {
+        const slot = controller.userData.slot;
+        if (slot != null && controllerMeshes[slot]) {
+          controller.remove(controllerMeshes[slot]);
+          controllerMeshes[slot] = null;
+        }
+        delete controller.userData.slot;
+      };
+
+      controller.addEventListener("connected", onConnected);
+      controller.addEventListener("disconnected", onDisconnected);
+    });
+
+    let lastTime = 0;
+    let rotation = 0;
+    let xrTime = 0;
+
+    const gui = new GUI({ title: "Settings" });
+    gui.add({ disableRender: () => { renderEnabled = false; } }, "disableRender").name("Disable render");
+    gui.add(spark, "lodSplatScale", 0.001, 2.0, 0.001);
+    // gui.add(spark, "lodSplatCount", 1, 256, 1);
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "\\") {
+        const cameraPos = camera.getWorldPosition(new THREE.Vector3());
+        const cameraQuat = camera.getWorldQuaternion(new THREE.Quaternion());
+        console.log("camera position: ", JSON.stringify(cameraPos.toArray()), "quaternion: ", JSON.stringify(cameraQuat.toArray()));
+      }
+      if (event.key === "/") {
+        const cameraPos = camera.getWorldPosition(new THREE.Vector3());
+        const cameraQuat = camera.getWorldQuaternion(new THREE.Quaternion());
+        cameraQuat.premultiply(new THREE.Quaternion(1, 0, 0, 0));
+        console.log("camera position: ", JSON.stringify(cameraPos.toArray()), "quaternion: ", JSON.stringify(cameraQuat.toArray()));
+      }
+    });
+
+    renderer.setAnimationLoop(function animate(time, xrFrame) {
+      stats.begin();
+
+      const deltaTime = time - (lastTime || time);
+      lastTime = time;
+
+      xr.updateControllers(camera);
+
+      xr.updateHands({ xrFrame });
+
+      scene.background.set(0, 0, 0);
+
+      // if (xr.left()?.valid()) {
+      //   const leftArray = xr.left().toFlatArray();
+      //   const start = performance.now();
+      //   const leftClass = gestureClassifier.predict(leftArray);
+      //   const duration = performance.now() - start;
+      //   if (leftClass === 1) {
+      //     scene.background.r = 0.2;
+      //   }
+        
+      //   if (Math.random() < 0.01) {
+      //     const text = textSplats({ text: `${duration.toFixed(3)}ms`, objectScale: 0.01 });
+      //     text.position.set(0, 0, -1);
+      //     scene.add(text);
+      //     setTimeout(() => {
+      //       scene.remove(text);
+      //     }, 1000);
+      //   }
+      // }
+
+      // if (xr.right()?.valid()) {
+      //   const rightArray = xr.right().toFlatArray();
+      //   const rightClass = gestureClassifier.predict(rightArray);
+      //   if (rightClass === 1) {
+      //     scene.background.g = 0.2;
+      //   }
+      // }
+
+      // scene.background.set(0, 0, 0);
+      // if (renderer.xr.isPresenting) {
+      //   xrTime += (deltaTime / 1000);
+      //   const xrPhase = xrTime % 10;
+      //   if (xrPhase > 5) {
+      //     scene.background.set(0, 0.1, 0);
+      //     snapshots.push(xr.snapshotHands(time / 1000));
+      //   }
+      // }
+      
+      // // This is a hack to make a "local" frame work reliably across
+      // // Quest 3 and Vision Pro. Any big discontinuity in the camera
+      // // results in a reverse shift of the local frame to compensate.
+      // if (lastCameraPos.distanceTo(camera.position) > 0.5) {
+      //   localFrame.position.copy(camera.position).multiplyScalar(-1);
+      // }
+      // lastCameraPos.copy(camera.position);
+
+      const xrSession = renderer.xr.getSession();
+      if (xrSession) {
+        camera.getWorldPosition(tempCameraPos);
+        camera.getWorldQuaternion(tempCameraQuat);
+        tempForward.set(0, 0, -1).applyQuaternion(tempCameraQuat).normalize();
+        tempRight.set(1, 0, 0).applyQuaternion(tempCameraQuat).normalize();
+        xrSession.inputSources.forEach((inputSource) => {
+          const slot = inputSource.handedness === "left" ? 0 : 1;
+          const mesh = controllerMeshes[slot];
+          if (!mesh) {
+            return;
+          }
+          const gamepad = inputSource.gamepad;
+          if (!gamepad || gamepad.axes.length < 4) {
+            mesh.position.set(0, 0, 0);
+            mesh.opacity = joystickHelper.minOpacity;
+            mesh.visible = true;
+            controllerOffsetLocked[slot] = false;
+            return;
+          }
+          const rawX = gamepad.axes[2];
+          const rawZ = gamepad.axes[3];
+          const magnitudeSq = rawX * rawX + rawZ * rawZ;
+          const x = joystickHelper.applyDeadzone(rawX);
+          const z = joystickHelper.applyDeadzone(rawZ);
+          const absX = Math.abs(x);
+          const absZ = Math.abs(z);
+          const curvedX = curveAxis(x) * XR_INPUT.stickRange;
+          const curvedZ = curveAxis(z) * XR_INPUT.stickRange;
+          const opacity = joystickHelper.computeOpacity(magnitudeSq);
+          const inDeadZone = x === 0 && z === 0;
+          const horizontalDominant = absX > absZ;
+          const triggerValue = gamepad.buttons?.[0]?.value ?? 0;
+          const triggerActive = triggerValue >= XR_INPUT.triggerActivation;
+          const triggerReleased = triggerValue <= XR_INPUT.triggerResetThreshold;
+          if (controllerOffsetLocked[slot]) {
+            mesh.position.set(0, 0, 0);
+            mesh.opacity = joystickHelper.minOpacity;
+            mesh.visible = true;
+            const shouldUnlock = inDeadZone || triggerReleased;
+            if (shouldUnlock) {
+              controllerOffsetLocked[slot] = false;
+              if (controllerUnlockTimeouts[slot]) {
+                clearTimeout(controllerUnlockTimeouts[slot]);
+                controllerUnlockTimeouts[slot] = null;
+              }
+            } else {
+              return;
+            }
+          }
+          mesh.opacity = opacity;
+          mesh.visible = true;
+          const controller = mesh.parent;
+          const targetOffset = tempPreviewWorld.set(0, 0, 0);
+          if (!inDeadZone) {
+            const previewBasis = getBasisVectors(XR_INPUT.directionBasis.preview, controller);
+            targetOffset
+              .copy(previewBasis.forward)
+              .multiplyScalar(-curvedZ)
+              .addScaledVector(previewBasis.right, curvedX);
+          }
+          if (controller) {
+            const smoothing = controllerSmoothing[slot];
+            const smoothingFactor = 1 - Math.exp(-XR_INPUT.stickSmoothing * deltaTime);
+            smoothing.lerp(targetOffset, smoothingFactor);
+            controller.getWorldPosition(tempControllerPos);
+            tempPreviewWorld.copy(smoothing).add(tempControllerPos);
+            controller.worldToLocal(tempPreviewWorld);
+            mesh.position.copy(tempPreviewWorld);
+          } else {
+            mesh.position.set(0, 0, 0);
+          }
+
+          const directionalSnapActive = XR_INPUT.triggerDirectionalMode && !inDeadZone && triggerActive && horizontalDominant;
+          const shouldMoveForward = !inDeadZone && triggerActive && (!XR_INPUT.triggerDirectionalMode || !horizontalDominant);
+          if (shouldMoveForward) {
+            const teleportBasis = getBasisVectors(XR_INPUT.directionBasis.teleport, controller);
+            controllerOffset
+              .copy(teleportBasis.forward)
+              .multiplyScalar(-curvedZ)
+              .addScaledVector(teleportBasis.right, curvedX);
+            localFrame.position.add(controllerOffset);
+            mesh.position.set(0, 0, 0);
+            mesh.opacity = joystickHelper.minOpacity;
+            controllerOffsetLocked[slot] = true;
+            clearTimeout(controllerUnlockTimeouts[slot]);
+             controllerUnlockTimeouts[slot] = setTimeout(() => {
+              controllerOffsetLocked[slot] = false;
+              controllerUnlockTimeouts[slot] = null;
+            }, XR_INPUT.stickResetMs);
+          }
+          
+          const stickButton = gamepad.buttons?.[3];
+          const snapInputAvailable = XR_INPUT.triggerDirectionalMode || !!stickButton;
+          if (XR_INPUT.snapTurn.enabled && snapInputAvailable) {
+            const magnitude = absX;
+            const snapActivation = XR_INPUT.triggerDirectionalMode
+              ? directionalSnapActive
+              : Boolean(stickButton && stickButton.pressed);
+            if (snapActivation) {
+              if (!controllerSnapActive[slot] && magnitude > XR_INPUT.snapTurn.threshold) {
+                // Map threshold..(1-threshold) to 0..1
+                const t = (magnitude - XR_INPUT.snapTurn.threshold) / (1 - 2.0 * XR_INPUT.snapTurn.threshold);
+                const snapDegrees = XR_INPUT.snapTurn.maxDegrees * Math.sign(x) * Math.max(0, Math.min(1, t));
+
+                camera.getWorldPosition(tempCameraPos);
+                const parent = localFrame.parent;
+                const pivotParentBefore = tempPreviewWorld.copy(tempCameraPos);
+                if (parent) {
+                  parent.worldToLocal(pivotParentBefore);
+                }
+                const deltaRadians = degreesToRadians(snapDegrees);
+                const eulers = new THREE.Euler().setFromQuaternion(
+                  localFrame.quaternion,
+                  "YXZ",
+                );
+                const beforeRotation = eulers.y;
+                eulers.y -= deltaRadians;
+                const afterRotation = eulers.y;
+                localFrame.quaternion.setFromEuler(eulers);
+                localFrame.updateMatrixWorld(true);
+                const snapQuat = tempCameraQuat.setFromAxisAngle(tempUp, -deltaRadians);
+                controllerSmoothing.forEach((smoothing) => {
+                  smoothing.applyQuaternion(snapQuat);
+                });
+                camera.getWorldPosition(tempCameraPos);
+                const pivotParentAfter = tempControllerPos.copy(tempCameraPos);
+                if (parent) {
+                  parent.worldToLocal(pivotParentAfter);
+                }
+                pivotParentBefore.sub(pivotParentAfter);
+                localFrame.position.add(pivotParentBefore);
+                localFrame.updateMatrixWorld(true);
+                camera.getWorldQuaternion(tempCameraQuat);
+                tempForward.set(0, 0, -1).applyQuaternion(tempCameraQuat).normalize();
+                tempRight.set(1, 0, 0).applyQuaternion(tempCameraQuat).normalize();
+
+                // const DEBUG_DURATION_MS = 1000;
+                // const debug = `rotation.y: ${beforeRotation.toFixed(3)} => ${afterRotation.toFixed(3)}, x=${x.toFixed(3)}, magnitude=${magnitude.toFixed(3)}, snapDegrees=${snapDegrees.toFixed(3)}`;
+                // const debugSplats = textSplats({ text: debug, objectScale: 0.001 });
+                // // debugSplats.rotation.y = 2.0 * Math.PI;
+                // controllerNodes[slot].add(debugSplats);
+
+                // animations.push({
+                //   start: performance.now(),
+                //   animate: (elapsedMs) => {
+                //     debugSplats.position.y = 0.00002 * elapsedMs;
+                //     return elapsedMs < DEBUG_DURATION_MS;
+                //   },
+                //   dispose: () => {
+                //     controllerNodes[slot].remove(debugSplats);
+                //     debugSplats.dispose();
+                //   },
+                // });
+                controllerSnapActive[slot] = true;
+              }
+            } else {
+              controllerSnapActive[slot] = false;
+            }
+          }
+        });
+      }
+
+      const now = performance.now();
+      const dir = localFrame.getWorldDirection(new THREE.Vector3());
+      if ((localFrame.position.distanceTo(lastPos) > 0.0001) || (dir.dot(lastDir) < 0.9999)) {
+        lastMoved = now;
+        if (!renderEnabled) {
+          console.log("Render enabled");
+        }
+        renderEnabled = true;
+        lastPos.copy(localFrame.position);
+        lastDir.copy(dir);
+      }
+      if ((now - lastMoved) > RENDER_TIMEOUT_MS) {
+        if (renderEnabled) {
+          console.log("Render disabled");
+        }
+        renderEnabled = false;
+      }
+
+      // if (xrHands) {
+      //   // Updates the xrHands object with coordinates
+      //   // and also updates ghost mesh
+      //   xrHands.update({ xr: renderer.xr, xrFrame });
+
+      //   // Create interactor SDFs for each hand tip
+      //   for (const hand of ["left", "right"]) {
+      //     for (const [index, tip] of ["t3", "i4", "m4", "r4", "p4"].entries()) {
+      //       // Make a sphere SDF for each hand tip with different colors
+      //       const key = `${hand}-${tip}`;
+      //       if (!sdfs.has(key)) {
+      //         const sdf = new SplatEditSdf({
+      //           type: SplatEditSdfType.SPHERE,
+      //           radius: 0.03,
+      //           color: new THREE.Color(
+      //             (index % 5 < 3) ? 1 : 0,
+      //             (index % 5 % 2),
+      //             ((index % 5) > 1) ? 1 : 0
+      //           ),
+      //           opacity: 0,
+      //         });
+      //         sdfs.set(key, sdf);
+      //       }
+
+      //       const sdf = sdfs.get(key);
+      //       // Make each SDF wobble in different directions
+      //       sdf.displace.set(
+      //         0.01 * Math.sin(time * 0.007 + index * 1),
+      //         0.01 * Math.sin(time * 0.002 + index * 2),
+      //         0.01 * Math.sin(time * 0.009 + index * 3),
+      //       );
+
+      //       if (xrHands.hands[hand] && xrHands.hands[hand][tip]) {
+      //         // Make the SDF follow the hand tips
+      //         sdf.position.copy(xrHands.hands[hand][tip].position);
+      //         edit.add(sdf);
+      //       } else {
+      //         // Remove the SDF when the hand is not detected
+      //         edit.remove(sdf);
+      //       }
+      //     }
+      //   }
+      // }
+
+      animations = animations.filter((debug) => {
+        const now = performance.now();
+        const keep = debug.animate(now - debug.start);
+        if (!keep) {
+          debug.dispose();
+        }
+        return keep;
+      });
+
+      if (renderEnabled) {
+        renderer.render(scene, camera);
+      }
+
+      stats.end();
     });
   </script>
 </body>

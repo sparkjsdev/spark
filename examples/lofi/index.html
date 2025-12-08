@@ -42,7 +42,7 @@
   <script type="module">
     import * as THREE from "three";
     import GUI from "lil-gui";
-    import { NewSparkRenderer, SparkRenderer, PackedSplats, SplatMesh, SparkControls, SparkXr, JOINT_IDS, JOINT_TIPS, dyno, generators, isMobile } from "@sparkjsdev/spark";
+    import { NewSparkRenderer, SparkRenderer, PackedSplats, SplatMesh, SparkControls, SparkXr, JOINT_IDS, JOINT_TIPS, dyno, generators, isMobile, utils } from "@sparkjsdev/spark";
     import { WORLDS, getWorldUrl, WORLD_RUSTLE, WORLD_EFFECT } from "./worlds.js";
     import { AUDIOS, getAudioUrl } from "./audio.js";
     import { shuffleArray } from "./util.js";
@@ -217,7 +217,7 @@
       onMouseLeaveOpacity: 0.5,
       enableHands: true,
       frameBufferScaleFactor: 0.5,
-      referenceSpaceType: "local",
+      referenceSpaceType: "local-floor",
       onEnterXr: () => {
         play();
         idleBee.position.set(0, 0, 0);
@@ -291,11 +291,14 @@
     let transitionTotal = 0;
     let lastWristsTouching = null;
     let handMode = 0;
+    let lastCameraPos = new THREE.Vector3(0, 0, 0);
 
     const gui = new GUI({ title: "Settings" }).close();
     
     const transitionInterval = { value: ADVANCE_INTERVAL_SEC };
     gui.add(transitionInterval, "value", 1.0, 20.0, 1).name("Transition interval");
+    controls.pointerControls.reverseRotate = isMobile();
+    gui.add(controls.pointerControls, "reverseRotate").name("Reverse rotation");
 
     let transitioning = null;
     let curWorld = null;
@@ -757,7 +760,7 @@
     }
 
     const stats = new Stats();
-    document.body.appendChild(stats.dom);
+    // document.body.appendChild(stats.dom);
 
     renderer.setAnimationLoop(function animate(time, xrFrame) {
       stats.begin();
@@ -809,6 +812,15 @@
       if (moved) {
         resetIdleBee();
       }
+
+      // This is a hack to make a "local" frame work reliably across
+      // Quest 3 and Vision Pro. Any big discontinuity in the camera
+      // results in a reverse shift of the local frame to compensate.
+      if (lastCameraPos.distanceTo(camera.position) > 0.5) {
+        const delta = camera.position.clone();
+        localFrame.position.sub(delta);
+      }
+      lastCameraPos.copy(camera.position);
 
       if (transitioning) {
         const again = transitioning();

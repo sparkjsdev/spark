@@ -8,8 +8,6 @@ import { type SplatFileType, SplatLoader, unpackSplats } from "./SplatLoader";
 import {
   LN_SCALE_MAX,
   LN_SCALE_MIN,
-  SPLAT_PAGED_HEIGHT,
-  SPLAT_PAGED_WIDTH,
   SPLAT_TEX_HEIGHT,
   SPLAT_TEX_WIDTH,
 } from "./defines";
@@ -97,9 +95,13 @@ export type PackedSplatsOptions = {
   // the selected LoD level base. (default: undefined=false)
   lod?: boolean | number;
   // Keep the original PackedSplats data before creating LoD version. (default: false)
-  nonLod?: boolean;
+  nonLod?: boolean | "wait";
   // The LoD version of the PackedSplats
   lodSplats?: PackedSplats;
+  maxBoneSplats?: number;
+  computeBoneWeights?: boolean;
+  minBoneOpacity?: number;
+  boneSplats?: PackedSplats;
   paged?: {
     url: string;
     requestHeader?: Record<string, string>;
@@ -121,15 +123,20 @@ export class PackedSplats {
   extra: Record<string, unknown>;
   splatEncoding?: SplatEncoding;
   lod?: boolean | number;
-  nonLod?: boolean;
+  nonLod?: boolean | "wait";
   lodSplats?: PackedSplats;
+  maxBoneSplats?: number;
+  computeBoneWeights?: boolean;
+  minBoneOpacity?: number;
+  boneSplats?: PackedSplats;
   paged?: {
     url: string;
     requestHeader?: Record<string, string>;
     withCredentials?: boolean;
   };
-  pageCache: THREE.DataTexture | null = null;
-  chunkToPage: Map<number, number> = new Map();
+  pageCache: THREE.DataArrayTexture | null = null;
+  chunkToPage: Map<number, number | null> = new Map();
+  chunkEvict: number[] = [];
   pageFreelist: number[] = [];
   pageMax = 0;
   pageTop = 0;
@@ -211,9 +218,13 @@ export class PackedSplats {
     this.isInitialized = false;
 
     this.extra = {};
+    this.maxSplats = options.maxSplats ?? 0;
     this.splatEncoding = options.splatEncoding;
     this.lod = options.lod;
     this.nonLod = options.nonLod;
+    this.maxBoneSplats = options.maxBoneSplats;
+    this.computeBoneWeights = options.computeBoneWeights;
+    this.minBoneOpacity = options.minBoneOpacity;
 
     if (options.url || options.fileBytes || options.construct) {
       // We need to initialize asynchronously given the options
@@ -231,6 +242,7 @@ export class PackedSplats {
   initialize(options: PackedSplatsOptions) {
     this.extra = options.extra ?? {};
     this.lodSplats = options.lodSplats;
+    this.boneSplats = options.boneSplats;
     this.paged = options.paged;
 
     if (options.packedArray) {
@@ -238,7 +250,8 @@ export class PackedSplats {
       this.numSplats = options.numSplats ?? this.packedArray.length / 4;
 
       if (options.paged) {
-        this.maxSplats = options.maxSplats ?? 16777216;
+        // Allocate 16M splats worth of paged texture by default
+        this.maxSplats = options.maxSplats ?? (this.maxSplats || 65536 * 256);
         this.ensurePagedTexture();
 
         const numPages = Math.ceil(this.numSplats / 65536);
@@ -269,9 +282,22 @@ export class PackedSplats {
   }
 
   async asyncInitialize(options: PackedSplatsOptions) {
-    const { url, fileBytes, construct, lod, nonLod } = options;
+    const {
+      url,
+      fileBytes,
+      construct,
+      lod,
+      nonLod,
+      maxBoneSplats,
+      computeBoneWeights,
+      minBoneOpacity,
+    } = options;
     this.lod = lod;
     this.nonLod = nonLod;
+    this.maxBoneSplats = maxBoneSplats;
+    this.computeBoneWeights = computeBoneWeights;
+    this.minBoneOpacity = minBoneOpacity;
+
     const loader = new SplatLoader();
     loader.packedSplats = this;
     if (fileBytes) {
@@ -303,10 +329,8 @@ export class PackedSplats {
       this.source.dispose();
       this.source = null;
     }
-    if (this.lodSplats) {
-      this.lodSplats.dispose();
-      this.lodSplats = undefined;
-    }
+    this.disposeLodSplats();
+    this.disposeBoneSplats();
     if (this.pageCache) {
       this.pageCache.dispose();
       this.pageCache = null;
@@ -554,41 +578,40 @@ export class PackedSplats {
 
   ensurePagedTexture() {
     if (this.pageCache) {
-      const { width, height } = this.pageCache.image;
-      if (this.maxSplats !== width * height) {
+      const { width, height, depth } = this.pageCache.image;
+      if (this.maxSplats !== width * height * depth) {
         this.pageCache.dispose();
         this.pageCache = null;
       }
     }
     if (!this.pageCache) {
-      const maxSplats = Math.max(this.maxSplats, 65536 * 4);
-      const width = SPLAT_PAGED_WIDTH;
-      const height = Math.ceil(maxSplats / SPLAT_PAGED_WIDTH);
-      if (height > SPLAT_PAGED_HEIGHT) {
-        throw new Error("Max splats exceeds paged height");
-      }
+      const maxSplats = Math.max(this.maxSplats, 65536 * 2);
+      const width = 256;
+      const height = 256;
+      const depth = Math.ceil(maxSplats / (width * height));
 
-      if (!this.packedArray || this.packedArray.length < width * height * 4) {
-        const newArray = new Uint32Array(width * height * 4);
+      if (
+        !this.packedArray ||
+        this.packedArray.length < width * height * depth * 4
+      ) {
+        const newArray = new Uint32Array(width * height * depth * 4);
         if (this.packedArray) {
           newArray.set(this.packedArray);
         }
         this.packedArray = newArray;
       }
 
-      this.pageCache = new THREE.DataTexture(
-        this.packedArray,
+      this.pageCache = new THREE.DataArrayTexture(
+        this.packedArray as Uint32Array<ArrayBuffer>,
         width,
         height,
-        THREE.RGBAIntegerFormat,
-        THREE.UnsignedIntType,
+        depth,
       );
-      // this.pageCache = new THREE.DataTexture(null, width, height, THREE.RGBAIntegerFormat, THREE.UnsignedIntType);
+      this.pageCache.format = THREE.RGBAIntegerFormat;
+      this.pageCache.type = THREE.UnsignedIntType;
       this.pageCache.internalFormat = "RGBA32UI";
       this.pageCache.needsUpdate = true;
-      this.maxSplats = width * height;
-
-      console.log("**** Created page cache", this.pageCache);
+      this.maxSplats = width * height * depth;
     }
   }
 
@@ -607,49 +630,62 @@ export class PackedSplats {
     return page;
   }
 
+  freeTexturePage(page: number) {
+    this.pageFreelist.push(page);
+  }
+
   uploadTexturePage(
     renderer: THREE.WebGLRenderer,
     packedArray: Uint32Array,
     page: number,
   ) {
+    if (!this.packedArray || !this.pageCache) {
+      throw new Error("No packed array or page cache");
+    }
+    this.packedArray
+      .subarray(page * 65536 * 4, (page + 1) * 65536 * 4)
+      .set(packedArray);
+    this.pageCache.addLayerUpdate(page);
+    this.pageCache.needsUpdate = true;
+
     // console.log("Uploading page", page, packedArray, this.pageCache?.image.data);
     // new Uint32Array(this.packedArray.buffer, 4 * 4 * 65536 * page).set(packedArray);
     // this.pageCache.needsUpdate = true;
 
-    const gl = renderer.getContext() as WebGL2RenderingContext;
-    if (!renderer.properties.has(this.pageCache)) {
-      throw new Error("Page cache not found");
-    }
-    const props = renderer.properties.get(this.pageCache) as {
-      __webglTexture: WebGLTexture;
-    };
-    const glTexture = props.__webglTexture;
-    if (!glTexture) {
-      throw new Error("Page cache texture not found");
-    }
-    renderer.state.activeTexture(gl.TEXTURE0);
-    renderer.state.bindTexture(gl.TEXTURE_2D, glTexture);
-    const pageRows = 65536 / 4096;
-    gl.texSubImage2D(
-      gl.TEXTURE_2D,
-      0,
-      0,
-      page * pageRows,
-      SPLAT_PAGED_WIDTH,
-      pageRows,
-      gl.RGBA_INTEGER,
-      gl.UNSIGNED_INT,
-      packedArray,
-    );
-    renderer.state.bindTexture(gl.TEXTURE_2D, null);
+    // const gl = renderer.getContext() as WebGL2RenderingContext;
+    // if (!renderer.properties.has(this.pageCache)) {
+    //   throw new Error("Page cache not found");
+    // }
+    // const props = renderer.properties.get(this.pageCache) as {
+    //   __webglTexture: WebGLTexture;
+    // };
+    // const glTexture = props.__webglTexture;
+    // if (!glTexture) {
+    //   throw new Error("Page cache texture not found");
+    // }
+    // renderer.state.activeTexture(gl.TEXTURE0);
+    // renderer.state.bindTexture(gl.TEXTURE_2D, glTexture);
+    // const pageRows = 65536 / 4096;
+    // gl.texSubImage2D(
+    //   gl.TEXTURE_2D,
+    //   0,
+    //   0,
+    //   page * pageRows,
+    //   SPLAT_PAGED_WIDTH,
+    //   pageRows,
+    //   gl.RGBA_INTEGER,
+    //   gl.UNSIGNED_INT,
+    //   packedArray,
+    // );
+    // renderer.state.bindTexture(gl.TEXTURE_2D, null);
   }
 
-  getPagedTexture(): THREE.DataTexture {
+  getPagedTexture(): THREE.DataArrayTexture {
     if (!this.paged) {
       throw new Error("PackedSplats is not paged");
     }
     this.ensurePagedTexture();
-    return this.pageCache as THREE.DataTexture;
+    return this.pageCache as THREE.DataArrayTexture;
   }
 
   // Check if source texture needs to be created/updated
@@ -703,20 +739,6 @@ export class PackedSplats {
     );
     texture.format = THREE.RGBAIntegerFormat;
     texture.type = THREE.UnsignedIntType;
-    texture.internalFormat = "RGBA32UI";
-    texture.needsUpdate = true;
-    return texture;
-  })();
-
-  static getEmptyFlat = (() => {
-    const empty = new Uint32Array(4096 * 4);
-    const texture = new THREE.DataTexture(
-      empty,
-      4096,
-      1,
-      THREE.RGBAIntegerFormat,
-      THREE.UnsignedIntType,
-    );
     texture.internalFormat = "RGBA32UI";
     texture.needsUpdate = true;
     return texture;
@@ -858,10 +880,17 @@ export class PackedSplats {
     return { nextBase };
   }
 
-  async disposeLodSplats() {
+  disposeLodSplats() {
     if (this.lodSplats) {
       this.lodSplats.dispose();
       this.lodSplats = undefined;
+    }
+  }
+
+  disposeBoneSplats() {
+    if (this.boneSplats) {
+      this.boneSplats.dispose();
+      this.boneSplats = undefined;
     }
   }
 
@@ -932,10 +961,9 @@ export class DynoPackedSplats extends DynoUniform<
   "packedSplats",
   {
     textureArray: THREE.DataArrayTexture;
-    texture: THREE.DataTexture;
     numSplats: number;
     rgbMinMaxLnScaleMinMax: THREE.Vector4;
-    flagsFlatLodOpacity: number;
+    flagsPagedLodOpacity: number;
   }
 > {
   packedSplats?: PackedSplats;
@@ -947,7 +975,6 @@ export class DynoPackedSplats extends DynoUniform<
       globals: () => [definePackedSplats],
       value: {
         textureArray: PackedSplats.getEmptyArray,
-        texture: PackedSplats.getEmptyFlat,
         numSplats: 0,
         rgbMinMaxLnScaleMinMax: new THREE.Vector4(
           0,
@@ -955,19 +982,17 @@ export class DynoPackedSplats extends DynoUniform<
           LN_SCALE_MIN,
           LN_SCALE_MAX,
         ),
-        flagsFlatLodOpacity: 0,
+        flagsPagedLodOpacity: 0,
       },
       update: (value) => {
         if (this.packedSplats?.paged) {
-          value.textureArray = PackedSplats.getEmptyArray;
-          value.texture =
-            this.packedSplats?.getPagedTexture() ?? PackedSplats.getEmptyFlat;
-          value.flagsFlatLodOpacity = 0x1;
+          value.textureArray =
+            this.packedSplats?.getPagedTexture() ?? PackedSplats.getEmptyArray;
+          value.flagsPagedLodOpacity = 0x1;
         } else {
           value.textureArray =
             this.packedSplats?.getTexture() ?? PackedSplats.getEmptyArray;
-          value.texture = PackedSplats.getEmptyFlat;
-          value.flagsFlatLodOpacity = 0x0;
+          value.flagsPagedLodOpacity = 0x0;
         }
         value.numSplats = this.packedSplats?.numSplats ?? 0;
         value.rgbMinMaxLnScaleMinMax.set(
@@ -976,8 +1001,8 @@ export class DynoPackedSplats extends DynoUniform<
           this.packedSplats?.splatEncoding?.lnScaleMin ?? LN_SCALE_MIN,
           this.packedSplats?.splatEncoding?.lnScaleMax ?? LN_SCALE_MAX,
         );
-        value.flagsFlatLodOpacity =
-          value.flagsFlatLodOpacity |
+        value.flagsPagedLodOpacity =
+          value.flagsPagedLodOpacity |
           (this.packedSplats?.splatEncoding?.lodOpacity ? 0x2 : 0x0);
         return value;
       },

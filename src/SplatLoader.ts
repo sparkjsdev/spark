@@ -23,7 +23,7 @@ export class SplatLoader extends Loader {
   packedSplats?: PackedSplats;
 
   static lod = false;
-  static nonLod = false;
+  static nonLod: boolean | "wait" = false;
 
   constructor(manager?: LoadingManager) {
     super(manager);
@@ -70,9 +70,13 @@ export class SplatLoader extends Loader {
             lodBase = Math.max(1.1, Math.min(2.0, packedSplats.lod));
           }
         }
-        if (packedSplats?.nonLod) {
-          nonLod = true;
+        if (packedSplats?.nonLod !== undefined) {
+          nonLod = packedSplats.nonLod;
         }
+        const maxBoneSplats = packedSplats?.maxBoneSplats;
+        const computeBoneWeights = packedSplats?.computeBoneWeights;
+        const minBoneOpacity = packedSplats?.minBoneOpacity;
+
         // console.log(`Loading with LoD=${lod}, lodBase=${lodBase}`);
 
         let init: {
@@ -154,6 +158,9 @@ export class SplatLoader extends Loader {
             lod,
             lodBase,
             nonLod,
+            maxBoneSplats,
+            computeBoneWeights,
+            minBoneOpacity,
           },
           { onStatus },
         )) as {
@@ -169,6 +176,16 @@ export class SplatLoader extends Loader {
                 splatEncoding: SplatEncoding;
               }
             | PackedSplats;
+          boneSplats?:
+            | {
+                numSplats: number;
+                packedArray: Uint32Array;
+                extra: Record<string, unknown>;
+                splatEncoding: SplatEncoding;
+                childCounts: Uint32Array;
+                childStarts: Uint32Array;
+              }
+            | PackedSplats;
         };
         // console.log("loadSplats result", url, decoded);
 
@@ -181,6 +198,26 @@ export class SplatLoader extends Loader {
               splatEncoding: SplatEncoding;
             }),
             paged,
+            maxSplats: packedSplats?.maxSplats,
+          });
+        }
+
+        if (decoded.boneSplats) {
+          const { childCounts, childStarts } = decoded.boneSplats as {
+            childCounts: Uint32Array;
+            childStarts: Uint32Array;
+          };
+          decoded.boneSplats = new PackedSplats({
+            ...(decoded.boneSplats as {
+              numSplats: number;
+              packedArray: Uint32Array;
+              extra: Record<string, unknown>;
+              splatEncoding: SplatEncoding;
+            }),
+            extra: {
+              childCounts: childCounts,
+              childStarts: childStarts,
+            },
           });
         }
 

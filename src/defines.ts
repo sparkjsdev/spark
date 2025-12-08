@@ -32,11 +32,6 @@ export const SPLAT_TEX_WIDTH_MASK = SPLAT_TEX_WIDTH - 1;
 export const SPLAT_TEX_HEIGHT_MASK = SPLAT_TEX_HEIGHT - 1;
 export const SPLAT_TEX_DEPTH_MASK = SPLAT_TEX_DEPTH - 1;
 
-export const SPLAT_PAGED_WIDTH_BITS = 12;
-export const SPLAT_PAGED_HEIGHT_BITS = 12;
-export const SPLAT_PAGED_WIDTH = 1 << SPLAT_PAGED_WIDTH_BITS; // 4096
-export const SPLAT_PAGED_HEIGHT = 1 << SPLAT_PAGED_HEIGHT_BITS; // 4096
-
 // Enable/disable Gsplat sorting via Rust WASM code. In testing the sorting
 // time between pure JS and WASM are minimal and don't make a big difference.
 

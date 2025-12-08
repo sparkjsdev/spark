@@ -285,6 +285,11 @@ export class DynoBlock<
               break;
             }
             // Must be as HasDynoOut<T>
+            if (typeof input.dynoOut !== "function") {
+              throw new Error(
+                `dynoOut is not a function for ${input.constructor.name}`,
+              );
+            }
             input = input.dynoOut();
           }
         }
