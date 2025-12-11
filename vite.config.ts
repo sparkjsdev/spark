@@ -32,18 +32,18 @@ function fixWasmDataUrl(): Plugin {
       const matches = [...code.matchAll(dataUrlPattern)];
       if (matches.length === 0) return null;
 
-      const s = new MagicString(code);
+      const magicString = new MagicString(code);
       for (const match of matches) {
         if (match.index === undefined) continue;
         const start = match.index;
         const end = start + match[0].length;
         const replacement = `new URL(${match[1]})`;
-        s.overwrite(start, end, replacement);
+        magicString.overwrite(start, end, replacement);
       }
 
       return {
-        code: s.toString(),
-        map: s.generateMap({ hires: true }),
+        code: magicString.toString(),
+        map: magicString.generateMap({ hires: true }),
       };
     },
   };
