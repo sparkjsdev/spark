@@ -60,5 +60,8 @@
   "dependencies": {
     "fflate": "^0.8.2"
   },
+  "peerDependencies": {
+    "three": "^0.178.0"
+  },
   "keywords": ["3d", "three.js", "gsplats", "3dgs", "gaussian", "splats"]
 }
