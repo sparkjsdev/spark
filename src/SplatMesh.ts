@@ -1,6 +1,7 @@
 import * as THREE from "three";
 
 import init_wasm, { raycast_splats } from "spark-internal-rs";
+import { ExtSplats } from "./ExtSplats";
 import {
   DEFAULT_SPLAT_ENCODING,
   DynoPackedSplats,
@@ -20,11 +21,11 @@ import type { SplatFileType } from "./SplatLoader";
 import type { SplatSkinning } from "./SplatSkinning";
 import { LN_SCALE_MAX, LN_SCALE_MIN } from "./defines";
 import {
+  Dyno,
   DynoBool,
   DynoFloat,
   DynoInt,
   DynoUsampler2D,
-  DynoUsampler2DArray,
   type DynoVal,
   DynoVec4,
   Gsplat,
@@ -33,15 +34,8 @@ import {
   defineGsplat,
   dyno,
   dynoBlock,
-  dynoConst,
-  extendVec,
   mul,
-  normalize,
-  readPackedSplat,
-  split,
   splitGsplat,
-  sub,
-  unindent,
   unindentLines,
 } from "./dyno";
 // import { SplatWorker } from "./splatWorker";
@@ -65,6 +59,8 @@ export type SplatMeshOptions = {
   // (default: undefined creates a new empty PackedSplats or decoded from a
   // data source above)
   packedSplats?: PackedSplats;
+  // Use an existing SplatSource object as the source instead of loading from file.
+  splats?: SplatSource;
   // Reserve space for at least this many splats when constructing the mesh
   // initially. (default: determined by file)
   maxSplats?: number;
@@ -100,6 +96,9 @@ export type SplatMeshOptions = {
   // Override the default splat encoding ranges for the PackedSplats.
   // (default: undefined)
   splatEncoding?: SplatEncoding;
+  // Set to true to load/use "extended splat" encoding with float32 x/y/z
+  // TODO: Not implemented yet
+  extSplats?: boolean | ExtSplats;
   // Enable LOD. If a number is provided, it will be used as LoD level base,
   // otherwise the default 1.5 is used. When loading a file without pre-computed
   // LoD it will use the "quick lod" algorithm to generate one on-the-fly with
@@ -134,10 +133,59 @@ export type SplatMeshContext = {
   time: DynoFloat;
   deltaTime: DynoFloat;
   numSplats: DynoInt<string>;
-  splats: DynoPackedSplats;
+  // splats: DynoPackedSplats;
+  splats: SplatSource;
   enableLod: DynoBool<string>;
   lodIndices: DynoUsampler2D<"lodIndices", THREE.DataTexture>;
 };
+
+export interface SplatSource {
+  prepareFetchSplat(): void;
+  dispose(): void;
+
+  getNumSplats(): number;
+  hasRgbDir(): boolean;
+  getNumSh(): number;
+  setMaxSh(maxSh: number): void;
+
+  fetchSplat({
+    index,
+    viewOrigin,
+  }: { index: DynoVal<"int">; viewOrigin?: DynoVal<"vec3"> }): DynoVal<
+    typeof Gsplat
+  >;
+}
+
+export class EmptySplatSource implements SplatSource {
+  fetchDyno = new Dyno({
+    inTypes: {},
+    outTypes: { gsplat: Gsplat },
+    globals: () => [defineGsplat],
+    statements: ({ outputs }) =>
+      unindentLines(`
+      ${outputs.gsplat}.flags = 0u;
+      return;
+    `),
+  }).outputs.gsplat;
+
+  prepareFetchSplat() {}
+  dispose() {}
+
+  getNumSplats() {
+    return 0;
+  }
+  hasRgbDir() {
+    return false;
+  }
+  getNumSh() {
+    return 0;
+  }
+  setMaxSh(maxSh: number) {}
+
+  fetchSplat({ index }: { index: DynoVal<"int"> }): DynoVal<typeof Gsplat> {
+    return this.fetchDyno;
+  }
+}
 
 export class SplatMesh extends SplatGenerator {
   // A Promise<SplatMesh> you can await to ensure fetching, parsing,
@@ -150,9 +198,11 @@ export class SplatMesh extends SplatGenerator {
   // splatMesh.packedSplats.needsUpdate = true to signal to Three.js that it
   // should re-upload the data to the underlying texture. Use this sparingly with
   // objects with smaller Gsplat counts as it requires a CPU-GPU data transfer for
-  // each frame. Thousands to tens of thousands of Gsplats ir fine. (See hands.ts
+  // each frame. Thousands to tens of thousands of Gsplats is fine. (See hands.ts
   // for an example of rendering "Gsplat hands" in WebXR using this technique.)
-  packedSplats: PackedSplats;
+  packedSplats?: PackedSplats;
+  extSplats?: ExtSplats;
+  splats?: SplatSource;
 
   // A THREE.Color that can be used to tint all splats in the mesh.
   // (default: new THREE.Color(1, 1, 1))
@@ -219,7 +269,7 @@ export class SplatMesh extends SplatGenerator {
       time: new DynoFloat({ value: 0 }),
       deltaTime: new DynoFloat({ value: 0 }),
       numSplats: new DynoInt({ value: 0 }),
-      splats: new DynoPackedSplats(),
+      splats: new EmptySplatSource(),
       enableLod: new DynoBool({ value: false }),
       lodIndices: new DynoUsampler2D({
         value: emptyLodIndices,
@@ -231,11 +281,24 @@ export class SplatMesh extends SplatGenerator {
       update: (context) => this.update(context),
     });
 
-    this.packedSplats = options.packedSplats ?? new PackedSplats();
-    this.packedSplats.splatEncoding = options.splatEncoding ?? {
-      ...DEFAULT_SPLAT_ENCODING,
-    };
-    this.numSplats = this.packedSplats.numSplats;
+    if (options.splats) {
+      this.splats = options.splats;
+      this.numSplats = options.splats.getNumSplats();
+    } else if (options.extSplats) {
+      this.extSplats =
+        options.extSplats instanceof ExtSplats
+          ? options.extSplats
+          : new ExtSplats();
+      options.extSplats = this.extSplats;
+      this.numSplats = this.extSplats.numSplats;
+    } else {
+      this.packedSplats = options.packedSplats ?? new PackedSplats();
+      this.packedSplats.splatEncoding = options.splatEncoding ?? {
+        ...DEFAULT_SPLAT_ENCODING,
+      };
+      this.numSplats = this.packedSplats.numSplats;
+    }
+
     this.editable = options.editable ?? true;
     this.raycastable = options.raycastable ?? true;
     this.onFrame = options.onFrame;
@@ -257,7 +320,8 @@ export class SplatMesh extends SplatGenerator {
       options.url ||
       options.fileBytes ||
       options.constructSplats ||
-      (options.packedSplats && !options.packedSplats.isInitialized)
+      (options.packedSplats && !options.packedSplats.isInitialized) ||
+      (this.extSplats && !this.extSplats.isInitialized)
     ) {
       // We need to initialize asynchronously given the options
       this.initialized = this.asyncInitialize(options).then(async () => {
@@ -300,25 +364,48 @@ export class SplatMesh extends SplatGenerator {
       lod,
       nonLod,
     } = options;
-    if (url || fileBytes || constructSplats) {
-      const packedSplatsOptions = {
-        url,
-        fileBytes,
-        fileType,
-        fileName,
-        maxSplats,
-        construct: constructSplats,
-        onProgress,
-        splatEncoding,
-        lod,
-        nonLod,
-      };
-      this.packedSplats.reinitialize(packedSplatsOptions);
-    }
     if (this.packedSplats) {
+      if (url || fileBytes || constructSplats) {
+        const packedSplatsOptions = {
+          url,
+          fileBytes,
+          fileType,
+          fileName,
+          maxSplats,
+          construct: constructSplats,
+          onProgress,
+          splatEncoding,
+          lod,
+          nonLod,
+        };
+        this.packedSplats.reinitialize(packedSplatsOptions);
+      }
       await this.packedSplats.initialized;
-      this.numSplats = this.packedSplats.numSplats;
+      this.splats = this.packedSplats;
+    } else if (this.extSplats) {
+      if (url || fileBytes || constructSplats) {
+        const construct = constructSplats as
+          | ((splats: ExtSplats) => Promise<void>)
+          | undefined;
+        this.extSplats.reinitialize({
+          url,
+          fileBytes,
+          fileType,
+          fileName,
+          maxSplats,
+          construct,
+          onProgress,
+          lod,
+          nonLod,
+        });
+        await this.extSplats.initialized;
+        this.splats = this.extSplats;
+      }
+    }
 
+    if (this.splats) {
+      this.splats.prepareFetchSplat();
+      this.numSplats = this.splats.getNumSplats();
       this.updateGenerator();
     }
   }
@@ -345,7 +432,11 @@ export class SplatMesh extends SplatGenerator {
     opacity: number,
     color: THREE.Color,
   ) {
-    this.packedSplats.pushSplat(center, scales, quaternion, opacity, color);
+    if (this.packedSplats) {
+      this.packedSplats.pushSplat(center, scales, quaternion, opacity, color);
+    } else if (this.extSplats) {
+      this.extSplats.pushSplat(center, scales, quaternion, opacity, color);
+    }
   }
 
   // This method iterates over all Gsplats in this instance's packedSplats,
@@ -367,13 +458,32 @@ export class SplatMesh extends SplatGenerator {
       color: THREE.Color,
     ) => void,
   ) {
-    this.packedSplats.forEachSplat(callback);
+    if (this.packedSplats) {
+      this.packedSplats.forEachSplat(callback);
+    } else if (this.extSplats) {
+      this.extSplats.forEachSplat(callback);
+    }
   }
 
   // Call this when you are finished with the SplatMesh and want to free
   // any buffers it holds (via packedSplats).
   dispose() {
-    this.packedSplats.dispose();
+    if (
+      this.splats &&
+      this.splats !== this.packedSplats &&
+      this.splats !== this.extSplats
+    ) {
+      this.splats.dispose();
+      this.splats = undefined;
+    }
+    if (this.packedSplats) {
+      this.packedSplats.dispose();
+      this.packedSplats = undefined;
+    }
+    if (this.extSplats) {
+      this.extSplats.dispose();
+      this.extSplats = undefined;
+    }
   }
 
   // Returns axis-aligned bounding box of the SplatMesh. If centers_only is true,
@@ -384,6 +494,9 @@ export class SplatMesh extends SplatGenerator {
       throw new Error(
         "Cannot get bounding box before SplatMesh is initialized",
       );
+    }
+    if (!this.packedSplats && !this.extSplats) {
+      throw new Error("Bounding box requires PackedSplats or ExtSplats");
     }
     const minVec = new THREE.Vector3(
       Number.POSITIVE_INFINITY,
@@ -397,28 +510,40 @@ export class SplatMesh extends SplatGenerator {
     );
     const corners = new THREE.Vector3();
     const signs = [-1, 1];
-    this.packedSplats.forEachSplat(
-      (_index, center, scales, quaternion, _opacity, _color) => {
-        if (centers_only) {
-          minVec.min(center);
-          maxVec.max(center);
-        } else {
-          // Get the 8 corners of the AABB in local space
-          for (const x of signs) {
-            for (const y of signs) {
-              for (const z of signs) {
-                corners.set(x * scales.x, y * scales.y, z * scales.z);
-                // Transform corner by rotation and position
-                corners.applyQuaternion(quaternion);
-                corners.add(center);
-                minVec.min(corners);
-                maxVec.max(corners);
-              }
+
+    function callback(
+      _index: number,
+      center: THREE.Vector3,
+      scales: THREE.Vector3,
+      quaternion: THREE.Quaternion,
+      _opacity: number,
+      _color: THREE.Color,
+    ) {
+      if (centers_only) {
+        minVec.min(center);
+        maxVec.max(center);
+      } else {
+        // Get the 8 corners of the AABB in local space
+        for (const x of signs) {
+          for (const y of signs) {
+            for (const z of signs) {
+              corners.set(x * scales.x, y * scales.y, z * scales.z);
+              // Transform corner by rotation and position
+              corners.applyQuaternion(quaternion);
+              corners.add(center);
+              minVec.min(corners);
+              maxVec.max(corners);
             }
           }
         }
-      },
-    );
+      }
+    }
+
+    if (this.packedSplats) {
+      this.packedSplats.forEachSplat(callback);
+    } else if (this.extSplats) {
+      this.extSplats.forEachSplat(callback);
+    }
     const box = new THREE.Box3(minVec, maxVec);
     return box;
   }
@@ -439,53 +564,13 @@ export class SplatMesh extends SplatGenerator {
           context.numSplats,
           context.enableLod,
         );
-        // Read a Gsplat from the PackedSplats template
-        let gsplat = readPackedSplat(context.splats, index);
 
-        if (this.maxSh >= 1) {
-          // Inject lighting from SH1..SH3
-          const { sh1Texture, sh2Texture, sh3Texture } =
-            this.ensureShTextures();
-          if (sh1Texture) {
-            //Calculate view direction in object space
-            const viewCenterInObject = viewToObject.translate;
-            const { center } = splitGsplat(gsplat).outputs;
-            const viewDir = normalize(sub(center, viewCenterInObject));
-
-            function rescaleSh(
-              sNorm: DynoVal<"vec3">,
-              minMax: DynoVal<"vec2">,
-            ) {
-              const { x: min, y: max } = split(minMax).outputs;
-              const mid = mul(add(min, max), dynoConst("float", 0.5));
-              const scale = mul(sub(max, min), dynoConst("float", 0.5));
-              return add(mid, mul(sNorm, scale));
-            }
-
-            // Evaluate Spherical Harmonics
-            const sh1Snorm = evaluateSH1(gsplat, sh1Texture, viewDir);
-            let rgb = rescaleSh(sh1Snorm, this.packedSplats.dynoSh1MinMax);
-            if (this.maxSh >= 2 && sh2Texture) {
-              const sh2Snorm = evaluateSH2(gsplat, sh2Texture, viewDir);
-              rgb = add(
-                rgb,
-                rescaleSh(sh2Snorm, this.packedSplats.dynoSh2MinMax),
-              );
-            }
-            if (this.maxSh >= 3 && sh3Texture) {
-              const sh3Snorm = evaluateSH3(gsplat, sh3Texture, viewDir);
-              rgb = add(
-                rgb,
-                rescaleSh(sh3Snorm, this.packedSplats.dynoSh3MinMax),
-              );
-            }
-
-            // Add SH lighting to RGBA
-            let { rgba } = splitGsplat(gsplat).outputs;
-            rgba = add(rgba, extendVec(rgb, dynoConst("float", 0.0)));
-            gsplat = combineGsplat({ gsplat, rgba });
-          }
-        }
+        // Read a Gsplat from the SplatSource
+        context.splats.prepareFetchSplat();
+        let gsplat = context.splats.fetchSplat({
+          index,
+          viewOrigin: viewToObject.translate,
+        });
 
         if (this.splatRgba) {
           // Overwrite RGBA with baked RGBA values
@@ -535,6 +620,11 @@ export class SplatMesh extends SplatGenerator {
   // Compiled generators are cached for efficiency and re-use when the same
   // pipeline structure emerges after successive changes.
   updateGenerator() {
+    const splats = this.splats ?? this.packedSplats ?? this.extSplats;
+    if (splats) {
+      this.context.splats = splats;
+    }
+
     this.constructGenerator(this.context);
   }
 
@@ -554,6 +644,12 @@ export class SplatMesh extends SplatGenerator {
     this.context.time.value = time;
     this.context.deltaTime.value = deltaTime;
     SplatMesh.dynoTime.value = time;
+
+    const splats = this.splats ?? this.packedSplats ?? this.extSplats;
+    if (splats) {
+      this.context.splats = splats;
+    }
+    this.numSplats = this.context.splats.getNumSplats();
 
     const { transform, viewToObject, recolor } = this.context;
     let updated = transform.update(this);
@@ -581,7 +677,7 @@ export class SplatMesh extends SplatGenerator {
     const viewToObjectMatrix = worldToObject.multiply(viewToWorld);
     if (
       viewToObject.updateFromMatrix(viewToObjectMatrix) &&
-      (this.enableViewToObject || this.packedSplats.extra.sh1)
+      (this.enableViewToObject || this.context.splats.hasRgbDir())
     ) {
       // Only trigger update if we have view-dependent spherical harmonics
       updated = true;
@@ -651,18 +747,15 @@ export class SplatMesh extends SplatGenerator {
       }
     }
 
-    this.context.enableLod.value =
-      this.packedSplats.lodSplats != null && lodIndices != null;
+    const lodSplats = this.packedSplats?.lodSplats ?? this.extSplats?.lodSplats;
+    this.context.enableLod.value = lodSplats != null && lodIndices != null;
     if (this.enableLod === false) {
       this.context.enableLod.value = false;
     }
     this.context.lodIndices.value = lodIndices?.texture ?? emptyLodIndices;
 
-    this.context.splats.packedSplats = this.packedSplats;
-    this.numSplats = this.packedSplats.numSplats;
-
-    if (this.context.enableLod.value) {
-      this.context.splats.packedSplats = this.packedSplats.lodSplats;
+    if (this.context.enableLod.value && lodSplats) {
+      this.context.splats = lodSplats;
       this.numSplats = lodIndices?.numSplats ?? 0;
     }
 
@@ -688,8 +781,8 @@ export class SplatMesh extends SplatGenerator {
   ) {
     if (
       !this.raycastable ||
-      !this.packedSplats.packedArray ||
-      !this.packedSplats.numSplats
+      !this.packedSplats?.packedArray ||
+      !this.packedSplats?.numSplats
     ) {
       return;
     }
@@ -733,111 +826,6 @@ export class SplatMesh extends SplatGenerator {
     }
   }
 
-  private ensureShTextures(): {
-    sh1Texture?: DynoUsampler2DArray<"sh1", THREE.DataArrayTexture>;
-    sh2Texture?: DynoUsampler2DArray<"sh2", THREE.DataArrayTexture>;
-    sh3Texture?: DynoUsampler2DArray<"sh3", THREE.DataArrayTexture>;
-  } {
-    // Ensure we have textures for SH1..SH3 if we have data
-    if (!this.packedSplats.extra.sh1) {
-      return {};
-    }
-
-    let sh1Texture = this.packedSplats.extra.sh1Texture as
-      | DynoUsampler2DArray<"sh1", THREE.DataArrayTexture>
-      | undefined;
-    if (!sh1Texture) {
-      let sh1 = this.packedSplats.extra.sh1 as Uint32Array<ArrayBuffer>;
-      const { width, height, depth, maxSplats } = getTextureSize(
-        sh1.length / 2,
-      );
-      if (sh1.length < maxSplats * 2) {
-        const newSh1 = new Uint32Array(maxSplats * 2);
-        newSh1.set(sh1);
-        this.packedSplats.extra.sh1 = newSh1;
-        sh1 = newSh1;
-      }
-
-      const texture = new THREE.DataArrayTexture(sh1, width, height, depth);
-      texture.format = THREE.RGIntegerFormat;
-      texture.type = THREE.UnsignedIntType;
-      texture.internalFormat = "RG32UI";
-      texture.needsUpdate = true;
-
-      sh1Texture = new DynoUsampler2DArray({
-        value: texture,
-        key: "sh1",
-      });
-      this.packedSplats.extra.sh1Texture = sh1Texture;
-    }
-
-    if (!this.packedSplats.extra.sh2) {
-      return { sh1Texture };
-    }
-
-    let sh2Texture = this.packedSplats.extra.sh2Texture as
-      | DynoUsampler2DArray<"sh2", THREE.DataArrayTexture>
-      | undefined;
-    if (!sh2Texture) {
-      let sh2 = this.packedSplats.extra.sh2 as Uint32Array<ArrayBuffer>;
-      const { width, height, depth, maxSplats } = getTextureSize(
-        sh2.length / 4,
-      );
-      if (sh2.length < maxSplats * 4) {
-        const newSh2 = new Uint32Array(maxSplats * 4);
-        newSh2.set(sh2);
-        this.packedSplats.extra.sh2 = newSh2;
-        sh2 = newSh2;
-      }
-
-      const texture = new THREE.DataArrayTexture(sh2, width, height, depth);
-      texture.format = THREE.RGBAIntegerFormat;
-      texture.type = THREE.UnsignedIntType;
-      texture.internalFormat = "RGBA32UI";
-      texture.needsUpdate = true;
-
-      sh2Texture = new DynoUsampler2DArray({
-        value: texture,
-        key: "sh2",
-      });
-      this.packedSplats.extra.sh2Texture = sh2Texture;
-    }
-
-    if (!this.packedSplats.extra.sh3) {
-      return { sh1Texture, sh2Texture };
-    }
-
-    let sh3Texture = this.packedSplats.extra.sh3Texture as
-      | DynoUsampler2DArray<"sh3", THREE.DataArrayTexture>
-      | undefined;
-    if (!sh3Texture) {
-      let sh3 = this.packedSplats.extra.sh3 as Uint32Array<ArrayBuffer>;
-      const { width, height, depth, maxSplats } = getTextureSize(
-        sh3.length / 4,
-      );
-      if (sh3.length < maxSplats * 4) {
-        const newSh3 = new Uint32Array(maxSplats * 4);
-        newSh3.set(sh3);
-        this.packedSplats.extra.sh3 = newSh3;
-        sh3 = newSh3;
-      }
-
-      const texture = new THREE.DataArrayTexture(sh3, width, height, depth);
-      texture.format = THREE.RGBAIntegerFormat;
-      texture.type = THREE.UnsignedIntType;
-      texture.internalFormat = "RGBA32UI";
-      texture.needsUpdate = true;
-
-      sh3Texture = new DynoUsampler2DArray({
-        value: texture,
-        key: "sh3",
-      });
-      this.packedSplats.extra.sh3Texture = sh3Texture;
-    }
-
-    return { sh1Texture, sh2Texture, sh3Texture };
-  }
-
   // ensureLodIndices() {
   //   if (this.lodState) {
   //     const maxSplats = Math.min(this.packedSplats.numSplats, 16 * 1048576);
@@ -861,192 +849,6 @@ export class SplatMesh extends SplatGenerator {
   //     }
   //   }
   // }
-}
-
-const defineEvaluateSH1 = unindent(`
-  vec3 evaluateSH1(Gsplat gsplat, usampler2DArray sh1, vec3 viewDir) {
-    // Extract sint7 values packed into 2 x uint32
-    uvec2 packed = texelFetch(sh1, splatTexCoord(gsplat.index), 0).rg;
-    vec3 sh1_0 = vec3(ivec3(
-      int(packed.x << 25u) >> 25,
-      int(packed.x << 18u) >> 25,
-      int(packed.x << 11u) >> 25
-    )) / 63.0;
-    vec3 sh1_1 = vec3(ivec3(
-      int(packed.x << 4u) >> 25,
-      int((packed.x >> 3u) | (packed.y << 29u)) >> 25,
-      int(packed.y << 22u) >> 25
-    )) / 63.0;
-    vec3 sh1_2 = vec3(ivec3(
-      int(packed.y << 15u) >> 25,
-      int(packed.y << 8u) >> 25,
-      int(packed.y << 1u) >> 25
-    )) / 63.0;
-
-    return sh1_0 * (-0.4886025 * viewDir.y)
-      + sh1_1 * (0.4886025 * viewDir.z)
-      + sh1_2 * (-0.4886025 * viewDir.x);
-  }
-`);
-
-const defineEvaluateSH2 = unindent(`
-  vec3 evaluateSH2(Gsplat gsplat, usampler2DArray sh2, vec3 viewDir) {
-    // Extract sint8 values packed into 4 x uint32
-    uvec4 packed = texelFetch(sh2, splatTexCoord(gsplat.index), 0);
-    vec3 sh2_0 = vec3(ivec3(
-      int(packed.x << 24u) >> 24,
-      int(packed.x << 16u) >> 24,
-      int(packed.x << 8u) >> 24
-    )) / 127.0;
-    vec3 sh2_1 = vec3(ivec3(
-      int(packed.x) >> 24,
-      int(packed.y << 24u) >> 24,
-      int(packed.y << 16u) >> 24
-    )) / 127.0;
-    vec3 sh2_2 = vec3(ivec3(
-      int(packed.y << 8u) >> 24,
-      int(packed.y) >> 24,
-      int(packed.z << 24u) >> 24
-    )) / 127.0;
-    vec3 sh2_3 = vec3(ivec3(
-      int(packed.z << 16u) >> 24,
-      int(packed.z << 8u) >> 24,
-      int(packed.z) >> 24
-    )) / 127.0;
-    vec3 sh2_4 = vec3(ivec3(
-      int(packed.w << 24u) >> 24,
-      int(packed.w << 16u) >> 24,
-      int(packed.w << 8u) >> 24
-    )) / 127.0;
-
-    return sh2_0 * (1.0925484 * viewDir.x * viewDir.y)
-      + sh2_1 * (-1.0925484 * viewDir.y * viewDir.z)
-      + sh2_2 * (0.3153915 * (2.0 * viewDir.z * viewDir.z - viewDir.x * viewDir.x - viewDir.y * viewDir.y))
-      + sh2_3 * (-1.0925484 * viewDir.x * viewDir.z)
-      + sh2_4 * (0.5462742 * (viewDir.x * viewDir.x - viewDir.y * viewDir.y));
-  }
-`);
-
-const defineEvaluateSH3 = unindent(`
-  vec3 evaluateSH3(Gsplat gsplat, usampler2DArray sh3, vec3 viewDir) {
-    // Extract sint6 values packed into 4 x uint32
-    uvec4 packed = texelFetch(sh3, splatTexCoord(gsplat.index), 0);
-    vec3 sh3_0 = vec3(ivec3(
-      int(packed.x << 26u) >> 26,
-      int(packed.x << 20u) >> 26,
-      int(packed.x << 14u) >> 26
-    )) / 31.0;
-    vec3 sh3_1 = vec3(ivec3(
-      int(packed.x << 8u) >> 26,
-      int(packed.x << 2u) >> 26,
-      int((packed.x >> 4u) | (packed.y << 28u)) >> 26
-    )) / 31.0;
-    vec3 sh3_2 = vec3(ivec3(
-      int(packed.y << 22u) >> 26,
-      int(packed.y << 16u) >> 26,
-      int(packed.y << 10u) >> 26
-    )) / 31.0;
-    vec3 sh3_3 = vec3(ivec3(
-      int(packed.y << 4u) >> 26,
-      int((packed.y >> 2u) | (packed.z << 30u)) >> 26,
-      int(packed.z << 24u) >> 26
-    )) / 31.0;
-    vec3 sh3_4 = vec3(ivec3(
-      int(packed.z << 18u) >> 26,
-      int(packed.z << 12u) >> 26,
-      int(packed.z << 6u) >> 26
-    )) / 31.0;
-    vec3 sh3_5 = vec3(ivec3(
-      int(packed.z) >> 26,
-      int(packed.w << 26u) >> 26,
-      int(packed.w << 20u) >> 26
-    )) / 31.0;
-    vec3 sh3_6 = vec3(ivec3(
-      int(packed.w << 14u) >> 26,
-      int(packed.w << 8u) >> 26,
-      int(packed.w << 2u) >> 26
-    )) / 31.0;
-
-    float xx = viewDir.x * viewDir.x;
-    float yy = viewDir.y * viewDir.y;
-    float zz = viewDir.z * viewDir.z;
-    float xy = viewDir.x * viewDir.y;
-    float yz = viewDir.y * viewDir.z;
-    float zx = viewDir.z * viewDir.x;
-
-    return sh3_0 * (-0.5900436 * viewDir.y * (3.0 * xx - yy))
-      + sh3_1 * (2.8906114 * xy * viewDir.z) +
-      + sh3_2 * (-0.4570458 * viewDir.y * (4.0 * zz - xx - yy))
-      + sh3_3 * (0.3731763 * viewDir.z * (2.0 * zz - 3.0 * xx - 3.0 * yy))
-      + sh3_4 * (-0.4570458 * viewDir.x * (4.0 * zz - xx - yy))
-      + sh3_5 * (1.4453057 * viewDir.z * (xx - yy))
-      + sh3_6 * (-0.5900436 * viewDir.x * (xx - 3.0 * yy));
-  }
-`);
-
-export function evaluateSH1(
-  gsplat: DynoVal<typeof Gsplat>,
-  sh1: DynoUsampler2DArray<"sh1", THREE.DataArrayTexture>,
-  viewDir: DynoVal<"vec3">,
-): DynoVal<"vec3"> {
-  return dyno({
-    inTypes: { gsplat: Gsplat, sh1: "usampler2DArray", viewDir: "vec3" },
-    outTypes: { rgb: "vec3" },
-    inputs: { gsplat, sh1, viewDir },
-    globals: () => [defineGsplat, defineEvaluateSH1],
-    statements: ({ inputs, outputs }) => {
-      const statements = unindentLines(`
-        if (isGsplatActive(${inputs.gsplat}.flags)) {
-          ${outputs.rgb} = evaluateSH1(${inputs.gsplat}, ${inputs.sh1}, ${inputs.viewDir});
-        } else {
-          ${outputs.rgb} = vec3(0.0);
-        }
-      `);
-      return statements;
-    },
-  }).outputs.rgb;
-}
-
-export function evaluateSH2(
-  gsplat: DynoVal<typeof Gsplat>,
-  sh2: DynoVal<"usampler2DArray">,
-  viewDir: DynoVal<"vec3">,
-): DynoVal<"vec3"> {
-  return dyno({
-    inTypes: { gsplat: Gsplat, sh2: "usampler2DArray", viewDir: "vec3" },
-    outTypes: { rgb: "vec3" },
-    inputs: { gsplat, sh2, viewDir },
-    globals: () => [defineGsplat, defineEvaluateSH2],
-    statements: ({ inputs, outputs }) =>
-      unindentLines(`
-        if (isGsplatActive(${inputs.gsplat}.flags)) {
-          ${outputs.rgb} = evaluateSH2(${inputs.gsplat}, ${inputs.sh2}, ${inputs.viewDir});
-        } else {
-          ${outputs.rgb} = vec3(0.0);
-        }
-      `),
-  }).outputs.rgb;
-}
-
-export function evaluateSH3(
-  gsplat: DynoVal<typeof Gsplat>,
-  sh3: DynoVal<"usampler2DArray">,
-  viewDir: DynoVal<"vec3">,
-): DynoVal<"vec3"> {
-  return dyno({
-    inTypes: { gsplat: Gsplat, sh3: "usampler2DArray", viewDir: "vec3" },
-    outTypes: { rgb: "vec3" },
-    inputs: { gsplat, sh3, viewDir },
-    globals: () => [defineGsplat, defineEvaluateSH3],
-    statements: ({ inputs, outputs }) =>
-      unindentLines(`
-        if (isGsplatActive(${inputs.gsplat}.flags)) {
-          ${outputs.rgb} = evaluateSH3(${inputs.gsplat}, ${inputs.sh3}, ${inputs.viewDir});
-        } else {
-          ${outputs.rgb} = vec3(0.0);
-        }
-      `),
-  }).outputs.rgb;
 }
 
 function maybeLookupIndex(

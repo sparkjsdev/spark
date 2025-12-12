@@ -288,6 +288,32 @@ void unpackSplatExt(
     quaternion = decodeQuatOctXy1010R12(packed2.w);
 }
 
+uint encodeExtRgb(vec3 rgb) {
+    vec3 absRgb = abs(rgb);
+    float maxAbs = max(absRgb.r, max(absRgb.g, absRgb.b));
+
+    int base = clamp(int(floor(log2(maxAbs))) + 15, 0, 31);
+    float divisor = exp2(float(base - 15)) / 255.0;
+
+    uvec3 uRgb = uvec3(round(clamp(absRgb / divisor, 0.0, 255.0)));
+    uint expSigns = (uint(base) << 3u) | ((rgb.r < 0.0 ? 0x1u : 0u) | (rgb.g < 0.0 ? 0x2u : 0u) | (rgb.b < 0.0 ? 0x4u : 0u));
+    return uRgb.r | (uRgb.g << 8u) | (uRgb.b << 16u) | (expSigns << 24u);
+}
+
+vec3 decodeExtRgb(uint encoded) {
+    uint biasedBase = (encoded >> 27u) & 0x1fu;
+    float divisor = exp2(float(int(biasedBase) - 15)) / 255.0;
+
+    vec3 rgb = vec3(uvec3(encoded & 0xffu, (encoded >> 8u) & 0xffu, (encoded >> 16u) & 0xffu));
+    rgb *= divisor;
+
+    return vec3(
+        ((encoded & 0x1000000u) != 0u) ? -rgb.r : rgb.r,
+        ((encoded & 0x2000000u) != 0u) ? -rgb.g : rgb.g,
+        ((encoded & 0x4000000u) != 0u) ? -rgb.b : rgb.b
+    );
+}
+
 // Rotate vector v by quaternion q
 vec3 quatVec(vec4 q, vec3 v) {
     // Rotate vector v by quaternion q

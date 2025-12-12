@@ -11,13 +11,15 @@ import init_wasm, {
   insert_lod_trees,
   clear_lod_trees,
   traverse_bones,
+  decode_to_extsplats,
 } from "spark-internal-rs";
 import type { SplatEncoding } from "./PackedSplats";
 
 const rpcHandlers = {
   sortSplats16,
   sortSplats32,
-  loadSplats,
+  loadPackedSplats,
+  loadExtSplats,
   quickLod,
   initLodTree,
   disposeLodTree,
@@ -136,7 +138,7 @@ async function decodeBytesUrl({
   return decoded;
 }
 
-type DecodedResult = {
+type DecodedPackedResult = {
   numSplats: number;
   packed: Uint32Array;
   sh1?: Uint32Array;
@@ -146,7 +148,7 @@ type DecodedResult = {
   splatEncoding: SplatEncoding;
 };
 
-function toPackedResult(packed: DecodedResult) {
+function toPackedResult(packed: DecodedPackedResult) {
   return {
     numSplats: packed.numSplats,
     packedArray: packed.packed,
@@ -161,17 +163,16 @@ function toPackedResult(packed: DecodedResult) {
   };
 }
 
-type LoadSplatsResult = { lodSplats?: ReturnType<typeof toPackedResult> } & (
-  | ReturnType<typeof toPackedResult>
-  | Record<never, never>
-) & {
+type LoadPackedSplatsResult = {
+  lodSplats?: ReturnType<typeof toPackedResult>;
+} & (ReturnType<typeof toPackedResult> | Record<never, never>) & {
     boneSplats?: ReturnType<typeof toPackedResult> & {
       childCounts: Uint32Array;
       childStarts: Uint32Array;
     };
   };
 
-async function loadSplats(
+async function loadPackedSplats(
   {
     url,
     requestHeader,
@@ -206,7 +207,7 @@ async function loadSplats(
   }: {
     sendStatus: (data: unknown) => void;
   },
-): Promise<LoadSplatsResult> {
+): Promise<LoadPackedSplatsResult> {
   const options = {
     url,
     requestHeader,
@@ -218,7 +219,7 @@ async function loadSplats(
     lodBase,
     nonLod,
   };
-  const result = await loadSplatsInternal(options, { sendStatus });
+  const result = await loadPackedSplatsInternal(options, { sendStatus });
 
   if (maxBoneSplats && result.lodSplats && result.lodSplats.extra.lodTree) {
     const { numSplats, packedArray } = result as ReturnType<
@@ -260,7 +261,7 @@ async function loadSplats(
       result.lodSplats.extra.boneWeights = bones.lodBoneWeights;
     }
 
-    (result as LoadSplatsResult).boneSplats = {
+    (result as LoadPackedSplatsResult).boneSplats = {
       ...toPackedResult(bones),
       childCounts: bones.childCounts,
       childStarts: bones.childStarts,
@@ -269,7 +270,7 @@ async function loadSplats(
   return result;
 }
 
-async function loadSplatsInternal(
+async function loadPackedSplatsInternal(
   {
     url,
     requestHeader,
@@ -296,7 +297,7 @@ async function loadSplatsInternal(
   }: {
     sendStatus: (data: unknown) => void;
   },
-): Promise<LoadSplatsResult> {
+): Promise<LoadPackedSplatsResult> {
   if (!lod) {
     const decoder = decode_to_packedsplats(fileType, pathName ?? url);
     const decoded = await decodeBytesUrl({
@@ -307,7 +308,7 @@ async function loadSplatsInternal(
       withCredentials,
       sendStatus,
     });
-    const result = toPackedResult(decoded as DecodedResult);
+    const result = toPackedResult(decoded as DecodedPackedResult);
     if (result.splatEncoding.lodOpacity) {
       return { lodSplats: result };
     }
@@ -326,7 +327,9 @@ async function loadSplatsInternal(
 
   if (decoded.has_lod()) {
     return {
-      lodSplats: toPackedResult(decoded.to_packedsplats_lod() as DecodedResult),
+      lodSplats: toPackedResult(
+        decoded.to_packedsplats_lod() as DecodedPackedResult,
+      ),
     };
   }
 
@@ -338,10 +341,10 @@ async function loadSplatsInternal(
     | { lodSplats?: ReturnType<typeof toPackedResult> } = {};
 
   if (nonLod === true) {
-    sendStatus({ orig: toPackedResult(packed as DecodedResult) });
+    sendStatus({ orig: toPackedResult(packed as DecodedPackedResult) });
   } else if (nonLod === "wait") {
     // Wait until LoD computation is complete before resolving full PackedSplats result
-    result = toPackedResult(packed as DecodedResult);
+    result = toPackedResult(packed as DecodedPackedResult);
   }
 
   const initialSplats = decoded.len();
@@ -356,7 +359,128 @@ async function loadSplatsInternal(
   );
 
   const lodPacked = decoded.to_packedsplats_lod();
-  result.lodSplats = toPackedResult(lodPacked as DecodedResult);
+  result.lodSplats = toPackedResult(lodPacked as DecodedPackedResult);
+  return result;
+}
+
+type DecodedExtResult = {
+  numSplats: number;
+  ext0: Uint32Array;
+  ext1: Uint32Array;
+  sh1?: Uint32Array;
+  sh2?: Uint32Array;
+  sh3a?: Uint32Array;
+  sh3b?: Uint32Array;
+  lodTree?: Uint32Array;
+};
+
+function toExtResult(packed: DecodedExtResult) {
+  return {
+    numSplats: packed.numSplats,
+    extArrays: [packed.ext0, packed.ext1],
+    extra: {
+      sh1: packed.sh1,
+      sh2: packed.sh2,
+      sh3a: packed.sh3a,
+      sh3b: packed.sh3b,
+      lodTree: packed.lodTree,
+    },
+  };
+}
+
+type LoadExtSplatsResult = { lodSplats?: ReturnType<typeof toExtResult> } & (
+  | ReturnType<typeof toExtResult>
+  | Record<never, never>
+);
+
+async function loadExtSplats(
+  {
+    url,
+    requestHeader,
+    withCredentials,
+    fileBytes,
+    fileType,
+    pathName,
+    lod,
+    lodBase,
+    nonLod,
+  }: {
+    url?: string;
+    requestHeader?: Record<string, string>;
+    withCredentials?: string;
+    fileBytes?: Uint8Array;
+    fileType?: string;
+    pathName?: string;
+    lod?: boolean;
+    lodBase?: number;
+    nonLod?: boolean | "wait";
+  },
+  {
+    sendStatus,
+  }: {
+    sendStatus: (data: unknown) => void;
+  },
+): Promise<LoadExtSplatsResult> {
+  if (!lod) {
+    const decoder = decode_to_extsplats(fileType, pathName ?? url);
+    const decoded = await decodeBytesUrl({
+      decoder,
+      fileBytes,
+      url,
+      requestHeader,
+      withCredentials,
+      sendStatus,
+    });
+    const result = toExtResult(decoded as DecodedExtResult);
+    if (result.extra.lodTree) {
+      return { lodSplats: result };
+    }
+    return result;
+  }
+
+  const decoder = decode_to_gsplatarray(fileType, pathName ?? url);
+  const decoded = await decodeBytesUrl({
+    decoder,
+    fileBytes,
+    url,
+    requestHeader,
+    withCredentials,
+    sendStatus,
+  });
+
+  if (decoded.has_lod()) {
+    return {
+      lodSplats: toExtResult(decoded.to_extsplats_lod() as DecodedExtResult),
+    };
+  }
+
+  const packed = decoded.to_extsplats();
+  let result:
+    | (ReturnType<typeof toExtResult> & {
+        lodSplats?: ReturnType<typeof toExtResult>;
+      })
+    | { lodSplats?: ReturnType<typeof toExtResult> } = {};
+
+  if (nonLod === true) {
+    sendStatus({ orig: toExtResult(packed as DecodedExtResult) });
+  } else if (nonLod === "wait") {
+    // Wait until LoD computation is complete before resolving full PackedSplats result
+    result = toExtResult(packed as DecodedExtResult);
+  }
+
+  const initialSplats = decoded.len();
+  const base = Math.max(1.1, Math.min(2.0, lodBase ?? 1.5));
+
+  const lodStart = performance.now();
+  decoded.quick_lod(base, false);
+  const lodDuration = performance.now() - lodStart;
+
+  console.log(
+    `Quick LoD: ${initialSplats} -> ${decoded.len()} (${lodDuration} ms)`,
+  );
+
+  const lodPacked = decoded.to_extsplats_lod();
+  result.lodSplats = toExtResult(lodPacked as DecodedExtResult);
   return result;
 }
 
@@ -384,7 +508,7 @@ async function quickLod({
     rgba,
   );
   const lodDuration = performance.now() - lodStart;
-  const result = toPackedResult(decoded as DecodedResult);
+  const result = toPackedResult(decoded as DecodedPackedResult);
   console.log(
     `Quick LoD: ${numSplats} -> ${result.numSplats} (${lodDuration} ms)`,
   );

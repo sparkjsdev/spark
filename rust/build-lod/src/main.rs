@@ -71,9 +71,17 @@ fn main() {
 
     for filename in filenames {
         println!("*** Processing: {}", filename);
-        if unlod && !filename.ends_with("-lod.spz") {
-            println!("Skipping {} because it doesn't end in -lod.spz", filename);
-            continue;
+
+        if filename.ends_with("-lod.spz") {
+            if !unlod {
+                println!("Skipping {} because it ends in -lod.spz", filename);
+                continue;
+            }
+        } else {
+            if unlod {
+                println!("Skipping {} because it doesn't end in -lod.spz", filename);
+                continue;
+            }
         }
 
         let mut decoder = MultiDecoder::new(GsplatArray::new(), None, Some(&filename));
@@ -88,7 +96,7 @@ fn main() {
             }
         };
 
-        println!("num_splats: {}, max_sh: {}", splats.len(), splats.max_sh_degree);
+        println!("num_splats: {} with sh_degree: {}", splats.len(), splats.max_sh_degree);
 
         if unlod {
             println!("Un-LODing {}", filename);
@@ -137,7 +145,7 @@ fn main() {
             let mut writer = BufWriter::new(File::create(&output_filename).unwrap());
             writer.write_all(&bytes).unwrap();
             println!("Wrote {} ({} bytes)", output_filename, bytes.len());
-            return;
+            continue;
         }
 
         let initial_chunk = 1;
