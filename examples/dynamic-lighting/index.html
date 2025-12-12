@@ -75,17 +75,9 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import {
-      SplatMesh,
-      SplatEdit,
-      SparkRenderer,
-      SplatEditSdf,
-      SplatEditSdfType,
-      SplatEditRgbaBlendMode,
-      FpsMovement,
-      PointerControls,
-    } from "@sparkjsdev/spark";
+    import { SplatLoader } from "@sparkjsdev/spark";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+    import { FpsMovement, PointerControls } from "/examples/js/controls.js";
 
     const canvas = document.getElementById("canvas");
     const scene = new THREE.Scene();
@@ -104,12 +96,9 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    // Create a SparkRenderer and add it to the scene to render all the Gsplats.
-    const spark = new SparkRenderer({ renderer });
-    scene.add(spark);
-
+    const loader = new SplatLoader();
     const splatURL = await getAssetFileURL("fireplace.spz");
-    const fireplace = new SplatMesh({ url: splatURL });
+    const fireplace = await loader.loadAsync(splatURL);
     fireplace.quaternion.set(1, 0, 0, 0);
     fireplace.position.set(0, -1, -10);
     scene.add(fireplace);
@@ -122,14 +111,17 @@
     // Debug SDF spheres
     const helpers = [];
 
-    function createLight(scene, lightingLayer, position, color, radius, opacity) {
-      const light = new SplatEditSdf({
-        type: SplatEditSdfType.SPHERE,
-        color: color,
-        radius: radius,
-        opacity: opacity,
-      });
-      light.position.copy(position);
+    function createLight(scene, position, color, radius, opacity, sdfSmooth, sdfEdge, darken) {
+      const light = {
+        color,
+        radius,
+        opacity,
+        position: position.clone(),
+        visible: true,
+        sdfSmooth,
+        sdfEdge,
+        darken,
+      };
 
       // create a wireframe helper
       const helper = new THREE.Mesh(
@@ -141,62 +133,85 @@
       scene.add(helper);
       helpers.push(helper);
 
-      lightingLayer.add(light);
       lights.push(light);
     }
-
-    // Create lighting layer
-    const emberLayer = new SplatEdit({
-      rgbaBlendMode: SplatEditRgbaBlendMode.ADD_RGBA,
-      sdfSmooth: 0.1,
-      softEdge: 0.8,
-    });
-    scene.add(emberLayer);
-
-    const lightingLayer = new SplatEdit({
-      rgbaBlendMode: SplatEditRgbaBlendMode.ADD_RGBA,
-      sdfSmooth: 0.1,
-      softEdge: 1.4,
-    });
-    scene.add(lightingLayer);
-
-    const ambientLayer = new SplatEdit({
-      rgbaBlendMode: SplatEditRgbaBlendMode.DARKEN,
-      sdfSmooth: 0.1,
-      softEdge: 0.05,
-    });
-    scene.add(ambientLayer);
 
     // glowing embers at the base of the fire
     createLight(
       scene,
-      emberLayer,
       new THREE.Vector3(0.5, -1.0, -10.5),
       new THREE.Color(1, 0.6, 0.4),
       0.75,
       1,
+      0.1,
+      0.8,
+      false
     );
 
     // light in the fireplace
     createLight(
       scene,
-      lightingLayer,
       new THREE.Vector3(0.3, -1.1, -10.6),
       new THREE.Color(1, 0.95, 0.2),
       1.6,
       0,
+      0.1,
+      1.4,
+      false
     );
 
     // ambient light throughout the full room
     createLight(
       scene,
-      ambientLayer,
       new THREE.Vector3(0, 1, -11),
       new THREE.Color(1, 0.8, 0.6),
       6,
       0.8,
+      0.1,
+      0.05,
+      true
     );
     console.log(helpers);
+
+    fireplace.setShaderHooks({
+      vertex: {
+        uniforms: {
+          'edits': {
+            type: 'SplatEdit',
+            value: lights
+          },
+        },
+        global: /*glsl*/`
+          struct SplatEdit {
+            vec3 color;
+            float radius;
+            float opacity;
+            vec3 position;
+            bool visible;
+            float sdfSmooth;
+            float sdfEdge;
+            bool darken;
+          };
+        `,
+        splatColor: /*glsl*/`
+          for(int i = 0; i < 3; i++) {
+            if(!edits[i].visible) { continue; }
+
+            // TODO: Properly recreate original smoothing and modulation logic
+            float dist = distance(edits[i].position, center) - edits[i].radius;
+
+            if(dist <= edits[i].radius) {
+              float factor = clamp(-dist / edits[i].sdfEdge + 0.5, 0.0, 1.0);
+              if(edits[i].darken) {
+                rgba.rgb *= edits[i].color * edits[i].opacity * factor;
+              } else {
+                rgba.rgb += edits[i].color * edits[i].opacity * factor;
+              }
+            }
+          }
+        `
+      }
+    });
 
     let lastTime;
 

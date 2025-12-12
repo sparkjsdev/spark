@@ -12,6 +12,21 @@ export const SCALE_MAX = Math.exp(LN_SCALE_MAX);
 export const LN_SCALE_ZERO = -30.0;
 export const SCALE_ZERO = Math.exp(LN_SCALE_ZERO);
 
+export const SH_C0 = 0.28209479177387814;
+
+export const NUM_COEFF_TO_SH_DEGREE: Record<number, number> = {
+  0: 0,
+  9: 1,
+  24: 2,
+  45: 3,
+};
+export const SH_DEGREE_TO_NUM_COEFF: Record<number, number> = {
+  0: 0,
+  1: 9,
+  2: 24,
+  3: 45,
+};
+
 // Gsplats are stored in textures that are 2^11 x 2^11 x up to 2^11
 // Most WebGL2 implementations support 2D textures up to 2^12 x 2^12 (max 16M Gsplats)
 // 2D array textures and 3D textures up to 2^11 x 2^11 x 2^11 (max 8G Gsplats),
@@ -41,3 +56,9 @@ export const WASM_SPLAT_SORT = true;
 // in the plyReader.
 
 export const USE_COMPILED_PARSER_FUNCTION = true;
+
+export type TransformRange = {
+  start: number;
+  end: number;
+  matrix: number[];
+};

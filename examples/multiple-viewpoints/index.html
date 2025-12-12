@@ -25,7 +25,7 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { SparkRenderer, SparkViewpoint, SplatMesh } from "@sparkjsdev/spark";
+    import { SplatLoader } from "@sparkjsdev/spark";
 
     import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
@@ -33,6 +33,7 @@
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x000000);
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.layers.enableAll();
     const renderer = new THREE.WebGLRenderer();
     const header_height = document.querySelector('header').getBoundingClientRect().height;
     renderer.setSize(window.innerWidth, window.innerHeight - header_height);
@@ -45,12 +46,9 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    // Explicitly create a SparkRenderer in the scene to spawn new viewpoints
-    const spark = new SparkRenderer({ renderer });
-    scene.add(spark);
-
+    const splatLoader = new SplatLoader();
     const splatURL = await getAssetFileURL("butterfly.spz");
-    const butterfly = new SplatMesh({ url: splatURL });
+    const butterfly = await splatLoader.loadAsync(splatURL);
     butterfly.quaternion.set(1, 0, 0, 0);
     butterfly.position.set(0, 0, -3);
     scene.add(butterfly);
@@ -59,11 +57,14 @@
       // Create a textured rectangle at the near plane to show the viewpoint
       const width = 320;
       const height = 240;
+      const renderTarget = new THREE.WebGLRenderTarget(width, height)
+
       const screen = new THREE.Mesh(
         new THREE.PlaneGeometry(0.5 * camera.near, 0.5 * camera.near * height / width),
-        new THREE.MeshBasicMaterial({ map: SparkViewpoint.EMPTY_TEXTURE }),
+        new THREE.MeshBasicMaterial({ map: renderTarget.texture }),
       );
       screen.position.set(screenPos.x, screenPos.y, -1).multiplyScalar(camera.near);
+      screen.layers.set(index + 1);
       scene.add(screen);
 
       const viewCamera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
@@ -97,17 +98,10 @@
 
       // Spawn a new viewpoint that auto-updates its sort order, double
       // buffered in case the texture is used recursively in the scene
-      const viewpoint = spark.newViewpoint({
-        autoUpdate: true,
-        camera: viewCamera,
-        target: { width, height, doubleBuffer: true },
-        onTextureUpdated: (texture) => {
-          // Update the view screen with the rendered viewpoint
-          screen.material.map = texture;
-        },
-      });
-
-      return viewpoint;
+      return {
+        target: renderTarget,
+        camera: viewCamera
+      };
     }
 
     const viewpoints = [
@@ -126,8 +120,10 @@
       // Render each viewpoint (with a different background each)
       for (let i = 0; i < viewpoints.length; i++) {
         scene.background.set([0x202040, 0x302020][i]);
-        viewpoints[i].renderTarget({ scene, camera: viewpoints[i].camera });
+        renderer.setRenderTarget(viewpoints[i].target);
+        renderer.render(scene, viewpoints[i].camera);
       }
+      renderer.setRenderTarget(null);
     });
   </script>
 </body>
