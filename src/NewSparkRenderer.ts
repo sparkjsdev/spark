@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import {
-  type PackedSplats,
+  type ExtSplats,
+  PackedSplats,
   Readback,
   type SplatGenerator,
   SplatMesh,
@@ -268,9 +269,12 @@ export class NewSparkRenderer extends THREE.Mesh {
   lodWorker: NewSplatWorker | null = null;
   lodMeshes: { mesh: SplatMesh; version: number }[] = [];
   lodDirty = false;
-  lodIds: Map<PackedSplats, { lodId: number; lastTouched: number }> = new Map();
-  lodIdToSplats: Map<number, PackedSplats> = new Map();
-  lodInitQueue: PackedSplats[] = [];
+  lodIds: Map<
+    PackedSplats | ExtSplats,
+    { lodId: number; lastTouched: number }
+  > = new Map();
+  lodIdToSplats: Map<number, PackedSplats | ExtSplats> = new Map();
+  lodInitQueue: (PackedSplats | ExtSplats)[] = [];
   lodPos = new THREE.Vector3().setScalar(Number.NEGATIVE_INFINITY);
   lodQuat = new THREE.Quaternion().set(0, 0, 0, 0);
   lodInstances: Map<
@@ -360,7 +364,7 @@ export class NewSparkRenderer extends THREE.Mesh {
     this.behindFoveate = options.behindFoveate ?? 1.0;
     this.coneFov = options.coneFov ?? 0.0;
     this.coneFoveate = options.coneFoveate ?? 1.0;
-    this.numLodFetchers = options.numLodFetchers ?? 4;
+    this.numLodFetchers = options.numLodFetchers ?? 3;
 
     this.clock = options.clock ? cloneClock(options.clock) : new THREE.Clock();
 
@@ -818,7 +822,8 @@ export class NewSparkRenderer extends THREE.Mesh {
       : (visibleGenerators.filter((generator) => {
           return (
             generator instanceof SplatMesh &&
-            generator.packedSplats.lodSplats &&
+            (generator.packedSplats?.lodSplats ||
+              generator.extSplats?.lodSplats) &&
             generator.enableLod !== false
           );
         }) as SplatMesh[]);
@@ -850,9 +855,12 @@ export class NewSparkRenderer extends THREE.Mesh {
     const camera = inputCamera.clone();
 
     const lodSplats = lodMeshes.reduce((splats, mesh) => {
-      splats.add(mesh.packedSplats.lodSplats as PackedSplats);
+      splats.add(
+        (mesh.packedSplats?.lodSplats as PackedSplats | undefined) ??
+          (mesh.extSplats?.lodSplats as ExtSplats),
+      );
       return splats;
-    }, new Set<PackedSplats>());
+    }, new Set<PackedSplats | ExtSplats>());
 
     this.lodInitQueue = [];
     const now = performance.now();
@@ -901,14 +909,16 @@ export class NewSparkRenderer extends THREE.Mesh {
       if (this.lodDirty || viewChanged) {
         const evict = [];
         for (const splat of lodSplats) {
-          for (const chunk of splat.chunkEvict) {
-            const page = splat.chunkToPage.get(chunk) as number;
-            evict.push({
-              lodId: this.lodIds.get(splat)?.lodId as number,
-              pageBase: page * 65536,
-              chunkBase: chunk * 65536,
-              count: 65536,
-            });
+          if (splat instanceof PackedSplats) {
+            for (const chunk of splat.chunkEvict) {
+              const page = splat.chunkToPage.get(chunk) as number;
+              evict.push({
+                lodId: this.lodIds.get(splat)?.lodId as number,
+                pageBase: page * 65536,
+                chunkBase: chunk * 65536,
+                count: 65536,
+              });
+            }
           }
         }
 
@@ -929,7 +939,10 @@ export class NewSparkRenderer extends THREE.Mesh {
     });
   }
 
-  private async initLodTree(worker: NewSplatWorker, splats: PackedSplats) {
+  private async initLodTree(
+    worker: NewSplatWorker,
+    splats: PackedSplats | ExtSplats,
+  ) {
     // console.log("initLodTree", splats.extra.lodTree, JSON.stringify(new Array(100).fill().map((_, i) => [splats.extra.lodTree[i*4 + 2], splats.extra.lodTree[i*4 + 3]])));
     const { lodId, chunkToPage } = (await worker.call("initLodTree", {
       numSplats: splats.numSplats ?? 0,
@@ -969,7 +982,8 @@ export class NewSparkRenderer extends THREE.Mesh {
     const instances = lodMeshes.reduce(
       (instances, mesh) => {
         const record = this.lodIds.get(
-          mesh.packedSplats.lodSplats as PackedSplats,
+          (mesh.packedSplats?.lodSplats as PackedSplats | undefined) ??
+            (mesh.extSplats?.lodSplats as ExtSplats),
         );
         if (record) {
           const viewToObject = mesh.matrixWorld
@@ -1037,7 +1051,7 @@ export class NewSparkRenderer extends THREE.Mesh {
     for (let i = chunks.length - 1; i >= 0; --i) {
       const [lodId, chunk] = chunks[i];
       const splats = this.lodIdToSplats.get(lodId);
-      if (!splats || !splats.paged) {
+      if (!splats || !(splats instanceof PackedSplats) || !splats.paged) {
         continue;
       }
 
@@ -1053,7 +1067,7 @@ export class NewSparkRenderer extends THREE.Mesh {
 
     for (const [lodId, chunk] of chunks) {
       const splats = this.lodIdToSplats.get(lodId);
-      if (!splats || !splats.paged) {
+      if (!splats || !(splats instanceof PackedSplats) || !splats.paged) {
         continue;
       }
 
@@ -1094,7 +1108,7 @@ export class NewSparkRenderer extends THREE.Mesh {
       }
 
       const splats = this.lodIdToSplats.get(lodId);
-      if (!splats || !splats.paged) {
+      if (!splats || !(splats instanceof PackedSplats) || !splats.paged) {
         return false;
       }
 
@@ -1128,7 +1142,7 @@ export class NewSparkRenderer extends THREE.Mesh {
     const start = performance.now();
     const url = (splats.paged?.url ?? "").replace(/-lod-0\./, `-lod-${chunk}.`);
     const decoded = await workerPool.withWorker(async (worker) => {
-      const decoded = (await worker.call("loadSplats", {
+      const decoded = (await worker.call("loadPackedSplats", {
         url,
         requestHeader: splats.paged?.requestHeader,
         withCredentials: splats.paged?.withCredentials,

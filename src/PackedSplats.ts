@@ -5,6 +5,7 @@ import { workerPool } from "./NewSplatWorker";
 import type { RgbaArray } from "./RgbaArray";
 import type { GsplatGenerator } from "./SplatGenerator";
 import { type SplatFileType, SplatLoader, unpackSplats } from "./SplatLoader";
+import type { SplatSource } from "./SplatMesh";
 import {
   LN_SCALE_MAX,
   LN_SCALE_MIN,
@@ -12,15 +13,32 @@ import {
   SPLAT_TEX_WIDTH,
 } from "./defines";
 import {
+  Dyno,
+  DynoInt,
   DynoProgram,
   DynoProgramTemplate,
   DynoUniform,
+  DynoUsampler2DArray,
+  type DynoVal,
   DynoVec2,
   DynoVec4,
+  add,
   dynoBlock,
+  dynoConst,
+  normalize,
   outputPackedSplat,
+  sub,
+  unindent,
+  unindentLines,
 } from "./dyno";
-import { TPackedSplats, definePackedSplats } from "./dyno/splats";
+import {
+  type Gsplat,
+  TPackedSplats,
+  combineGsplat,
+  definePackedSplats,
+  readPackedSplat,
+  splitGsplat,
+} from "./dyno/splats";
 import computeUvec4Template from "./shaders/computeUvec4.glsl";
 import { getTextureSize, setPackedSplat, unpackSplat } from "./utils";
 
@@ -116,11 +134,12 @@ export type PackedSplatsOptions = {
 // and quaternion encoded via axis+angle using 2 x uint8 for octahedral encoding
 // of the axis direction and a uint8 to encode rotation amount from 0..Pi.
 
-export class PackedSplats {
+export class PackedSplats implements SplatSource {
   maxSplats = 0;
   numSplats = 0;
   packedArray: Uint32Array | null = null;
   extra: Record<string, unknown>;
+  maxSh = 3;
   splatEncoding?: SplatEncoding;
   lod?: boolean | number;
   nonLod?: boolean | "wait";
@@ -155,9 +174,13 @@ export class PackedSplats {
   // const gsplat = dyno.readPackedSplats(this.dyno, dynoIndex);
   dyno: DynoUniform<typeof TPackedSplats, "packedSplats">;
   dynoRgbMinMaxLnScaleMinMax: DynoUniform<"vec4", "rgbMinMaxLnScaleMinMax">;
-  dynoSh1MinMax: DynoUniform<"vec2", "sh1MinMax">;
-  dynoSh2MinMax: DynoUniform<"vec2", "sh2MinMax">;
-  dynoSh3MinMax: DynoUniform<"vec2", "sh3MinMax">;
+  dynoNumSh: DynoInt<"numSh">;
+  dynoSh1MidScale: DynoUniform<"vec2", "sh1MidScale">;
+  dynoSh2MidScale: DynoUniform<"vec2", "sh2MidScale">;
+  dynoSh3MidScale: DynoUniform<"vec2", "sh3MidScale">;
+  // dynoSh1MinMax: DynoUniform<"vec2", "sh1MinMax">;
+  // dynoSh2MinMax: DynoUniform<"vec2", "sh2MinMax">;
+  // dynoSh3MinMax: DynoUniform<"vec2", "sh3MinMax">;
 
   constructor(options: PackedSplatsOptions = {}) {
     this.extra = {};
@@ -175,35 +198,54 @@ export class PackedSplats {
         return value;
       },
     });
-    this.dynoSh1MinMax = new DynoVec2({
-      key: "sh1MinMax",
-      value: new THREE.Vector2(-1, 1),
+    this.dynoNumSh = new DynoInt({
+      key: "numSh",
+      value: 0,
+      update: () => {
+        return Math.min(this.getNumSh(), this.maxSh);
+      },
+    });
+    this.dynoSh1MidScale = new DynoVec2({
+      key: "sh1MidScale",
+      value: new THREE.Vector2(),
       update: (value) => {
         value.set(
-          this.splatEncoding?.sh1Min ?? -1,
-          this.splatEncoding?.sh1Max ?? 1,
+          0.5 *
+            ((this.splatEncoding?.sh1Max ?? 1.0) +
+              (this.splatEncoding?.sh1Min ?? -1.0)),
+          0.5 *
+            ((this.splatEncoding?.sh1Max ?? 1.0) -
+              (this.splatEncoding?.sh1Min ?? -1.0)),
         );
         return value;
       },
     });
-    this.dynoSh2MinMax = new DynoVec2({
-      key: "sh2MinMax",
-      value: new THREE.Vector2(-1, 1),
+    this.dynoSh2MidScale = new DynoVec2({
+      key: "sh2MidScale",
+      value: new THREE.Vector2(),
       update: (value) => {
         value.set(
-          this.splatEncoding?.sh2Min ?? -1,
-          this.splatEncoding?.sh2Max ?? 1,
+          0.5 *
+            ((this.splatEncoding?.sh2Max ?? 1.0) +
+              (this.splatEncoding?.sh2Min ?? -1.0)),
+          0.5 *
+            ((this.splatEncoding?.sh2Max ?? 1.0) -
+              (this.splatEncoding?.sh2Min ?? -1.0)),
         );
         return value;
       },
     });
-    this.dynoSh3MinMax = new DynoVec2({
-      key: "sh3MinMax",
-      value: new THREE.Vector2(-1, 1),
+    this.dynoSh3MidScale = new DynoVec2({
+      key: "sh3MidScale",
+      value: new THREE.Vector2(),
       update: (value) => {
         value.set(
-          this.splatEncoding?.sh3Min ?? -1,
-          this.splatEncoding?.sh3Max ?? 1,
+          0.5 *
+            ((this.splatEncoding?.sh3Max ?? 1.0) +
+              (this.splatEncoding?.sh3Min ?? -1.0)),
+          0.5 *
+            ((this.splatEncoding?.sh3Max ?? 1.0) -
+              (this.splatEncoding?.sh3Min ?? -1.0)),
         );
         return value;
       },
@@ -271,9 +313,6 @@ export class PackedSplats {
           this.maxSplats,
           options.numSplats ?? Number.POSITIVE_INFINITY,
         );
-        // console.log(
-        //   `Initialized packedSplats with numSplats=${this.numSplats}, maxSplats=${this.maxSplats}`,
-        // );
       }
     } else {
       this.maxSplats = options.maxSplats ?? 0;
@@ -335,6 +374,169 @@ export class PackedSplats {
       this.pageCache.dispose();
       this.pageCache = null;
     }
+  }
+
+  prepareFetchSplat() {
+    // console.info("PackedSplats.prepareFetchSplat");
+  }
+
+  getNumSplats(): number {
+    return this.numSplats;
+  }
+
+  hasRgbDir(): boolean {
+    return Math.min(this.getNumSh(), this.maxSh) > 0;
+  }
+
+  getNumSh(): number {
+    return !this.extra.sh1 ? 0 : !this.extra.sh2 ? 1 : !this.extra.sh3 ? 2 : 3;
+  }
+
+  setMaxSh(maxSh: number) {
+    this.maxSh = maxSh;
+  }
+
+  fetchSplat({
+    index,
+    viewOrigin,
+  }: { index: DynoVal<"int">; viewOrigin?: DynoVal<"vec3"> }): DynoVal<
+    typeof Gsplat
+  > {
+    // return dynoBlock(
+    //   { index: "int", viewOrigin: "vec3" },
+    //   { gsplat: Gsplat },
+    //   ({ index, viewOrigin }) => {
+    //     if (!index) {
+    //       throw new Error("index is required");
+    //     }
+    let gsplat = readPackedSplat(this.dyno, index);
+
+    if (this.hasRgbDir() && viewOrigin) {
+      const splatCenter = splitGsplat(gsplat).outputs.center;
+      const viewDir = normalize(sub(splatCenter, viewOrigin));
+      const { sh1Texture, sh2Texture, sh3Texture } = this.ensureShTextures();
+      let { rgb } = evaluateSH({
+        index,
+        viewDir,
+        numSh: this.dynoNumSh,
+        sh1Texture,
+        sh2Texture,
+        sh3Texture,
+        sh1MidScale: this.dynoSh1MidScale,
+        sh2MidScale: this.dynoSh2MidScale,
+        sh3MidScale: this.dynoSh3MidScale,
+      });
+      rgb = add(rgb, splitGsplat(gsplat).outputs.rgb);
+      gsplat = combineGsplat({ gsplat, rgb });
+    }
+    return gsplat;
+    //   },
+    // ).outputs.gsplat;
+  }
+
+  private ensureShTextures(): {
+    sh1Texture?: DynoUsampler2DArray<"sh1", THREE.DataArrayTexture>;
+    sh2Texture?: DynoUsampler2DArray<"sh2", THREE.DataArrayTexture>;
+    sh3Texture?: DynoUsampler2DArray<"sh3", THREE.DataArrayTexture>;
+  } {
+    // Ensure we have textures for SH1..SH3 if we have data
+    if (!this.extra.sh1) {
+      return {};
+    }
+
+    let sh1Texture = this.extra.sh1Texture as
+      | DynoUsampler2DArray<"sh1", THREE.DataArrayTexture>
+      | undefined;
+    if (!sh1Texture) {
+      let sh1 = this.extra.sh1 as Uint32Array<ArrayBuffer>;
+      const { width, height, depth, maxSplats } = getTextureSize(
+        sh1.length / 2,
+      );
+      if (sh1.length < maxSplats * 2) {
+        const newSh1 = new Uint32Array(maxSplats * 2);
+        newSh1.set(sh1);
+        this.extra.sh1 = newSh1;
+        sh1 = newSh1;
+      }
+
+      const texture = new THREE.DataArrayTexture(sh1, width, height, depth);
+      texture.format = THREE.RGIntegerFormat;
+      texture.type = THREE.UnsignedIntType;
+      texture.internalFormat = "RG32UI";
+      texture.needsUpdate = true;
+
+      sh1Texture = new DynoUsampler2DArray({
+        value: texture,
+        key: "sh1",
+      });
+      this.extra.sh1Texture = sh1Texture;
+    }
+
+    if (!this.extra.sh2) {
+      return { sh1Texture };
+    }
+
+    let sh2Texture = this.extra.sh2Texture as
+      | DynoUsampler2DArray<"sh2", THREE.DataArrayTexture>
+      | undefined;
+    if (!sh2Texture) {
+      let sh2 = this.extra.sh2 as Uint32Array<ArrayBuffer>;
+      const { width, height, depth, maxSplats } = getTextureSize(
+        sh2.length / 4,
+      );
+      if (sh2.length < maxSplats * 4) {
+        const newSh2 = new Uint32Array(maxSplats * 4);
+        newSh2.set(sh2);
+        this.extra.sh2 = newSh2;
+        sh2 = newSh2;
+      }
+
+      const texture = new THREE.DataArrayTexture(sh2, width, height, depth);
+      texture.format = THREE.RGBAIntegerFormat;
+      texture.type = THREE.UnsignedIntType;
+      texture.internalFormat = "RGBA32UI";
+      texture.needsUpdate = true;
+
+      sh2Texture = new DynoUsampler2DArray({
+        value: texture,
+        key: "sh2",
+      });
+      this.extra.sh2Texture = sh2Texture;
+    }
+
+    if (!this.extra.sh3) {
+      return { sh1Texture, sh2Texture };
+    }
+
+    let sh3Texture = this.extra.sh3Texture as
+      | DynoUsampler2DArray<"sh3", THREE.DataArrayTexture>
+      | undefined;
+    if (!sh3Texture) {
+      let sh3 = this.extra.sh3 as Uint32Array<ArrayBuffer>;
+      const { width, height, depth, maxSplats } = getTextureSize(
+        sh3.length / 4,
+      );
+      if (sh3.length < maxSplats * 4) {
+        const newSh3 = new Uint32Array(maxSplats * 4);
+        newSh3.set(sh3);
+        this.extra.sh3 = newSh3;
+        sh3 = newSh3;
+      }
+
+      const texture = new THREE.DataArrayTexture(sh3, width, height, depth);
+      texture.format = THREE.RGBAIntegerFormat;
+      texture.type = THREE.UnsignedIntType;
+      texture.internalFormat = "RGBA32UI";
+      texture.needsUpdate = true;
+
+      sh3Texture = new DynoUsampler2DArray({
+        value: texture,
+        key: "sh3",
+      });
+      this.extra.sh3Texture = sh3Texture;
+    }
+
+    return { sh1Texture, sh2Texture, sh3Texture };
   }
 
   // Ensures that this.packedArray can fit numSplats Gsplats. If it's too small,
@@ -920,7 +1122,6 @@ export class PackedSplats {
         splatEncoding: SplatEncoding;
       };
     });
-    // console.log("=> createLodSplats: decoded =", decoded);
 
     const lodSplats = new PackedSplats(decoded);
     if (this.lodSplats) {
@@ -932,7 +1133,6 @@ export class PackedSplats {
     if (!this.lod) {
       this.lod = lodBase;
     }
-    // console.log("=> createLodSplats: this =", this);
   }
 
   static programTemplate: DynoProgramTemplate | null = null;
@@ -944,6 +1144,38 @@ export class PackedSplats {
   static fullScreenQuad = new FullScreenQuad(
     new THREE.RawShaderMaterial({ visible: false }),
   );
+
+  static emptyUint32x4 = (() => {
+    const { width, height, depth, maxSplats } = getTextureSize(1);
+    const emptyArray = new Uint32Array(maxSplats * 4);
+    const texture = new THREE.DataArrayTexture(
+      emptyArray,
+      width,
+      height,
+      depth,
+    );
+    texture.format = THREE.RGBAIntegerFormat;
+    texture.type = THREE.UnsignedIntType;
+    texture.internalFormat = "RGBA32UI";
+    texture.needsUpdate = true;
+    return texture;
+  })();
+
+  static emptyUint32x2 = (() => {
+    const { width, height, depth, maxSplats } = getTextureSize(1);
+    const emptyArray = new Uint32Array(maxSplats * 2);
+    const texture = new THREE.DataArrayTexture(
+      emptyArray,
+      width,
+      height,
+      depth,
+    );
+    texture.format = THREE.RGIntegerFormat;
+    texture.type = THREE.UnsignedIntType;
+    texture.internalFormat = "RG32UI";
+    texture.needsUpdate = true;
+    return texture;
+  })();
 }
 
 // You can use a PackedSplats as a dyno block using the function
@@ -1009,4 +1241,196 @@ export class DynoPackedSplats extends DynoUniform<
     });
     this.packedSplats = packedSplats;
   }
+}
+
+export const defineEvaluateSH1 = unindent(`
+  vec3 evaluateSH1(int index, usampler2DArray sh1, vec3 viewDir) {
+    // Extract sint7 values packed into 2 x uint32
+    uvec2 packed = texelFetch(sh1, splatTexCoord(index), 0).rg;
+    vec3 sh1_0 = vec3(ivec3(
+      int(packed.x << 25u) >> 25,
+      int(packed.x << 18u) >> 25,
+      int(packed.x << 11u) >> 25
+    )) / 63.0;
+    vec3 sh1_1 = vec3(ivec3(
+      int(packed.x << 4u) >> 25,
+      int((packed.x >> 3u) | (packed.y << 29u)) >> 25,
+      int(packed.y << 22u) >> 25
+    )) / 63.0;
+    vec3 sh1_2 = vec3(ivec3(
+      int(packed.y << 15u) >> 25,
+      int(packed.y << 8u) >> 25,
+      int(packed.y << 1u) >> 25
+    )) / 63.0;
+
+    return sh1_0 * (-0.4886025 * viewDir.y)
+      + sh1_1 * (0.4886025 * viewDir.z)
+      + sh1_2 * (-0.4886025 * viewDir.x);
+  }
+`);
+
+export const defineEvaluateSH2 = unindent(`
+  vec3 evaluateSH2(int index, usampler2DArray sh2, vec3 viewDir) {
+    // Extract sint8 values packed into 4 x uint32
+    uvec4 packed = texelFetch(sh2, splatTexCoord(index), 0);
+    vec3 sh2_0 = vec3(ivec3(
+      int(packed.x << 24u) >> 24,
+      int(packed.x << 16u) >> 24,
+      int(packed.x << 8u) >> 24
+    )) / 127.0;
+    vec3 sh2_1 = vec3(ivec3(
+      int(packed.x) >> 24,
+      int(packed.y << 24u) >> 24,
+      int(packed.y << 16u) >> 24
+    )) / 127.0;
+    vec3 sh2_2 = vec3(ivec3(
+      int(packed.y << 8u) >> 24,
+      int(packed.y) >> 24,
+      int(packed.z << 24u) >> 24
+    )) / 127.0;
+    vec3 sh2_3 = vec3(ivec3(
+      int(packed.z << 16u) >> 24,
+      int(packed.z << 8u) >> 24,
+      int(packed.z) >> 24
+    )) / 127.0;
+    vec3 sh2_4 = vec3(ivec3(
+      int(packed.w << 24u) >> 24,
+      int(packed.w << 16u) >> 24,
+      int(packed.w << 8u) >> 24
+    )) / 127.0;
+
+    return sh2_0 * (1.0925484 * viewDir.x * viewDir.y)
+      + sh2_1 * (-1.0925484 * viewDir.y * viewDir.z)
+      + sh2_2 * (0.3153915 * (2.0 * viewDir.z * viewDir.z - viewDir.x * viewDir.x - viewDir.y * viewDir.y))
+      + sh2_3 * (-1.0925484 * viewDir.x * viewDir.z)
+      + sh2_4 * (0.5462742 * (viewDir.x * viewDir.x - viewDir.y * viewDir.y));
+  }
+`);
+
+export const defineEvaluateSH3 = unindent(`
+  vec3 evaluateSH3(int index, usampler2DArray sh3, vec3 viewDir) {
+    // Extract sint6 values packed into 4 x uint32
+    uvec4 packed = texelFetch(sh3, splatTexCoord(index), 0);
+    vec3 sh3_0 = vec3(ivec3(
+      int(packed.x << 26u) >> 26,
+      int(packed.x << 20u) >> 26,
+      int(packed.x << 14u) >> 26
+    )) / 31.0;
+    vec3 sh3_1 = vec3(ivec3(
+      int(packed.x << 8u) >> 26,
+      int(packed.x << 2u) >> 26,
+      int((packed.x >> 4u) | (packed.y << 28u)) >> 26
+    )) / 31.0;
+    vec3 sh3_2 = vec3(ivec3(
+      int(packed.y << 22u) >> 26,
+      int(packed.y << 16u) >> 26,
+      int(packed.y << 10u) >> 26
+    )) / 31.0;
+    vec3 sh3_3 = vec3(ivec3(
+      int(packed.y << 4u) >> 26,
+      int((packed.y >> 2u) | (packed.z << 30u)) >> 26,
+      int(packed.z << 24u) >> 26
+    )) / 31.0;
+    vec3 sh3_4 = vec3(ivec3(
+      int(packed.z << 18u) >> 26,
+      int(packed.z << 12u) >> 26,
+      int(packed.z << 6u) >> 26
+    )) / 31.0;
+    vec3 sh3_5 = vec3(ivec3(
+      int(packed.z) >> 26,
+      int(packed.w << 26u) >> 26,
+      int(packed.w << 20u) >> 26
+    )) / 31.0;
+    vec3 sh3_6 = vec3(ivec3(
+      int(packed.w << 14u) >> 26,
+      int(packed.w << 8u) >> 26,
+      int(packed.w << 2u) >> 26
+    )) / 31.0;
+
+    float xx = viewDir.x * viewDir.x;
+    float yy = viewDir.y * viewDir.y;
+    float zz = viewDir.z * viewDir.z;
+    float xy = viewDir.x * viewDir.y;
+    float yz = viewDir.y * viewDir.z;
+    float zx = viewDir.z * viewDir.x;
+
+    return sh3_0 * (-0.5900436 * viewDir.y * (3.0 * xx - yy))
+      + sh3_1 * (2.8906114 * xy * viewDir.z) +
+      + sh3_2 * (-0.4570458 * viewDir.y * (4.0 * zz - xx - yy))
+      + sh3_3 * (0.3731763 * viewDir.z * (2.0 * zz - 3.0 * xx - 3.0 * yy))
+      + sh3_4 * (-0.4570458 * viewDir.x * (4.0 * zz - xx - yy))
+      + sh3_5 * (1.4453057 * viewDir.z * (xx - yy))
+      + sh3_6 * (-0.5900436 * viewDir.x * (xx - 3.0 * yy));
+  }
+`);
+
+export function evaluateSH({
+  index,
+  viewDir,
+  numSh,
+  sh1Texture,
+  sh2Texture,
+  sh3Texture,
+  sh1MidScale,
+  sh2MidScale,
+  sh3MidScale,
+}: {
+  index: DynoVal<"int">;
+  viewDir: DynoVal<"vec3">;
+  numSh: DynoVal<"int">;
+  sh1Texture?: DynoUsampler2DArray<"sh1", THREE.DataArrayTexture>;
+  sh2Texture?: DynoUsampler2DArray<"sh2", THREE.DataArrayTexture>;
+  sh3Texture?: DynoUsampler2DArray<"sh3", THREE.DataArrayTexture>;
+  sh1MidScale: DynoVal<"vec2">;
+  sh2MidScale: DynoVal<"vec2">;
+  sh3MidScale: DynoVal<"vec2">;
+}) {
+  return new Dyno({
+    inTypes: {
+      index: "int",
+      viewDir: "vec3",
+      numSh: "int",
+      sh1Texture: "usampler2DArray",
+      sh2Texture: "usampler2DArray",
+      sh3Texture: "usampler2DArray",
+      sh1MidScale: "vec2",
+      sh2MidScale: "vec2",
+      sh3MidScale: "vec2",
+    },
+    outTypes: { rgb: "vec3" },
+    inputs: {
+      index,
+      viewDir,
+      numSh,
+      sh1Texture:
+        sh1Texture ?? dynoConst("usampler2DArray", PackedSplats.emptyUint32x2),
+      sh2Texture:
+        sh2Texture ?? dynoConst("usampler2DArray", PackedSplats.emptyUint32x4),
+      sh3Texture:
+        sh3Texture ?? dynoConst("usampler2DArray", PackedSplats.emptyUint32x4),
+      sh1MidScale,
+      sh2MidScale,
+      sh3MidScale,
+    },
+    globals: () => [defineEvaluateSH1, defineEvaluateSH2, defineEvaluateSH3],
+    statements: ({ inputs, outputs }) =>
+      unindentLines(`
+      vec3 rgb = vec3(0.0);
+      if (${inputs.numSh} >= 1) {
+        vec3 sh1Rgb = evaluateSH1(${inputs.index}, ${inputs.sh1Texture}, ${inputs.viewDir});
+        rgb += sh1Rgb * ${inputs.sh1MidScale}.y + ${inputs.sh1MidScale}.x;
+
+        if (${inputs.numSh} >= 2) {
+          vec3 sh2Rgb = evaluateSH2(${inputs.index}, ${inputs.sh2Texture}, ${inputs.viewDir});
+          rgb += sh2Rgb * ${inputs.sh2MidScale}.y + ${inputs.sh2MidScale}.x;
+
+          if (${inputs.numSh} >= 3) {
+            vec3 sh3Rgb = evaluateSH3(${inputs.index}, ${inputs.sh3Texture}, ${inputs.viewDir});
+            rgb += sh3Rgb * ${inputs.sh3MidScale}.y + ${inputs.sh3MidScale}.x;
+          }
+        }
+      }
+      ${outputs.rgb} = rgb;
+    `),
+  }).outputs;
 }

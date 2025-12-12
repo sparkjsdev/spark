@@ -6,10 +6,10 @@ use half::f16;
 use itertools::izip;
 use js_sys::{Array, Object, Reflect, Uint32Array};
 use ordered_float::OrderedFloat;
-use spark_lib::splat_encode::{decode_packed_splat_center, decode_packed_splat_opacity, decode_packed_splat_quat, decode_packed_splat_scale};
+use spark_lib::splat_encode::{decode_lod_tree_children, decode_packed_splat_center, decode_packed_splat_opacity, decode_packed_splat_quat, decode_packed_splat_scale};
 use wasm_bindgen::prelude::*;
 
-use crate::packed_splats::{PackedSplatsData, decode_lod_tree_children};
+use crate::packed_splats::PackedSplatsData;
 use spark_lib::decoder::SplatGetter;
 
 const MAX_SPLAT_CHUNK: usize = 16384;

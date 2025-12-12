@@ -10,6 +10,9 @@ export const Gsplat = { type: "Gsplat" } as { type: "Gsplat" };
 export const TPackedSplats = { type: "PackedSplats" } as {
   type: "PackedSplats";
 };
+export const TExtSplats = { type: "ExtSplats" } as {
+  type: "ExtSplats";
+};
 
 export const numPackedSplats = (
   packedSplats: DynoVal<typeof TPackedSplats>,
@@ -25,6 +28,15 @@ export const readPackedSplatRange = (
   count: DynoVal<"int">,
 ): DynoVal<typeof Gsplat> =>
   new ReadPackedSplatRange({ packedSplats, index, base, count });
+
+export const numExtSplats = (
+  extSplats: DynoVal<typeof TExtSplats>,
+): DynoVal<"int"> => new NumExtSplats({ extSplats });
+export const readExtSplat = (
+  extSplats: DynoVal<typeof TExtSplats>,
+  index: DynoVal<"int">,
+): DynoVal<typeof Gsplat> => new ReadExtSplat({ extSplats, index });
+
 export const splitGsplat = (gsplat: DynoVal<typeof Gsplat>) =>
   new SplitGsplat({ gsplat });
 export const combineGsplat = ({
@@ -300,6 +312,79 @@ export class ReadPackedSplatRange
         }
         statements.push(`${gsplat}.index = ${index ?? "0"};`);
         return statements;
+      },
+    });
+  }
+
+  dynoOut(): DynoValue<typeof Gsplat> {
+    return new DynoOutput(this, "gsplat");
+  }
+}
+
+export const defineExtSplats = unindent(`
+  struct ExtSplats {
+    usampler2DArray textureArray1;
+    usampler2DArray textureArray2;
+    int numSplats;
+  };
+`);
+
+export class NumExtSplats extends UnaryOp<
+  typeof TExtSplats,
+  "int",
+  "numSplats"
+> {
+  constructor({ extSplats }: { extSplats: DynoVal<typeof TExtSplats> }) {
+    super({ a: extSplats, outKey: "numSplats", outTypeFunc: () => "int" });
+    this.statements = ({ inputs, outputs }) => [
+      `${outputs.numSplats} = ${inputs.a}.numSplats;`,
+    ];
+  }
+}
+
+const defineReadExtArrays = unindent(`
+  void readExtArrays(usampler2DArray texture1, usampler2DArray texture2, int numSplats, int index, out Gsplat gsplat) {
+    gsplat.flags = 0u;
+    if ((index >= 0) && (index < numSplats)) {
+      ivec3 coord = splatTexCoord(index);
+      uvec4 packed1 = texelFetch(texture1, coord, 0);
+      uvec4 packed2 = texelFetch(texture2, coord, 0);
+      unpackSplatExt(packed1, packed2, gsplat.center, gsplat.scales, gsplat.quaternion, gsplat.rgba);
+      gsplat.flags = all(equal(gsplat.scales, vec3(0.0, 0.0, 0.0))) ? 0u : GSPLAT_FLAG_ACTIVE;
+      gsplat.index = index;
+    }
+  }
+`);
+
+export class ReadExtSplat
+  extends Dyno<
+    { extSplats: typeof TExtSplats; index: "int" },
+    { gsplat: typeof Gsplat }
+  >
+  implements HasDynoOut<typeof Gsplat>
+{
+  constructor({
+    extSplats,
+    index,
+  }: { extSplats?: DynoVal<typeof TExtSplats>; index?: DynoVal<"int"> }) {
+    super({
+      inTypes: { extSplats: TExtSplats, index: "int" },
+      outTypes: { gsplat: Gsplat },
+      inputs: { extSplats, index },
+      globals: () => [defineGsplat, defineExtSplats, defineReadExtArrays],
+      statements: ({ inputs, outputs }) => {
+        const { gsplat } = outputs;
+        if (!gsplat) {
+          return [`${gsplat}.flags = 0u;`];
+        }
+        const { extSplats, index } = inputs;
+        let statements: string[];
+        if (extSplats && index) {
+          return unindentLines(`
+            readExtArrays(${extSplats}.textureArray1, ${extSplats}.textureArray2, ${extSplats}.numSplats, ${index}, ${gsplat});
+          `);
+        }
+        return [`${gsplat}.flags = 0u;`];
       },
     });
   }

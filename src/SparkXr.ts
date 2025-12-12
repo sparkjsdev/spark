@@ -930,7 +930,7 @@ export class JointSplats extends SplatMesh {
   updateJoints(joints?: HandJoints) {
     this.visible = false;
 
-    if (!joints) {
+    if (!joints || !this.packedSplats) {
       return;
     }
 

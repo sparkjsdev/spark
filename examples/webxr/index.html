@@ -28,12 +28,13 @@
   <script src="https://cdn.jsdelivr.net/npm/stats.js@0.17.0/build/stats.min.js"></script>
   <script type="module">
     import * as THREE from "three";
-    import { NewSparkRenderer, PackedSplats, SplatMesh, SplatEdit, SplatEditRgbaBlendMode, SplatEditSdf, SplatEditSdfType, SparkControls, SparkXr, textSplats, SplatSkinning } from "@sparkjsdev/spark";
+    import { NewSparkRenderer, PackedSplats, ExtSplats, SplatMesh, SplatEdit, SplatEditRgbaBlendMode, SplatEditSdf, SplatEditSdfType, SparkControls, SparkXr, textSplats, SplatSkinning } from "@sparkjsdev/spark";
     // import { getAssetFileURL } from "/examples/js/get-asset-url.js";
     import GUI from "lil-gui";
     // import initBurnGesture, { HandGestureClassifier } from "./pkg/burn_gesture.js";
     // import RAPIER from "https://cdn.skypack.dev/@dimforge/rapier3d-compat";
 
+    const ENABLE_EXT_SPLATS = true;
     const RENDER_TIMEOUT_MS = 120 * 1000;
     const XR_INPUT = {
       useAimSpace: true,
@@ -88,27 +89,102 @@
     // }
     // console.log("Done");
 
-    // const URL_BASE = ".";
-    const URL_BASE = "https://storage.googleapis.com/forge-dev-public/asundqui/hobbitverse";
+    const URL_BASE = ".";
+    // const URL_BASE = "https://storage.googleapis.com/forge-dev-public/asundqui/memory-house-scene/memory-house";
+    // const URL_BASE = "./memory-house";
 
-    // const UNIVERSE_URL = "./universe.json";
-    // const universe = await fetch(UNIVERSE_URL).then((response) => response.json()).catch(() => ({}));
+    const names = [];
+
+    async function getSceneAssets(url, fromMatrix, toMatrix) {
+      console.log("Getting scene assets from", url);
+      let transform = new THREE.Matrix4();
+      if (fromMatrix && toMatrix) {
+        transform.premultiply(fromMatrix.clone().invert());
+        transform.premultiply(toMatrix);
+      }
+
+      const json = await fetch(url).then((response) => response.json());
+      json.assets = json.assets.filter((asset) => !asset.filename.includes("HOME_V2"));
+      return json.assets.map((asset) => {
+        if (!asset.visibility) {
+          return null;
+        }
+        names.push(asset.filename.replace(/\.spz$/, "-lod.spz"));
+
+        const resolvedUrl = `${URL_BASE}/${asset.filename.replace(/\.spz$/, "-lod.spz")}`;
+        const position = new THREE.Vector3().fromArray(asset.transform.position);
+        const quaternion = new THREE.Quaternion().fromArray(asset.transform.quaternion);
+        const scales = new THREE.Vector3().fromArray(asset.transform.scale);
+
+        if (fromMatrix && toMatrix) {
+          const assetMatrix = new THREE.Matrix4().compose(position, quaternion, scales);
+          assetMatrix.premultiply(transform);
+          assetMatrix.decompose(position, quaternion, scales);
+        }
+
+        return {
+          url: resolvedUrl,
+          position: position.toArray(),
+          quaternion: quaternion.toArray(),
+          scale: (scales.x + scales.y + scales.z) / 3,
+        };
+      }).filter(Boolean);
+    }
+
+    const scene1From = new THREE.Matrix4().compose(
+      new THREE.Vector3(74.85235611230576, 2.939761691662505, 14.786932306748533),
+      new THREE.Quaternion(0.7649721216271451, 0.006360655608290333, -0.643988608338591, 0.007474458082157891),
+      new THREE.Vector3().setScalar(1.7102560693),
+    );
+    const scene1To = new THREE.Matrix4().compose(
+      new THREE.Vector3(-10.008118883997911, 0.8417741692478946, 6.0179726337926365),
+      new THREE.Quaternion(-0.059727959978140066, 0, 0.9982146917356254, 0),
+      new THREE.Vector3().setScalar(1.4),
+    );
+    const scene2From = new THREE.Matrix4().compose(
+      new THREE.Vector3(-15.1286193051896, 1.169541334672604, -14.181160919683432),
+      new THREE.Quaternion(0.7097647103858707, -0.002345712445232473, -0.7044341386082024, 0.001047801176450588),
+      new THREE.Vector3().setScalar(1.4038752485),
+    );
+    const scene2To = new THREE.Matrix4().compose(
+      new THREE.Vector3(-15.1286193051896, 1.169541334672604, 2.4014477362090485),
+      new THREE.Quaternion(0.7097647103858707, -0.002345712445232473, -0.7044341386082024, 0.001047801176450588),
+      new THREE.Vector3().setScalar(1.4038752485),
+    );
+    // const universe = [
+    //   // ...await getSceneAssets("./memory-connector/connector-scene.json", null, null),
+    //   ...await getSceneAssets("./memory-house1/scene.json", scene1From, scene1To),
+    //   ...await getSceneAssets("./memory-house2/scene.json", scene2From, scene2To),
+    // ];
+
+    // console.log("names", names.join("\n"));
+
     const universe = {
       // "cozy_cottage": {
-      //   "url": "../lod/cozy_cottage-lod-0.spz",
+      //   "url": "../lod/cozy_cottage-lod.spz",
+      //   "position": [0, -1, 0],
+      //   "quaternion": [0, 0, 0, 1],
+      // },
+      // "sunken": {
+      //   "url": "../lod/sunken-lod.spz",
       //   "position": [0, -1, 0],
       //   "quaternion": [0, 0, 0, 1],
       // },
       // "cozy_ship": {
-      //   "url": "../lod/cozy_ship-lod-0.spz",
+      //   "url": "../lod/cozy_ship-lod.spz",
       //   "position": [0, -8, 0],
       //   "quaternion": [0, 0, 0, 1],
       // },
       "hobbiton5": {
-        "url": `${URL_BASE}/Hobbiton5-lod-0.spz`,
+        "url": `${URL_BASE}/../lod/Hobbiton5-lod.spz`,
         "position": [0, 0, 0],
         "quaternion": [1, 0, 0, 0],
       },
+      // "worldship": {
+      //   "url": `${URL_BASE}/../lod/worldship-lod.spz`,
+      //   "position": [0, 0, 0],
+      //   "quaternion": [0, 0, 0, 1],
+      // },
       "toad": {
         "url": `${URL_BASE}/toad-lod.spz`,
         // "position": [4, 0, -1.5],
@@ -164,6 +240,10 @@
     // the camera, or as a frame of reference in WebXR mode
     const localFrame = new THREE.Group();
     // localFrame.position.set(0, 0.25, 1);
+    // localFrame.position.set(-10.146059468725154,2.716757473190141,67.73128658837079);
+    // localFrame.rotation.y = 1.8;
+    localFrame.position.set(-0.3589455442042188,-0.5136711922540228,-25.26046580090285);
+    localFrame.quaternion.set(-0.11649979375233356,0.3992200702177954,0.051222564644665194,0.9079798359336981);
     scene.add(localFrame);
 
     // Lower the splat rendering width to sqrt(5) std devs for more performance
@@ -174,7 +254,7 @@
       lodSplatScale: 0.5,
       // lodSplatCount: 500000 * 0.5,
       // outsideFoveate: 0.35,
-      behindFoveate: 0.1,
+      behindFoveate: 0.3,
       coneFov: 150.0,
       coneFoveate: 0.3,
     });
@@ -209,33 +289,59 @@
     async function loadUniverse() {
       for (const key of Object.keys(universe)) {
         const { url, position, quaternion, scale, opacity } = universe[key];
+        console.log("Loading", key, url, position, quaternion, scale, opacity);
         const absoluteURL = new URL(url, window.location.href).href;
         const isCharacter = key.startsWith("toad") || key.startsWith("butterfly") || key.startsWith("turkey") || key.startsWith("snowbot");
         // const isCharacter = true;
 
-        const packedSplats = new PackedSplats({
-          url: absoluteURL,
-          lod: true,
-          maxBoneSplats: isCharacter ? 32 : 256,
-          computeBoneWeights: isCharacter,
-          minBoneOpacity: 0.5,
-          maxSplats: isCharacter ? undefined : (65536 * 512),
+        let packedSplats = undefined;
+        let extSplats = undefined;
+
+        if (isCharacter) {
+          packedSplats = new PackedSplats({
+            url: absoluteURL,
+            lod: true,
+            maxBoneSplats: isCharacter ? 16 : undefined,
+            computeBoneWeights: isCharacter,
+            minBoneOpacity: 0.5,
+            // maxSplats: isCharacter ? undefined : (65536 * 512),
+            maxSplats: isCharacter ? undefined : ((universe[key].chunks ?? 512) * 65536),
+          });
+          await packedSplats.initialized;
+          console.log("Loaded PackedSplats", key, packedSplats);
+        } else {
+          if (ENABLE_EXT_SPLATS) {
+            extSplats = new ExtSplats({
+              url: absoluteURL,
+              // lod: true,
+            });
+            // await extSplats.initialized;
+            console.log("Loaded ExtSplats", key, extSplats);
+          } else {
+            packedSplats = new PackedSplats({ url: absoluteURL });
+            console.log("Loaded PackedSplats", key, packedSplats);
+          }
+        }
+
+        // const bones = new SplatMesh({ packedSplats: packedSplats.boneSplats });
+        // bones.position.fromArray(position ?? [0, 0, 0]);
+        // bones.quaternion.fromArray(quaternion ?? [0, 0, 0, 1]);
+        // bones.scale.setScalar(scale ?? 1);
+        // // scene.add(bones);
+        // // console.log("ADDED BONES", bones);
+        // // bones.forEachSplat((index, center, scales, quaternion, opacity, color) => {
+        // //   // console.log(`BONE ${index}:`, "center", center, "scales", scales, "quaternion", quaternion, "opacity", opacity, "color", color);
+        // //   bones.packedSplats.setSplat(index, center, scales, quaternion, 1, color);
+        // // });
+
+        // const mesh = new SplatMesh({ extSplats });
+
+        const mesh = new SplatMesh({
+          packedSplats,
+          extSplats,
         });
-        await packedSplats.initialized;
-        console.log("Loaded PackedSplats", key, packedSplats);
+        await mesh.initialized;
 
-        const bones = new SplatMesh({ packedSplats: packedSplats.boneSplats });
-        bones.position.fromArray(position ?? [0, 0, 0]);
-        bones.quaternion.fromArray(quaternion ?? [0, 0, 0, 1]);
-        bones.scale.setScalar(scale ?? 1);
-        // scene.add(bones);
-        // console.log("ADDED BONES", bones);
-        // bones.forEachSplat((index, center, scales, quaternion, opacity, color) => {
-        //   // console.log(`BONE ${index}:`, "center", center, "scales", scales, "quaternion", quaternion, "opacity", opacity, "color", color);
-        //   bones.packedSplats.setSplat(index, center, scales, quaternion, 1, color);
-        // });
-
-        const mesh = new SplatMesh({ packedSplats });
         mesh.position.fromArray(position ?? [0, 0, 0]);
         mesh.quaternion.fromArray(quaternion ?? [0, 0, 0, 1]);
         mesh.scale.setScalar(scale ?? 1);
@@ -340,6 +446,11 @@
     let grapple = null;
     const snapshots = [];
 
+    const controls = new SparkControls({
+      renderer,
+      canvas: renderer.domElement,
+    });
+
     const xr = new SparkXr({
       renderer,
       onMouseLeaveOpacity: 0.5,
@@ -367,7 +478,7 @@
       },
       enableHands: true,
       controllers: {
-        moveHeading: true,
+        // moveHeading: true,
         // getRotate: (gamepads) => {
         //   return new THREE.Vector3(
         //     gamepads.right?.axes[2] ?? 0,
@@ -515,6 +626,7 @@
       lastTime = time;
 
       xr.updateControllers(camera);
+      controls.update(localFrame);
 
       xr.updateHands({ xrFrame });
 

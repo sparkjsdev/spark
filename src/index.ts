@@ -22,6 +22,8 @@ export { PlyReader } from "./ply";
 export { SpzReader, SpzWriter, transcodeSpz } from "./spz";
 
 export { PackedSplats, type PackedSplatsOptions } from "./PackedSplats";
+export { ExtSplats, type ExtSplatsOptions } from "./ExtSplats";
+export * from "./SplatPager";
 export {
   SplatGenerator,
   type GsplatGenerator,
