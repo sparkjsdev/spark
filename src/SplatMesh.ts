@@ -116,6 +116,10 @@ export type SplatMeshOptions = {
   // Foveation scale to apply behind viewer
   // (default: 1.0)
   behindFoveate?: number;
+  // Full-width angle in degrees of fixed foveation cone along the view direction
+  // with perfection foveation=1.0
+  // (default: 0.0)
+  coneFov0?: number;
   // Full-width angle in degrees of fixed foveation cone along the view direction. 0.0=disable
   // (default: 0.0)
   coneFov?: number;
@@ -254,6 +258,7 @@ export class SplatMesh extends SplatGenerator {
   lodScale: number;
   outsideFoveate?: number;
   behindFoveate?: number;
+  coneFov0?: number;
   coneFov?: number;
   coneFoveate?: number;
 
@@ -311,6 +316,7 @@ export class SplatMesh extends SplatGenerator {
     this.lodScale = options.lodScale ?? 1.0;
     this.outsideFoveate = options.outsideFoveate;
     this.behindFoveate = options.behindFoveate;
+    this.coneFov0 = options.coneFov0;
     this.coneFov = options.coneFov;
     this.coneFoveate = options.coneFoveate;
 

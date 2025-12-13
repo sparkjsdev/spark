@@ -602,6 +602,7 @@ function traverseLodTrees({
       lodScale: number;
       outsideFoveate: number;
       behindFoveate: number;
+      coneFov0: number;
       coneFov: number;
       coneFoveate: number;
     }
@@ -628,6 +629,9 @@ function traverseLodTrees({
   const behindFoveates = new Float32Array(
     keyInstances.map(([_key, instance]) => instance.behindFoveate),
   );
+  const coneFov0s = new Float32Array(
+    keyInstances.map(([_key, instance]) => instance.coneFov0),
+  );
   const coneFovs = new Float32Array(
     keyInstances.map(([_key, instance]) => instance.coneFov),
   );
@@ -646,6 +650,7 @@ function traverseLodTrees({
     lodScales,
     outsideFoveates,
     behindFoveates,
+    coneFov0s,
     coneFovs,
     coneFoveates,
   ) as {

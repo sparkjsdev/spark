@@ -1,6 +1,6 @@
 use std::array;
 
-use js_sys::{Array, Object, Reflect, Uint32Array};
+use js_sys::{Object, Reflect, Uint32Array};
 use spark_lib::{
     decoder::{SetSplatEncoding, SplatEncoding, SplatGetter, SplatInit, SplatProps, SplatPropsMut, SplatReceiver, copy_getter_to_receiver},
     gsplat::GsplatArray,

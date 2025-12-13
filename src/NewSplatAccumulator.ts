@@ -4,16 +4,28 @@ import type { GeneratorMapping } from "./SplatAccumulator";
 import { SplatEdit } from "./SplatEdit";
 import { type GsplatGenerator, SplatGenerator } from "./SplatGenerator";
 import { SplatMesh } from "./SplatMesh";
-import { SPLAT_TEX_HEIGHT, SPLAT_TEX_WIDTH } from "./defines";
+import {
+  LN_SCALE_MAX,
+  LN_SCALE_MIN,
+  SPLAT_TEX_HEIGHT,
+  SPLAT_TEX_WIDTH,
+} from "./defines";
 import {
   DynoBool,
   DynoProgram,
   DynoProgramTemplate,
   DynoVec3,
+  combineGsplat,
   dynoBlock,
+  dynoConst,
+  mul,
   outputExtendedSplat,
+  outputPackedSplat,
   outputSplatDepth,
+  splitGsplat,
+  sub,
 } from "./dyno";
+import computeUvec4Vec4Template from "./shaders/computeUvec4_Vec4.glsl";
 import computeUvec4x2Vec4Template from "./shaders/computeUvec4x2_Vec4.glsl";
 import { getTextureSize, threeMrtArray } from "./utils";
 
@@ -32,11 +44,13 @@ export class NewSplatAccumulator {
   mapping: GeneratorMapping[] = [];
   version = -1;
   mappingVersion = -1;
+  extSplats: boolean;
 
-  constructor() {
+  constructor({ extSplats }: { extSplats?: boolean } = {}) {
     if (!threeMrtArray) {
       throw new Error("Spark requires THREE.js r179 or above");
     }
+    this.extSplats = extSplats ?? true;
   }
 
   dispose() {
@@ -114,26 +128,23 @@ export class NewSplatAccumulator {
       minFilter: THREE.NearestFilter,
       format: THREE.RGBAIntegerFormat,
       type: THREE.UnsignedIntType,
-      // format: THREE.RGBAFormat,
-      // type: THREE.UnsignedByteType,
     });
-    // this.target.texture.internalFormat = "RGBA32UI";
     this.target.scissorTest = true;
 
-    const target2 = this.target.texture.clone();
-    // target2.format = THREE.RGBAIntegerFormat;
-    // target2.type = THREE.UnsignedIntType;
-    // target2.internalFormat = "RGBA32UI";
-    const target3 = this.target.texture.clone();
-    target3.format = THREE.RGBAFormat;
-    target3.type = THREE.UnsignedByteType;
-    target3.internalFormat = "RGBA8";
-    // target3.format = THREE.RGBAIntegerFormat;
-    // target3.type = THREE.UnsignedIntType;
-    // target3.internalFormat = "RGBA32UI";
-
-    this.target.textures = [this.target.texture, target2, target3];
-    // this.target.textures = [target3, this.target.texture, target2];
+    if (this.extSplats) {
+      const target2 = this.target.texture.clone();
+      const target3 = this.target.texture.clone();
+      target3.format = THREE.RGBAFormat;
+      target3.type = THREE.UnsignedByteType;
+      target3.internalFormat = "RGBA8";
+      this.target.textures = [this.target.texture, target2, target3];
+    } else {
+      const target3 = this.target.texture.clone();
+      target3.format = THREE.RGBAFormat;
+      target3.type = THREE.UnsignedByteType;
+      target3.internalFormat = "RGBA8";
+      this.target.textures = [this.target.texture, target3];
+    }
 
     return true;
   }
@@ -169,14 +180,37 @@ export class NewSplatAccumulator {
         {},
         ({ index }, _outputs, { roots }) => {
           generator.inputs.index = index;
-          const output = outputExtendedSplat(generator.outputs.gsplat);
+          if (this.extSplats) {
+            const output = outputExtendedSplat(generator.outputs.gsplat);
+            roots.push(output);
+          } else {
+            const centerSubView = sub(
+              splitGsplat(generator.outputs.gsplat).outputs.center,
+              NewSplatAccumulator.viewCenterUniform,
+            );
+            // Use expanded LoD opacity encoding
+            const halfAlpha = mul(
+              splitGsplat(generator.outputs.gsplat).outputs.opacity,
+              dynoConst("float", 0.5),
+            );
+            const gsplat = combineGsplat({
+              gsplat: generator.outputs.gsplat,
+              center: centerSubView,
+              opacity: halfAlpha,
+            });
+            const output = outputPackedSplat(
+              gsplat,
+              dynoConst("vec4", [0, 1, LN_SCALE_MIN, LN_SCALE_MAX]),
+            );
+            roots.push(output);
+          }
           const outputDepth = outputSplatDepth(
             generator.outputs.gsplat,
             NewSplatAccumulator.viewCenterUniform,
             NewSplatAccumulator.viewDirUniform,
             NewSplatAccumulator.sortRadialUniform,
           );
-          roots.push(output, outputDepth);
+          roots.push(outputDepth);
           return undefined;
         },
       );
@@ -184,7 +218,10 @@ export class NewSplatAccumulator {
         graph,
         inputs: { index: "index" },
         outputs: {},
-        template: NewSplatAccumulator.programTemplate,
+        template: this.extSplats
+          ? NewSplatAccumulator.programExtTemplate
+          : NewSplatAccumulator.programTemplate,
+        // consoleLog: true,
       });
     }
     Object.assign(program.uniforms, {
@@ -199,7 +236,10 @@ export class NewSplatAccumulator {
     return { program, material };
   }
 
-  static programTemplate = new DynoProgramTemplate(computeUvec4x2Vec4Template);
+  static programExtTemplate = new DynoProgramTemplate(
+    computeUvec4x2Vec4Template,
+  );
+  static programTemplate = new DynoProgramTemplate(computeUvec4Vec4Template);
   static generatorProgram = new Map<GsplatGenerator, DynoProgram>();
   static fullScreenQuad = new FullScreenQuad(
     new THREE.RawShaderMaterial({ visible: false }),

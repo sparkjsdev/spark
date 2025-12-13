@@ -957,15 +957,16 @@ export class PackedSplats implements SplatSource {
       // A Gsplat needs to be turned into a packed uvec4 for the dyno graph
       const graph = dynoBlock(
         { index: "int" },
-        { output: "uvec4" },
-        ({ index }) => {
+        {},
+        ({ index }, _outputs, { roots }) => {
           generator.inputs.index = index;
           const gsplat = generator.outputs.gsplat;
           const output = outputPackedSplat(
             gsplat,
             this.dynoRgbMinMaxLnScaleMinMax,
           );
-          return { output };
+          roots.push(output);
+          return undefined;
         },
       );
       if (!PackedSplats.programTemplate) {

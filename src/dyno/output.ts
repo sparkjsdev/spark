@@ -26,13 +26,10 @@ export const outputSplatDepth = (
 export const outputRgba8 = (rgba8: DynoVal<"vec4">) =>
   new OutputRgba8({ rgba8 });
 
-export class OutputPackedSplat
-  extends Dyno<
-    { gsplat: typeof Gsplat; rgbMinMaxLnScaleMinMax: "vec4" },
-    { output: "uvec4" }
-  >
-  implements HasDynoOut<"uvec4">
-{
+export class OutputPackedSplat extends Dyno<
+  { gsplat: typeof Gsplat; rgbMinMaxLnScaleMinMax: "vec4" },
+  Record<string, never>
+> {
   constructor({
     gsplat,
     rgbMinMaxLnScaleMinMax,
@@ -45,27 +42,19 @@ export class OutputPackedSplat
       inputs: { gsplat, rgbMinMaxLnScaleMinMax },
       globals: () => [defineGsplat],
       statements: ({ inputs, outputs }) => {
-        const { output } = outputs;
-        if (!output) {
-          return [];
-        }
         const { gsplat, rgbMinMaxLnScaleMinMax } = inputs;
-        if (gsplat) {
+        if (gsplat && rgbMinMaxLnScaleMinMax) {
           return unindentLines(`
             if (isGsplatActive(${gsplat}.flags)) {
-              ${output} = packSplatEncoding(${gsplat}.center, ${gsplat}.scales, ${gsplat}.quaternion, ${gsplat}.rgba, ${rgbMinMaxLnScaleMinMax});
+              target = packSplatEncoding(${gsplat}.center, ${gsplat}.scales, ${gsplat}.quaternion, ${gsplat}.rgba, ${rgbMinMaxLnScaleMinMax});
             } else {
-              ${output} = uvec4(0u, 0u, 0u, 0u);
+              target = uvec4(0u, 0u, 0u, 0u);
             }
           `);
         }
-        return [`${output} = uvec4(0u, 0u, 0u, 0u);`];
+        return ["target = uvec4(0u, 0u, 0u, 0u);"];
       },
     });
-  }
-
-  dynoOut(): DynoValue<"uvec4"> {
-    return new DynoOutput(this, "output");
   }
 }
 
@@ -97,10 +86,6 @@ export class OutputExtendedSplat extends Dyno<
         return ["target = uvec4(0u);", "target2 = uvec4(0u);"];
       },
     });
-  }
-
-  dynoOut(): DynoValue<"uvec4"> {
-    return new DynoOutput(this, "output");
   }
 }
 

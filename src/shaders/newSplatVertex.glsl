@@ -18,6 +18,7 @@ uniform vec3 renderToViewPos;
 uniform float maxStdDev;
 uniform float minPixelRadius;
 uniform float maxPixelRadius;
+uniform bool enableExtSplats;
 uniform float time;
 uniform float deltaTime;
 uniform bool debugFlag;
@@ -53,13 +54,22 @@ void main() {
     vec3 center, scales;
     vec4 quaternion, rgba;
 
-    uvec4 ext1 = texelFetch(extSplats, texCoord, 0);
-    float alpha = unpackSplatExtAlpha(ext1);
-    if ((alpha == 0.0) || (alpha < minAlpha)) {
-        return;
+    if (enableExtSplats) {
+        uvec4 ext1 = texelFetch(extSplats, texCoord, 0);
+        float alpha = unpackSplatExtAlpha(ext1);
+        if ((alpha == 0.0) || (alpha < minAlpha)) {
+            return;
+        }
+        uvec4 ext2 = texelFetch(extSplats2, texCoord, 0);
+        unpackSplatExt(ext1, ext2, center, scales, quaternion, rgba);
+    } else {
+        uvec4 packed = texelFetch(extSplats, texCoord, 0);
+        unpackSplatEncoding(packed, center, scales, quaternion, rgba, vec4(0.0, 1.0, LN_SCALE_MIN, LN_SCALE_MAX));
+        if ((rgba.a == 0.0) || (rgba.a < minAlpha)) {
+            return;
+        }
+        rgba.a *= 2.0;
     }
-    uvec4 ext2 = texelFetch(extSplats2, texCoord, 0);
-    unpackSplatExt(ext1, ext2, center, scales, quaternion, rgba);
 
     bvec3 zeroScales = equal(scales, vec3(0.0));
     if (all(zeroScales)) {

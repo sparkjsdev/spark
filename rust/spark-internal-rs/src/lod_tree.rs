@@ -204,6 +204,7 @@ struct LodInstance<'a> {
     lod_scale: f32,
     outside_foveate: f32,
     behind_foveate: f32,
+    cone_dot0: f32,
     cone_dot: f32,
     cone_foveate: f32,
 }
@@ -236,7 +237,7 @@ pub fn traverse_lod_trees(
     fov_x_degrees: f32, fov_y_degrees: f32,
     lod_ids: &[u32], view_to_objects: &[f32],
     lod_scales: &[f32], outside_foveates: &[f32], behind_foveates: &[f32],
-    cone_fovs: &[f32], cone_foveates: &[f32],
+    cone_fov0s: &[f32], cone_fovs: &[f32], cone_foveates: &[f32],
 ) -> anyhow::Result<Object, JsValue> {
     let max_splats = max_splats as usize;
     let num_instances = lod_ids.len();
@@ -251,6 +252,9 @@ pub fn traverse_lod_trees(
     }
     if behind_foveates.len() != num_instances {
         return Err(JsValue::from_str("Invalid behind_foveates length"));
+    }
+    if cone_fov0s.len() != num_instances {
+        return Err(JsValue::from_str("Invalid cone_fov0s length"));
     }
     if cone_fovs.len() != num_instances {
         return Err(JsValue::from_str("Invalid cone_fovs length"));
@@ -278,9 +282,10 @@ pub fn traverse_lod_trees(
             let lod_scale = lod_scales[index];
             let outside_foveate = outside_foveates[index];
             let behind_foveate = behind_foveates[index];
+            let cone_dot0 = if cone_fov0s[index] > 0.0 { (0.5 * cone_fov0s[index]).to_radians().cos() } else { 1.0 };
             let cone_dot = if cone_fovs[index] > 0.0 { (0.5 * cone_fovs[index]).to_radians().cos() } else { 1.0 };
             let cone_foveate = cone_foveates[index];
-            LodInstance { lod_id, splats, page_to_chunk, chunk_to_page, origin, forward, right, up, output, lod_scale, outside_foveate, behind_foveate, cone_dot, cone_foveate }
+            LodInstance { lod_id, splats, page_to_chunk, chunk_to_page, origin, forward, right, up, output, lod_scale, outside_foveate, behind_foveate, cone_dot0, cone_dot, cone_foveate }
         }).collect();
 
         let mut num_splats = 0;
@@ -428,9 +433,13 @@ fn compute_pixel_scale(
         foveate * pixel_scale
     } else {
         let dot = forward / distance;
-        let t = ((1.0 - dot) / (1.0 - instance.cone_dot)).clamp(0.0, 1.0);
-        let foveate = 1.0 - (1.0 - instance.cone_foveate) * t;
-        foveate * pixel_scale
+        if dot >= instance.cone_dot0 {
+            pixel_scale
+        } else {
+            let t = ((dot - instance.cone_dot) / (instance.cone_dot0 - instance.cone_dot)).clamp(0.0, 1.0);
+            let foveate = 1.0 - (1.0 - instance.cone_foveate) * (1.0 - t);
+            foveate * pixel_scale
+        }
     }
 }
 
