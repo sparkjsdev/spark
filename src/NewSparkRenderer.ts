@@ -69,6 +69,11 @@ export interface NewSparkRendererOptions {
    */
   maxPixelRadius?: number;
   /**
+   * Whether to use extended Gsplat encoding.
+   * @default true
+   */
+  extSplats?: boolean;
+  /**
    * Minimum alpha value for splat rendering.
    * @default 0.5 * (1.0 / 255.0)
    */
@@ -170,6 +175,11 @@ export interface NewSparkRendererOptions {
    */
   behindFoveate?: number;
   /* Full-width angle in degrees of fixed foveation cone along the view direction
+   * with perfection foveation=1.0
+   * @default 0.0 (disables perfect foveation zone)
+   */
+  coneFov0?: number;
+  /* Full-width angle in degrees of fixed foveation cone along the view direction
    * @default 0.0 (disables cone foveation)
    */
   coneFov?: number;
@@ -218,6 +228,7 @@ export class NewSparkRenderer extends THREE.Mesh {
   maxStdDev: number;
   minPixelRadius: number;
   maxPixelRadius: number;
+  extSplats: boolean;
   minAlpha: number;
   enable2DGS: boolean;
   preBlurAmount: number;
@@ -262,6 +273,7 @@ export class NewSparkRenderer extends THREE.Mesh {
   globalLodScale: number;
   outsideFoveate: number;
   behindFoveate: number;
+  coneFov0: number;
   coneFov: number;
   coneFoveate: number;
   numLodFetchers: number;
@@ -341,6 +353,7 @@ export class NewSparkRenderer extends THREE.Mesh {
     this.maxStdDev = options.maxStdDev ?? Math.sqrt(8.0);
     this.minPixelRadius = options.minPixelRadius ?? 0.0; //1.6;
     this.maxPixelRadius = options.maxPixelRadius ?? 512.0;
+    this.extSplats = options.extSplats ?? true;
     this.minAlpha = options.minAlpha ?? 0.5 * (1.0 / 255.0);
     this.enable2DGS = options.enable2DGS ?? false;
     this.preBlurAmount = options.preBlurAmount ?? 0.0;
@@ -362,16 +375,21 @@ export class NewSparkRenderer extends THREE.Mesh {
     this.globalLodScale = options.globalLodScale ?? 1.0;
     this.outsideFoveate = options.outsideFoveate ?? 1.0;
     this.behindFoveate = options.behindFoveate ?? 1.0;
+    this.coneFov0 = options.coneFov0 ?? 0.0;
     this.coneFov = options.coneFov ?? 0.0;
     this.coneFoveate = options.coneFoveate ?? 1.0;
     this.numLodFetchers = options.numLodFetchers ?? 3;
 
     this.clock = options.clock ? cloneClock(options.clock) : new THREE.Clock();
 
-    this.display = new NewSplatAccumulator();
+    this.display = new NewSplatAccumulator({ extSplats: this.extSplats });
     this.current = this.display;
-    this.accumulators.push(new NewSplatAccumulator());
-    this.accumulators.push(new NewSplatAccumulator());
+    this.accumulators.push(
+      new NewSplatAccumulator({ extSplats: this.extSplats }),
+    );
+    this.accumulators.push(
+      new NewSplatAccumulator({ extSplats: this.extSplats }),
+    );
 
     if (options.target) {
       const { width, height, doubleBuffer } = options.target;
@@ -441,6 +459,7 @@ export class NewSparkRenderer extends THREE.Mesh {
       encodeLinear: { value: false },
       // Back-to-front sort ordering of splat indices
       ordering: { type: "t", value: NewSparkRenderer.emptyOrdering },
+      enableExtSplats: { value: true },
       // Gsplat collection to render
       extSplats: { type: "t", value: NewSplatAccumulator.emptyTexture },
       extSplats2: { type: "t", value: NewSplatAccumulator.emptyTexture },
@@ -535,8 +554,14 @@ export class NewSparkRenderer extends THREE.Mesh {
     geometry.instanceCount = spark.activeSplats;
     // this.uniforms.numSplats.value = spark.activeSplats;
 
-    const worldToCamera = camera.matrixWorld.clone().invert();
-    worldToCamera.decompose(
+    const accumToWorld = new THREE.Matrix4();
+    if (!this.display.extSplats) {
+      accumToWorld.makeTranslation(spark.display.viewOrigin);
+    }
+    const cameraToWorld = camera.matrixWorld.clone();
+    const worldToCamera = cameraToWorld.invert();
+    const accumToCamera = worldToCamera.multiply(accumToWorld);
+    accumToCamera.decompose(
       this.uniforms.renderToViewPos.value,
       this.uniforms.renderToViewQuat.value,
       new THREE.Vector3(),
@@ -558,9 +583,17 @@ export class NewSparkRenderer extends THREE.Mesh {
 
     this.uniforms.ordering.value =
       spark.orderingTexture ?? NewSparkRenderer.emptyOrdering;
-    const extSplats = spark.display.getTextures();
-    this.uniforms.extSplats.value = extSplats[0];
-    this.uniforms.extSplats2.value = extSplats[1];
+    if (this.display.extSplats) {
+      this.uniforms.enableExtSplats.value = true;
+      const extSplats = spark.display.getTextures();
+      this.uniforms.extSplats.value = extSplats[0];
+      this.uniforms.extSplats2.value = extSplats[1];
+    } else {
+      this.uniforms.enableExtSplats.value = false;
+      const packedSplats = spark.display.getTextures();
+      this.uniforms.extSplats.value = packedSplats[0];
+      this.uniforms.extSplats2.value = packedSplats[0];
+    }
 
     this.uniforms.time.value = spark.display.time;
     this.uniforms.deltaTime.value = spark.display.deltaTime;
@@ -997,6 +1030,7 @@ export class NewSparkRenderer extends THREE.Mesh {
             lodScale: mesh.lodScale * this.globalLodScale,
             outsideFoveate: mesh.outsideFoveate ?? this.outsideFoveate,
             behindFoveate: mesh.behindFoveate ?? this.behindFoveate,
+            coneFov0: mesh.coneFov0 ?? this.coneFov0,
             coneFov: mesh.coneFov ?? this.coneFov,
             coneFoveate: mesh.coneFoveate ?? this.coneFoveate,
           };
@@ -1011,6 +1045,7 @@ export class NewSparkRenderer extends THREE.Mesh {
           lodScale: number;
           outsideFoveate: number;
           behindFoveate: number;
+          coneFov0: number;
           coneFov: number;
           coneFoveate: number;
         }
@@ -1335,7 +1370,7 @@ export class NewSparkRenderer extends THREE.Mesh {
         layerYEnd,
         subReadback,
         undefined,
-        2,
+        current.extSplats ? 2 : 1,
       );
       promises.push(promise);
 

@@ -17,11 +17,13 @@ export class DynoProgram {
     inputs,
     outputs,
     template,
+    consoleLog,
   }: {
     graph: Dyno<IOTypes, IOTypes>;
     inputs?: Record<string, string>;
     outputs?: Record<string, string>;
     template: DynoProgramTemplate;
+    consoleLog?: boolean;
   }) {
     this.graph = graph;
     this.template = template;
@@ -43,8 +45,10 @@ export class DynoProgram {
     this.shader = template.generate({ globals: compile.globals, statements });
     this.uniforms = compile.uniforms;
     this.updaters = compile.updaters;
-    // console.log("*** COMPILED SHADER", this.shader);
-    // console.log("*** UNIFORMS", this.uniforms);
+    if (consoleLog) {
+      console.log("*** COMPILED SHADER", this.shader);
+      console.log("*** UNIFORMS", this.uniforms);
+    }
   }
 
   prepareMaterial(): THREE.RawShaderMaterial {
