@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark • WebXR</title>
+  <style>
+    body {
+      margin: 0;
+    }
+    canvas {
+      touch-action: none;
+    }
+  </style>
+</head>
+
+<body>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.180.0/three.module.js",
+        "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.20.0/+esm",
+        "@sparkjsdev/spark": "/dist/spark.module.js"
+      }
+    }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/stats.js@0.17.0/build/stats.min.js"></script>
+  <script type="module">
+    import * as THREE from "three";
+    import { NewSparkRenderer, PackedSplats, ExtSplats, SplatMesh, SplatEdit, SplatEditRgbaBlendMode, SplatEditSdf, SplatEditSdfType, SparkControls, SparkXr, textSplats, SplatSkinning } from "@sparkjsdev/spark";
+    import GUI from "lil-gui";
+
+    const ENABLE_EXT_SPLATS = false;
+    const RENDER_TIMEOUT_MS = 120 * 1000;
+
+    const stats = new Stats();
+    document.body.appendChild(stats.dom);
+
+    const URL_BASE = ".";
+    // const URL_BASE = "https://storage.googleapis.com/forge-dev-public/asundqui/memory-house-scene/memory-house";
+    // const URL_BASE = "./memory-house";
+    // const URL_BASE = "https://storage.googleapis.com/forge-dev-public/asundqui/hobbitverse";
+
+    const universe = {
+      "cozy_cottage": {
+        "url": "./cozy_cottage-lod.spz",
+        "position": [0, -1, 0],
+        "quaternion": [0, 0, 0, 1],
+      },
+      "toad": {
+        "url": `${URL_BASE}/toad-lod.spz`,
+        "position": [0.5,0,-0.5],
+        "quaternion": [0.15645282834721824,-0.04146967440804525,0.9867925564627197,0.00657488527784835],
+      },
+      "turkey": {
+        "url": `${URL_BASE}/turkey-lod.spz`,
+        "position": [0,0,-2],
+        "quaternion": [-0.443958268524857,-0.050133086580300315,0.8942976756110581,-0.02488768440417606],
+      },
+      "butterfly": {
+        "url": `${URL_BASE}/butterfly-ai-lod.spz`,
+        "position": [-1,0,-4.5],
+        "quaternion": [-0.28968658389767193,-0.00646881131936965,0.9570976983098036,-0.0019579274470059634],
+      },
+      "snowbot": {
+        "url": `${URL_BASE}/snowbot-lod.spz`,
+        "position": [-3.5,0,-5],
+        "quaternion": [1,0,0,0],
+      },
+    };
+
+    console.log("universe", universe);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    const camera2 = camera.clone();
+    scene.add(camera2);
+
+    window.THREE = THREE;
+    window.scene = scene;
+    window.renderer = renderer;
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.1));
+    scene.add(new THREE.DirectionalLight(0xffffff, 1.0));
+
+    window.addEventListener("resize", onWindowResize, false);
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      camera2.aspect = camera.aspect;
+      camera2.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    // Make a local frame of reference that we can move to control
+    // the camera, or as a frame of reference in WebXR mode
+    const localFrame = new THREE.Group();
+    scene.add(localFrame);
+
+    const diskPortalFragment = await fetch("./diskPortalFragment.glsl").then((response) => response.text());
+
+    // Lower the splat rendering width to sqrt(5) std devs for more performance
+    const spark = new NewSparkRenderer({
+      renderer,
+      extraUniforms: {
+        diskCenter: { value: new THREE.Vector3() },
+        diskNormal: { value: new THREE.Vector3() },
+        diskRadius: { value: 0 },
+        diskTwoSided: { value: false },
+      },
+      fragmentShader: diskPortalFragment,
+      maxStdDev: Math.sqrt(4),
+      lodSplatScale: 0.5,
+      behindFoveate: 0.3,
+      coneFov0: 20.0,
+      coneFov: 150.0,
+      coneFoveate: 0.3,
+    });
+    scene.add(spark);
+    localFrame.add(camera);
+
+    const spark2 = new NewSparkRenderer({
+      renderer,
+      maxStdDev: Math.sqrt(4),
+      lodSplatScale: 0.5,
+      behindFoveate: 0.3,
+      coneFov0: 20.0,
+      coneFov: 150.0,
+      coneFoveate: 0.3,
+    });
+    
+    const portal1 = new THREE.Object3D();
+    portal1.position.set(0, 0, -1);
+    scene.add(portal1);
+
+    const portal2 = new THREE.Object3D();
+    portal2.position.set(-3, 0, -4.5);
+    scene.add(portal2);
+
+    function setPortalDiskUniforms({
+      spark,
+      camera,
+      portal,
+      radius,
+      twoSided,
+    }) {
+      // Shader expects diskCenter/diskNormal in VIEW space (ray origin is at (0,0,0)).
+      camera.updateMatrixWorld(true);
+      portal.updateMatrixWorld(true);
+
+      const inverseCamera = camera.matrixWorld.clone().invert();
+      const portalInCamera = portal.matrixWorld.clone().premultiply(inverseCamera);
+      const portalInCameraQuaternion = new THREE.Quaternion();
+      portalInCamera.decompose(
+        spark.uniforms.diskCenter.value,
+        portalInCameraQuaternion,
+        new THREE.Vector3(),
+      );
+
+      spark.uniforms.diskNormal.value.set(0, 0, 1).applyQuaternion(portalInCameraQuaternion);
+      spark.uniforms.diskRadius.value = radius;
+      spark.uniforms.diskTwoSided.value = twoSided;
+    }
+
+    function portal1to2() {
+      return portal1.matrixWorld.clone().invert().premultiply(portal2.matrixWorld);
+    }
+
+    function portal2to1() {
+      return portal2.matrixWorld.clone().invert().premultiply(portal1.matrixWorld);
+    }
+
+    const PORTAL_RADIUS = 1.0;
+    const PORTAL_CROSS_EPS = 1e-6;
+
+    // Used to detect crossing between frames.
+    const lastCameraWorld = new THREE.Vector3().setScalar(Number.NaN);
+
+    // Scratch objects for portal crossing + teleport math.
+    const scratchPortalQuat = new THREE.Quaternion();
+    const scratchPortalScale = new THREE.Vector3();
+    const scratchPortalCenter0 = new THREE.Vector3();
+    const scratchPortalCenter1 = new THREE.Vector3();
+    const scratchPortalNormal0 = new THREE.Vector3();
+    const scratchPortalNormal1 = new THREE.Vector3();
+    const scratchPortalCenterT = new THREE.Vector3();
+    const scratchPortalNormalT = new THREE.Vector3();
+    const scratchP0 = new THREE.Vector3();
+    const scratchP1 = new THREE.Vector3();
+    const scratchHit = new THREE.Vector3();
+    const scratchPlaneOffset = new THREE.Vector3();
+    const scratchCamWorldMat = new THREE.Matrix4();
+    const scratchNewCamWorldMat = new THREE.Matrix4();
+    const scratchInvCamLocalMat = new THREE.Matrix4();
+    const scratchNewLocalFrameWorldMat = new THREE.Matrix4();
+    const scratchPortalBefore1 = new THREE.Matrix4();
+    const scratchPortalBefore2 = new THREE.Matrix4();
+
+    function getPortalPlaneFromMatrixWorld(portalMatrixWorld, outCenter, outNormal) {
+      portalMatrixWorld.decompose(outCenter, scratchPortalQuat, scratchPortalScale);
+      outNormal.set(0, 0, 1).applyQuaternion(scratchPortalQuat).normalize();
+    }
+
+    function getSegmentDiskCrossingTMovingPortal(p0World, p1World, portalBeforeMatrixWorld, portalAfterMatrixWorld, radius) {
+      getPortalPlaneFromMatrixWorld(portalBeforeMatrixWorld, scratchPortalCenter0, scratchPortalNormal0);
+      getPortalPlaneFromMatrixWorld(portalAfterMatrixWorld, scratchPortalCenter1, scratchPortalNormal1);
+
+      // Signed distances to the portal plane at the start/end of the frame.
+      const d0 = scratchPlaneOffset.copy(p0World).sub(scratchPortalCenter0).dot(scratchPortalNormal0);
+      const d1 = scratchPlaneOffset.copy(p1World).sub(scratchPortalCenter1).dot(scratchPortalNormal1);
+
+      // "Parity differs": segment crossed the plane between frames.
+      if ((d0 > PORTAL_CROSS_EPS && d1 > PORTAL_CROSS_EPS) || (d0 < -PORTAL_CROSS_EPS && d1 < -PORTAL_CROSS_EPS)) {
+        return null;
+      }
+      const denom = (d0 - d1);
+      if (Math.abs(denom) < PORTAL_CROSS_EPS) {
+        return null;
+      }
+
+      const t = d0 / denom; // p(t) = p0 + t*(p1-p0)
+      if (t < 0 || t > 1) {
+        return null;
+      }
+
+      scratchHit.lerpVectors(p0World, p1World, t);
+
+      // Approximate portal center/normal at crossing time t.
+      scratchPortalCenterT.copy(scratchPortalCenter0).lerp(scratchPortalCenter1, t);
+      scratchPortalNormalT.copy(scratchPortalNormal0).lerp(scratchPortalNormal1, t).normalize();
+
+      // Check hit point is within disk radius in the portal plane.
+      scratchPlaneOffset.copy(scratchHit).sub(scratchPortalCenterT);
+      scratchPlaneOffset.addScaledVector(scratchPortalNormalT, -scratchPlaneOffset.dot(scratchPortalNormalT)); // project to plane
+      const r2 = radius * radius;
+      if (scratchPlaneOffset.lengthSq() > r2) {
+        return null;
+      }
+
+      return t;
+    }
+
+    function teleportCameraThroughPortal(relativeWorldTransform) {
+      // Camera is a child of localFrame, so we adjust localFrame so the camera lands
+      // at the desired new world transform (while preserving head/camera local pose).
+      camera.updateMatrixWorld(true);
+      localFrame.updateMatrixWorld(true);
+
+      scratchCamWorldMat.copy(camera.matrixWorld);
+      scratchNewCamWorldMat.copy(scratchCamWorldMat).premultiply(relativeWorldTransform);
+
+      // newLocalFrameWorld * cameraLocal = newCameraWorld
+      scratchInvCamLocalMat.copy(camera.matrix).invert();
+      scratchNewLocalFrameWorldMat.copy(scratchNewCamWorldMat).multiply(scratchInvCamLocalMat);
+
+      scratchNewLocalFrameWorldMat.decompose(localFrame.position, localFrame.quaternion, localFrame.scale);
+      localFrame.updateMatrixWorld(true);
+      camera.updateMatrixWorld(true);
+    }
+
+    function maybeTeleportThroughPortals(portal1BeforeMatrixWorld, portal2BeforeMatrixWorld) {
+      camera.getWorldPosition(scratchP1);
+      if (!Number.isFinite(lastCameraWorld.x)) {
+        lastCameraWorld.copy(scratchP1);
+        return;
+      }
+
+      scratchP0.copy(lastCameraWorld);
+
+      // Compute both crossings and take the earliest along the segment (if any).
+      portal1.updateMatrixWorld(true);
+      portal2.updateMatrixWorld(true);
+      const t1 = getSegmentDiskCrossingTMovingPortal(scratchP0, scratchP1, portal1BeforeMatrixWorld, portal1.matrixWorld, PORTAL_RADIUS);
+      const t2 = getSegmentDiskCrossingTMovingPortal(scratchP0, scratchP1, portal2BeforeMatrixWorld, portal2.matrixWorld, PORTAL_RADIUS);
+
+      if (t1 == null && t2 == null) {
+        lastCameraWorld.copy(scratchP1);
+        return;
+      }
+
+      if (t2 == null || (t1 != null && t1 <= t2)) {
+        teleportCameraThroughPortal(portal1to2());
+      } else {
+        teleportCameraThroughPortal(portal2to1());
+      }
+
+      camera.getWorldPosition(lastCameraWorld);
+    }
+
+    let renderEnabled = true;
+    let lastMoved = 0;
+    let lastPos = new THREE.Vector3().setScalar(Number.NEGATIVE_INFINITY);
+    let lastDir = new THREE.Vector3();
+
+    let animations = [];
+
+    async function loadUniverse() {
+      for (const key of Object.keys(universe)) {
+        const { url, position, quaternion, scale, opacity } = universe[key];
+        console.log("Loading", key, url, position, quaternion, scale, opacity);
+        const absoluteURL = new URL(url, window.location.href).href;
+        const isCharacter = key.startsWith("toad") || key.startsWith("butterfly") || key.startsWith("turkey") || key.startsWith("snowbot");
+
+        let packedSplats = undefined;
+        let extSplats = undefined;
+
+        if (isCharacter) {
+          packedSplats = new PackedSplats({
+            url: absoluteURL,
+            lod: true,
+            maxBoneSplats: isCharacter ? 16 : undefined,
+            computeBoneWeights: isCharacter,
+            minBoneOpacity: 0.5,
+          });
+          await packedSplats.initialized;
+          console.log("Loaded PackedSplats", key, packedSplats);
+        } else {
+          if (ENABLE_EXT_SPLATS) {
+            extSplats = new ExtSplats({
+              url: absoluteURL,
+            });
+            console.log("Loaded ExtSplats", key, extSplats);
+          } else {
+            packedSplats = new PackedSplats({ url: absoluteURL });
+            console.log("Loaded PackedSplats", key, packedSplats);
+          }
+        }
+
+        const mesh = new SplatMesh({
+          packedSplats,
+          extSplats,
+        });
+        await mesh.initialized;
+
+        mesh.position.fromArray(position ?? [0, 0, 0]);
+        mesh.quaternion.fromArray(quaternion ?? [0, 0, 0, 1]);
+        mesh.scale.setScalar(scale ?? 1);
+        const meshOpacity = opacity ?? 1.0;
+
+        mesh.opacity = 0;
+        scene.add(mesh);
+
+        animations.push({
+          start: performance.now(),
+          animate: (elapsedMs) => {
+            const t = (elapsedMs - 1000) / 1500;
+            mesh.opacity = meshOpacity * Math.pow(Math.max(0, Math.min(1, t)), 2);
+            return t < 1;
+          },
+          dispose: () => {
+            mesh.opacity = meshOpacity;
+          },
+        });
+
+        if (isCharacter) {
+          const skinning = new SplatSkinning({
+            mesh,
+            numSplats: mesh.packedSplats.lodSplats.numSplats,
+            numBones: mesh.packedSplats.boneSplats.numSplats,
+          });
+          skinning.skinData.set(mesh.packedSplats.lodSplats.extra.boneWeights);
+
+          mesh.packedSplats.boneSplats.forEachSplat((index, center, scales, quaternion, opacity, color) => {
+            skinning.setRestQuatPos(index, quaternion, center);
+          });
+          mesh.skinning = skinning;
+
+          mesh.onFrame = ({ mesh, time, deltaTime }) => {
+            mesh.packedSplats.boneSplats.forEachSplat((index, center, scales, quaternion, opacity, color) => {
+              skinning.getRestQuatPos(index, quaternion, center);
+
+              const avgScale = (scales.x + scales.y + scales.z) / 3;
+              center.x += Math.sin(time) * 0.15 * 1/Math.log(avgScale);
+              skinning.setBoneQuatPos(index, quaternion, center);
+            });
+            skinning.updateBones();
+          };
+        }
+      }
+    }
+
+    loadUniverse();
+
+    const controls = new SparkControls({
+      renderer,
+      canvas: renderer.domElement,
+    });
+
+    // const xr = new SparkXr({
+    //   renderer,
+    //   onMouseLeaveOpacity: 0.5,
+    //   onReady: async (supported) => {
+    //     console.log(`SparkXr ready: ${supported ? "supported" : "not supported"}`);
+    //   },
+    //   onEnterXr: () => {
+    //     console.log("Enter XR");
+    //   },
+    //   onExitXr: () => {
+    //     console.log("Exit XR");
+    //   },
+    //   // enableHands: true,
+    //   controllers: {
+    //     // moveHeading: true,
+    //     // getRotate: (gamepads) => {
+    //     //   return new THREE.Vector3(
+    //     //     gamepads.right?.axes[2] ?? 0,
+    //     //     gamepads.right?.axes[3] ?? 0,
+    //     //     0,
+    //     //   )
+    //     // },
+    //   },
+    // });
+
+    let lastTime = 0;
+    let rotation = 0;
+    let xrTime = 0;
+
+    const gui = new GUI({ title: "Settings" });
+    gui.add({ disableRender: () => { renderEnabled = false; } }, "disableRender").name("Disable render");
+    gui.add(spark, "lodSplatScale", 0.001, 2.0, 0.001).onChange((value) => {
+      spark2.lodSplatScale = value;
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "\\") {
+        const cameraPos = camera.getWorldPosition(new THREE.Vector3());
+        const cameraQuat = camera.getWorldQuaternion(new THREE.Quaternion());
+        console.log("camera position: ", JSON.stringify(cameraPos.toArray()), "quaternion: ", JSON.stringify(cameraQuat.toArray()));
+      }
+      if (event.key === "/") {
+        const cameraPos = camera.getWorldPosition(new THREE.Vector3());
+        const cameraQuat = camera.getWorldQuaternion(new THREE.Quaternion());
+        cameraQuat.premultiply(new THREE.Quaternion(1, 0, 0, 0));
+        console.log("camera position: ", JSON.stringify(cameraPos.toArray()), "quaternion: ", JSON.stringify(cameraQuat.toArray()));
+      }
+    });
+
+    renderer.setAnimationLoop(function animate(time, xrFrame) {
+      stats.begin();
+
+      const deltaTime = time - (lastTime || time);
+      lastTime = time;
+
+      controls.update(localFrame);
+
+      // xr.updateControllers(camera);
+      // xr.updateHands({ xrFrame });
+
+      // After movement updates, teleport if we crossed either portal disk this frame.
+      portal1.updateMatrixWorld(true);
+      portal2.updateMatrixWorld(true);
+      scratchPortalBefore1.copy(portal1.matrixWorld);
+      scratchPortalBefore2.copy(portal2.matrixWorld);
+
+      // Apply per-frame portal motion.
+      portal1.position.z = -1 + 0.4 * Math.sin(time / 1000);
+      // portal2.rotation.y = Math.PI * (0.5 + 0.2 * Math.sin(time / 1700));
+      // portal2.rotation.x = 0.5 * Math.sin(time / 1700);
+      portal2.rotation.y = 0.5 * Math.sin(time / 1700);
+
+      // After portal motion, teleport if either portal swept through us (or we walked through it).
+      maybeTeleportThroughPortals(scratchPortalBefore1, scratchPortalBefore2);
+
+      // // This is a hack to make a "local" frame work reliably across
+      // // Quest 3 and Vision Pro. Any big discontinuity in the camera
+      // // results in a reverse shift of the local frame to compensate.
+      // if (lastCameraPos.distanceTo(camera.position) > 0.5) {
+      //   localFrame.position.copy(camera.position).multiplyScalar(-1);
+      // }
+      // lastCameraPos.copy(camera.position);
+
+      const now = performance.now();
+      const dir = localFrame.getWorldDirection(new THREE.Vector3());
+      if ((localFrame.position.distanceTo(lastPos) > 0.0001) || (dir.dot(lastDir) < 0.9999)) {
+        lastMoved = now;
+        if (!renderEnabled) {
+          console.log("Render enabled");
+        }
+        renderEnabled = true;
+        lastPos.copy(localFrame.position);
+        lastDir.copy(dir);
+      }
+      if ((now - lastMoved) > RENDER_TIMEOUT_MS) {
+        if (renderEnabled) {
+          console.log("Render disabled");
+        }
+        renderEnabled = false;
+      }
+
+      animations = animations.filter((debug) => {
+        const now = performance.now();
+        const keep = debug.animate(now - debug.start);
+        if (!keep) {
+          debug.dispose();
+        }
+        return keep;
+      });
+
+      if (renderEnabled) {
+        const cameraWorld = camera.getWorldPosition(new THREE.Vector3());
+        const viewDir = camera.getWorldDirection(new THREE.Vector3()); // normalized
+
+        const portal1Center = portal1.getWorldPosition(new THREE.Vector3());
+        const portal2Center = portal2.getWorldPosition(new THREE.Vector3());
+
+        const toPortal1 = portal1Center.clone().sub(cameraWorld);
+        const toPortal2 = portal2Center.clone().sub(cameraWorld);
+        const portal1Dist = toPortal1.length();
+        const portal2Dist = toPortal2.length();
+        const portal1ViewDot = toPortal1.clone().normalize().dot(viewDir); // 0 == dead center
+        const portal2ViewDot = toPortal2.clone().normalize().dot(viewDir);
+
+        const usePortal1 =
+          ((portal1ViewDot / portal1Dist) > (portal2ViewDot / portal2Dist)) ? true : false;
+
+        // Keep the existing convention: portals[1] is the "primary" (closest-to-view) portal.
+        const portals = usePortal1 ? [portal2, portal1] : [portal1, portal2];
+
+        const camera2Matrix = usePortal1 ?
+          camera.matrixWorld.clone().premultiply(portal1to2()) :
+          camera.matrixWorld.clone().premultiply(portal2to1());
+        camera2Matrix.decompose(camera2.position, camera2.quaternion, camera2.scale);
+
+        // IMPORTANT: `spark2.render()` sets a global override, but the mesh that actually
+        // gets drawn (and thus whose uniforms are used) is still `spark`.
+        //
+        // Pass 1: render the "behind the portal" view from camera2, clipped by portal2 disk.
+        camera2.updateMatrixWorld(true); // camera2 is parented to scene, so local == world
+        setPortalDiskUniforms({
+          spark,
+          camera: camera2,
+          portal: portals[0],
+          radius: 1,
+          twoSided: true,
+        });
+        renderer.autoClear = true;
+        spark2.render(scene, camera2);
+
+        // Pass 2: render the main view from camera, clipped by portal1 disk.
+        setPortalDiskUniforms({
+          spark,
+          camera,
+          portal: portals[1],
+          radius: -1,
+          twoSided: true,
+        });
+        renderer.autoClear = false;
+        renderer.render(scene, camera);
+      }
+
+      stats.end();
+    });
+  </script>
+</body>
+
+</html>
