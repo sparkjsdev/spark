@@ -69,7 +69,7 @@ export interface NewSparkRendererOptions {
    */
   maxPixelRadius?: number;
   /**
-   * Whether to use extended Gsplat encoding.
+   * Whether to use extended Gsplat encoding for intermediary splats.
    * @default true
    */
   extSplats?: boolean;
@@ -212,6 +212,12 @@ export interface NewSparkRendererOptions {
      */
     superXY?: number;
   };
+  extraUniforms?: Record<string, unknown>;
+  vertexShader?: string;
+  fragmentShader?: string;
+  transparent?: boolean;
+  depthTest?: boolean;
+  depthWrite?: boolean;
 }
 
 export class NewSparkRenderer extends THREE.Mesh {
@@ -322,18 +328,20 @@ export class NewSparkRenderer extends THREE.Mesh {
 
   constructor(options: NewSparkRendererOptions) {
     const uniforms = NewSparkRenderer.makeUniforms();
+    Object.assign(uniforms, options.extraUniforms ?? {});
+
     const shaders = getShaders();
     const premultipliedAlpha = options.premultipliedAlpha ?? true;
     const geometry = new NewSplatGeometry();
     const material = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
-      vertexShader: shaders.newSplatVertex,
-      fragmentShader: shaders.newSplatFragment,
+      vertexShader: options.vertexShader ?? shaders.newSplatVertex,
+      fragmentShader: options.fragmentShader ?? shaders.newSplatFragment,
       uniforms,
       premultipliedAlpha,
-      transparent: true,
-      depthTest: true,
-      depthWrite: false,
+      transparent: options.transparent ?? true,
+      depthTest: options.depthTest ?? true,
+      depthWrite: options.depthWrite ?? false,
       side: THREE.DoubleSide,
     });
 
@@ -353,7 +361,7 @@ export class NewSparkRenderer extends THREE.Mesh {
     this.maxStdDev = options.maxStdDev ?? Math.sqrt(8.0);
     this.minPixelRadius = options.minPixelRadius ?? 0.0; //1.6;
     this.maxPixelRadius = options.maxPixelRadius ?? 512.0;
-    this.extSplats = options.extSplats ?? true;
+    this.extSplats = options.extSplats ?? false;
     this.minAlpha = options.minAlpha ?? 0.5 * (1.0 / 255.0);
     this.enable2DGS = options.enable2DGS ?? false;
     this.preBlurAmount = options.preBlurAmount ?? 0.0;
@@ -1417,6 +1425,15 @@ export class NewSparkRenderer extends THREE.Mesh {
     texture.needsUpdate = true;
     return texture;
   })();
+
+  render(scene: THREE.Scene, camera: THREE.Camera) {
+    try {
+      NewSparkRenderer.sparkOverride = this;
+      this.renderer.render(scene, camera);
+    } finally {
+      NewSparkRenderer.sparkOverride = undefined;
+    }
+  }
 
   renderTarget({
     scene,
