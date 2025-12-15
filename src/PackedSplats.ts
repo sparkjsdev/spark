@@ -19,7 +19,7 @@ import {
   outputPackedSplat,
 } from "./dyno";
 import { TPackedSplats, definePackedSplats } from "./dyno/splats";
-import computeUvec4Template from "./shaders/computeUvec4.glsl";
+import { getShaders } from "./shaders";
 import { getTextureSize, setPackedSplat, unpackSplat } from "./utils";
 
 export type SplatEncoding = {
@@ -574,7 +574,7 @@ export class PackedSplats {
       );
       if (!PackedSplats.programTemplate) {
         PackedSplats.programTemplate = new DynoProgramTemplate(
-          computeUvec4Template,
+          getShaders().computeUvec4Template,
         );
       }
       // Create a program from the template and graph
