@@ -98,7 +98,7 @@ export class DynoProgramTemplate {
   }
 }
 
-const programMaterial = new Map<DynoProgram, THREE.RawShaderMaterial>();
+const programMaterial = new WeakMap<DynoProgram, THREE.RawShaderMaterial>();
 
 function getMaterial(program: DynoProgram): THREE.RawShaderMaterial {
   let material = programMaterial.get(program);

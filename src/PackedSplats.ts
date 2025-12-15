@@ -12,6 +12,8 @@ import {
 import {
   DynoProgram,
   DynoProgramTemplate,
+  DynoSampler2D,
+  type DynoType,
   DynoUniform,
   DynoVec2,
   DynoVec4,
@@ -241,12 +243,32 @@ export class PackedSplats {
   dispose() {
     if (this.target) {
       this.target.dispose();
+      this.target.texture.source.data = null;
       this.target = null;
     }
     if (this.source) {
       this.source.dispose();
+      this.source.source.data = null;
       this.source = null;
     }
+
+    this.packedArray = null;
+
+    for (const key in this.extra) {
+      const dyno = this.extra[key] as DynoUniform<
+        DynoType,
+        string,
+        THREE.Texture
+      >;
+      if (dyno instanceof DynoUniform) {
+        const texture = dyno.value;
+        if (texture?.isTexture) {
+          texture.dispose();
+          texture.source.data = null;
+        }
+      }
+    }
+    this.extra = {};
   }
 
   // Ensures that this.packedArray can fit numSplats Gsplats. If it's too small,
@@ -432,7 +454,9 @@ export class PackedSplats {
     if (this.target && (maxSplats ?? 1) <= this.maxSplats) {
       return false;
     }
-    this.dispose();
+    if (this.target) {
+      this.target.dispose();
+    }
 
     const textureSize = getTextureSize(maxSplats ?? 1);
     const { width, height, depth } = textureSize;
@@ -687,7 +711,7 @@ export class PackedSplats {
   static programTemplate: DynoProgramTemplate | null = null;
 
   // Cache for GsplatGenerator programs
-  static generatorProgram = new Map<GsplatGenerator, DynoProgram>();
+  static generatorProgram = new WeakMap<GsplatGenerator, DynoProgram>();
 
   // Static full-screen quad for pseudo-compute shader rendering
   static fullScreenQuad = new FullScreenQuad(
