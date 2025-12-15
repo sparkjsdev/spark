@@ -3,7 +3,7 @@ export { SparkViewpoint, type SparkViewpointOptions } from "./SparkViewpoint";
 
 export * as dyno from "./dyno";
 
-export { RgbaArray } from "./RgbaArray";
+export { RgbaArray, readRgbaArray } from "./RgbaArray";
 
 export {
   SplatLoader,

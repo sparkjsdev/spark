@@ -64,6 +64,8 @@
       SpzWriter,
       unpackSplat,
       PackedSplats,
+      RgbaArray,
+      readRgbaArray,
     } from "@sparkjsdev/spark";
     import * as THREE from "three";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
@@ -74,6 +76,7 @@
       controlsEnabled: true,
       eraseEnabled: dyno.dynoBool(false),
       brushEnabled: dyno.dynoBool(false),
+      undoEnabled: dyno.dynoBool(false),
       brushDepth: dyno.dynoFloat(10.0),
       brushRadius: dyno.dynoFloat(0.05),
       brushOrigin: dyno.dynoVec3(new THREE.Vector3(0.0, 0.0, 0.0)),
@@ -90,15 +93,18 @@
     const assetID = "greyscale-bedroom.spz";
     let currentSplatMesh = null;
     let currentFileName = "painted-splat";
+    let currentSplatMeshOriginalRGBA = null;
 
     function brushDyno(
         brushEnabled,
         eraseEnabled,
+        undoEnabled,
         brushRadius,
         brushDepth,
         brushOrigin,
         brushDirection,
         brushColor,
+        originalRgba,
     ) {
         const flatColor = dyno.dynoVec3(new THREE.Vector3(1.0, 1.0, 1.0));
         const luminanceThreshold = dyno.dynoFloat(0.1);
@@ -106,19 +112,29 @@
             if (!gsplat) {
             throw new Error("No gsplat input");
             }
-            let { center, rgb, opacity } = dyno.splitGsplat(gsplat).outputs;
+            let { center, rgb, opacity, index } = dyno.splitGsplat(gsplat).outputs;
             const projectionAmplitude = dyno.dot(brushDirection, dyno.sub(center, brushOrigin));
             const projectedCenter = dyno.add(brushOrigin, dyno.mul(brushDirection, projectionAmplitude));
             const distance = dyno.length(dyno.sub(projectedCenter, center)); // distance from projected center to actual center
             const isInside = dyno.and(dyno.lessThan(distance, brushRadius), 
                                       dyno.and(dyno.greaterThan(projectionAmplitude, dyno.dynoFloat(0.0)),
                                       dyno.lessThan(projectionAmplitude, brushDepth)));
+            
+            // Paint/erase mode: change RGB or alpha values for splats inside brush
             const luminanceOld = dyno.div(dyno.dot(rgb, flatColor), dyno.dynoFloat(3.0));
             const luminanceNew = dyno.div(dyno.dot(brushColor, flatColor), dyno.dynoFloat(3.0));
             const weightedRgb = dyno.mul(brushColor, dyno.div(luminanceOld, luminanceNew));
             const isLuminanceAboveThreshold = dyno.greaterThan(luminanceOld, luminanceThreshold);
-            const newRgb = dyno.select(dyno.and(dyno.and(brushEnabled, isInside), isLuminanceAboveThreshold), weightedRgb, rgb);
-            const newOpacity = dyno.select(eraseEnabled, dyno.select(isInside, dyno.dynoFloat(0.0), opacity), opacity);
+            let newRgb = dyno.select(dyno.and(dyno.and(brushEnabled, isInside), isLuminanceAboveThreshold), weightedRgb, rgb);
+            let newOpacity = dyno.select(eraseEnabled, dyno.select(isInside, dyno.dynoFloat(0.0), opacity), opacity);
+            
+            // Undo mode: restore original RGBA for splats inside brush
+            const originalRgbaValue = readRgbaArray(originalRgba, index);
+            const originalRgbVec = dyno.vec3(originalRgbaValue);
+            const originalOpacityVal = dyno.swizzle(originalRgbaValue, "w");
+            newRgb = dyno.select(dyno.and(undoEnabled, isInside), originalRgbVec, newRgb);
+            newOpacity = dyno.select(dyno.and(undoEnabled, isInside), originalOpacityVal, newOpacity);
+            
             gsplat = dyno.combineGsplat({ gsplat, rgb: newRgb, opacity: newOpacity });
             return { gsplat };
         });
@@ -128,11 +144,13 @@
       url,
       brushEnabled,
       eraseEnabled,
+      undoEnabled,
       brushRadius,
       brushDepth,
       brushOrigin,
       brushDirection,
       brushColor,
+      originalRgba,
     ) {
       const splatMesh = new SplatMesh({
         url: url,
@@ -143,11 +161,13 @@
       splatMesh.worldModifier = brushDyno(
         brushEnabled,
         eraseEnabled,
+        undoEnabled,
         brushRadius, 
         brushDepth,
         brushOrigin, 
         brushDirection, 
         brushColor,
+        originalRgba,
       );
       splatMesh.updateGenerator();
       return splatMesh;
@@ -193,19 +213,50 @@
       }
       // Extract filename for export
       currentFileName = url.split("/").pop().split("?")[0].split(".")[0] || "painted-splat";
+      
+      // Create an empty RgbaArray that will be populated after the mesh loads
+      currentSplatMeshOriginalRGBA = new RgbaArray();
+      
       currentSplatMesh = await paintableSplatMesh(
         url,
         PARAMETERS.brushEnabled,
         PARAMETERS.eraseEnabled,
+        PARAMETERS.undoEnabled,
         PARAMETERS.brushRadius, 
         PARAMETERS.brushDepth,
         PARAMETERS.brushOrigin, 
         PARAMETERS.brushDirection, 
-        PARAMETERS.brushColor
+        PARAMETERS.brushColor,
+        currentSplatMeshOriginalRGBA.dyno
       );
       currentSplatMesh.quaternion.set(1, 0, 0, 0);
       scene.add(currentSplatMesh);
       
+      // Wait for the mesh to fully load before accessing packed data
+      await currentSplatMesh.initialized;
+      
+      // Extract original RGBA directly from the packed splats
+      currentSplatMeshOriginalRGBA = new RgbaArray();
+      currentSplatMeshOriginalRGBA.fromPackedSplats({
+        packedSplats: currentSplatMesh.packedSplats,
+        base: 0,
+        count: currentSplatMesh.packedSplats.numSplats,
+        renderer: renderer
+      });
+      
+      // Update the world modifier with the populated original RGBA
+      currentSplatMesh.worldModifier = brushDyno(
+        PARAMETERS.brushEnabled,
+        PARAMETERS.eraseEnabled,
+        PARAMETERS.undoEnabled,
+        PARAMETERS.brushRadius, 
+        PARAMETERS.brushDepth,
+        PARAMETERS.brushOrigin, 
+        PARAMETERS.brushDirection, 
+        PARAMETERS.brushColor,
+        currentSplatMeshOriginalRGBA.dyno
+      );
+      currentSplatMesh.updateGenerator();
     }
 
     await loadSplatFromFile(await getAssetFileURL(assetID));
@@ -288,7 +339,8 @@
     // Instructions section
     const instructions = {
       brush: "Brush Mode",
-      erase: "Erase Mode", 
+      erase: "Erase Mode",
+      undo: "Undo Mode",
       none: "View Mode",
       increase: "Increase Brush Size",
       decrease: "Decrease Brush Size",
@@ -298,6 +350,7 @@
     const instructionsFolder = gui.addFolder("Instructions");
     instructionsFolder.add(instructions, "brush").name("1:").disable();
     instructionsFolder.add(instructions, "erase").name("2:").disable();
+    instructionsFolder.add(instructions, "undo").name("3:").disable();
     instructionsFolder.add(instructions, "none").name("Esc:").disable();
     instructionsFolder.add(instructions, "increase").name("=:").disable();
     instructionsFolder.add(instructions, "decrease").name("-:").disable();
@@ -481,6 +534,7 @@
       // Brush mode
       PARAMETERS.brushEnabled.value = true;
       PARAMETERS.eraseEnabled.value = false;
+      PARAMETERS.undoEnabled.value = false;
       PARAMETERS.controlsEnabled = false;
       controls.enabled = false;
       showModeOverlay('Paint Mode');
@@ -488,13 +542,23 @@
       // Eraser mode
       PARAMETERS.brushEnabled.value = false;
       PARAMETERS.eraseEnabled.value = true;
+      PARAMETERS.undoEnabled.value = false;
       PARAMETERS.controlsEnabled = false;
       controls.enabled = false;
       showModeOverlay('Erase Mode');
+    } else if (event.key === '3') {
+      // Undo mode
+      PARAMETERS.brushEnabled.value = false;
+      PARAMETERS.eraseEnabled.value = false;
+      PARAMETERS.undoEnabled.value = true;
+      PARAMETERS.controlsEnabled = false;
+      controls.enabled = false;
+      showModeOverlay('Undo Mode');
       } else if (event.key === 'Escape') {
         // View mode
         PARAMETERS.brushEnabled.value = false;
         PARAMETERS.eraseEnabled.value = false;
+        PARAMETERS.undoEnabled.value = false;
         PARAMETERS.controlsEnabled = true;
         controls.enabled = true;
         showModeOverlay('View Mode');
