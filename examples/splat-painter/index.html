@@ -119,6 +119,8 @@
             const isInside = dyno.and(dyno.lessThan(distance, brushRadius), 
                                       dyno.and(dyno.greaterThan(projectionAmplitude, dyno.dynoFloat(0.0)),
                                       dyno.lessThan(projectionAmplitude, brushDepth)));
+            
+            // Paint/erase mode: change RGB or alpha values for splats inside brush
             const luminanceOld = dyno.div(dyno.dot(rgb, flatColor), dyno.dynoFloat(3.0));
             const luminanceNew = dyno.div(dyno.dot(brushColor, flatColor), dyno.dynoFloat(3.0));
             const weightedRgb = dyno.mul(brushColor, dyno.div(luminanceOld, luminanceNew));
@@ -128,11 +130,7 @@
             
             // Undo mode: restore original RGBA for splats inside brush
             const originalRgbaValue = readRgbaArray(originalRgba, index);
-            const originalRgbVec = dyno.vec3(
-              dyno.swizzle(originalRgbaValue, "x"),
-              dyno.swizzle(originalRgbaValue, "y"),
-              dyno.swizzle(originalRgbaValue, "z")
-            );
+            const originalRgbVec = dyno.vec3(originalRgbaValue);
             const originalOpacityVal = dyno.swizzle(originalRgbaValue, "w");
             newRgb = dyno.select(dyno.and(undoEnabled, isInside), originalRgbVec, newRgb);
             newOpacity = dyno.select(dyno.and(undoEnabled, isInside), originalOpacityVal, newOpacity);
