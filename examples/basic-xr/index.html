@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark • WebXR</title>
+  <style>
+    body {
+      margin: 0;
+    }
+    canvas {
+      touch-action: none;
+    }
+  </style>
+</head>
+
+<body>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.180.0/three.module.js",
+        "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.20.0/+esm",
+        "@sparkjsdev/spark": "/dist/spark.module.js"
+      }
+    }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/stats.js@0.17.0/build/stats.min.js"></script>
+  <script type="module">
+    import * as THREE from "three";
+    import { NewSparkRenderer, PackedSplats, ExtSplats, SplatMesh, SplatEdit, SplatEditRgbaBlendMode, SplatEditSdf, SplatEditSdfType, SparkControls, SparkXr, textSplats, SplatSkinning } from "@sparkjsdev/spark";
+    import GUI from "lil-gui";
+
+    const RENDER_TIMEOUT_MS = 30 * 1000;
+
+    const stats = new Stats();
+    document.body.appendChild(stats.dom);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 1000);
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    window.THREE = THREE;
+    window.scene = scene;
+    window.renderer = renderer;
+
+    window.addEventListener("resize", onWindowResize, false);
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    // Lower the splat rendering width to sqrt(4) std devs for more performance
+    const spark = new NewSparkRenderer({
+      renderer,
+      extSplats: false,
+      maxStdDev: Math.sqrt(4),
+    });
+    scene.add(spark);
+
+    // Make a local frame of reference that we can move to control
+    // the camera, or as a frame of reference in WebXR mode
+    const localFrame = new THREE.Group();
+    scene.add(localFrame);
+    localFrame.add(camera);
+
+    const world = new SplatMesh({
+      url: "https://storage.googleapis.com/forge-dev-public/asundqui/cozy-xr/cozy_cottage-lod.spz",
+    });
+    world.position.set(0, -1, 0);
+    scene.add(world);
+
+    let renderEnabled = true;
+    let lastMoved = 0;
+    let lastPos = new THREE.Vector3().setScalar(Number.NEGATIVE_INFINITY);
+    let lastDir = new THREE.Vector3();
+
+    const controls = new SparkControls({
+      renderer,
+      canvas: renderer.domElement,
+    });
+
+    const xr = new SparkXr({
+      renderer,
+      onMouseLeaveOpacity: 0.5,
+      onReady: async (supported) => {
+        console.log(`SparkXr ready: VR ${supported ? "supported" : "not supported"}`);
+      },
+      onEnterXr: () => {
+        console.log("Enter XR");
+      },
+      onExitXr: () => {
+        console.log("Exit XR");
+      },
+      // enableHands: true,
+      controllers: {
+        // moveHeading: true,
+      },
+    });
+
+    // localFrame.add(xr.makeJointSplats(SparkXr.Hand.left));
+    // localFrame.add(xr.makeJointSplats(SparkXr.Hand.right));
+
+    let lastTime = 0;
+    let rotation = 0;
+    let xrTime = 0;
+
+    const gui = new GUI({ title: "Settings" });
+    gui.add({ disableRender: () => { renderEnabled = false; } }, "disableRender").name("Disable render");
+    gui.add(spark, "lodSplatScale", 0.001, 2.0, 0.001).onChange((value) => {
+      spark2.lodSplatScale = value;
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "\\") {
+        const cameraPos = camera.getWorldPosition(new THREE.Vector3());
+        const cameraQuat = camera.getWorldQuaternion(new THREE.Quaternion());
+        console.log("camera position: ", JSON.stringify(cameraPos.toArray()), "quaternion: ", JSON.stringify(cameraQuat.toArray()));
+      }
+    });
+
+    renderer.setAnimationLoop(function animate(time, xrFrame) {
+      stats.begin();
+
+      const deltaTime = time - (lastTime || time);
+      lastTime = time;
+
+      xr.updateControllers(camera);
+      controls.update(localFrame);
+
+      // xr.updateHands({ xrFrame });
+
+      const now = performance.now();
+      const dir = localFrame.getWorldDirection(new THREE.Vector3());
+      if ((localFrame.position.distanceTo(lastPos) > 0.0001) || (dir.dot(lastDir) < 0.9999)) {
+        lastMoved = now;
+        if (!renderEnabled) {
+          console.log("Render enabled");
+        }
+        renderEnabled = true;
+        lastPos.copy(localFrame.position);
+        lastDir.copy(dir);
+      }
+      if ((now - lastMoved) > RENDER_TIMEOUT_MS) {
+        if (renderEnabled) {
+          console.log("Render disabled");
+        }
+        renderEnabled = false;
+      }
+
+      if (renderEnabled) {
+        renderer.render(scene, camera);
+      }
+
+      stats.end();
+    });
+  </script>
+</body>
+
+</html>
