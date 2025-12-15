@@ -13833,6 +13833,7 @@ exports.isOculus = isOculus;
 exports.isPcSogs = isPcSogs;
 exports.modifiers = modifiers;
 exports.pixelsToPngUrl = pixelsToPngUrl;
+exports.readRgbaArray = readRgbaArray;
 exports.setPackedSplat = setPackedSplat;
 exports.textSplats = textSplats;
 exports.toHalf = toHalf;

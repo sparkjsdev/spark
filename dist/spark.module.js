@@ -13815,6 +13815,7 @@ export {
   isPcSogs,
   modifiers,
   pixelsToPngUrl,
+  readRgbaArray,
   setPackedSplat,
   textSplats,
   toHalf,
