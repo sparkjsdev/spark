@@ -176,7 +176,6 @@
           if (food) food.opacity = 1 - easeInOutSine(fadeOutTime / TRANSITION_LENGTH);
         } else {
           // Fade out finished
-          if (food) food.dispose();
           fadeOutTime = null;
           // Fade in next food
           fadeInTime = 0;
