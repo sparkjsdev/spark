@@ -89,7 +89,7 @@ export declare class PackedSplats {
         nextBase: number;
     };
     static programTemplate: DynoProgramTemplate | null;
-    static generatorProgram: Map<GsplatGenerator, DynoProgram>;
+    static generatorProgram: WeakMap<GsplatGenerator, DynoProgram>;
     static fullScreenQuad: FullScreenQuad;
 }
 export declare const dynoPackedSplats: (packedSplats?: PackedSplats) => DynoPackedSplats;

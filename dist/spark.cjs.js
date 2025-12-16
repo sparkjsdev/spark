@@ -3332,7 +3332,7 @@ class DynoProgramTemplate {
     return this.before + Array.from(globals).join("\n\n") + this.between + statements.map((s) => this.indent + s).join("\n") + this.after;
   }
 }
-const programMaterial = /* @__PURE__ */ new Map();
+const programMaterial = /* @__PURE__ */ new WeakMap();
 function getMaterial(program) {
   let material = programMaterial.get(program);
   if (material) {
@@ -9333,12 +9333,26 @@ const _PackedSplats = class _PackedSplats {
   dispose() {
     if (this.target) {
       this.target.dispose();
+      this.target.texture.source.data = null;
       this.target = null;
     }
     if (this.source) {
       this.source.dispose();
+      this.source.source.data = null;
       this.source = null;
     }
+    this.packedArray = null;
+    for (const key in this.extra) {
+      const dyno2 = this.extra[key];
+      if (dyno2 instanceof DynoUniform) {
+        const texture2 = dyno2.value;
+        if (texture2 == null ? void 0 : texture2.isTexture) {
+          texture2.dispose();
+          texture2.source.data = null;
+        }
+      }
+    }
+    this.extra = {};
   }
   // Ensures that this.packedArray can fit numSplats Gsplats. If it's too small,
   // resize exponentially and copy over the original data.
@@ -9475,7 +9489,9 @@ const _PackedSplats = class _PackedSplats {
     if (this.target && (maxSplats ?? 1) <= this.maxSplats) {
       return false;
     }
-    this.dispose();
+    if (this.target) {
+      this.target.dispose();
+    }
     const textureSize2 = getTextureSize(maxSplats ?? 1);
     const { width, height, depth } = textureSize2;
     this.maxSplats = textureSize2.maxSplats;
@@ -9671,7 +9687,7 @@ const _PackedSplats = class _PackedSplats {
 };
 _PackedSplats.emptySource = null;
 _PackedSplats.programTemplate = null;
-_PackedSplats.generatorProgram = /* @__PURE__ */ new Map();
+_PackedSplats.generatorProgram = /* @__PURE__ */ new WeakMap();
 _PackedSplats.fullScreenQuad = new FullScreenQuad(
   new THREE__namespace.RawShaderMaterial({ visible: false })
 );
