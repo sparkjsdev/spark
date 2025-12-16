@@ -9,10 +9,10 @@ import { PlyReader } from "./ply";
 import { SpzReader, transcodeSpz } from "./spz";
 import {
   computeMaxSplats,
-  encodeSh1Rgb,
-  encodeSh2Rgb,
-  encodeSh3Rgb,
+  encodeShRgb,
   getArrayBuffers,
+  getShArrayStride,
+  getShDegrees,
   setPackedSplat,
   setPackedSplatCenter,
   setPackedSplatOpacity,
@@ -355,24 +355,25 @@ async function unpackPly({
       );
     },
     (index, sh1, sh2, sh3) => {
-      if (sh1) {
-        if (!extra.sh1) {
-          extra.sh1 = new Uint32Array(numSplats * 2);
-        }
-        encodeSh1Rgb(extra.sh1 as Uint32Array, index, sh1, splatEncoding);
+      const shDegrees = getShDegrees(sh1, sh2, sh3, splatEncoding);
+      if (shDegrees === 0) {
+        return;
       }
-      if (sh2) {
-        if (!extra.sh2) {
-          extra.sh2 = new Uint32Array(numSplats * 4);
-        }
-        encodeSh2Rgb(extra.sh2 as Uint32Array, index, sh2, splatEncoding);
+
+      if (!extra.sh) {
+        extra.sh = new Uint8Array(numSplats * getShArrayStride(shDegrees));
+        extra.shDegrees = shDegrees;
       }
-      if (sh3) {
-        if (!extra.sh3) {
-          extra.sh3 = new Uint32Array(numSplats * 4);
-        }
-        encodeSh3Rgb(extra.sh3 as Uint32Array, index, sh3, splatEncoding);
-      }
+
+      encodeShRgb(
+        extra.sh as Uint8Array,
+        shDegrees,
+        index,
+        sh1,
+        sh2,
+        sh3,
+        splatEncoding,
+      );
     },
   );
 
@@ -418,24 +419,25 @@ async function unpackSpz(
       setPackedSplatQuat(packedArray, index, quatX, quatY, quatZ, quatW);
     },
     (index, sh1, sh2, sh3) => {
-      if (sh1) {
-        if (!extra.sh1) {
-          extra.sh1 = new Uint32Array(numSplats * 2);
-        }
-        encodeSh1Rgb(extra.sh1 as Uint32Array, index, sh1, splatEncoding);
+      const shDegrees = getShDegrees(sh1, sh2, sh3, splatEncoding);
+      if (shDegrees === 0) {
+        return;
       }
-      if (sh2) {
-        if (!extra.sh2) {
-          extra.sh2 = new Uint32Array(numSplats * 4);
-        }
-        encodeSh2Rgb(extra.sh2 as Uint32Array, index, sh2, splatEncoding);
+
+      if (!extra.sh) {
+        extra.sh = new Uint8Array(numSplats * getShArrayStride(shDegrees));
+        extra.shDegrees = shDegrees;
       }
-      if (sh3) {
-        if (!extra.sh3) {
-          extra.sh3 = new Uint32Array(numSplats * 4);
-        }
-        encodeSh3Rgb(extra.sh3 as Uint32Array, index, sh3, splatEncoding);
-      }
+
+      encodeShRgb(
+        extra.sh as Uint8Array,
+        shDegrees,
+        index,
+        sh1,
+        sh2,
+        sh3,
+        splatEncoding,
+      );
     },
   );
   return { packedArray, numSplats, extra };

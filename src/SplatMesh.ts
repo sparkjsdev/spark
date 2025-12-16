@@ -39,7 +39,7 @@ import {
   unindent,
   unindentLines,
 } from "./dyno";
-import { getTextureSize } from "./utils";
+import { getShArrayStride, getTextureSize } from "./utils";
 
 export type SplatMeshOptions = {
   // URL to fetch a Gaussian splat file from(supports .ply, .splat, .ksplat,
@@ -383,9 +383,8 @@ export class SplatMesh extends SplatGenerator {
 
         if (this.maxSh >= 1) {
           // Inject lighting from SH1..SH3
-          const { sh1Texture, sh2Texture, sh3Texture } =
-            this.ensureShTextures();
-          if (sh1Texture) {
+          const { shTexture, shDegrees } = this.ensureShTexture();
+          if (shTexture && shDegrees) {
             //Calculate view direction in object space
             const viewCenterInObject = viewToObject.translate;
             const { center } = splitGsplat(gsplat).outputs;
@@ -402,22 +401,16 @@ export class SplatMesh extends SplatGenerator {
             }
 
             // Evaluate Spherical Harmonics
-            const sh1Snorm = evaluateSH1(gsplat, sh1Texture, viewDir);
-            let rgb = rescaleSh(sh1Snorm, this.packedSplats.dynoSh1MinMax);
-            if (this.maxSh >= 2 && sh2Texture) {
-              const sh2Snorm = evaluateSH2(gsplat, sh2Texture, viewDir);
-              rgb = add(
-                rgb,
-                rescaleSh(sh2Snorm, this.packedSplats.dynoSh2MinMax),
-              );
-            }
-            if (this.maxSh >= 3 && sh3Texture) {
-              const sh3Snorm = evaluateSH3(gsplat, sh3Texture, viewDir);
-              rgb = add(
-                rgb,
-                rescaleSh(sh3Snorm, this.packedSplats.dynoSh3MinMax),
-              );
-            }
+            const rgb = evaluateSH(
+              gsplat,
+              shTexture,
+              viewDir,
+              shDegrees,
+              this.maxSh,
+              this.packedSplats.dynoSh1MinMax,
+              this.packedSplats.dynoSh2MinMax,
+              this.packedSplats.dynoSh3MinMax,
+            );
 
             // Flash off for 0.3 / 1.0 sec for debugging
             // const fractTime = fract(SplatMesh.dynoTime);
@@ -523,7 +516,7 @@ export class SplatMesh extends SplatGenerator {
     const viewToObjectMatrix = worldToObject.multiply(viewToWorld);
     if (
       viewToObject.updateFromMatrix(viewToObjectMatrix) &&
-      (this.enableViewToObject || this.packedSplats.extra.sh1)
+      (this.enableViewToObject || this.packedSplats.extra.sh)
     ) {
       // Only trigger update if we have view-dependent spherical harmonics
       updated = true;
@@ -645,215 +638,112 @@ export class SplatMesh extends SplatGenerator {
     }
   }
 
-  private ensureShTextures(): {
-    sh1Texture?: DynoUsampler2DArray<"sh1", THREE.DataArrayTexture>;
-    sh2Texture?: DynoUsampler2DArray<"sh2", THREE.DataArrayTexture>;
-    sh3Texture?: DynoUsampler2DArray<"sh3", THREE.DataArrayTexture>;
+  private ensureShTexture(): {
+    shTexture?: DynoUsampler2DArray<"sh", THREE.DataArrayTexture>;
+    shDegrees?: 0 | 1 | 2 | 3;
   } {
     // Ensure we have textures for SH1..SH3 if we have data
-    if (!this.packedSplats.extra.sh1) {
+    if (!this.packedSplats.extra.sh) {
       return {};
     }
 
-    let sh1Texture = this.packedSplats.extra.sh1Texture as
-      | DynoUsampler2DArray<"sh1", THREE.DataArrayTexture>
+    const shDegrees = (this.packedSplats.extra.shDegrees as 0 | 1 | 2 | 3) ?? 0;
+    let shTexture = this.packedSplats.extra.shTexture as
+      | DynoUsampler2DArray<"sh", THREE.DataArrayTexture>
       | undefined;
-    if (!sh1Texture) {
-      let sh1 = this.packedSplats.extra.sh1 as Uint32Array;
+    if (!shTexture && shDegrees) {
+      let sh = this.packedSplats.extra.sh as Uint8Array;
       const { width, height, depth, maxSplats } = getTextureSize(
-        sh1.length / 2,
+        this.numSplats * shDegrees, // 1st order = 1 RGB pixel, 2nd = 2 RGB pixels, 3rd = 3 RGBA pixels
       );
-      if (sh1.length < maxSplats * 2) {
-        const newSh1 = new Uint32Array(maxSplats * 2);
-        newSh1.set(sh1);
-        this.packedSplats.extra.sh1 = newSh1;
-        sh1 = newSh1;
+      const coefficientsWithPadding = getShArrayStride(shDegrees);
+      if (sh.length < maxSplats * coefficientsWithPadding) {
+        const newSh = new Uint8Array(maxSplats * coefficientsWithPadding);
+        newSh.set(sh);
+        this.packedSplats.extra.sh = newSh;
+        sh = newSh;
       }
 
-      const texture = new THREE.DataArrayTexture(sh1, width, height, depth);
-      texture.format = THREE.RGIntegerFormat;
-      texture.type = THREE.UnsignedIntType;
-      texture.internalFormat = "RG32UI";
-      texture.needsUpdate = true;
-
-      sh1Texture = new DynoUsampler2DArray({
-        value: texture,
-        key: "sh1",
-      });
-      this.packedSplats.extra.sh1Texture = sh1Texture;
-    }
-
-    if (!this.packedSplats.extra.sh2) {
-      return { sh1Texture };
-    }
-
-    let sh2Texture = this.packedSplats.extra.sh2Texture as
-      | DynoUsampler2DArray<"sh2", THREE.DataArrayTexture>
-      | undefined;
-    if (!sh2Texture) {
-      let sh2 = this.packedSplats.extra.sh2 as Uint32Array;
-      const { width, height, depth, maxSplats } = getTextureSize(
-        sh2.length / 4,
+      const texture = new THREE.DataArrayTexture(
+        new Uint32Array(sh.buffer),
+        width,
+        height,
+        depth,
       );
-      if (sh2.length < maxSplats * 4) {
-        const newSh2 = new Uint32Array(maxSplats * 4);
-        newSh2.set(sh2);
-        this.packedSplats.extra.sh2 = newSh2;
-        sh2 = newSh2;
-      }
-
-      const texture = new THREE.DataArrayTexture(sh2, width, height, depth);
-      texture.format = THREE.RGBAIntegerFormat;
+      texture.format = (
+        shDegrees === 3 ? THREE.RGBAIntegerFormat : "RGB_INTEGER"
+      ) as THREE.AnyPixelFormat;
       texture.type = THREE.UnsignedIntType;
-      texture.internalFormat = "RGBA32UI";
+      texture.internalFormat = shDegrees === 3 ? "RGBA32UI" : "RGB32UI";
       texture.needsUpdate = true;
 
-      sh2Texture = new DynoUsampler2DArray({
+      shTexture = new DynoUsampler2DArray({
         value: texture,
-        key: "sh2",
+        key: "sh",
       });
-      this.packedSplats.extra.sh2Texture = sh2Texture;
+      this.packedSplats.extra.shTexture = shTexture;
     }
 
-    if (!this.packedSplats.extra.sh3) {
-      return { sh1Texture, sh2Texture };
-    }
-
-    let sh3Texture = this.packedSplats.extra.sh3Texture as
-      | DynoUsampler2DArray<"sh3", THREE.DataArrayTexture>
-      | undefined;
-    if (!sh3Texture) {
-      let sh3 = this.packedSplats.extra.sh3 as Uint32Array;
-      const { width, height, depth, maxSplats } = getTextureSize(
-        sh3.length / 4,
-      );
-      if (sh3.length < maxSplats * 4) {
-        const newSh3 = new Uint32Array(maxSplats * 4);
-        newSh3.set(sh3);
-        this.packedSplats.extra.sh3 = newSh3;
-        sh3 = newSh3;
-      }
-
-      const texture = new THREE.DataArrayTexture(sh3, width, height, depth);
-      texture.format = THREE.RGBAIntegerFormat;
-      texture.type = THREE.UnsignedIntType;
-      texture.internalFormat = "RGBA32UI";
-      texture.needsUpdate = true;
-
-      sh3Texture = new DynoUsampler2DArray({
-        value: texture,
-        key: "sh3",
-      });
-      this.packedSplats.extra.sh3Texture = sh3Texture;
-    }
-
-    return { sh1Texture, sh2Texture, sh3Texture };
+    return { shTexture, shDegrees };
   }
 }
 
-const defineEvaluateSH1 = unindent(`
-  vec3 evaluateSH1(Gsplat gsplat, usampler2DArray sh1, vec3 viewDir) {
-    // Extract sint7 values packed into 2 x uint32
-    uvec2 packed = texelFetch(sh1, splatTexCoord(gsplat.index), 0).rg;
-    vec3 sh1_0 = vec3(ivec3(
-      int(packed.x << 25u) >> 25,
-      int(packed.x << 18u) >> 25,
-      int(packed.x << 11u) >> 25
-    )) / 63.0;
-    vec3 sh1_1 = vec3(ivec3(
-      int(packed.x << 4u) >> 25,
-      int((packed.x >> 3u) | (packed.y << 29u)) >> 25,
-      int(packed.y << 22u) >> 25
-    )) / 63.0;
-    vec3 sh1_2 = vec3(ivec3(
-      int(packed.y << 15u) >> 25,
-      int(packed.y << 8u) >> 25,
-      int(packed.y << 1u) >> 25
-    )) / 63.0;
+const defineUnpackSint8 = unindent(/*glsl*/ `
+    vec4 unpackSint8(uint packed) {
+    return vec4(ivec4(
+      int(packed << 24u) >> 24,
+      int(packed << 16u) >> 24,
+      int(packed << 8u) >> 24,
+      int(packed) >> 24
+    )) / 127.0;
+  }
+`);
 
-    return sh1_0 * (-0.4886025 * viewDir.y)
+const defineEvaluateSH = unindent(/* glsl */ `
+  vec3 evaluateSH(Gsplat gsplat, usampler2DArray sh, vec3 viewDir, vec2 sh1MinMax, vec2 sh2MinMax, vec2 sh3MinMax) {
+    // Extract sint8 values packed into 3, 8 and 12 x uint32
+    uvec4 packedA = texelFetch(sh, splatTexCoord(gsplat.index * SH_TEXEL_STRIDE), 0);
+    vec4 a1 = unpackSint8(packedA.x);
+    vec4 a2 = unpackSint8(packedA.y);
+    vec4 a3 = unpackSint8(packedA.z);
+    vec4 a4 = unpackSint8(packedA.w);
+#if SH_DEGREES > 1
+    uvec4 packedB = texelFetch(sh, splatTexCoord(gsplat.index * SH_TEXEL_STRIDE + 1), 0);
+    vec4 b1 = unpackSint8(packedB.x);
+    vec4 b2 = unpackSint8(packedB.y);
+    vec4 b3 = unpackSint8(packedB.z);
+    vec4 b4 = unpackSint8(packedB.w);
+#endif
+#if SH_DEGREES > 2
+    uvec4 packedC = texelFetch(sh, splatTexCoord(gsplat.index * SH_TEXEL_STRIDE + 2), 0);
+    vec4 c1 = unpackSint8(packedC.x);
+    vec4 c2 = unpackSint8(packedC.y);
+    vec4 c3 = unpackSint8(packedC.z);
+    vec4 c4 = unpackSint8(packedC.w);
+#endif
+
+#if SH_DEGREES <= 2
+    // RGB
+    vec3 sh1_0 = a1.xyz;
+    vec3 sh1_1 = vec3(a1.w, a2.xy);
+    vec3 sh1_2 = vec3(a2.zw, a3.x);
+#else
+    // RGBA
+    vec3 sh1_0 = a1.xyz;
+    vec3 sh1_1 = vec3(a1.w, a2.xy);
+    vec3 sh1_2 = vec3(a2.zw, a3.x);
+#endif
+
+    vec3 sh1 = sh1_0 * (-0.4886025 * viewDir.y)
       + sh1_1 * (0.4886025 * viewDir.z)
       + sh1_2 * (-0.4886025 * viewDir.x);
-  }
-`);
 
-const defineEvaluateSH2 = unindent(`
-  vec3 evaluateSH2(Gsplat gsplat, usampler2DArray sh2, vec3 viewDir) {
-    // Extract sint8 values packed into 4 x uint32
-    uvec4 packed = texelFetch(sh2, splatTexCoord(gsplat.index), 0);
-    vec3 sh2_0 = vec3(ivec3(
-      int(packed.x << 24u) >> 24,
-      int(packed.x << 16u) >> 24,
-      int(packed.x << 8u) >> 24
-    )) / 127.0;
-    vec3 sh2_1 = vec3(ivec3(
-      int(packed.x) >> 24,
-      int(packed.y << 24u) >> 24,
-      int(packed.y << 16u) >> 24
-    )) / 127.0;
-    vec3 sh2_2 = vec3(ivec3(
-      int(packed.y << 8u) >> 24,
-      int(packed.y) >> 24,
-      int(packed.z << 24u) >> 24
-    )) / 127.0;
-    vec3 sh2_3 = vec3(ivec3(
-      int(packed.z << 16u) >> 24,
-      int(packed.z << 8u) >> 24,
-      int(packed.z) >> 24
-    )) / 127.0;
-    vec3 sh2_4 = vec3(ivec3(
-      int(packed.w << 24u) >> 24,
-      int(packed.w << 16u) >> 24,
-      int(packed.w << 8u) >> 24
-    )) / 127.0;
+    // rescale
+    sh1 = (sh1MinMax.x + sh1MinMax.y) / 2.0 + sh1 * (sh1MinMax.y - sh1MinMax.x) / 2.0;
 
-    return sh2_0 * (1.0925484 * viewDir.x * viewDir.y)
-      + sh2_1 * (-1.0925484 * viewDir.y * viewDir.z)
-      + sh2_2 * (0.3153915 * (2.0 * viewDir.z * viewDir.z - viewDir.x * viewDir.x - viewDir.y * viewDir.y))
-      + sh2_3 * (-1.0925484 * viewDir.x * viewDir.z)
-      + sh2_4 * (0.5462742 * (viewDir.x * viewDir.x - viewDir.y * viewDir.y));
-  }
-`);
-
-const defineEvaluateSH3 = unindent(`
-  vec3 evaluateSH3(Gsplat gsplat, usampler2DArray sh3, vec3 viewDir) {
-    // Extract sint6 values packed into 4 x uint32
-    uvec4 packed = texelFetch(sh3, splatTexCoord(gsplat.index), 0);
-    vec3 sh3_0 = vec3(ivec3(
-      int(packed.x << 26u) >> 26,
-      int(packed.x << 20u) >> 26,
-      int(packed.x << 14u) >> 26
-    )) / 31.0;
-    vec3 sh3_1 = vec3(ivec3(
-      int(packed.x << 8u) >> 26,
-      int(packed.x << 2u) >> 26,
-      int((packed.x >> 4u) | (packed.y << 28u)) >> 26
-    )) / 31.0;
-    vec3 sh3_2 = vec3(ivec3(
-      int(packed.y << 22u) >> 26,
-      int(packed.y << 16u) >> 26,
-      int(packed.y << 10u) >> 26
-    )) / 31.0;
-    vec3 sh3_3 = vec3(ivec3(
-      int(packed.y << 4u) >> 26,
-      int((packed.y >> 2u) | (packed.z << 30u)) >> 26,
-      int(packed.z << 24u) >> 26
-    )) / 31.0;
-    vec3 sh3_4 = vec3(ivec3(
-      int(packed.z << 18u) >> 26,
-      int(packed.z << 12u) >> 26,
-      int(packed.z << 6u) >> 26
-    )) / 31.0;
-    vec3 sh3_5 = vec3(ivec3(
-      int(packed.z) >> 26,
-      int(packed.w << 26u) >> 26,
-      int(packed.w << 20u) >> 26
-    )) / 31.0;
-    vec3 sh3_6 = vec3(ivec3(
-      int(packed.w << 14u) >> 26,
-      int(packed.w << 8u) >> 26,
-      int(packed.w << 2u) >> 26
-    )) / 31.0;
+#if SH_DEGREES == 1 || MAX_SH == 1
+    return sh1;
+#else
 
     float xx = viewDir.x * viewDir.x;
     float yy = viewDir.y * viewDir.y;
@@ -862,74 +752,90 @@ const defineEvaluateSH3 = unindent(`
     float yz = viewDir.y * viewDir.z;
     float zx = viewDir.z * viewDir.x;
 
-    return sh3_0 * (-0.5900436 * viewDir.y * (3.0 * xx - yy))
+#if SH_DEGREES <= 2
+    // RGB
+    vec3 sh2_0 = a3.yzw;
+    vec3 sh2_1 = b1.xyz;
+    vec3 sh2_2 = vec3(b1.w, b2.xy);
+    vec3 sh2_3 = vec3(b2.zw, b3.x);
+    vec3 sh2_4 = b3.yzw;
+#else
+    // RGBA
+    vec3 sh2_0 = vec3(a3.yzw);
+    vec3 sh2_1 = vec3(a4.xyz);
+    vec3 sh2_2 = vec3(a4.w, b1.xy);
+    vec3 sh2_3 = vec3(b1.zw, b2.x);
+    vec3 sh2_4 = vec3(b2.yzw);
+#endif
+    vec3 sh2 = sh2_0 * (1.0925484 * xy)
+      + sh2_1 * (-1.0925484 * yz)
+      + sh2_2 * (0.3153915 * (2.0 * zz - xx - yy))
+      + sh2_3 * (-1.0925484 * zx)
+      + sh2_4 * (0.5462742 * (xx - yy));
+
+    // rescale
+    sh2 = (sh2MinMax.x + sh2MinMax.y) / 2.0 + sh2 * (sh2MinMax.y - sh2MinMax.x) / 2.0;
+
+#if SH_DEGREES == 2 || MAX_SH == 2
+    return sh1 + sh2;
+#else
+    vec3 sh3_0 = vec3(b3.xyz);
+    vec3 sh3_1 = vec3(b3.w, b4.xy);
+    vec3 sh3_2 = vec3(b4.zw, c1.x);
+    vec3 sh3_3 = vec3(c1.yzw);
+    vec3 sh3_4 = vec3(c2.xyz);
+    vec3 sh3_5 = vec3(c2.w, c3.xy);
+    vec3 sh3_6 = vec3(c3.zw, c4.x);
+    vec3 sh3 = sh3_0 * (-0.5900436 * viewDir.y * (3.0 * xx - yy))
       + sh3_1 * (2.8906114 * xy * viewDir.z) +
       + sh3_2 * (-0.4570458 * viewDir.y * (4.0 * zz - xx - yy))
       + sh3_3 * (0.3731763 * viewDir.z * (2.0 * zz - 3.0 * xx - 3.0 * yy))
       + sh3_4 * (-0.4570458 * viewDir.x * (4.0 * zz - xx - yy))
       + sh3_5 * (1.4453057 * viewDir.z * (xx - yy))
       + sh3_6 * (-0.5900436 * viewDir.x * (xx - 3.0 * yy));
+
+    // rescale
+    sh3 = (sh3MinMax.x + sh3MinMax.y) / 2.0 + sh3 * (sh3MinMax.y - sh3MinMax.x) / 2.0;
+
+    return sh1 + sh2 + sh3;
+#endif
+#endif
   }
 `);
 
-export function evaluateSH1(
+export function evaluateSH(
   gsplat: DynoVal<typeof Gsplat>,
-  sh1: DynoUsampler2DArray<"sh1", THREE.DataArrayTexture>,
+  sh: DynoVal<"usampler2DArray">,
   viewDir: DynoVal<"vec3">,
+  shDegrees: 1 | 2 | 3,
+  maxSh: number,
+  sh1MinMax: DynoVal<"vec2">,
+  sh2MinMax: DynoVal<"vec2">,
+  sh3MinMax: DynoVal<"vec2">,
 ): DynoVal<"vec3"> {
   return dyno({
-    inTypes: { gsplat: Gsplat, sh1: "usampler2DArray", viewDir: "vec3" },
-    outTypes: { rgb: "vec3" },
-    inputs: { gsplat, sh1, viewDir },
-    globals: () => [defineGsplat, defineEvaluateSH1],
-    statements: ({ inputs, outputs }) => {
-      const statements = unindentLines(`
-        if (isGsplatActive(${inputs.gsplat}.flags)) {
-          ${outputs.rgb} = evaluateSH1(${inputs.gsplat}, ${inputs.sh1}, ${inputs.viewDir});
-        } else {
-          ${outputs.rgb} = vec3(0.0);
-        }
-      `);
-      return statements;
+    inTypes: {
+      gsplat: Gsplat,
+      sh: "usampler2DArray",
+      viewDir: "vec3",
+      sh1MinMax: "vec2",
+      sh2MinMax: "vec2",
+      sh3MinMax: "vec2",
     },
-  }).outputs.rgb;
-}
-
-export function evaluateSH2(
-  gsplat: DynoVal<typeof Gsplat>,
-  sh2: DynoVal<"usampler2DArray">,
-  viewDir: DynoVal<"vec3">,
-): DynoVal<"vec3"> {
-  return dyno({
-    inTypes: { gsplat: Gsplat, sh2: "usampler2DArray", viewDir: "vec3" },
     outTypes: { rgb: "vec3" },
-    inputs: { gsplat, sh2, viewDir },
-    globals: () => [defineGsplat, defineEvaluateSH2],
+    inputs: { gsplat, sh, viewDir, sh1MinMax, sh2MinMax, sh3MinMax },
+    globals: () => {
+      const defines = unindent(`
+        #define MAX_SH ${maxSh}
+        #define SH_DEGREES ${shDegrees}
+        #define SH_TEXEL_STRIDE ${[0, 1, 2, 3][shDegrees]}
+      `);
+      return [defines, defineGsplat, defineUnpackSint8, defineEvaluateSH];
+    },
     statements: ({ inputs, outputs }) =>
       unindentLines(`
         if (isGsplatActive(${inputs.gsplat}.flags)) {
-          ${outputs.rgb} = evaluateSH2(${inputs.gsplat}, ${inputs.sh2}, ${inputs.viewDir});
-        } else {
-          ${outputs.rgb} = vec3(0.0);
-        }
-      `),
-  }).outputs.rgb;
-}
-
-export function evaluateSH3(
-  gsplat: DynoVal<typeof Gsplat>,
-  sh3: DynoVal<"usampler2DArray">,
-  viewDir: DynoVal<"vec3">,
-): DynoVal<"vec3"> {
-  return dyno({
-    inTypes: { gsplat: Gsplat, sh3: "usampler2DArray", viewDir: "vec3" },
-    outTypes: { rgb: "vec3" },
-    inputs: { gsplat, sh3, viewDir },
-    globals: () => [defineGsplat, defineEvaluateSH3],
-    statements: ({ inputs, outputs }) =>
-      unindentLines(`
-        if (isGsplatActive(${inputs.gsplat}.flags)) {
-          ${outputs.rgb} = evaluateSH3(${inputs.gsplat}, ${inputs.sh3}, ${inputs.viewDir});
+          ${outputs.rgb} = evaluateSH(${inputs.gsplat}, ${inputs.sh}, ${inputs.viewDir}, ${inputs.sh1MinMax}, ${inputs.sh2MinMax}, ${inputs.sh3MinMax});
         } else {
           ${outputs.rgb} = vec3(0.0);
         }
