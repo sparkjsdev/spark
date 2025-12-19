@@ -1,4 +1,4 @@
-use std::{array, cell::RefCell, collections::BinaryHeap};
+use std::{array, cell::{Ref, RefCell}, collections::BinaryHeap, rc::Rc};
 
 use ahash::AHashMap;
 use glam::{Quat, Vec3A};
@@ -24,10 +24,7 @@ struct LodSplat {
 
 #[derive(Debug, Clone, Default)]
 struct LodTree {
-    splats: Vec<LodSplat>,
-    // For both mappings a 0 indicates "no chunk/value", except for
-    // page and chunk 0, which map to each other by design.
-    // This way we can resize and fill with "no value" easily.
+    splats: Rc<RefCell<Vec<LodSplat>>>,
     page_to_chunk: Vec<u32>,
     chunk_to_page: Vec<u32>,
 }
@@ -55,15 +52,16 @@ thread_local! {
 }
 
 fn set_lod_tree_data(state: &mut LodState, lod_id: u32, base: u32, count: u32, lod_tree_data: &Uint32Array) {
-    let lod_tree = state.lod_trees.entry(lod_id).or_insert_with(|| LodTree::default());
+    let lod_tree = state.lod_trees.get(&lod_id).unwrap();
+    let mut splats = lod_tree.splats.borrow_mut();
 
     if state.buffer.is_empty() {
         state.buffer.resize(MAX_SPLAT_CHUNK * 4, 0);
     }
 
-    if base + count > lod_tree.splats.len() as u32 {
-        let new_size = (lod_tree.splats.len() * 2).max((base + count) as usize);
-        lod_tree.splats.resize_with(new_size, Default::default);
+    if base + count > splats.len() as u32 {
+        let new_size = (splats.len() * 2).max((base + count) as usize);
+        splats.resize_with(new_size, Default::default);
     }
 
     let mut index = 0;
@@ -84,10 +82,47 @@ fn set_lod_tree_data(state: &mut LodState, lod_id: u32, base: u32, count: u32, l
             let child_count = (words[2] & 0xffff) as u16;
             let child_start = words[3];
 
-            lod_tree.splats[(base + index + i) as usize] = LodSplat { center, size, child_count, child_start };
+            splats[(base + index + i) as usize] = LodSplat { center, size, child_count, child_start };
         }
         index += chunk;
     }
+}
+
+#[wasm_bindgen]
+pub fn new_lod_tree(capacity: u32) -> Result<Object, JsValue> {
+    STATE.with_borrow_mut(|state| {
+        let lod_id = state.next_id;
+        let splats = Vec::with_capacity(capacity as usize);
+        let splats = Rc::new(RefCell::new(splats));
+        let page_capacity = capacity.div_ceil(65536);
+        let page_to_chunk = Vec::with_capacity(page_capacity as usize);
+        let chunk_to_page: Vec<u32> = Vec::with_capacity(page_capacity as usize);
+        state.lod_trees.insert(lod_id, LodTree { splats, page_to_chunk, chunk_to_page });
+        state.next_id += 1;
+
+        let result = Object::new();
+        Reflect::set(&result, &JsValue::from_str("lodId"), &JsValue::from(lod_id)).unwrap();
+
+        Ok(result)
+    })
+}
+
+#[wasm_bindgen]
+pub fn new_shared_lod_tree(orig_lod_id: u32) -> Result<Object, JsValue> {
+    STATE.with_borrow_mut(|state| {
+        let lod_tree = state.lod_trees.get(&orig_lod_id).unwrap();
+        let splats = lod_tree.splats.clone();
+        let page_to_chunk = Vec::with_capacity(lod_tree.page_to_chunk.capacity());
+        let chunk_to_page = Vec::with_capacity(lod_tree.chunk_to_page.capacity());
+
+        let new_lod_id = state.next_id;
+        state.next_id += 1;
+        state.lod_trees.insert(new_lod_id, LodTree { splats, page_to_chunk, chunk_to_page });
+
+        let result = Object::new();
+        Reflect::set(&result, &JsValue::from_str("lodId"), &JsValue::from(new_lod_id)).unwrap();
+        Ok(result)
+    })
 }
 
 #[wasm_bindgen]
@@ -96,10 +131,9 @@ pub fn init_lod_tree(num_splats: u32, lod_tree: Uint32Array) -> Result<Object, J
         let lod_id = state.next_id;
         let pages = num_splats.div_ceil(65536);
         let splats = Vec::with_capacity(num_splats as usize);
+        let splats = Rc::new(RefCell::new(splats));
         let page_to_chunk = (0..pages).map(|page| page as u32).collect();
         let chunk_to_page: Vec<u32> = (0..pages).map(|chunk| chunk as u32).collect();
-        let chunk_to_page_array = Uint32Array::new_with_length(chunk_to_page.len() as u32);
-        chunk_to_page_array.copy_from(&chunk_to_page);
         state.lod_trees.insert(lod_id, LodTree { splats, page_to_chunk, chunk_to_page });
         state.next_id += 1;
 
@@ -107,7 +141,6 @@ pub fn init_lod_tree(num_splats: u32, lod_tree: Uint32Array) -> Result<Object, J
 
         let result = Object::new();
         Reflect::set(&result, &JsValue::from_str("lodId"), &JsValue::from(lod_id)).unwrap();
-        Reflect::set(&result, &JsValue::from_str("chunkToPage"), &JsValue::from(chunk_to_page_array)).unwrap();
 
         Ok(result)
     })
@@ -122,19 +155,19 @@ pub fn dispose_lod_tree(lod_id: u32) {
 
 #[wasm_bindgen]
 pub fn insert_lod_trees(lod_ids: &[u32], page_bases: &[u32], chunk_bases: &[u32], counts: &[u32], lod_trees: &Array) -> Result<Object, JsValue> {
-    let mut chunk_to_pages = AHashMap::<u32, Uint32Array>::new();
+    // let mut chunk_to_pages = AHashMap::<u32, Uint32Array>::new();
     STATE.with_borrow_mut(|state| {
         for (&lod_id, &page_base, &chunk_base, &count, lod_tree_data) in izip!(lod_ids, page_bases, chunk_bases, counts, lod_trees.iter()) {
-            let lod_tree = state.lod_trees.entry(lod_id).or_insert_with(|| LodTree::default());
+            let lod_tree = state.lod_trees.get_mut(&lod_id).unwrap();
             let pages = count.div_ceil(65536);
 
             let base_page = page_base >> 16;
             let base_chunk = chunk_base >> 16;
             if (base_page + pages) > lod_tree.page_to_chunk.len() as u32 {
-                lod_tree.page_to_chunk.resize((base_page + pages) as usize, 0);
+                lod_tree.page_to_chunk.resize((base_page + pages) as usize, 0xFFFFFFFF);
             }
             if (base_chunk + pages) > lod_tree.chunk_to_page.len() as u32 {
-                lod_tree.chunk_to_page.resize((base_chunk + pages) as usize, 0);
+                lod_tree.chunk_to_page.resize((base_chunk + pages) as usize, 0xFFFFFFFF);
             }
 
             for page in 0..pages {
@@ -142,20 +175,20 @@ pub fn insert_lod_trees(lod_ids: &[u32], page_bases: &[u32], chunk_bases: &[u32]
                 lod_tree.chunk_to_page[(base_chunk + page) as usize] = base_page + page;
             }
 
-            if !chunk_to_pages.contains_key(&lod_id) {
-                let chunk_to_page_array = Uint32Array::new_with_length(lod_tree.chunk_to_page.len() as u32);
-                chunk_to_page_array.copy_from(&lod_tree.chunk_to_page);
-                chunk_to_pages.insert(lod_id, chunk_to_page_array);
-            }
+            // if !chunk_to_pages.contains_key(&lod_id) {
+            //     let chunk_to_page_array = Uint32Array::new_with_length(lod_tree.chunk_to_page.len() as u32);
+            //     chunk_to_page_array.copy_from(&lod_tree.chunk_to_page);
+            //     chunk_to_pages.insert(lod_id, chunk_to_page_array);
+            // }
     
             let lod_tree_data = Uint32Array::from(lod_tree_data);
             set_lod_tree_data(state, lod_id, page_base, count, &lod_tree_data);
         }
 
         let result = Object::new();
-        for (lod_id, chunk_to_page_array) in chunk_to_pages.drain() {
-            Reflect::set(&result, &JsValue::from(lod_id), &JsValue::from(chunk_to_page_array)).unwrap();
-        }
+        // for (lod_id, chunk_to_page_array) in chunk_to_pages.drain() {
+        //     Reflect::set(&result, &JsValue::from(lod_id), &JsValue::from(chunk_to_page_array)).unwrap();
+        // }
         Ok(result)
     })
 }
@@ -163,37 +196,37 @@ pub fn insert_lod_trees(lod_ids: &[u32], page_bases: &[u32], chunk_bases: &[u32]
 #[wasm_bindgen]
 pub fn clear_lod_trees(lod_ids: &[u32], page_bases: &[u32], chunk_bases: &[u32], counts: &[u32]) -> Result<Object, JsValue> {
     STATE.with_borrow_mut(|state| {
-        let mut chunk_to_pages = AHashMap::<u32, Uint32Array>::new();
+        // let mut chunk_to_pages = AHashMap::<u32, Uint32Array>::new();
         
         for (&lod_id, &page_base, &chunk_base, &count) in izip!(lod_ids, page_bases, chunk_bases, counts) {
-            let lod_tree = state.lod_trees.entry(lod_id).or_insert_with(|| LodTree::default());
+            let lod_tree = state.lod_trees.get_mut(&lod_id).unwrap();
             let pages = count.div_ceil(65536);
 
             let base_page = page_base >> 16;
             let base_chunk = chunk_base >> 16;
             for page in 0..pages {
-                lod_tree.page_to_chunk[(base_page + page) as usize] = 0;
-                lod_tree.chunk_to_page[(base_chunk + page) as usize] = 0;
+                lod_tree.page_to_chunk[(base_page + page) as usize] = 0xFFFFFFFF;
+                lod_tree.chunk_to_page[(base_chunk + page) as usize] = 0xFFFFFFFF;
             }
 
-            if !chunk_to_pages.contains_key(&lod_id) {
-                let chunk_to_page_array = Uint32Array::new_with_length(lod_tree.chunk_to_page.len() as u32);
-                chunk_to_page_array.copy_from(&lod_tree.chunk_to_page);
-                chunk_to_pages.insert(lod_id, chunk_to_page_array);
-            }
+            // if !chunk_to_pages.contains_key(&lod_id) {
+            //     let chunk_to_page_array = Uint32Array::new_with_length(lod_tree.chunk_to_page.len() as u32);
+            //     chunk_to_page_array.copy_from(&lod_tree.chunk_to_page);
+            //     chunk_to_pages.insert(lod_id, chunk_to_page_array);
+            // }
         }
 
         let result = Object::new();
-        for (lod_id, chunk_to_page_array) in chunk_to_pages.drain() {
-            Reflect::set(&result, &JsValue::from(lod_id), &JsValue::from(chunk_to_page_array)).unwrap();
-        }
+        // for (lod_id, chunk_to_page_array) in chunk_to_pages.drain() {
+        //     Reflect::set(&result, &JsValue::from(lod_id), &JsValue::from(chunk_to_page_array)).unwrap();
+        // }
         Ok(result)
     })
 }
 
 struct LodInstance<'a> {
     lod_id: u32,
-    splats: &'a [LodSplat],
+    splats: Ref<'a, Vec<LodSplat>>,
     page_to_chunk: &'a [u32],
     chunk_to_page: &'a [u32],
     origin: Vec3A,
@@ -221,21 +254,19 @@ fn children_resident(child_count: u16, child_start: u32, instance: &LodInstance)
 
 fn is_resident(index: u32, instance: &LodInstance) -> bool {
     let chunk = (index >> 16) as usize;
-    if chunk != 0 {
-        if chunk >= instance.chunk_to_page.len() {
-            return false;
-        } else if instance.chunk_to_page[chunk] == 0 {
-            return false;
-        }
+    if chunk >= instance.chunk_to_page.len() {
+        false
+    } else {
+        instance.chunk_to_page[chunk] != 0xFFFFFFFF
     }
-    true
 }
 
 #[wasm_bindgen]
 pub fn traverse_lod_trees(
     max_splats: u32, pixel_scale_limit: f32,
     fov_x_degrees: f32, fov_y_degrees: f32,
-    lod_ids: &[u32], view_to_objects: &[f32],
+    lod_ids: &[u32], root_pages: &[u32],
+    view_to_objects: &[f32],
     lod_scales: &[f32], outside_foveates: &[f32], behind_foveates: &[f32],
     cone_fov0s: &[f32], cone_fovs: &[f32], cone_foveates: &[f32],
 ) -> anyhow::Result<Object, JsValue> {
@@ -273,6 +304,7 @@ pub fn traverse_lod_trees(
         let mut instances: Vec<_> = lod_ids.iter().enumerate().map(|(index, &lod_id)| {
             let lod_tree = lod_trees.get(&lod_id).unwrap();
             let LodTree { splats, page_to_chunk, chunk_to_page } = &lod_tree;
+            let splats = splats.borrow();
             let i16 = index * 16;
             let right = Vec3A::from_slice(&view_to_objects[i16..(i16 + 3)]).normalize();
             let up = Vec3A::from_slice(&view_to_objects[(i16 + 4)..(i16 + 7)]).normalize();
@@ -306,11 +338,14 @@ pub fn traverse_lod_trees(
         };
 
         for (inst_index, instance) in instances.iter().enumerate() {
+            let root_page = root_pages[inst_index];
+            let root_page = if root_page == 0xFFFFFFFF { 0 } else { root_page };
+            let root_paged_index = root_page << 16;
             let inst_index = inst_index as u32;
             let pixel_scale = compute_pixel_scale(
-                &instance.splats[0], instance, x_limit, y_limit,
+                &instance.splats[root_paged_index as usize], instance, x_limit, y_limit,
             );
-            frontier.push((OrderedFloat(pixel_scale), inst_index, 0));
+            frontier.push((OrderedFloat(pixel_scale), inst_index, root_paged_index));
             num_splats += 1;
             touch_chunk(inst_index, 0);
         }

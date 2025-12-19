@@ -3,6 +3,8 @@ import init_wasm, {
   sort32_splats,
   decode_to_gsplatarray,
   decode_to_packedsplats,
+  new_lod_tree,
+  new_shared_lod_tree,
   init_lod_tree,
   dispose_lod_tree,
   traverse_lod_trees,
@@ -21,6 +23,8 @@ const rpcHandlers = {
   loadPackedSplats,
   loadExtSplats,
   quickLod,
+  newLodTree,
+  newSharedLodTree,
   initLodTree,
   disposeLodTree,
   insertLodTrees,
@@ -515,6 +519,24 @@ async function quickLod({
   return result;
 }
 
+function newLodTree({
+  capacity,
+}: {
+  capacity: number;
+}) {
+  const { lodId } = new_lod_tree(capacity) as { lodId: number };
+  return { lodId };
+}
+
+function newSharedLodTree({
+  lodId,
+}: {
+  lodId: number;
+}) {
+  const { lodId: newLodId } = new_shared_lod_tree(lodId) as { lodId: number };
+  return { lodId: newLodId };
+}
+
 function initLodTree({
   numSplats,
   lodTree,
@@ -598,6 +620,7 @@ function traverseLodTrees({
     string,
     {
       lodId: number;
+      rootPage?: number;
       viewToObjectCols: number[];
       lodScale: number;
       outsideFoveate: number;
@@ -611,6 +634,9 @@ function traverseLodTrees({
   const keyInstances = Object.entries(instances);
   const lodIds = new Uint32Array(
     keyInstances.map(([_key, instance]) => instance.lodId),
+  );
+  const rootPages = new Uint32Array(
+    keyInstances.map(([_key, instance]) => instance.rootPage ?? 0xffffffff),
   );
   const viewToObjects = new Float32Array(
     keyInstances.flatMap(([_key, instance]) => {
@@ -646,6 +672,7 @@ function traverseLodTrees({
     fovXdegrees,
     fovYdegrees,
     lodIds,
+    rootPages,
     viewToObjects,
     lodScales,
     outsideFoveates,

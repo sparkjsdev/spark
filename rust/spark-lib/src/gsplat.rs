@@ -1,14 +1,14 @@
 
 use std::array;
 
-use glam::{I64Vec3, Mat3A, Quat, Vec3A};
+use glam::{Mat3A, Quat, Vec3A};
 use half::f16;
-use ordered_float::OrderedFloat;
 use smallvec::SmallVec;
 
 use crate::decoder::{SetSplatEncoding, SplatEncoding, SplatGetter, SplatInit, SplatProps, SplatReceiver};
 use crate::splat_encode::{encode_packed_splat, encode_sh1, encode_sh2, encode_sh3, get_splat_tex_size};
 use crate::symmat3::SymMat3;
+use crate::tsplat::{Tsplat, TsplatArray};
 
 #[derive(Debug, Clone, Default)]
 pub struct Gsplat {
@@ -19,13 +19,110 @@ pub struct Gsplat {
     pub quaternion: [f16; 4],
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct GsplatExtra {
-    pub weight: f32,
-    pub level: i16,
-    pub covariance: SymMat3,
-    pub children: SmallVec<[usize; 8]>,
-    pub parent: usize,
+impl Gsplat {
+    pub fn new(center: Vec3A, opacity: f32, rgb: Vec3A, scales: Vec3A, quaternion: Quat) -> Self {
+        Self {
+            center,
+            opacity: f16::from_f32(opacity),
+            rgb: rgb.to_array().map(|v| f16::from_f32(v)),
+            ln_scales: scales.to_array().map(|v| f16::from_f32(v.ln())),
+            quaternion: quaternion.to_array().map(|v| f16::from_f32(v)),
+        }
+    }
+
+    pub fn new_zero() -> Self {
+        Self::default()
+    }
+
+    pub fn similarity_metric(&self, extra: &GsplatExtra, other: &Gsplat, other_extra: &GsplatExtra) -> f32 {
+        let (color, other_color) = (self.rgb(), other.rgb());
+        let color_delta2 = (color[0] - other_color[0]).powi(2) +
+            (color[1] - other_color[1]).powi(2) +
+            (color[2] - other_color[2]).powi(2);
+        self.bhattacharyya_coeff(extra, other, other_extra) * (-color_delta2).exp()
+    }
+
+    pub fn bhattacharyya_coeff(&self, extra: &GsplatExtra, other: &Gsplat, other_extra: &GsplatExtra) -> f32 {
+        (-self.bhattacharyya_distance(extra, other, other_extra)).exp()
+    }
+
+    pub fn bhattacharyya_distance(&self, extra: &GsplatExtra, other: &Gsplat, other_extra: &GsplatExtra) -> f32 {
+        // Compute the average covariance
+        let sigma = SymMat3::new_average(&extra.covariance, &other_extra.covariance);
+        let Some(inv) = sigma.inverse() else {
+            return f32::INFINITY;
+        };
+
+        // First term: (1/8) * diff^T * Sigma_inv * diff for symmetric 3x3 stored as [xx, yy, zz, xy, xz, yz]
+        let dx = other.center.x - self.center.x;
+        let dy = other.center.y - self.center.y;
+        let dz = other.center.z - self.center.z;
+        let quad = inv.xx() * dx * dx
+            + inv.yy() * dy * dy
+            + inv.zz() * dz * dz
+            + 2.0 * inv.xy() * dx * dy
+            + 2.0 * inv.xz() * dx * dz
+            + 2.0 * inv.yz() * dy * dz;
+        let term1_val = 0.125 * quad;
+
+        // Second term: (1/2) * ln(det(Sigma) / sqrt(det(Sigma_A)*det(Sigma_B)))
+        let det_sigma = sigma.determinant();
+        let det_a = extra.covariance.determinant();
+        let det_b = other_extra.covariance.determinant();
+        let term2 = 0.5 * (det_sigma / (det_a * det_b).sqrt()).ln();
+
+        // Bhattacharyya distance
+        term1_val + term2
+    }
+}
+
+impl Tsplat for Gsplat {
+    fn center(&self) -> Vec3A {
+        self.center
+    }
+
+    fn opacity(&self) -> f32 {
+        self.opacity.to_f32()
+    }
+
+    fn rgb(&self) -> Vec3A {
+        Vec3A::from_array(self.rgb.map(|x| x.to_f32()))
+    }
+
+    fn scales(&self) -> Vec3A {
+        Vec3A::from_array(self.ln_scales.map(|x| x.to_f32().exp()))
+    }
+
+    fn quaternion(&self) -> Quat {
+        Quat::from_array(self.quaternion.map(|x| x.to_f32()))
+    }
+
+    fn set_center(&mut self, center: Vec3A) {
+        self.center = center;
+    }
+
+    fn set_opacity(&mut self, opacity: f32) {
+        self.opacity = f16::from_f32(opacity);
+    }
+
+
+    fn set_rgb(&mut self, rgb: Vec3A) {
+        self.rgb = rgb.to_array().map(|v| f16::from_f32(v));
+    }
+
+
+    fn set_scales(&mut self, scales: Vec3A) {
+        self.ln_scales = scales.to_array().map(|v| f16::from_f32(v.ln()));
+    }
+
+
+    fn set_quaternion(&mut self, quaternion: Quat) {
+        self.quaternion = quaternion.to_array().map(|v| f16::from_f32(v));
+    }
+
+    fn max_scale(&self) -> f32 {
+        self.ln_scales[0].max(self.ln_scales[1]).max(self.ln_scales[2]).to_f32().exp()
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -103,136 +200,13 @@ impl GsplatSH3 {
     }
 }
 
-impl Gsplat {
-    pub fn new(center: Vec3A, opacity: f32, rgb: Vec3A, scales: Vec3A, quaternion: Quat) -> Self {
-        Self {
-            center,
-            opacity: f16::from_f32(opacity),
-            rgb: rgb.to_array().map(|v| f16::from_f32(v)),
-            ln_scales: scales.to_array().map(|v| f16::from_f32(v.ln())),
-            quaternion: quaternion.to_array().map(|v| f16::from_f32(v)),
-        }
-    }
-
-    pub fn new_zero() -> Self {
-        Self::default()
-    }
-
-    pub fn set_center(&mut self, center: Vec3A) {
-        self.center = center;
-    }
-
-    pub fn set_opacity(&mut self, opacity: f32) {
-        self.opacity = f16::from_f32(opacity);
-    }
-
-    pub fn opacity(&self) -> f32 {
-        self.opacity.to_f32()
-    }
-
-    pub fn set_rgb(&mut self, rgb: Vec3A) {
-        self.rgb = rgb.to_array().map(|v| f16::from_f32(v));
-    }
-
-    pub fn rgb(&self) -> Vec3A {
-        Vec3A::from_array(self.rgb.map(|x| x.to_f32()))
-    }
-
-    pub fn set_scales(&mut self, scales: Vec3A) {
-        self.ln_scales = scales.to_array().map(|v| f16::from_f32(v.ln()));
-    }
-
-    pub fn scales(&self) -> Vec3A {
-        Vec3A::from_array(self.ln_scales.map(|x| x.to_f32().exp()))
-    }
-
-    pub fn set_quaternion(&mut self, quaternion: Quat) {
-        self.quaternion = quaternion.to_array().map(|v| f16::from_f32(v));
-    }
-
-    pub fn quaternion(&self) -> Quat {
-        Quat::from_array(self.quaternion.map(|x| x.to_f32()))
-    }
-
-    pub fn max_scale(&self) -> f32 {
-        self.ln_scales[0].max(self.ln_scales[1]).max(self.ln_scales[2]).to_f32().exp()
-    }
-
-    pub fn area(&self) -> f32 {
-        ellipsoid_area(self.scales())
-    }
-
-    pub fn dilation(&self) -> f32 {
-        let opacity = self.opacity();
-        if opacity > 1.0 {
-            (1.0 + 2.0 * opacity.ln()).sqrt()
-        } else {
-            1.0
-        }
-    }
-
-    pub fn lod_opacity(&self) -> f32 {
-        let opacity = self.opacity();
-        if opacity > 1.0 {
-            (1.0 + core::f32::consts::E * opacity.ln()).sqrt()
-        } else {
-            1.0
-        }
-    }
-
-    pub fn feature_size(&self) -> f32 {
-        // 2.0 * self.max_scale() * self.dilation()
-        2.0 * self.max_scale() * self.lod_opacity()
-    }
-
-    pub fn grid(&self, step_size: f32) -> I64Vec3 {
-        (self.center / step_size).floor().as_i64vec3()
-    }
-
-    pub fn distance(&self, other: &Gsplat) -> f32 {
-        self.center.distance(other.center)
-    }
-
-    pub fn similarity_metric(&self, extra: &GsplatExtra, other: &Gsplat, other_extra: &GsplatExtra) -> f32 {
-        let (color, other_color) = (self.rgb(), other.rgb());
-        let color_delta2 = (color[0] - other_color[0]).powi(2) +
-            (color[1] - other_color[1]).powi(2) +
-            (color[2] - other_color[2]).powi(2);
-        self.bhattacharyya_coeff(extra, other, other_extra) * (-color_delta2).exp()
-    }
-
-    pub fn bhattacharyya_coeff(&self, extra: &GsplatExtra, other: &Gsplat, other_extra: &GsplatExtra) -> f32 {
-        (-self.bhattacharyya_distance(extra, other, other_extra)).exp()
-    }
-
-    pub fn bhattacharyya_distance(&self, extra: &GsplatExtra, other: &Gsplat, other_extra: &GsplatExtra) -> f32 {
-        // Compute the average covariance
-        let sigma = SymMat3::new_average(&extra.covariance, &other_extra.covariance);
-        let Some(inv) = sigma.inverse() else {
-            return f32::INFINITY;
-        };
-
-        // First term: (1/8) * diff^T * Sigma_inv * diff for symmetric 3x3 stored as [xx, yy, zz, xy, xz, yz]
-        let dx = other.center.x - self.center.x;
-        let dy = other.center.y - self.center.y;
-        let dz = other.center.z - self.center.z;
-        let quad = inv.xx() * dx * dx
-            + inv.yy() * dy * dy
-            + inv.zz() * dz * dz
-            + 2.0 * inv.xy() * dx * dy
-            + 2.0 * inv.xz() * dx * dz
-            + 2.0 * inv.yz() * dy * dz;
-        let term1_val = 0.125 * quad;
-
-        // Second term: (1/2) * ln(det(Sigma) / sqrt(det(Sigma_A)*det(Sigma_B)))
-        let det_sigma = sigma.determinant();
-        let det_a = extra.covariance.determinant();
-        let det_b = other_extra.covariance.determinant();
-        let term2 = 0.5 * (det_sigma / (det_a * det_b).sqrt()).ln();
-
-        // Bhattacharyya distance
-        term1_val + term2
-    }
+#[derive(Debug, Clone, Default)]
+pub struct GsplatExtra {
+    pub weight: f32,
+    pub level: i16,
+    pub covariance: SymMat3,
+    pub children: SmallVec<[usize; 8]>,
+    pub parent: usize,
 }
 
 impl GsplatExtra {
@@ -269,27 +243,10 @@ pub struct GsplatArray {
     pub sh3: Vec<GsplatSH3>,
 }
 
-impl GsplatArray {
-    pub fn new() -> Self {
-        Self::new_capacity(0, 0)
-    }
+impl TsplatArray for GsplatArray {
+    type Splat = Gsplat;
 
-    pub fn clone_subset(&self, start: usize, count: usize) -> Self {
-        Self {
-            max_sh_degree: self.max_sh_degree,
-            splats: self.splats[start..start + count].to_vec(),
-            extras: if self.extras.is_empty() { Vec::new() } else { self.extras[start..start + count].to_vec() },
-            sh1: if self.sh1.is_empty() { Vec::new() } else { self.sh1[start..start + count].to_vec() },
-            sh2: if self.sh2.is_empty() { Vec::new() } else { self.sh2[start..start + count].to_vec() },
-            sh3: if self.sh3.is_empty() { Vec::new() } else { self.sh3[start..start + count].to_vec() },
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.splats.len()
-    }
-
-    pub fn new_capacity(capacity: usize, max_sh_degree: usize) -> Self {
+    fn new_capacity(capacity: usize, max_sh_degree: usize) -> Self {
         assert!(max_sh_degree <= 3, "SH degrees must be between 0 and 3");
         Self {
             max_sh_degree,
@@ -301,57 +258,32 @@ impl GsplatArray {
         }
     }
 
-    pub fn compute_extras(&mut self) {
-        if self.extras.len() < self.splats.len() {
-            self.extras.reserve(self.splats.len() - self.extras.len());
-        }
-
-        while self.extras.len() < self.splats.len() {
-            let splat = &self.splats[self.extras.len()];
-            self.extras.push(GsplatExtra::new_from_gsplat(splat));
-        }
+    fn max_sh_degree(&self) -> usize {
+        self.max_sh_degree
     }
 
-    pub fn push_splat(
-        &mut self,
-        splat: Gsplat,
-        sh1: Option<GsplatSH1>,
-        sh2: Option<GsplatSH2>,
-        sh3: Option<GsplatSH3>,
-    ) -> usize {
-        let index = self.splats.len();
-        
-        self.splats.push(splat);
-        
-        if self.max_sh_degree >= 1 {
-            assert!(sh1.is_some(), "SH1 must be provided");
-            self.sh1.push(sh1.unwrap());
-        }
-
-        if self.max_sh_degree >= 2 {
-            assert!(sh2.is_some(), "SH2 must be provided");
-            self.sh2.push(sh2.unwrap());
-        }
-
-        if self.max_sh_degree >= 3 {
-            assert!(sh3.is_some(), "SH3 must be provided");
-            self.sh3.push(sh3.unwrap());
-        }
-
-        index
+    fn set_max_sh_degree(&mut self, max_sh_degree: usize) {
+        assert!(max_sh_degree <= 3, "SH degrees must be between 0 and 3");
+        self.max_sh_degree = max_sh_degree;
     }
 
-    pub const ROOT_INDEX: usize = 0;
-
-    pub fn count(&self) -> usize {
+    fn len(&self) -> usize {
         self.splats.len()
     }
 
-    pub fn get(&self, index: usize) -> &Gsplat {
+    fn get(&self, index: usize) -> &Gsplat {
         &self.splats[index]
     }
 
-    pub fn new_merged(&mut self, indices: &[usize], step: f32, _debug: bool) -> usize {
+    fn get_mut(&mut self, index: usize) -> &mut Gsplat {
+        &mut self.splats[index]
+    }
+
+    fn prepare_extra(&mut self) {
+        self.compute_extras();
+    }
+
+    fn new_merged(&mut self, indices: &[usize], step: f32) -> usize {
         let new_index = self.splats.len();
 
         let total_weight = indices.iter()
@@ -447,7 +379,11 @@ impl GsplatArray {
         new_index
     }
 
-    pub fn retain<F: (FnMut(&mut Gsplat) -> bool)>(&mut self, mut f: F) {
+    fn set_children(&mut self, parent: usize, children: &[usize]) {
+        self.extras[parent].children = children.iter().copied().collect();
+    }
+
+    fn retain<F: (FnMut(&mut Gsplat) -> bool)>(&mut self, mut f: F) {
         let keep: Vec<bool> = self.splats.iter_mut().map(|splat| f(splat)).collect();
         let mut bits = keep.iter();
         self.splats.retain(|_splat| *bits.next().unwrap());
@@ -469,29 +405,7 @@ impl GsplatArray {
         }
     }
 
-    pub fn retain_extra<F: (FnMut(&mut Gsplat, &mut GsplatExtra) -> bool)>(&mut self, mut f: F) {
-        let keep: Vec<bool> = self.splats.iter_mut().zip(self.extras.iter_mut()).map(|(splat, extra)| f(splat, extra)).collect();
-        let mut bits = keep.iter();
-        self.splats.retain(|_splat| *bits.next().unwrap());
-        if !self.extras.is_empty() {
-            let mut bits = keep.iter();
-            self.extras.retain(|_extra| *bits.next().unwrap());
-        }
-        if !self.sh1.is_empty() {
-            let mut bits = keep.iter();
-            self.sh1.retain(|_sh1| *bits.next().unwrap());
-        }
-        if !self.sh2.is_empty() {
-            let mut bits = keep.iter();
-            self.sh2.retain(|_sh2| *bits.next().unwrap());
-        }
-        if !self.sh3.is_empty() {
-            let mut bits = keep.iter();
-            self.sh3.retain(|_sh3| *bits.next().unwrap());
-        }
-    }
-
-    pub fn permute(&mut self, index_map: &[usize]) {
+    fn permute(&mut self, index_map: &[usize]) {
         assert_eq!(index_map.len(), self.splats.len());
         let swaps = compute_swaps(index_map);
         apply_swaps(&mut self.splats, &swaps);
@@ -509,7 +423,7 @@ impl GsplatArray {
         }
     }
 
-    pub fn new_from_index_map(&mut self, index_map: &[usize]) -> Self {
+    fn new_from_index_map(&mut self, index_map: &[usize]) -> Self {
         Self {
             max_sh_degree: self.max_sh_degree,
             splats: index_map.iter().map(|&i| self.splats[i].clone()).collect(),
@@ -536,11 +450,83 @@ impl GsplatArray {
         }
     }
 
-    pub fn sort_by<F: (Fn(&Gsplat) -> f32)>(&mut self, f: F) {
-        let mut index_map = Vec::with_capacity(self.splats.len());
-        index_map.extend(0..self.splats.len());
-        index_map.sort_by_key(|&index| OrderedFloat(f(&self.splats[index])));
-        self.permute(&index_map);
+    fn clone_subset(&self, start: usize, count: usize) -> Self {
+        Self {
+            max_sh_degree: self.max_sh_degree,
+            splats: self.splats[start..start + count].to_vec(),
+            extras: if self.extras.is_empty() { Vec::new() } else { self.extras[start..start + count].to_vec() },
+            sh1: if self.sh1.is_empty() { Vec::new() } else { self.sh1[start..start + count].to_vec() },
+            sh2: if self.sh2.is_empty() { Vec::new() } else { self.sh2[start..start + count].to_vec() },
+            sh3: if self.sh3.is_empty() { Vec::new() } else { self.sh3[start..start + count].to_vec() },
+        }
+    }
+}
+
+impl GsplatArray {
+    pub fn new() -> Self {
+        Self::new_capacity(0, 0)
+    }
+
+    pub fn compute_extras(&mut self) {
+        if self.extras.len() < self.splats.len() {
+            self.extras.reserve(self.splats.len() - self.extras.len());
+        }
+
+        while self.extras.len() < self.splats.len() {
+            let splat = &self.splats[self.extras.len()];
+            self.extras.push(GsplatExtra::new_from_gsplat(splat));
+        }
+    }
+
+    pub fn push_splat(
+        &mut self,
+        splat: Gsplat,
+        sh1: Option<GsplatSH1>,
+        sh2: Option<GsplatSH2>,
+        sh3: Option<GsplatSH3>,
+    ) -> usize {
+        let index = self.splats.len();
+        
+        self.splats.push(splat);
+        
+        if self.max_sh_degree >= 1 {
+            assert!(sh1.is_some(), "SH1 must be provided");
+            self.sh1.push(sh1.unwrap());
+        }
+
+        if self.max_sh_degree >= 2 {
+            assert!(sh2.is_some(), "SH2 must be provided");
+            self.sh2.push(sh2.unwrap());
+        }
+
+        if self.max_sh_degree >= 3 {
+            assert!(sh3.is_some(), "SH3 must be provided");
+            self.sh3.push(sh3.unwrap());
+        }
+
+        index
+    }
+
+    pub fn retain_extra<F: (FnMut(&mut Gsplat, &mut GsplatExtra) -> bool)>(&mut self, mut f: F) {
+        let keep: Vec<bool> = self.splats.iter_mut().zip(self.extras.iter_mut()).map(|(splat, extra)| f(splat, extra)).collect();
+        let mut bits = keep.iter();
+        self.splats.retain(|_splat| *bits.next().unwrap());
+        if !self.extras.is_empty() {
+            let mut bits = keep.iter();
+            self.extras.retain(|_extra| *bits.next().unwrap());
+        }
+        if !self.sh1.is_empty() {
+            let mut bits = keep.iter();
+            self.sh1.retain(|_sh1| *bits.next().unwrap());
+        }
+        if !self.sh2.is_empty() {
+            let mut bits = keep.iter();
+            self.sh2.retain(|_sh2| *bits.next().unwrap());
+        }
+        if !self.sh3.is_empty() {
+            let mut bits = keep.iter();
+            self.sh3.retain(|_sh3| *bits.next().unwrap());
+        }
     }
 
     pub fn to_packed_array(&self, encoding: &SplatEncoding) -> (usize, Vec<u32>) {
@@ -631,7 +617,7 @@ impl GsplatArray {
     }
 }
 
-fn ellipsoid_area(scales: Vec3A) -> f32 {
+pub fn ellipsoid_area(scales: Vec3A) -> f32 {
     const P: f32 = 1.6075;
     let numerator = (scales.x * scales.y).powf(P) + (scales.x * scales.z).powf(P) + (scales.y * scales.z).powf(P);
     4.0 * std::f32::consts::PI * (numerator / 3.0).powf(1.0 / P)

@@ -1,10 +1,12 @@
 import * as THREE from "three";
 import {
-  type ExtSplats,
+  ExtSplats,
   PackedSplats,
+  PagedSplats,
   Readback,
   type SplatGenerator,
   SplatMesh,
+  SplatPager,
   dyno,
 } from ".";
 import { NewSplatAccumulator } from "./NewSplatAccumulator";
@@ -70,7 +72,7 @@ export interface NewSparkRendererOptions {
   maxPixelRadius?: number;
   /**
    * Whether to use extended Gsplat encoding for intermediary splats.
-   * @default true
+   * @default false
    */
   extSplats?: boolean;
   /**
@@ -288,11 +290,12 @@ export class NewSparkRenderer extends THREE.Mesh {
   lodMeshes: { mesh: SplatMesh; version: number }[] = [];
   lodDirty = false;
   lodIds: Map<
-    PackedSplats | ExtSplats,
-    { lodId: number; lastTouched: number }
+    PackedSplats | ExtSplats | PagedSplats,
+    { lodId: number; lastTouched: number; rootPage?: number }
   > = new Map();
-  lodIdToSplats: Map<number, PackedSplats | ExtSplats> = new Map();
-  lodInitQueue: (PackedSplats | ExtSplats)[] = [];
+  lodIdToSplats: Map<number, PackedSplats | ExtSplats | PagedSplats> =
+    new Map();
+  lodInitQueue: (PackedSplats | ExtSplats | PagedSplats)[] = [];
   lodPos = new THREE.Vector3().setScalar(Number.NEGATIVE_INFINITY);
   lodQuat = new THREE.Quaternion().set(0, 0, 0, 0);
   lodInstances: Map<
@@ -313,6 +316,15 @@ export class NewSparkRenderer extends THREE.Mesh {
     count: number;
     lodTreeData: Uint32Array;
   }[] = [];
+  lodClears: {
+    lodId: number;
+    pageBase: number;
+    chunkBase: number;
+    count: number;
+  }[] = [];
+
+  pager?: SplatPager;
+  pagerId = 0;
 
   target?: THREE.WebGLRenderTarget;
   backTarget?: THREE.WebGLRenderTarget;
@@ -390,14 +402,11 @@ export class NewSparkRenderer extends THREE.Mesh {
 
     this.clock = options.clock ? cloneClock(options.clock) : new THREE.Clock();
 
-    this.display = new NewSplatAccumulator({ extSplats: this.extSplats });
+    const accumulatorOptions = { extSplats: this.extSplats };
+    this.display = new NewSplatAccumulator(accumulatorOptions);
     this.current = this.display;
-    this.accumulators.push(
-      new NewSplatAccumulator({ extSplats: this.extSplats }),
-    );
-    this.accumulators.push(
-      new NewSplatAccumulator({ extSplats: this.extSplats }),
-    );
+    this.accumulators.push(new NewSplatAccumulator(accumulatorOptions));
+    this.accumulators.push(new NewSplatAccumulator(accumulatorOptions));
 
     if (options.target) {
       const { width, height, doubleBuffer } = options.target;
@@ -519,6 +528,10 @@ export class NewSparkRenderer extends THREE.Mesh {
       this.lodWorker.dispose();
       this.lodWorker = null;
     }
+    if (this.pager) {
+      this.pager.dispose();
+      this.pager = undefined;
+    }
   }
 
   onBeforeRender(
@@ -536,7 +549,6 @@ export class NewSparkRenderer extends THREE.Mesh {
       spark.renderSize.set(spark.target.width, spark.target.height);
     } else {
       const renderSize = renderer.getDrawingBufferSize(spark.renderSize);
-      // console.log(`onBeforeRender: renderSize=(${renderSize.toArray().join(", ")})`);
       if (renderer.xr.isPresenting) {
         if (renderSize.x === 1 && renderSize.y === 1) {
           // WebXR mode on Apple Vision Pro returns 1x1 when presenting.
@@ -560,7 +572,6 @@ export class NewSparkRenderer extends THREE.Mesh {
 
     const geometry = this.geometry as NewSplatGeometry;
     geometry.instanceCount = spark.activeSplats;
-    // this.uniforms.numSplats.value = spark.activeSplats;
 
     const accumToWorld = new THREE.Matrix4();
     if (!this.display.extSplats) {
@@ -827,6 +838,8 @@ export class NewSparkRenderer extends THREE.Mesh {
         }
         renderer.state.activeTexture(gl.TEXTURE0);
         renderer.state.bindTexture(gl.TEXTURE_2D, glTexture);
+        gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
         gl.texSubImage2D(
           gl.TEXTURE_2D,
           0,
@@ -854,6 +867,13 @@ export class NewSparkRenderer extends THREE.Mesh {
     this.driveSort();
   }
 
+  private ensureLodWorker() {
+    if (!this.lodWorker) {
+      this.lodWorker = new NewSplatWorker();
+    }
+    return this.lodWorker;
+  }
+
   private async driveLod({
     visibleGenerators,
     camera: inputCamera,
@@ -864,10 +884,12 @@ export class NewSparkRenderer extends THREE.Mesh {
           return (
             generator instanceof SplatMesh &&
             (generator.packedSplats?.lodSplats ||
-              generator.extSplats?.lodSplats) &&
+              generator.extSplats?.lodSplats ||
+              generator.paged) &&
             generator.enableLod !== false
           );
         }) as SplatMesh[]);
+    const hasPaged = lodMeshes.some((mesh) => mesh.paged);
 
     let forceUpdate = this.lodMeshes.length !== lodMeshes.length;
     if (
@@ -895,45 +917,97 @@ export class NewSparkRenderer extends THREE.Mesh {
 
     const camera = inputCamera.clone();
 
-    const lodSplats = lodMeshes.reduce((splats, mesh) => {
-      splats.add(
-        (mesh.packedSplats?.lodSplats as PackedSplats | undefined) ??
-          (mesh.extSplats?.lodSplats as ExtSplats),
-      );
-      return splats;
-    }, new Set<PackedSplats | ExtSplats>());
-
     this.lodInitQueue = [];
     const now = performance.now();
 
-    for (const splat of lodSplats) {
-      const record = this.lodIds.get(splat);
-      if (record) {
-        record.lastTouched = now;
-      } else {
-        this.lodInitQueue.push(splat);
+    for (const mesh of lodMeshes) {
+      const splats =
+        mesh.packedSplats?.lodSplats ?? mesh.extSplats?.lodSplats ?? mesh.paged;
+      if (splats) {
+        const record = this.lodIds.get(splats);
+        if (record) {
+          record.lastTouched = now;
+        } else {
+          this.lodInitQueue.push(splats);
+        }
       }
     }
 
-    if (!this.lodWorker) {
-      this.lodWorker = new NewSplatWorker();
-    }
-    this.lodWorker.tryExclusive(async (worker) => {
+    this.ensureLodWorker().tryExclusive(async (worker) => {
+      if (hasPaged && !this.pager) {
+        this.pager = new SplatPager({ renderer: this.renderer });
+        for (const { mesh } of this.lodMeshes) {
+          if (mesh.paged && !mesh.paged.pager) {
+            mesh.paged.pager = this.pager;
+          }
+        }
+
+        const { lodId } = (await worker.call("newLodTree", {
+          capacity: this.pager.maxSplats,
+        })) as { lodId: number };
+        this.pagerId = lodId;
+        console.log("*** Set pagerId to", lodId);
+      }
+
       if (this.lodInitQueue.length > 0) {
         const lodInitQueue = this.lodInitQueue;
         this.lodInitQueue = [];
         while (lodInitQueue.length > 0) {
-          const splats = lodInitQueue.shift() as PackedSplats;
-          await this.initLodTree(worker, splats);
+          const splats = lodInitQueue.shift();
+          if (splats) {
+            await this.initLodTree(worker, splats);
+            this.lodDirty = true;
+          }
         }
-        // return;
+      }
+
+      if (this.pager) {
+        const { updates, clears } = this.pager.consumeLodTreeUpdates();
+
+        for (const { splats, page, chunk } of clears) {
+          const record = this.lodIds.get(splats);
+          if (record) {
+            this.lodClears.push({
+              lodId: record.lodId,
+              pageBase: page * this.pager.pageSplats,
+              chunkBase: chunk * this.pager.pageSplats,
+              count: this.pager.pageSplats,
+            });
+          }
+        }
+
+        for (const { splats, page, chunk, numSplats, lodTree } of updates) {
+          const record = this.lodIds.get(splats);
+          if (record) {
+            if (chunk === 0) {
+              record.rootPage = page;
+            }
+            // console.log("*** PAGER insertLodTrees", record.lodId, page, chunk);
+            this.lodInserts.push({
+              lodId: record.lodId,
+              pageBase: page * this.pager.pageSplats,
+              chunkBase: chunk * this.pager.pageSplats,
+              count: numSplats,
+              lodTreeData: lodTree,
+            });
+          }
+        }
+      }
+
+      if (this.lodClears.length > 0) {
+        const lodClears = this.lodClears;
+        this.lodClears = [];
+        await worker.call("clearLodTrees", { ranges: lodClears });
+        this.lodDirty = true;
+        console.log("*** clearedLodTrees", lodClears);
       }
 
       if (this.lodInserts.length > 0) {
         const lodInserts = this.lodInserts;
         this.lodInserts = [];
         await worker.call("insertLodTrees", { ranges: lodInserts });
-        // return;
+        // console.log("*** insertedLodTrees", lodInserts);
+        this.lodDirty = true;
       }
 
       const viewPos = new THREE.Vector3();
@@ -948,32 +1022,10 @@ export class NewSparkRenderer extends THREE.Mesh {
         viewQuat.dot(this.lodQuat) < 0.999;
 
       if (this.lodDirty || viewChanged) {
-        const evict = [];
-        for (const splat of lodSplats) {
-          if (splat instanceof PackedSplats) {
-            for (const chunk of splat.chunkEvict) {
-              const page = splat.chunkToPage.get(chunk) as number;
-              evict.push({
-                lodId: this.lodIds.get(splat)?.lodId as number,
-                pageBase: page * 65536,
-                chunkBase: chunk * 65536,
-                count: 65536,
-              });
-            }
-          }
-        }
-
-        if (evict.length > 0) {
-          console.log("evict", evict);
-          await worker.call("clearLodTrees", { ranges: evict });
-          evict.length = 0;
-        }
-
         this.lodPos.copy(viewPos);
         this.lodQuat.copy(viewQuat);
         this.lodDirty = false;
         await this.updateLodInstances(worker, camera, lodMeshes);
-        // return;
       }
 
       await this.cleanupLodTrees(worker);
@@ -982,16 +1034,24 @@ export class NewSparkRenderer extends THREE.Mesh {
 
   private async initLodTree(
     worker: NewSplatWorker,
-    splats: PackedSplats | ExtSplats,
+    splats: PackedSplats | ExtSplats | PagedSplats,
   ) {
-    // console.log("initLodTree", splats.extra.lodTree, JSON.stringify(new Array(100).fill().map((_, i) => [splats.extra.lodTree[i*4 + 2], splats.extra.lodTree[i*4 + 3]])));
-    const { lodId, chunkToPage } = (await worker.call("initLodTree", {
-      numSplats: splats.numSplats ?? 0,
-      lodTree: (splats.extra.lodTree as Uint32Array).slice(),
-    })) as { lodId: number; chunkToPage: Uint32Array };
-    // console.log("initLodTree: lodId =", lodId);
-    this.lodIds.set(splats, { lodId, lastTouched: performance.now() });
-    this.lodIdToSplats.set(lodId, splats);
+    if (splats instanceof PackedSplats || splats instanceof ExtSplats) {
+      const { lodId } = (await worker.call("initLodTree", {
+        numSplats: splats.numSplats ?? 0,
+        lodTree: (splats.extra.lodTree as Uint32Array).slice(),
+      })) as { lodId: number };
+      this.lodIds.set(splats, { lodId, lastTouched: performance.now() });
+      this.lodIdToSplats.set(lodId, splats);
+      console.log("*** initLodTree", lodId, splats.extra.lodTree, splats);
+    } else {
+      const { lodId } = (await worker.call("newSharedLodTree", {
+        lodId: this.pagerId,
+      })) as { lodId: number };
+      this.lodIds.set(splats, { lodId, lastTouched: performance.now() });
+      this.lodIdToSplats.set(lodId, splats);
+      console.log("*** newSharedLodTree", lodId, this.pagerId, splats);
+    }
   }
 
   private async updateLodInstances(
@@ -1022,33 +1082,46 @@ export class NewSparkRenderer extends THREE.Mesh {
 
     const instances = lodMeshes.reduce(
       (instances, mesh) => {
-        const record = this.lodIds.get(
-          (mesh.packedSplats?.lodSplats as PackedSplats | undefined) ??
-            (mesh.extSplats?.lodSplats as ExtSplats),
-        );
-        if (record) {
-          const viewToObject = mesh.matrixWorld
-            .clone()
-            .invert()
-            .multiply(camera.matrixWorld);
-          uuidToMesh.set(mesh.uuid, mesh);
-          instances[mesh.uuid] = {
-            lodId: record.lodId,
-            viewToObjectCols: viewToObject.elements,
-            lodScale: mesh.lodScale * this.globalLodScale,
-            outsideFoveate: mesh.outsideFoveate ?? this.outsideFoveate,
-            behindFoveate: mesh.behindFoveate ?? this.behindFoveate,
-            coneFov0: mesh.coneFov0 ?? this.coneFov0,
-            coneFov: mesh.coneFov ?? this.coneFov,
-            coneFoveate: mesh.coneFoveate ?? this.coneFoveate,
-          };
+        uuidToMesh.set(mesh.uuid, mesh);
+        const viewToObject = mesh.matrixWorld
+          .clone()
+          .invert()
+          .multiply(camera.matrixWorld);
+
+        const splats =
+          mesh.packedSplats?.lodSplats ??
+          mesh.extSplats?.lodSplats ??
+          mesh.paged;
+        if (!splats) {
+          return instances;
         }
+        const record = this.lodIds.get(splats);
+        if (!record) {
+          return instances;
+        }
+
+        if (this.pager && mesh.paged && record.rootPage === undefined) {
+          return instances;
+        }
+
+        instances[mesh.uuid] = {
+          lodId: record.lodId,
+          rootPage: record.rootPage,
+          viewToObjectCols: viewToObject.elements,
+          lodScale: mesh.lodScale * this.globalLodScale,
+          outsideFoveate: mesh.outsideFoveate ?? this.outsideFoveate,
+          behindFoveate: mesh.behindFoveate ?? this.behindFoveate,
+          coneFov0: mesh.coneFov0 ?? this.coneFov0,
+          coneFov: mesh.coneFov ?? this.coneFov,
+          coneFoveate: mesh.coneFoveate ?? this.coneFoveate,
+        };
         return instances;
       },
       {} as Record<
         string,
         {
           lodId: number;
+          rootPage?: number;
           viewToObjectCols: number[];
           lodScale: number;
           outsideFoveate: number;
@@ -1084,9 +1157,44 @@ export class NewSparkRenderer extends THREE.Mesh {
     //     // JSON.stringify(chunks),
     //   );
     // }
+    // console.log("*** counts", JSON.stringify(chunks));
 
     this.updateLodIndices(uuidToMesh, keyIndices);
     // console.log("chunks.length =", chunks.length);
+
+    if (this.pager) {
+      this.pager.processUploads();
+
+      const cameraPosition = camera.getWorldPosition(new THREE.Vector3());
+      const pagedMeshes = lodMeshes
+        .map((mesh) => {
+          if (!mesh.paged || !this.pager) {
+            return null;
+          }
+          const meshPosition = mesh.getWorldPosition(new THREE.Vector3());
+          return {
+            splats: mesh.paged,
+            distance: meshPosition.distanceTo(cameraPosition),
+          };
+        })
+        .filter((result) => result !== null);
+
+      // Fetch root chunk of each paged splats in priority of distance to camera
+      pagedMeshes.sort((a, b) => a.distance - b.distance);
+      this.pager.fetchPriority = pagedMeshes.map(({ splats }) => ({
+        splats,
+        chunk: 0,
+      }));
+
+      for (const [lodId, chunk] of chunks) {
+        const splats = this.lodIdToSplats.get(lodId);
+        if (splats instanceof PagedSplats) {
+          this.pager.fetchPriority.push({ splats, chunk });
+        }
+      }
+
+      this.pager.driveFetchers();
+    }
 
     const splatStats = new Map();
 
@@ -1262,57 +1370,65 @@ export class NewSparkRenderer extends THREE.Mesh {
     for (const [uuid, countIndices] of Object.entries(keyIndices)) {
       const { lodId, numSplats, indices } = countIndices;
       const mesh = uuidToMesh.get(uuid) as SplatMesh;
-      let instance = this.lodInstances.get(mesh);
-      if (instance) {
-        if (indices.length > instance.indices.length) {
-          instance.texture.dispose();
-          instance = undefined;
-        }
-      }
 
-      const rows = Math.ceil(indices.length / 16384);
-      if (!instance) {
-        const capacity = rows * 16384;
-        if (indices.length !== capacity) {
-          throw new Error("Indices length != capacity");
-        }
-        const texture = new THREE.DataTexture(
-          indices,
-          4096,
-          rows,
-          THREE.RGBAIntegerFormat,
-          THREE.UnsignedIntType,
-        );
-        texture.internalFormat = "RGBA32UI";
-        texture.needsUpdate = true;
-        instance = { lodId, numSplats, indices, texture };
-        this.lodInstances.set(mesh, instance);
+      if (mesh.paged) {
+        mesh.paged.update(numSplats, indices);
+        // console.log("*** paged.update", lodId, numSplats, indices.slice(0, 5).join(","));
       } else {
-        instance.numSplats = numSplats;
-        const renderer = this.renderer;
-        const gl = renderer.getContext() as WebGL2RenderingContext;
-        if (renderer.properties.has(instance.texture)) {
-          const props = renderer.properties.get(instance.texture) as {
-            __webglTexture: WebGLTexture;
-          };
-          const glTexture = props.__webglTexture;
-          if (!glTexture) {
-            throw new Error("lodIndices texture not found");
+        let instance = this.lodInstances.get(mesh);
+        if (instance) {
+          if (indices.length > instance.indices.length) {
+            instance.texture.dispose();
+            instance = undefined;
           }
-          renderer.state.activeTexture(gl.TEXTURE0);
-          renderer.state.bindTexture(gl.TEXTURE_2D, glTexture);
-          gl.texSubImage2D(
-            gl.TEXTURE_2D,
-            0,
-            0,
-            0,
+        }
+
+        const rows = Math.ceil(indices.length / 16384);
+        if (!instance) {
+          const capacity = rows * 16384;
+          if (indices.length !== capacity) {
+            throw new Error("Indices length != capacity");
+          }
+          const texture = new THREE.DataTexture(
+            indices,
             4096,
             rows,
-            gl.RGBA_INTEGER,
-            gl.UNSIGNED_INT,
-            indices,
+            THREE.RGBAIntegerFormat,
+            THREE.UnsignedIntType,
           );
-          renderer.state.bindTexture(gl.TEXTURE_2D, null);
+          texture.internalFormat = "RGBA32UI";
+          texture.needsUpdate = true;
+          instance = { lodId, numSplats, indices, texture };
+          this.lodInstances.set(mesh, instance);
+        } else {
+          instance.numSplats = numSplats;
+          const renderer = this.renderer;
+          const gl = renderer.getContext() as WebGL2RenderingContext;
+          if (renderer.properties.has(instance.texture)) {
+            const props = renderer.properties.get(instance.texture) as {
+              __webglTexture: WebGLTexture;
+            };
+            const glTexture = props.__webglTexture;
+            if (!glTexture) {
+              throw new Error("lodIndices texture not found");
+            }
+            renderer.state.activeTexture(gl.TEXTURE0);
+            renderer.state.bindTexture(gl.TEXTURE_2D, glTexture);
+            gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
+            gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+            gl.texSubImage2D(
+              gl.TEXTURE_2D,
+              0,
+              0,
+              0,
+              4096,
+              rows,
+              gl.RGBA_INTEGER,
+              gl.UNSIGNED_INT,
+              indices,
+            );
+            renderer.state.bindTexture(gl.TEXTURE_2D, null);
+          }
         }
       }
       mesh.updateMappingVersion();

@@ -4,7 +4,7 @@ use ahash::AHashMap;
 use glam::I64Vec3;
 use smallvec::{smallvec, SmallVec};
 
-use crate::gsplat::*;
+use crate::{gsplat::*, tsplat::{Tsplat, TsplatArray}};
 
 const CHUNK_LEVELS: i16 = 2;
 
@@ -81,21 +81,9 @@ pub fn compute_lod_tree(splats: &mut GsplatArray, lod_base: f32, merge_filter: b
         for indices in cells.values_mut() {
             // *cell_counts.entry(indices.len()).or_default() += 1;
             if indices.len() > 1 {
-                const DEBUG_INDEX: usize = 4000000000;
-                // if splats.len() == DEBUG_INDEX {
-                //     println!("Merging {} from {:?}", splats.len(), indices);
-                //     let next_step = lod_base.powf(-14.0);
-                //     for &index in indices.iter() {
-                //         println!("{} | {:?}: {:?}", index, splats.splats[index].grid(next_step), splats.splats[index]);
-                //     }
-                //     println!("--------------------------------");
-                // }
                 let merge_step = if merge_filter { step } else { 0.0 };
-                let merged = splats.new_merged(indices, merge_step, splats.len() == DEBUG_INDEX);
+                let merged = splats.new_merged(indices, merge_step);
                 splats.extras[merged].level = level + 1;
-                // if merged == DEBUG_INDEX {
-                //     println!("Merged splat: {:?}", splats.splats[merged]);
-                // }
                 indices.clear();
                 indices.push(merged);
                 merged_count += 1;
@@ -166,7 +154,7 @@ pub fn compute_lod_tree(splats: &mut GsplatArray, lod_base: f32, merge_filter: b
                 .flat_map(|i| i.iter().copied())
                 .collect();
             let merge_step = if merge_filter { step } else { 0.0 };
-            let merged = splats.new_merged(&indices, merge_step, false);
+            let merged = splats.new_merged(&indices, merge_step);
             merged
         } else {
             let only = previous.values().next().unwrap();

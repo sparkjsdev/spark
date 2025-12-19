@@ -16,3 +16,4 @@ ordered-float.workspace = true
 miniz_oxide.workspace = true
 serde.workspace = true
 smallvec.workspace = true
+itertools.workspace = true

@@ -3,6 +3,7 @@ use std::cell::RefCell;
 use js_sys::{Float32Array, Object, Reflect, Uint8Array, Uint16Array, Uint32Array};
 use spark_lib::decoder::{ChunkReceiver, MultiDecoder, SplatFileType};
 use spark_lib::gsplat::GsplatArray as GsplatArrayInner;
+use spark_lib::tsplat::TsplatArray;
 use wasm_bindgen::prelude::*;
 
 use crate::ext_splats::ExtSplatsData;
@@ -210,7 +211,7 @@ impl GsplatArray {
 
     pub fn quick_lod(&mut self, lod_base: f32, merge_filter: bool) {
         // spark_lib::quick_lod::compute_lod_tree(&mut self.inner, lod_base, merge_filter, |s| web_sys::console::log_1(&JsValue::from(s)));
-        spark_lib::quick_lod::compute_lod_tree(&mut self.inner, lod_base, merge_filter, |s| {});
+        spark_lib::quick_lod::compute_lod_tree(&mut self.inner, lod_base, merge_filter, |_s| {});
     }
 
     pub fn to_packedsplats(&self) -> Result<Object, JsValue> {
