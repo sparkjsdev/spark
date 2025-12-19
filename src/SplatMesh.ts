@@ -18,6 +18,7 @@ import {
   SplatTransformer,
 } from "./SplatGenerator";
 import type { SplatFileType } from "./SplatLoader";
+import { PagedSplats, SplatPager } from "./SplatPager";
 import type { SplatSkinning } from "./SplatSkinning";
 import { LN_SCALE_MAX, LN_SCALE_MIN } from "./defines";
 import {
@@ -97,7 +98,6 @@ export type SplatMeshOptions = {
   // (default: undefined)
   splatEncoding?: SplatEncoding;
   // Set to true to load/use "extended splat" encoding with float32 x/y/z
-  // TODO: Not implemented yet
   extSplats?: boolean | ExtSplats;
   // Enable LOD. If a number is provided, it will be used as LoD level base,
   // otherwise the default 1.5 is used. When loading a file without pre-computed
@@ -126,6 +126,7 @@ export type SplatMeshOptions = {
   // Foveation scale to apply at the edge of the cone
   // (default: 1.0)
   coneFoveate?: number;
+  paged?: boolean | PagedSplats | SplatPager;
 };
 
 export type SplatMeshContext = {
@@ -207,6 +208,7 @@ export class SplatMesh extends SplatGenerator {
   packedSplats?: PackedSplats;
   extSplats?: ExtSplats;
   splats?: SplatSource;
+  paged?: PagedSplats;
 
   // A THREE.Color that can be used to tint all splats in the mesh.
   // (default: new THREE.Color(1, 1, 1))
@@ -296,12 +298,25 @@ export class SplatMesh extends SplatGenerator {
           : new ExtSplats();
       options.extSplats = this.extSplats;
       this.numSplats = this.extSplats.numSplats;
-    } else {
-      this.packedSplats = options.packedSplats ?? new PackedSplats();
+    } else if (options.packedSplats) {
+      this.packedSplats = options.packedSplats;
       this.packedSplats.splatEncoding = options.splatEncoding ?? {
         ...DEFAULT_SPLAT_ENCODING,
       };
-      this.numSplats = this.packedSplats.numSplats;
+    } else if (options.paged) {
+      const rootUrl = options.url ?? "";
+      if (options.paged === true) {
+        this.paged = new PagedSplats({ rootUrl });
+      } else if (options.paged instanceof PagedSplats) {
+        this.paged = options.paged;
+      } else if (options.paged instanceof SplatPager) {
+        this.paged = new PagedSplats({ rootUrl, pager: options.paged });
+      } else {
+        throw new Error("Invalid paged option");
+      }
+      this.splats = this.paged;
+    } else {
+      this.packedSplats = new PackedSplats();
     }
 
     this.editable = options.editable ?? true;
@@ -410,7 +425,6 @@ export class SplatMesh extends SplatGenerator {
     }
 
     if (this.splats) {
-      this.splats.prepareFetchSplat();
       this.numSplats = this.splats.getNumSplats();
       this.updateGenerator();
     }
@@ -655,6 +669,7 @@ export class SplatMesh extends SplatGenerator {
     if (splats) {
       this.context.splats = splats;
     }
+    // this.context.splats.prepareFetchSplat();
     this.numSplats = this.context.splats.getNumSplats();
 
     const { transform, viewToObject, recolor } = this.context;

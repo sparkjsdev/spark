@@ -26,15 +26,25 @@
     }
   </script>
   <script src="https://cdn.jsdelivr.net/npm/stats.js@0.17.0/build/stats.min.js"></script>
+  <!-- <script type="importmap">
+    {
+      "imports": {
+        "three": "/examples/js/vendor/three/build/three.module.js",
+        "lil-gui": "/examples/js/vendor/lil-gui/dist/lil-gui.esm.js",        "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.20.0/+esm",
+        "@sparkjsdev/spark": "/dist/spark.module.js"
+      }
+    }
+  </script>
+  <script src="/examples/js/vendor/stats.js/build/stats.min.js"></script> -->
   <script type="module">
     import * as THREE from "three";
-    import { NewSparkRenderer, PackedSplats, ExtSplats, SplatMesh, SplatEdit, SplatEditRgbaBlendMode, SplatEditSdf, SplatEditSdfType, SparkControls, SparkXr, textSplats, SplatSkinning } from "@sparkjsdev/spark";
+    import { NewSparkRenderer, PackedSplats, ExtSplats, SplatMesh, SplatEdit, SplatEditRgbaBlendMode, SplatEditSdf, SplatEditSdfType, SparkControls, SparkXr, textSplats, SplatSkinning, dyno } from "@sparkjsdev/spark";
     // import { getAssetFileURL } from "/examples/js/get-asset-url.js";
     import GUI from "lil-gui";
     // import initBurnGesture, { HandGestureClassifier } from "./pkg/burn_gesture.js";
     // import RAPIER from "https://cdn.skypack.dev/@dimforge/rapier3d-compat";
 
-    const ENABLE_EXT_SPLATS = true;
+    const ENABLE_EXT_SPLATS = false;
     const RENDER_TIMEOUT_MS = 120 * 1000;
     const XR_INPUT = {
       useAimSpace: true,
@@ -89,9 +99,10 @@
     // }
     // console.log("Done");
 
-    const URL_BASE = ".";
+    // const URL_BASE = ".";
     // const URL_BASE = "https://storage.googleapis.com/forge-dev-public/asundqui/memory-house-scene/memory-house";
     // const URL_BASE = "./memory-house";
+    const URL_BASE = "https://storage.googleapis.com/forge-dev-public/asundqui/hobbitverse";
 
     const names = [];
 
@@ -159,68 +170,101 @@
 
     // console.log("names", names.join("\n"));
 
-    const universe = {
-      // "cozy_cottage": {
-      //   "url": "../lod/cozy_cottage-lod.spz",
-      //   "position": [0, -1, 0],
-      //   "quaternion": [0, 0, 0, 1],
-      // },
-      // "sunken": {
-      //   "url": "../lod/sunken-lod.spz",
-      //   "position": [0, -1, 0],
-      //   "quaternion": [0, 0, 0, 1],
-      // },
-      // "cozy_ship": {
-      //   "url": "../lod/cozy_ship-lod.spz",
-      //   "position": [0, -8, 0],
-      //   "quaternion": [0, 0, 0, 1],
-      // },
-      "hobbiton5": {
-        "url": `${URL_BASE}/../lod/Hobbiton5-lod.spz`,
-        "position": [0, 0, 0],
-        "quaternion": [1, 0, 0, 0],
-      },
-      // "worldship": {
-      //   "url": `${URL_BASE}/../lod/worldship-lod.spz`,
-      //   "position": [0, 0, 0],
-      //   "quaternion": [0, 0, 0, 1],
-      // },
-      "toad": {
-        "url": `${URL_BASE}/toad-lod.spz`,
-        // "position": [4, 0, -1.5],
-        // "quaternion": [1, 0, 0, 0],
-        "position": [0.5725474387367916,-0.5078618461254829,-6.010018709628705],
-        // "quaternion": [0.00369239160875215,0.991726932692277,-0.029313744194850087,0.12491902024213399],
-        "quaternion": [0.15645282834721824,-0.04146967440804525,0.9867925564627197,0.00657488527784835],
-      },
-      "turkey": {
-        "url": `${URL_BASE}/turkey-lod.spz`,
-        "position": [-4.462805577234763,-0.30321350004495659,-7.792976287661906],
-        "quaternion": [-0.443958268524857,-0.050133086580300315,0.8942976756110581,-0.02488768440417606],
-      },
-      "butterfly": {
-        "url": `${URL_BASE}/butterfly-ai-lod.spz`,
-        // "position": [4, 0, -0.5],
-        // "quaternion": [1, 0, 0, 0],
-        "position": [-0.9836462197504537,-0.2845185012733539,-24.644897758757953],
-        // "quaternion": [-0.040984003785188565,-0.25715196950178787,-0.010916389904014001,0.965439800529557],
-        "quaternion": [-0.28968658389767193,-0.00646881131936965,0.9570976983098036,-0.0019579274470059634],
-      },
-      "snowbot": {
-        "url": `${URL_BASE}/snowbot-lod.spz`,
-        "position": [10.007435110070176,-0.36677329781066834,-10.678563326021761],
-        "quaternion": [0.9047756617124982,0.060176222293330445,0.39891279333979945,-0.13648592437703339],
-      },
-    };
+    // const universe = {
+    //   "worldship": {
+    //     "url": `../lod/worldship-lod-0.spz`,
+    //     "position": [0, 0, 0],
+    //     "quaternion": [0, 0, 0, 1],
+    //   },
+    //   "cozy_cottage": {
+    //     "url": "../portal/cozy_cottage-lod-0.spz",
+    //     "position": [0, -1, 0],
+    //     "quaternion": [0, 0, 0, 1],
+    //   },
+    //   // "cozy_ship": {
+    //   //   "url": "./cozy_ship-lod.spz",
+    //   //   "position": [0, -1, 0],
+    //   //   "quaternion": [0, 0, 0, 1],
+    //   // },
+    //   "sunken": {
+    //     "url": "../lod/sunken-lod-0.spz",
+    //     "position": [0, -1, 0],
+    //     "quaternion": [0, 0, 0, 1],
+    //   },
+    //   "hobbiton5": {
+    //     "url": `${URL_BASE}/Hobbiton5-lod-0.spz`,
+    //     "position": [0, 0, 0],
+    //     "quaternion": [1, 0, 0, 0],
+    //   },
+    //   // "toad": {
+    //   //   "url": `${URL_BASE}/toad-lod.spz`,
+    //   //   "position": [0.5725474387367916,-0.5078618461254829,-6.010018709628705],
+    //   //   "quaternion": [0.15645282834721824,-0.04146967440804525,0.9867925564627197,0.00657488527784835],
+    //   // },
+    //   // "turkey": {
+    //   //   "url": `${URL_BASE}/turkey-lod.spz`,
+    //   //   "position": [-4.462805577234763,-0.30321350004495659,-7.792976287661906],
+    //   //   "quaternion": [-0.443958268524857,-0.050133086580300315,0.8942976756110581,-0.02488768440417606],
+    //   // },
+    //   // "butterfly": {
+    //   //   "url": `${URL_BASE}/butterfly-ai-lod.spz`,
+    //   //   "position": [-0.9836462197504537,-0.2845185012733539,-24.644897758757953],
+    //   //   "quaternion": [-0.28968658389767193,-0.00646881131936965,0.9570976983098036,-0.0019579274470059634],
+    //   // },
+    //   // "snowbot": {
+    //   //   "url": `${URL_BASE}/snowbot-lod.spz`,
+    //   //   "position": [10.007435110070176,-0.36677329781066834,-10.678563326021761],
+    //   //   "quaternion": [0.9047756617124982,0.060176222293330445,0.39891279333979945,-0.13648592437703339],
+    //   // },
+
+    //   // "toad": {
+    //   //   "url": `${URL_BASE}/toad-lod.spz`,
+    //   //   "position": [0.5,0,-0.5],
+    //   //   "quaternion": [0.15645282834721824,-0.04146967440804525,0.9867925564627197,0.00657488527784835],
+    //   // },
+    //   // "turkey": {
+    //   //   "url": `${URL_BASE}/turkey-lod.spz`,
+    //   //   "position": [0,0,-2],
+    //   //   "quaternion": [-0.443958268524857,-0.050133086580300315,0.8942976756110581,-0.02488768440417606],
+    //   // },
+    //   // "butterfly": {
+    //   //   "url": `${URL_BASE}/butterfly-ai-lod.spz`,
+    //   //   "position": [-1,0,-4.5],
+    //   //   "quaternion": [-0.28968658389767193,-0.00646881131936965,0.9570976983098036,-0.0019579274470059634],
+    //   // },
+    //   // "snowbot": {
+    //   //   "url": `${URL_BASE}/snowbot-lod.spz`,
+    //   //   "position": [-3.5,0,-5],
+    //   //   "quaternion": [1,0,0,0],
+    //   // },
+    // };
+
+    const list = "03facf44-511b-42d0-9ddb-9e2a0227e50e_1000000.spz 0524c1a1-abf2-4969-ae40-9981ee836536_1000000.spz 05c65f47-5ecf-4f0f-badc-1c8234c0fe03_1000000.spz 0677323b-42b6-4b7d-88d5-e066428850e1_1000000.spz 08851659-2382-44e5-a988-05dfb6899165_1000000.spz 09a99d87-cbf2-4beb-a1d7-7e6274647d5f_1000000.spz 0f2453d4-cf93-469a-9274-76accf339c84_1000000.spz 1064da41-40b6-47d5-b143-a1cad98605ec_1000000.spz 1081428c-38a2-4908-a38a-e5d74da32b06_1000000.spz 10e947d4-2888-4d97-ad20-c918a73939ac_1000000.spz 1279023c-ceff-4f84-90e5-a81c63ff2542_1000000.spz 13958d31-dfcc-4f15-bbcc-91bed2731f73_1000000.spz 13970b1c-834f-41f8-9f7b-3a1312e161e0_1000000.spz 144fbd5e-5d1e-4564-b8ce-2993c3c05ebd_1000000.spz 1736e123-4215-4d25-b4f3-3c8cd451d616_1000000.spz 18cd8d4d-02df-4d2e-8884-b3e4342cd8c8_1000000.spz 1b6cd27e-6d11-498d-a345-2cf17ca8c6a9_1000000.spz 1d63bbd1-6c9d-4343-9df0-a17fd8057fcd_1000000.spz 1e04986e-2e3e-4666-9a56-8c15a585321f_1000000.spz 22182c03-dfc2-41ab-b518-ade4f5253505_1000000.spz 22380bc4-0a7f-4468-a8d6-b8984c7d6c82_1000000.spz 23f73c6f-3913-4b80-975a-62938679fc2f_1000000.spz 24c7c0fa-811e-45bc-8ab5-36ec562c5356_1000000.spz 28aac29b-aa6c-4a32-8d3c-7c060562cad8_1000000.spz 28b1f5b2-a983-41cd-865e-e37e6840ff84_1000000.spz 2b1f3371-3a6a-4739-a4fc-9a7ed9516caf_1000000.spz 2c59bb0b-9f3d-40a6-adad-479b1a16b292_1000000.spz 317e530c-2061-4592-a21c-fa3b93fad4af_1000000.spz 3197ed7d-6738-4358-a0e0-2e98072a5db0_1000000.spz 320ff674-5ec2-4a51-b294-002102c6dca2_1000000.spz 3568b629-0b96-4c37-a4f2-570682dba223_1000000.spz 363c0b4f-86f8-4e73-84ac-d73ddbb3c13c_1000000.spz 3a5b3ae3-068a-4092-998e-747ef8a593ff_1000000.spz 3ea5c31a-d4a7-4d0a-aa51-2b69be3c79df_1000000.spz 53f89d26-cc90-45df-8ce9-dba575b2f600_1000000.spz 54fad6e4-9c9b-43ba-be6d-f1e31cbe7a95_1000000.spz 56525f64-d1ef-441c-87d3-3f2cb85a9591_1000000.spz 56ae0deb-0c85-4180-9b8f-b45c9c41460e_1000000.spz 5b98e573-e047-42af-84a5-55c59c9faa6e_1000000.spz 5d2e497a-ac28-4450-a272-afb63c44cf67_1000000.spz 60810a6d-6288-4f43-89f3-71eb6dad866f_1000000.spz 61d00e92-2935-4179-a4a5-2cea2ca8ca85_1000000.spz 67cad50d-3b7a-40e5-8da4-021605ed65de_1000000.spz 6e14f7b3-0868-488e-9983-d6f384b4f25f_1000000.spz 7058e7a5-1a7d-4516-9e3c-601a91f5f238_1000000.spz 737410a1-6e46-4717-9b74-eaee79d5bcec_1000000.spz 75946cfc-5c2c-489b-b1a8-f0a48932be3f_1000000.spz 78955a27-26e6-43ab-92d1-f22271f32d40_1000000.spz 7b6d316f-e002-4ff8-909f-ce52a4e8df8f_1000000.spz 7b7cc4df-cb29-4903-83b8-6a7a24e60c44_1000000.spz 7c98177d-b1a6-4f6e-88ad-becbefb0b901_1000000.spz 83a38cad-e7ab-4ee5-a034-31556fb270df_1000000.spz 899aae3a-cd39-4468-9188-7fda5722c77e_1000000.spz 8d7beaae-98a7-4a63-a7b1-b12b1da566eb_1000000.spz 921bc231-4e47-42e1-91ab-111f23e650d1_1000000.spz 952d54d4-dc08-4078-b8de-7f29a1a7dacb_1000000.spz 96af0218-e0c0-460d-8f80-00f55258ba23_1000000.spz 9711aa67-4090-467c-95da-68e4db08d094_1000000.spz 9ac5aed5-a16a-4466-9397-993fc656fbef_1000000.spz 9d06f978-3afd-47c3-a2a1-1187ecb83bd0_1000000.spz 9d68d5d7-9c49-4fdd-99ed-c101fcbed066_1000000.spz a4d40913-6017-4a6a-b10e-42efc1334fd5_1000000.spz a69a8d34-20e1-428f-b183-8cb2fd98c1a0_1000000.spz a69b7e33-ec44-4e36-9b0d-31a476311150_1000000.spz ac506166-d745-4b4a-a3d3-87857e6ba502_1000000.spz ac7eddaa-7072-4a4a-b6e6-fd470481d1cf_1000000.spz aef1b7dc-19b5-49eb-9981-0048158c7da0_1000000.spz b2fb41c1-4ca4-4c8c-9ce5-c18811256bff_1000000.spz b5a81460-782d-461e-b7fd-533c3f36500a_1000000.spz b75af78a-b040-4415-9f42-6dd5b246b3a6_1000000.spz b80311c7-00c7-460a-8802-124afc3991f4_1000000.spz bdc0060f-ecf5-4e88-9880-dd8be31fdfa5_1000000.spz c3aced1b-1505-497e-bc4c-7d45afe91bca_1000000.spz c7f0ee45-5579-4a29-bed8-1e973e9c65f4_1000000.spz caafbd4b-3bb4-446b-9730-75fd420073ea_1000000.spz cb62d757-e882-41bd-abdc-8f81e46acb08_1000000.spz cbd8d6fb-4511-4d2c-a941-f4cec729a35d_1000000.spz ce15c539-3626-4899-8e67-e79626958fea_1000000.spz cec34892-76f3-4a82-aa2c-70a8d0c709d1_1000000.spz d1065995-a5ca-4916-afea-5d5ceca13310_1000000.spz d1091b06-be63-403e-b656-77d44d403868_1000000.spz d22c9ead-809f-4537-a562-5855731ab442_1000000.spz d26ce672-a8a3-43f2-9058-6833ef68cb30_1000000.spz d295b4a0-b801-4e28-871d-a2477de09862_1000000.spz d615e0f0-4538-41b3-b03e-947c653463d3_1000000.spz d9d08f5c-5392-4c8b-a0a3-6b42dfc1fa73_1000000.spz dcf13304-f1ea-4c2a-9d9c-438070cc89c6_1000000.spz e4b54868-8999-4192-aab1-9c4ee1b38230_1000000.spz e5fbafea-39e8-43f1-ae40-2eb1a8bb9b78_1000000.spz e992083f-7c8e-4eb3-b700-c66fe179e531_1000000.spz e9b628a9-62d4-4ee0-82ea-1a89b593cccf_1000000.spz eeecb241-9f2f-45da-b3b6-80be5aa7b949_1000000.spz f1e0cd05-7154-42a5-80e8-3a8826c7af1e_1000000.spz f1e7e419-d82c-4f38-a5a5-56770d668a59_1000000.spz f30c7f96-9686-4308-adf5-111cc68cef55_1000000.spz f407865c-b693-4c96-ae63-217f6ddaba5a_1000000.spz faa99524-b25e-4698-8c41-e46b146ab618_1000000.spz fbc2ba1e-bcab-40c0-97c8-26a420f1af2c_1000000.spz fe7f7ff4-7652-480e-a35f-3b8dd0b5e159_1000000.spz ff851922-c49f-41f7-b1e1-f3b0b8e65b7b_1000000.spz";
+    const universe = {};
+    for (const [index, file] of list.trim().split(" ").entries()) {
+      universe[file] = {
+        url: `./tastier-lod/${file.replace(".spz", "-lod-0.spz")}`,
+        position: [
+          ((index % 10) - 4.5) * 2,
+          (Math.floor(index / 10) - 4.5) * 2,
+          -10,
+        ],
+        quaternion: [1, 0, 0, 0],
+        scale: 0.2,
+      };
+    }
 
     console.log("universe", universe);
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0, 0, 0);
-    const camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.1, 1000);
+    // scene.background = new THREE.Color(0, 0, 0);
+    const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 1000);
     const renderer = new THREE.WebGLRenderer();
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
+
+    const camera2 = camera.clone();
+    scene.add(camera2);
 
     window.THREE = THREE;
     window.scene = scene;
@@ -233,6 +277,8 @@
     function onWindowResize() {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
+      camera2.aspect = camera.aspect;
+      camera2.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
@@ -242,21 +288,23 @@
     // localFrame.position.set(0, 0.25, 1);
     // localFrame.position.set(-10.146059468725154,2.716757473190141,67.73128658837079);
     // localFrame.rotation.y = 1.8;
-    localFrame.position.set(-0.3589455442042188,-0.5136711922540228,-25.26046580090285);
-    localFrame.quaternion.set(-0.11649979375233356,0.3992200702177954,0.051222564644665194,0.9079798359336981);
+    // localFrame.position.set(-0.3589455442042188,-0.5136711922540228,-25.26046580090285);
+    // localFrame.quaternion.set(-0.11649979375233356,0.3992200702177954,0.051222564644665194,0.9079798359336981);
     scene.add(localFrame);
 
     // Lower the splat rendering width to sqrt(5) std devs for more performance
     const spark = new NewSparkRenderer({
       renderer,
+      extSplats: false,
       maxStdDev: Math.sqrt(4),
       // maxStdDev: 1.0,
       lodSplatScale: 0.5,
       // lodSplatCount: 500000 * 0.5,
       // outsideFoveate: 0.35,
-      behindFoveate: 0.3,
+      behindFoveate: 0.1,
+      coneFov0: 20.0,
       coneFov: 150.0,
-      coneFoveate: 0.3,
+      coneFoveate: 0.4,
     });
     scene.add(spark);
     localFrame.add(camera);
@@ -265,24 +313,6 @@
     let lastMoved = 0;
     let lastPos = new THREE.Vector3().setScalar(Number.NEGATIVE_INFINITY);
     let lastDir = new THREE.Vector3();
-
-    // // const splatURL = await getAssetFileURL("valley.spz");
-    // const splatURL = "./cozy_cottage-lod.spz";
-    // const background = new SplatMesh({
-    //   url: splatURL,
-    //   onLoad: () => {
-    //     if (!renderEnabled) {
-    //       console.log("Render enabled by onLoad");
-    //     }
-    //     renderEnabled = true;
-    //     lastMoved = performance.now();
-    //   }
-    // });
-    // // background.quaternion.set(1, 0, 0, 0);
-    // // background.position.set(0, 0, -1);
-    // background.position.set(0, -1, 0);
-    // // background.scale.setScalar(0.5);
-    // scene.add(background);
 
     let animations = [];
 
@@ -296,6 +326,7 @@
 
         let packedSplats = undefined;
         let extSplats = undefined;
+        let mesh = undefined;
 
         if (isCharacter) {
           packedSplats = new PackedSplats({
@@ -309,18 +340,37 @@
           });
           await packedSplats.initialized;
           console.log("Loaded PackedSplats", key, packedSplats);
+
+          mesh = new SplatMesh({ packedSplats });
         } else {
-          if (ENABLE_EXT_SPLATS) {
-            extSplats = new ExtSplats({
-              url: absoluteURL,
-              // lod: true,
-            });
-            // await extSplats.initialized;
-            console.log("Loaded ExtSplats", key, extSplats);
-          } else {
-            packedSplats = new PackedSplats({ url: absoluteURL });
-            console.log("Loaded PackedSplats", key, packedSplats);
-          }
+          // if (ENABLE_EXT_SPLATS) {
+          //   extSplats = new ExtSplats({
+          //     url: absoluteURL,
+          //     // lod: true,
+          //   });
+          //   // await extSplats.initialized;
+          //   console.log("Loaded ExtSplats", key, extSplats);
+          //   mesh = new SplatMesh({ extSplats });
+          // } else {
+          //   packedSplats = new PackedSplats({ url: absoluteURL });
+          //   console.log("Loaded PackedSplats", key, packedSplats);
+          //   mesh = new SplatMesh({ packedSplats });
+          // }
+
+          mesh = new SplatMesh({ url: absoluteURL, paged: true });
+          mesh.objectModifier = dyno.dynoBlock({ gsplat: dyno.Gsplat }, { gsplat: dyno.Gsplat }, ({ gsplat }) => {
+            let { center, opacity } = dyno.splitGsplat(gsplat).outputs;
+            const distance = dyno.length(center);
+            const withinRange = dyno.lessThan(distance, dyno.dynoConst("float", 5.0));
+            opacity = dyno.select(withinRange, opacity, dyno.dynoConst("float", 0));
+
+            gsplat = dyno.combineGsplat({
+              gsplat,
+              opacity,
+            })
+            return { gsplat };
+          });
+          mesh.updateGenerator();
         }
 
         // const bones = new SplatMesh({ packedSplats: packedSplats.boneSplats });
@@ -336,10 +386,6 @@
 
         // const mesh = new SplatMesh({ extSplats });
 
-        const mesh = new SplatMesh({
-          packedSplats,
-          extSplats,
-        });
         await mesh.initialized;
 
         mesh.position.fromArray(position ?? [0, 0, 0]);
@@ -347,20 +393,20 @@
         mesh.scale.setScalar(scale ?? 1);
         const meshOpacity = opacity ?? 1.0;
 
-        mesh.opacity = 0;
+        // mesh.opacity = 0;
         scene.add(mesh);
 
-        animations.push({
-          start: performance.now(),
-          animate: (elapsedMs) => {
-            const t = (elapsedMs - 1000) / 1500;
-            mesh.opacity = meshOpacity * Math.pow(Math.max(0, Math.min(1, t)), 2);
-            return t < 1;
-          },
-          dispose: () => {
-            mesh.opacity = meshOpacity;
-          },
-        });
+        // animations.push({
+        //   start: performance.now(),
+        //   animate: (elapsedMs) => {
+        //     const t = (elapsedMs - 1000) / 1500;
+        //     mesh.opacity = meshOpacity * Math.pow(Math.max(0, Math.min(1, t)), 2);
+        //     return t < 1;
+        //   },
+        //   dispose: () => {
+        //     mesh.opacity = meshOpacity;
+        //   },
+        // });
 
         // bones.forEachSplat((index, center, scales, quaternion, opacity, color) => {
         //   // Add an ellipsoid at the bone's center
@@ -422,11 +468,6 @@
 
     loadUniverse();
 
-    // setTimeout(() => {
-    //   const agent = navigator.userAgent;
-    //   alert("AGENT: '" + agent + "'");
-    // }, 5000);
-
     // const vrButton = VRButton.createButton(renderer, {
     //   // optionalFeatures: ["hand-tracking"],
     // });
@@ -447,7 +488,6 @@
     const snapshots = [];
 
     const controls = new SparkControls({
-      renderer,
       canvas: renderer.domElement,
     });
 
@@ -491,18 +531,6 @@
 
     localFrame.add(xr.makeJointSplats(SparkXr.Hand.left));
     localFrame.add(xr.makeJointSplats(SparkXr.Hand.right));
-
-    // Create a layer of color edits to apply to editable splats
-    // const edit = new SplatEdit({
-    //   rgbaBlendMode: SplatEditRgbaBlendMode.ADD_RGBA,
-    //   sdfSmooth: 0.02,
-    //   softEdge: 0.02,
-    // });
-    // localFrame.add(edit);
-    // const sdfs = new Map();
-
-
-    // let lastCameraPos = new THREE.Vector3(0, 0, 0);
 
     const controllerMeshes = [null, null];
     const controllerOffsetLocked = [false, false];
@@ -603,7 +631,6 @@
     const gui = new GUI({ title: "Settings" });
     gui.add({ disableRender: () => { renderEnabled = false; } }, "disableRender").name("Disable render");
     gui.add(spark, "lodSplatScale", 0.001, 2.0, 0.001);
-    // gui.add(spark, "lodSplatCount", 1, 256, 1);
 
     document.addEventListener("keydown", (event) => {
       if (event.key === "\\") {
@@ -630,7 +657,7 @@
 
       xr.updateHands({ xrFrame });
 
-      scene.background.set(0, 0, 0);
+      // scene.background.set(0, 0, 0);
 
       // if (xr.left()?.valid()) {
       //   const leftArray = xr.left().toFlatArray();
@@ -857,50 +884,6 @@
         }
         renderEnabled = false;
       }
-
-      // if (xrHands) {
-      //   // Updates the xrHands object with coordinates
-      //   // and also updates ghost mesh
-      //   xrHands.update({ xr: renderer.xr, xrFrame });
-
-      //   // Create interactor SDFs for each hand tip
-      //   for (const hand of ["left", "right"]) {
-      //     for (const [index, tip] of ["t3", "i4", "m4", "r4", "p4"].entries()) {
-      //       // Make a sphere SDF for each hand tip with different colors
-      //       const key = `${hand}-${tip}`;
-      //       if (!sdfs.has(key)) {
-      //         const sdf = new SplatEditSdf({
-      //           type: SplatEditSdfType.SPHERE,
-      //           radius: 0.03,
-      //           color: new THREE.Color(
-      //             (index % 5 < 3) ? 1 : 0,
-      //             (index % 5 % 2),
-      //             ((index % 5) > 1) ? 1 : 0
-      //           ),
-      //           opacity: 0,
-      //         });
-      //         sdfs.set(key, sdf);
-      //       }
-
-      //       const sdf = sdfs.get(key);
-      //       // Make each SDF wobble in different directions
-      //       sdf.displace.set(
-      //         0.01 * Math.sin(time * 0.007 + index * 1),
-      //         0.01 * Math.sin(time * 0.002 + index * 2),
-      //         0.01 * Math.sin(time * 0.009 + index * 3),
-      //       );
-
-      //       if (xrHands.hands[hand] && xrHands.hands[hand][tip]) {
-      //         // Make the SDF follow the hand tips
-      //         sdf.position.copy(xrHands.hands[hand][tip].position);
-      //         edit.add(sdf);
-      //       } else {
-      //         // Remove the SDF when the hand is not detected
-      //         edit.remove(sdf);
-      //       }
-      //     }
-      //   }
-      // }
 
       animations = animations.filter((debug) => {
         const now = performance.now();

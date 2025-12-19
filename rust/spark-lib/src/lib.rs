@@ -1,17 +1,22 @@
 
+pub mod tsplat;
 pub mod gsplat;
+pub mod csplat;
 pub mod symmat3;
 pub mod quick_lod;
+pub mod tiny_lod;
 pub mod ply;
 pub mod spz;
 pub mod decoder;
 pub mod splat_encode;
+pub mod ordering;
 
 #[cfg(test)]
 mod tests {
     use super::{gsplat::*, spz::{SpzEncoder, SpzDecoder}};
     use super::decoder::ChunkReceiver;
     use glam::{Quat, Vec3A};
+    use crate::tsplat::TsplatArray;
 
     fn approx(a: f32, b: f32, eps: f32) -> bool { (a - b).abs() <= eps }
 
@@ -96,6 +101,7 @@ mod ply_tests {
     use super::{gsplat::*, ply::{PlyEncoder, PlyDecoder}};
     use super::decoder::ChunkReceiver;
     use glam::{Quat, Vec3A};
+    use crate::tsplat::TsplatArray;
 
     fn approx(a: f32, b: f32, eps: f32) -> bool { (a - b).abs() <= eps }
 
