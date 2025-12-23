@@ -154,71 +154,43 @@ pub fn dispose_lod_tree(lod_id: u32) {
 }
 
 #[wasm_bindgen]
-pub fn insert_lod_trees(lod_ids: &[u32], page_bases: &[u32], chunk_bases: &[u32], counts: &[u32], lod_trees: &Array) -> Result<Object, JsValue> {
-    // let mut chunk_to_pages = AHashMap::<u32, Uint32Array>::new();
+pub fn update_lod_trees(lod_ids: &[u32], page_bases: &[u32], chunk_bases: &[u32], counts: &[u32], lod_trees: &Array) -> Result<Object, JsValue> {
     STATE.with_borrow_mut(|state| {
         for (&lod_id, &page_base, &chunk_base, &count, lod_tree_data) in izip!(lod_ids, page_bases, chunk_bases, counts, lod_trees.iter()) {
             let lod_tree = state.lod_trees.get_mut(&lod_id).unwrap();
             let pages = count.div_ceil(65536);
-
             let base_page = page_base >> 16;
             let base_chunk = chunk_base >> 16;
-            if (base_page + pages) > lod_tree.page_to_chunk.len() as u32 {
-                lod_tree.page_to_chunk.resize((base_page + pages) as usize, 0xFFFFFFFF);
-            }
-            if (base_chunk + pages) > lod_tree.chunk_to_page.len() as u32 {
-                lod_tree.chunk_to_page.resize((base_chunk + pages) as usize, 0xFFFFFFFF);
-            }
 
-            for page in 0..pages {
-                lod_tree.page_to_chunk[(base_page + page) as usize] = base_chunk + page;
-                lod_tree.chunk_to_page[(base_chunk + page) as usize] = base_page + page;
-            }
+            if lod_tree_data.is_falsy() {
+                for page in 0..pages {
+                    lod_tree.page_to_chunk[(base_page + page) as usize] = 0xFFFFFFFF;
+                    lod_tree.chunk_to_page[(base_chunk + page) as usize] = 0xFFFFFFFF;
+                }    
+            } else {
+                if (base_page + pages) > lod_tree.page_to_chunk.len() as u32 {
+                    lod_tree.page_to_chunk.resize((base_page + pages) as usize, 0xFFFFFFFF);
+                }
+                if (base_chunk + pages) > lod_tree.chunk_to_page.len() as u32 {
+                    lod_tree.chunk_to_page.resize((base_chunk + pages) as usize, 0xFFFFFFFF);
+                }
 
-            // if !chunk_to_pages.contains_key(&lod_id) {
-            //     let chunk_to_page_array = Uint32Array::new_with_length(lod_tree.chunk_to_page.len() as u32);
-            //     chunk_to_page_array.copy_from(&lod_tree.chunk_to_page);
-            //     chunk_to_pages.insert(lod_id, chunk_to_page_array);
-            // }
-    
-            let lod_tree_data = Uint32Array::from(lod_tree_data);
-            set_lod_tree_data(state, lod_id, page_base, count, &lod_tree_data);
+                for page in 0..pages {
+                    lod_tree.page_to_chunk[(base_page + page) as usize] = base_chunk + page;
+                    lod_tree.chunk_to_page[(base_chunk + page) as usize] = base_page + page;
+                }
+
+                let lod_tree_data = Uint32Array::from(lod_tree_data);
+                set_lod_tree_data(state, lod_id, page_base, count, &lod_tree_data);
+            }
         }
 
         let result = Object::new();
-        // for (lod_id, chunk_to_page_array) in chunk_to_pages.drain() {
-        //     Reflect::set(&result, &JsValue::from(lod_id), &JsValue::from(chunk_to_page_array)).unwrap();
-        // }
-        Ok(result)
-    })
-}
-
-#[wasm_bindgen]
-pub fn clear_lod_trees(lod_ids: &[u32], page_bases: &[u32], chunk_bases: &[u32], counts: &[u32]) -> Result<Object, JsValue> {
-    STATE.with_borrow_mut(|state| {
-        // let mut chunk_to_pages = AHashMap::<u32, Uint32Array>::new();
-        
-        for (&lod_id, &page_base, &chunk_base, &count) in izip!(lod_ids, page_bases, chunk_bases, counts) {
-            let lod_tree = state.lod_trees.get_mut(&lod_id).unwrap();
-            let pages = count.div_ceil(65536);
-
-            let base_page = page_base >> 16;
-            let base_chunk = chunk_base >> 16;
-            for page in 0..pages {
-                lod_tree.page_to_chunk[(base_page + page) as usize] = 0xFFFFFFFF;
-                lod_tree.chunk_to_page[(base_chunk + page) as usize] = 0xFFFFFFFF;
-            }
-
-            // if !chunk_to_pages.contains_key(&lod_id) {
-            //     let chunk_to_page_array = Uint32Array::new_with_length(lod_tree.chunk_to_page.len() as u32);
-            //     chunk_to_page_array.copy_from(&lod_tree.chunk_to_page);
-            //     chunk_to_pages.insert(lod_id, chunk_to_page_array);
-            // }
-        }
-
-        let result = Object::new();
-        // for (lod_id, chunk_to_page_array) in chunk_to_pages.drain() {
-        //     Reflect::set(&result, &JsValue::from(lod_id), &JsValue::from(chunk_to_page_array)).unwrap();
+        // for (&lod_id, lod_tree) in state.lod_trees.iter() {
+        //     let entry = Object::new();
+        //     Reflect::set(&entry, &JsValue::from_str("pageToChunk"), &JsValue::from(lod_tree.page_to_chunk.clone())).unwrap();
+        //     Reflect::set(&entry, &JsValue::from_str("chunkToPage"), &JsValue::from(lod_tree.chunk_to_page.clone())).unwrap();
+        //     Reflect::set(&result, &JsValue::from_str(lod_id.to_string().as_str()), &JsValue::from(entry)).unwrap();
         // }
         Ok(result)
     })

@@ -168,6 +168,11 @@ export interface NewSparkRendererOptions {
   /* Global LoD scale to apply @default 1.0
    */
   globalLodScale?: number;
+  /**
+   * Allocation size of paged splats
+   * @default 16777216
+   */
+  maxPagedSplats?: number;
   /* Foveation scale to apply outside the view frustum (but not behind viewer)
    * @default 1.0
    */
@@ -279,6 +284,7 @@ export class NewSparkRenderer extends THREE.Mesh {
   lodSplatCount?: number;
   lodSplatScale: number;
   globalLodScale: number;
+  maxPagedSplats: number;
   outsideFoveate: number;
   behindFoveate: number;
   coneFov0: number;
@@ -309,18 +315,12 @@ export class NewSparkRenderer extends THREE.Mesh {
   > = new Map();
   lodFetchers: Promise<void>[] = [];
   chunksToFetch: { lodId: number; chunk: number }[] = [];
-  lodInserts: {
+  lodUpdates: {
     lodId: number;
     pageBase: number;
     chunkBase: number;
     count: number;
-    lodTreeData: Uint32Array;
-  }[] = [];
-  lodClears: {
-    lodId: number;
-    pageBase: number;
-    chunkBase: number;
-    count: number;
+    lodTreeData?: Uint32Array;
   }[] = [];
 
   pager?: SplatPager;
@@ -393,6 +393,7 @@ export class NewSparkRenderer extends THREE.Mesh {
     this.lodSplatCount = options.lodSplatCount;
     this.lodSplatScale = options.lodSplatScale ?? 1.0;
     this.globalLodScale = options.globalLodScale ?? 1.0;
+    this.maxPagedSplats = options.maxPagedSplats ?? 16777216;
     this.outsideFoveate = options.outsideFoveate ?? 1.0;
     this.behindFoveate = options.behindFoveate ?? 1.0;
     this.coneFov0 = options.coneFov0 ?? 0.0;
@@ -935,7 +936,10 @@ export class NewSparkRenderer extends THREE.Mesh {
 
     this.ensureLodWorker().tryExclusive(async (worker) => {
       if (hasPaged && !this.pager) {
-        this.pager = new SplatPager({ renderer: this.renderer });
+        this.pager = new SplatPager({
+          renderer: this.renderer,
+          maxSplats: this.maxPagedSplats,
+        });
         for (const { mesh } of this.lodMeshes) {
           if (mesh.paged && !mesh.paged.pager) {
             mesh.paged.pager = this.pager;
@@ -946,7 +950,7 @@ export class NewSparkRenderer extends THREE.Mesh {
           capacity: this.pager.maxSplats,
         })) as { lodId: number };
         this.pagerId = lodId;
-        console.log("*** Set pagerId to", lodId);
+        // console.log("*** Set pagerId to", lodId);
       }
 
       if (this.lodInitQueue.length > 0) {
@@ -962,28 +966,15 @@ export class NewSparkRenderer extends THREE.Mesh {
       }
 
       if (this.pager) {
-        const { updates, clears } = this.pager.consumeLodTreeUpdates();
-
-        for (const { splats, page, chunk } of clears) {
-          const record = this.lodIds.get(splats);
-          if (record) {
-            this.lodClears.push({
-              lodId: record.lodId,
-              pageBase: page * this.pager.pageSplats,
-              chunkBase: chunk * this.pager.pageSplats,
-              count: this.pager.pageSplats,
-            });
-          }
-        }
+        const updates = this.pager.consumeLodTreeUpdates();
 
         for (const { splats, page, chunk, numSplats, lodTree } of updates) {
           const record = this.lodIds.get(splats);
           if (record) {
-            if (chunk === 0) {
+            if (lodTree && chunk === 0) {
               record.rootPage = page;
             }
-            // console.log("*** PAGER insertLodTrees", record.lodId, page, chunk);
-            this.lodInserts.push({
+            this.lodUpdates.push({
               lodId: record.lodId,
               pageBase: page * this.pager.pageSplats,
               chunkBase: chunk * this.pager.pageSplats,
@@ -994,19 +985,11 @@ export class NewSparkRenderer extends THREE.Mesh {
         }
       }
 
-      if (this.lodClears.length > 0) {
-        const lodClears = this.lodClears;
-        this.lodClears = [];
-        await worker.call("clearLodTrees", { ranges: lodClears });
-        this.lodDirty = true;
-        console.log("*** clearedLodTrees", lodClears);
-      }
-
-      if (this.lodInserts.length > 0) {
-        const lodInserts = this.lodInserts;
-        this.lodInserts = [];
-        await worker.call("insertLodTrees", { ranges: lodInserts });
-        // console.log("*** insertedLodTrees", lodInserts);
+      if (this.lodUpdates.length > 0) {
+        const lodUpdates = this.lodUpdates;
+        this.lodUpdates = [];
+        // console.log("Calling updateLodTrees", lodUpdates);
+        await worker.call("updateLodTrees", { ranges: lodUpdates });
         this.lodDirty = true;
       }
 
@@ -1043,16 +1026,18 @@ export class NewSparkRenderer extends THREE.Mesh {
       })) as { lodId: number };
       this.lodIds.set(splats, { lodId, lastTouched: performance.now() });
       this.lodIdToSplats.set(lodId, splats);
-      console.log("*** initLodTree", lodId, splats.extra.lodTree, splats);
+      // console.log("*** initLodTree", lodId, splats.extra.lodTree, splats);
     } else {
       const { lodId } = (await worker.call("newSharedLodTree", {
         lodId: this.pagerId,
       })) as { lodId: number };
       this.lodIds.set(splats, { lodId, lastTouched: performance.now() });
       this.lodIdToSplats.set(lodId, splats);
-      console.log("*** newSharedLodTree", lodId, this.pagerId, splats);
+      // console.log("*** newSharedLodTree", lodId, this.pagerId, splats);
     }
   }
+
+  private pageSizeWarning = false;
 
   private async updateLodInstances(
     worker: NewSplatWorker,
@@ -1179,6 +1164,13 @@ export class NewSparkRenderer extends THREE.Mesh {
         })
         .filter((result) => result !== null);
 
+      if (!this.pageSizeWarning && pagedMeshes.length > this.pager.maxPages) {
+        this.pageSizeWarning = true;
+        console.warn(
+          `# paged SplatMeshes exceeds maxPages: ${pagedMeshes.length} > ${this.pager.maxPages}`,
+        );
+      }
+
       // Fetch root chunk of each paged splats in priority of distance to camera
       pagedMeshes.sort((a, b) => a.distance - b.distance);
       this.pager.fetchPriority = pagedMeshes.map(({ splats }) => ({
@@ -1189,7 +1181,9 @@ export class NewSparkRenderer extends THREE.Mesh {
       for (const [lodId, chunk] of chunks) {
         const splats = this.lodIdToSplats.get(lodId);
         if (splats instanceof PagedSplats) {
-          this.pager.fetchPriority.push({ splats, chunk });
+          if (chunk !== 0) {
+            this.pager.fetchPriority.push({ splats, chunk });
+          }
         }
       }
 
@@ -1311,7 +1305,7 @@ export class NewSparkRenderer extends THREE.Mesh {
     splats.uploadTexturePage(this.renderer, decoded.packedArray, page);
     splats.chunkToPage.set(chunk, page);
     // console.log("chunkToPage.size", splats.chunkToPage.size);
-    this.lodInserts.push({
+    this.lodUpdates.push({
       lodId,
       pageBase: page * 65536,
       chunkBase: chunk * 65536,

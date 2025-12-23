@@ -10,8 +10,7 @@ import init_wasm, {
   traverse_lod_trees,
   type ChunkDecoder,
   quick_lod_packedsplats,
-  insert_lod_trees,
-  clear_lod_trees,
+  update_lod_trees,
   traverse_bones,
   decode_to_extsplats,
 } from "spark-internal-rs";
@@ -27,8 +26,7 @@ const rpcHandlers = {
   newSharedLodTree,
   initLodTree,
   disposeLodTree,
-  insertLodTrees,
-  clearLodTrees,
+  updateLodTrees,
   traverseLodTrees,
 };
 
@@ -555,7 +553,7 @@ function disposeLodTree({ lodId }: { lodId: number }) {
   dispose_lod_tree(lodId);
 }
 
-function insertLodTrees({
+function updateLodTrees({
   ranges,
 }: {
   ranges: {
@@ -563,7 +561,7 @@ function insertLodTrees({
     pageBase: number;
     chunkBase: number;
     count: number;
-    lodTreeData: Uint32Array;
+    lodTreeData?: Uint32Array;
   }[];
 }) {
   const lodIds = new Uint32Array(ranges.map(({ lodId }) => lodId));
@@ -572,37 +570,14 @@ function insertLodTrees({
   const counts = new Uint32Array(ranges.map(({ count }) => count));
   const lodTreeData = ranges.map(({ lodTreeData }) => lodTreeData);
 
-  const lodIdToChunkToPages = insert_lod_trees(
+  const result = update_lod_trees(
     lodIds,
     pageBases,
     chunkBases,
     counts,
     lodTreeData,
-  ) as Record<number, Uint32Array>;
-  return lodIdToChunkToPages;
-}
-
-function clearLodTrees({
-  ranges,
-}: {
-  ranges: {
-    lodId: number;
-    pageBase: number;
-    chunkBase: number;
-    count: number;
-  }[];
-}) {
-  const lodIds = new Uint32Array(ranges.map(({ lodId }) => lodId));
-  const pageBases = new Uint32Array(ranges.map(({ pageBase }) => pageBase));
-  const chunkBases = new Uint32Array(ranges.map(({ chunkBase }) => chunkBase));
-  const counts = new Uint32Array(ranges.map(({ count }) => count));
-  const lodIdToChunkToPages = clear_lod_trees(
-    lodIds,
-    pageBases,
-    chunkBases,
-    counts,
-  ) as Record<number, Uint32Array>;
-  return lodIdToChunkToPages;
+  );
+  // console.log("updateLodTrees", result);
 }
 
 function traverseLodTrees({
