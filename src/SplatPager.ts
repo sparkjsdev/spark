@@ -341,7 +341,13 @@ export class SplatPager {
   pageFreelist: number[];
   pageLru: Set<{ page: number; lru: number }>;
   freeablePages: number[];
-  pagesToUpload: {
+  newUploads: {
+    page: number;
+    numSplats: number;
+    packedArray: Uint32Array;
+    extra: Record<string, unknown>;
+  }[];
+  readyUploads: {
     page: number;
     numSplats: number;
     packedArray: Uint32Array;
@@ -352,9 +358,8 @@ export class SplatPager {
     page: number;
     chunk: number;
     numSplats: number;
-    lodTree: Uint32Array;
+    lodTree?: Uint32Array;
   }[];
-  lodTreeClears: { splats: PagedSplats; page: number; chunk: number }[];
 
   fetchers: { splats: PagedSplats; chunk: number; promise: Promise<void> }[];
   fetched: { splats: PagedSplats; chunk: number; data: PackedResult }[];
@@ -410,9 +415,9 @@ export class SplatPager {
     this.pageFreelist = Array.from({ length: this.maxPages }, (_, i) => i);
     this.pageLru = new Set();
     this.freeablePages = [];
-    this.pagesToUpload = [];
+    this.newUploads = [];
+    this.readyUploads = [];
     this.lodTreeUpdates = [];
-    this.lodTreeClears = [];
 
     this.fetchers = [];
     this.fetched = [];
@@ -863,9 +868,9 @@ export class SplatPager {
         if (numPages >= this.maxPages) {
           overflow.push(pageLru);
         } else {
-          numPages += 1;
           needed.push(pageLru);
         }
+        numPages += 1;
         continue;
       }
 
@@ -881,7 +886,7 @@ export class SplatPager {
         continue;
       }
 
-      if (this.fetchers.length < this.numFetchers) {
+      if (numPages < this.maxPages && this.fetchers.length < this.numFetchers) {
         numPages += 1;
         const promise = splats.fetchDecodeChunk(chunk).then((data) => {
           // Place data in ready queue and remove self from active fetchers list
@@ -937,7 +942,12 @@ export class SplatPager {
 
     const { splats, chunk } = splatsChunk;
     this.removeSplatsChunkPage(splats, chunk, page);
-    this.lodTreeClears.push({ splats, page, chunk });
+    this.lodTreeUpdates.push({
+      splats,
+      page,
+      chunk,
+      numSplats: this.pageSplats,
+    });
     return page;
   }
 
@@ -968,13 +978,13 @@ export class SplatPager {
         numSplats,
         lodTree: extra.lodTree as Uint32Array,
       });
-      this.pagesToUpload.push({ page, numSplats, packedArray, extra });
+      this.newUploads.push({ page, numSplats, packedArray, extra });
     }
   }
 
   processUploads() {
     while (true) {
-      const upload = this.pagesToUpload.pop();
+      const upload = this.readyUploads.shift();
       if (!upload) {
         break;
       }
@@ -986,9 +996,10 @@ export class SplatPager {
   consumeLodTreeUpdates() {
     const updates = this.lodTreeUpdates;
     this.lodTreeUpdates = [];
-    const clears = this.lodTreeClears;
-    this.lodTreeClears = [];
-    return { updates, clears };
+
+    this.readyUploads.push(...this.newUploads);
+    this.newUploads = [];
+    return updates;
   }
 
   static emptyUint32x4 = (() => {
