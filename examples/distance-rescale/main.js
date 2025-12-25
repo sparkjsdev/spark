@@ -293,9 +293,16 @@ function checkMarkerHit(ndc) {
 
   if (objects.length === 0) return null;
 
-  const hits = raycaster.intersectObjects(objects);
+  // Use recursive=true to hit children (sphere and ring inside group)
+  const hits = raycaster.intersectObjects(objects, true);
   if (hits.length > 0) {
-    return hits[0].object === state.marker1 ? "point1" : "point2";
+    // Check if the hit object or its parent is marker1 or marker2
+    let hitObj = hits[0].object;
+    while (hitObj) {
+      if (hitObj === state.marker1) return "point1";
+      if (hitObj === state.marker2) return "point2";
+      hitObj = hitObj.parent;
+    }
   }
   return null;
 }
