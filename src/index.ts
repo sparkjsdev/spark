@@ -13,6 +13,7 @@ export {
   isPcSogs,
 } from "./SplatLoader";
 export { PlyReader } from "./ply";
+export { PlyWriter, type PlyWriterOptions } from "./PlyWriter";
 export { SpzReader, SpzWriter, transcodeSpz } from "./spz";
 
 export { PackedSplats, type PackedSplatsOptions } from "./PackedSplats";
