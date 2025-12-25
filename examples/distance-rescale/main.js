@@ -1,11 +1,7 @@
-import {
-  PlyWriter,
-  SparkControls,
-  SparkRenderer,
-  SplatMesh,
-} from "@sparkjsdev/spark";
+import { PlyWriter, SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
 import { GUI } from "lil-gui";
 import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
 // ============================================================================
@@ -17,7 +13,7 @@ const camera = new THREE.PerspectiveCamera(
   60,
   window.innerWidth / window.innerHeight,
   0.1,
-  1000,
+  100000,
 );
 const renderer = new THREE.WebGLRenderer({ antialias: false });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -26,11 +22,10 @@ document.body.appendChild(renderer.domElement);
 const spark = new SparkRenderer({ renderer });
 scene.add(spark);
 
-// Camera controls
-const controls = new SparkControls({
-  control: camera,
-  canvas: renderer.domElement,
-});
+// Camera controls - using OrbitControls for reliability
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
 camera.position.set(0, 2, 5);
 camera.lookAt(0, 0, 0);
 
@@ -76,13 +71,14 @@ const raycaster = new THREE.Raycaster();
 // Visual Elements
 // ============================================================================
 
-const MARKER_RADIUS = 0.02;
+let markerRadius = 0.02; // Will be updated based on model size
+let rayLineLength = 100; // Will be updated based on model size
 const POINT1_COLOR = 0x00ff00; // Green
 const POINT2_COLOR = 0x0088ff; // Blue
 const DISTANCE_LINE_COLOR = 0xffff00; // Yellow
 
 function createMarker(color) {
-  const geometry = new THREE.SphereGeometry(MARKER_RADIUS, 16, 16);
+  const geometry = new THREE.SphereGeometry(markerRadius, 16, 16);
   const material = new THREE.MeshBasicMaterial({ color, depthTest: false });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.renderOrder = 999;
@@ -90,7 +86,9 @@ function createMarker(color) {
 }
 
 function createRayLine(origin, direction, color) {
-  const farPoint = origin.clone().add(direction.clone().multiplyScalar(100));
+  const farPoint = origin
+    .clone()
+    .add(direction.clone().multiplyScalar(rayLineLength));
   const geometry = new THREE.BufferGeometry().setFromPoints([origin, farPoint]);
   const material = new THREE.LineBasicMaterial({
     color,
@@ -105,7 +103,9 @@ function createRayLine(origin, direction, color) {
 
 function updateRayLine(line, origin, direction) {
   const positions = line.geometry.attributes.position.array;
-  const farPoint = origin.clone().add(direction.clone().multiplyScalar(100));
+  const farPoint = origin
+    .clone()
+    .add(direction.clone().multiplyScalar(rayLineLength));
   positions[0] = origin.x;
   positions[1] = origin.y;
   positions[2] = origin.z;
@@ -241,13 +241,17 @@ function closestPointOnRay(viewRay, rayOrigin, rayDir) {
   const denom = a * c - b * b;
   if (Math.abs(denom) < 0.0001) {
     // Rays are nearly parallel
-    return rayOrigin.clone().add(rayDir.clone().multiplyScalar(1));
+    return rayOrigin
+      .clone()
+      .add(rayDir.clone().multiplyScalar(markerRadius * 10));
   }
 
   const t = (b * e - c * d) / denom;
 
-  // Clamp t to reasonable range
-  const clampedT = Math.max(0.1, Math.min(100, t));
+  // Clamp t to reasonable range based on model size
+  const minT = markerRadius * 5;
+  const maxT = rayLineLength;
+  const clampedT = Math.max(minT, Math.min(maxT, t));
   return rayOrigin.clone().add(rayDir.clone().multiplyScalar(clampedT));
 }
 
@@ -499,7 +503,7 @@ gui
   .name("Measured Distance")
   .listen()
   .disable();
-gui.add(guiParams, "newDistance", 0.001, 100).name("New Distance");
+gui.add(guiParams, "newDistance").name("New Distance");
 gui.add(guiParams, "rescale").name("Apply Rescale");
 gui.add(guiParams, "reset").name("Reset Points");
 gui.add(guiParams, "exportPly").name("Export PLY");
@@ -516,24 +520,102 @@ async function loadSplatFile(urlOrFile) {
   }
 
   resetSelection();
+  updateInstructions("Loading model...");
 
   try {
     if (typeof urlOrFile === "string") {
       // Load from URL
+      console.log("Loading from URL:", urlOrFile);
       splatMesh = new SplatMesh({ url: urlOrFile });
     } else {
       // Load from File object
+      console.log("Loading from file:", urlOrFile.name);
       const arrayBuffer = await urlOrFile.arrayBuffer();
+      console.log("File size:", arrayBuffer.byteLength, "bytes");
       splatMesh = new SplatMesh({ fileBytes: new Uint8Array(arrayBuffer) });
     }
 
-    splatMesh.rotation.x = Math.PI; // Common orientation fix
+    // Apply rotation to match common PLY orientation
+    splatMesh.rotation.x = Math.PI;
     scene.add(splatMesh);
 
     await splatMesh.initialized;
     console.log(`Loaded ${splatMesh.packedSplats.numSplats} splats`);
+
+    // Auto-center camera on the model
+    centerCameraOnModel();
+    updateInstructions("Click on the model to select first measurement point");
   } catch (error) {
     console.error("Error loading splat:", error);
+    updateInstructions("Error loading model. Check console for details.");
+  }
+}
+
+function centerCameraOnModel() {
+  if (!splatMesh) {
+    console.warn("centerCameraOnModel: no splatMesh");
+    return;
+  }
+
+  try {
+    // Use built-in getBoundingBox method
+    const bbox = splatMesh.getBoundingBox(true);
+    console.log("Bounding box:", bbox);
+
+    const center = new THREE.Vector3();
+    bbox.getCenter(center);
+    const size = new THREE.Vector3();
+    bbox.getSize(size);
+    const maxDim = Math.max(size.x, size.y, size.z);
+
+    console.log(
+      "Center:",
+      center.x.toFixed(2),
+      center.y.toFixed(2),
+      center.z.toFixed(2),
+    );
+    console.log(
+      "Size:",
+      size.x.toFixed(2),
+      size.y.toFixed(2),
+      size.z.toFixed(2),
+    );
+    console.log("Max dimension:", maxDim.toFixed(2));
+
+    if (maxDim === 0 || !Number.isFinite(maxDim)) {
+      console.warn("Invalid bounding box size");
+      return;
+    }
+
+    // Update marker and ray sizes based on model scale
+    markerRadius = maxDim * 0.005; // 0.5% of model size
+    rayLineLength = maxDim * 5; // 5x model size
+    console.log("Marker radius:", markerRadius.toFixed(4));
+    console.log("Ray line length:", rayLineLength.toFixed(2));
+
+    // Position camera to see the entire model
+    const fov = camera.fov * (Math.PI / 180);
+    const cameraDistance = (maxDim / (2 * Math.tan(fov / 2))) * 1.5;
+
+    camera.position.set(center.x, center.y, center.z + cameraDistance);
+    camera.lookAt(center);
+    camera.near = cameraDistance * 0.001;
+    camera.far = cameraDistance * 10;
+    camera.updateProjectionMatrix();
+
+    // Update OrbitControls target
+    controls.target.copy(center);
+    controls.update();
+
+    console.log(
+      "Camera position:",
+      camera.position.x.toFixed(2),
+      camera.position.y.toFixed(2),
+      camera.position.z.toFixed(2),
+    );
+    console.log("Camera far:", camera.far);
+  } catch (error) {
+    console.error("Error computing bounding box:", error);
   }
 }
 
@@ -565,7 +647,7 @@ loadDefaultAsset();
 // Render Loop
 // ============================================================================
 
-renderer.setAnimationLoop((time) => {
-  controls.update(time);
+renderer.setAnimationLoop(() => {
+  controls.update();
   renderer.render(scene, camera);
 });
