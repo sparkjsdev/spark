@@ -260,7 +260,7 @@ function selectPoint2(hitPoint) {
 // Drag Along Ray
 // ============================================================================
 
-function closestPointOnRay(viewRay, rayOrigin, rayDir) {
+function closestPointOnRay(viewRay, rayOrigin, rayDir, currentPoint) {
   // Find the point on the selection ray closest to the view ray
   const w0 = rayOrigin.clone().sub(viewRay.origin);
   const a = rayDir.dot(rayDir);
@@ -271,17 +271,15 @@ function closestPointOnRay(viewRay, rayOrigin, rayDir) {
 
   const denom = a * c - b * b;
   if (Math.abs(denom) < 0.0001) {
-    // Rays are nearly parallel
-    return rayOrigin
-      .clone()
-      .add(rayDir.clone().multiplyScalar(markerRadius * 10));
+    // Rays are nearly parallel - keep current point
+    return currentPoint.clone();
   }
 
   const t = (b * e - c * d) / denom;
 
-  // Clamp t to reasonable range based on model size
-  const minT = markerRadius * 5;
-  const maxT = rayLineLength;
+  // Very minimal clamping - just prevent going behind ray origin or too far
+  const minT = 0.01; // Almost at ray origin
+  const maxT = rayLineLength * 2; // Allow movement beyond visible ray line
   const clampedT = Math.max(minT, Math.min(maxT, t));
   return rayOrigin.clone().add(rayDir.clone().multiplyScalar(clampedT));
 }
@@ -466,6 +464,7 @@ renderer.domElement.addEventListener("pointermove", (event) => {
       raycaster.ray,
       state.ray1Origin,
       state.ray1Direction,
+      state.point1,
     );
     state.point1.copy(newPoint);
     state.marker1.position.copy(newPoint);
@@ -474,6 +473,7 @@ renderer.domElement.addEventListener("pointermove", (event) => {
       raycaster.ray,
       state.ray2Origin,
       state.ray2Direction,
+      state.point2,
     );
     state.point2.copy(newPoint);
     state.marker2.position.copy(newPoint);
