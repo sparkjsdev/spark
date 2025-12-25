@@ -78,11 +78,42 @@ const POINT2_COLOR = 0x0088ff; // Blue
 const DISTANCE_LINE_COLOR = 0xffff00; // Yellow
 
 function createMarker(color) {
+  // Create a group to hold both the sphere and its outline
+  const group = new THREE.Group();
+
+  // Inner sphere
   const geometry = new THREE.SphereGeometry(markerRadius, 16, 16);
-  const material = new THREE.MeshBasicMaterial({ color, depthTest: false });
+  const material = new THREE.MeshBasicMaterial({
+    color,
+    depthTest: false,
+    transparent: true,
+    opacity: 0.9,
+  });
   const mesh = new THREE.Mesh(geometry, material);
-  mesh.renderOrder = 999;
-  return mesh;
+  mesh.renderOrder = 1000;
+  group.add(mesh);
+
+  // Outer ring/outline for better visibility
+  const ringGeometry = new THREE.RingGeometry(
+    markerRadius * 1.2,
+    markerRadius * 1.8,
+    32,
+  );
+  const ringMaterial = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    depthTest: false,
+    transparent: true,
+    opacity: 0.8,
+    side: THREE.DoubleSide,
+  });
+  const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+  ring.renderOrder = 999;
+  group.add(ring);
+
+  // Make ring always face camera (billboard)
+  group.userData.ring = ring;
+
+  return group;
 }
 
 function createRayLine(origin, direction, color) {
@@ -588,7 +619,7 @@ function centerCameraOnModel() {
     }
 
     // Update marker and ray sizes based on model scale
-    markerRadius = maxDim * 0.005; // 0.5% of model size
+    markerRadius = maxDim * 0.02; // 2% of model size for better visibility
     rayLineLength = maxDim * 5; // 5x model size
     console.log("Marker radius:", markerRadius.toFixed(4));
     console.log("Ray line length:", rayLineLength.toFixed(2));
@@ -649,5 +680,14 @@ loadDefaultAsset();
 
 renderer.setAnimationLoop(() => {
   controls.update();
+
+  // Make marker rings always face the camera (billboard effect)
+  if (state.marker1?.userData.ring) {
+    state.marker1.userData.ring.lookAt(camera.position);
+  }
+  if (state.marker2?.userData.ring) {
+    state.marker2.userData.ring.lookAt(camera.position);
+  }
+
   renderer.render(scene, camera);
 });
