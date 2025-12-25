@@ -155,6 +155,13 @@ export interface NewSparkRendererOptions {
    */
   enableLod?: boolean;
   /**
+   * Whether to drive LOD updates (compute lodInstances, update pager, etc.).
+   * Set to false to use LOD instances from another renderer without driving updates.
+   * Only has effect if enableLod is true.
+   * @default true (if enableLod is true)
+   */
+  enableDriveLod?: boolean;
+  /**
    * Set the target # splats for LoD. Recommended # splats is 500K for mobile and 1.5M for desktop,
    * which is set automatically if this isn't set.
    */
@@ -281,6 +288,7 @@ export class NewSparkRenderer extends THREE.Mesh {
   minLodIntervalMs: number;
 
   enableLod: boolean;
+  enableDriveLod: boolean;
   lodSplatCount?: number;
   lodSplatScale: number;
   globalLodScale: number;
@@ -390,6 +398,8 @@ export class NewSparkRenderer extends THREE.Mesh {
     this.minLodIntervalMs = options.minLodIntervalMs ?? 0;
 
     this.enableLod = options.enableLod ?? true;
+    // enableDriveLod defaults to true if enableLod is true, false otherwise
+    this.enableDriveLod = options.enableDriveLod ?? (this.enableLod ? true : false);
     this.lodSplatCount = options.lodSplatCount;
     this.lodSplatScale = options.lodSplatScale ?? 1.0;
     this.globalLodScale = options.globalLodScale ?? 1.0;
@@ -691,7 +701,9 @@ export class NewSparkRenderer extends THREE.Mesh {
       lodInstances: this.enableLod ? this.lodInstances : undefined,
     });
 
-    this.driveLod({ visibleGenerators, camera });
+    if (this.enableDriveLod) {
+      this.driveLod({ visibleGenerators, camera });
+    }
     this.driveSort();
 
     const needsUpdate = viewChanged || version !== this.current.version;
@@ -940,17 +952,22 @@ export class NewSparkRenderer extends THREE.Mesh {
           renderer: this.renderer,
           maxSplats: this.maxPagedSplats,
         });
-        for (const { mesh } of this.lodMeshes) {
-          if (mesh.paged && !mesh.paged.pager) {
-            mesh.paged.pager = this.pager;
-          }
-        }
 
         const { lodId } = (await worker.call("newLodTree", {
           capacity: this.pager.maxSplats,
         })) as { lodId: number };
         this.pagerId = lodId;
         // console.log("*** Set pagerId to", lodId);
+      }
+
+      // Assign pager to any new meshes that don't have one yet
+      // (must run every frame, not just when pager is first created)
+      if (this.pager) {
+        for (const { mesh } of this.lodMeshes) {
+          if (mesh.paged && !mesh.paged.pager) {
+            mesh.paged.pager = this.pager;
+          }
+        }
       }
 
       if (this.lodInitQueue.length > 0) {
