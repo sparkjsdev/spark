@@ -71,18 +71,19 @@ const raycaster = new THREE.Raycaster();
 // Visual Elements
 // ============================================================================
 
-let markerRadius = 0.02; // Will be updated based on model size
 let rayLineLength = 100; // Will be updated based on model size
+const MARKER_SCREEN_SIZE = 0.03; // Constant screen-space size (percentage of screen height)
 const POINT1_COLOR = 0x00ff00; // Green
 const POINT2_COLOR = 0x0088ff; // Blue
 const DISTANCE_LINE_COLOR = 0xffff00; // Yellow
 
 function createMarker(color) {
   // Create a group to hold both the sphere and its outline
+  // Use unit size - will be scaled dynamically based on camera distance
   const group = new THREE.Group();
 
-  // Inner sphere
-  const geometry = new THREE.SphereGeometry(markerRadius, 16, 16);
+  // Inner sphere (unit radius = 1)
+  const geometry = new THREE.SphereGeometry(1, 16, 16);
   const material = new THREE.MeshBasicMaterial({
     color,
     depthTest: false,
@@ -94,11 +95,7 @@ function createMarker(color) {
   group.add(mesh);
 
   // Outer ring/outline for better visibility
-  const ringGeometry = new THREE.RingGeometry(
-    markerRadius * 1.2,
-    markerRadius * 1.8,
-    32,
-  );
+  const ringGeometry = new THREE.RingGeometry(1.2, 1.8, 32);
   const ringMaterial = new THREE.MeshBasicMaterial({
     color: 0xffffff,
     depthTest: false,
@@ -625,10 +622,8 @@ function centerCameraOnModel() {
       return;
     }
 
-    // Update marker and ray sizes based on model scale
-    markerRadius = maxDim * 0.02; // 2% of model size for better visibility
+    // Update ray line length based on model scale
     rayLineLength = maxDim * 5; // 5x model size
-    console.log("Marker radius:", markerRadius.toFixed(4));
     console.log("Ray line length:", rayLineLength.toFixed(2));
 
     // Position camera to see the entire model
@@ -685,16 +680,31 @@ loadDefaultAsset();
 // Render Loop
 // ============================================================================
 
+function updateMarkerScale(marker) {
+  if (!marker) return;
+
+  // Calculate distance from camera to marker
+  const distance = camera.position.distanceTo(marker.position);
+
+  // Calculate scale to maintain constant screen size
+  // Based on FOV and desired screen percentage
+  const fov = camera.fov * (Math.PI / 180);
+  const scale = distance * Math.tan(fov / 2) * MARKER_SCREEN_SIZE;
+
+  marker.scale.setScalar(scale);
+
+  // Billboard: make ring face camera
+  if (marker.userData.ring) {
+    marker.userData.ring.lookAt(camera.position);
+  }
+}
+
 renderer.setAnimationLoop(() => {
   controls.update();
 
-  // Make marker rings always face the camera (billboard effect)
-  if (state.marker1?.userData.ring) {
-    state.marker1.userData.ring.lookAt(camera.position);
-  }
-  if (state.marker2?.userData.ring) {
-    state.marker2.userData.ring.lookAt(camera.position);
-  }
+  // Update marker scales to maintain constant screen size
+  updateMarkerScale(state.marker1);
+  updateMarkerScale(state.marker2);
 
   renderer.render(scene, camera);
 });
