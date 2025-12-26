@@ -30,7 +30,7 @@ export class PlyWriter {
    */
   private generateHeader(): string {
     const numSplats = this.packedSplats.numSplats;
-    const format = this.options.format.replace("_", " ");
+    const format = this.options.format.replaceAll("_", " ");
 
     const lines = [
       "ply",
