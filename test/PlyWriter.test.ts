@@ -128,7 +128,7 @@ function findHeaderEnd(data: Uint8Array): number {
 
   assert.ok(header.startsWith("ply\n"), "Header should start with 'ply'");
   assert.ok(
-    header.includes("format binary little endian 1.0"),
+    header.includes("format binary_little_endian 1.0"),
     "Header should include format",
   );
   assert.ok(
@@ -527,7 +527,7 @@ function findHeaderEnd(data: Uint8Array): number {
   const header = new TextDecoder().decode(result.slice(0, headerEndIndex));
 
   assert.ok(
-    header.includes("format binary big endian 1.0"),
+    header.includes("format binary_big_endian 1.0"),
     "Header should specify big endian format",
   );
 }
