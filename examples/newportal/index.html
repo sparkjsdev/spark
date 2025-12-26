@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark • Multi-Portal Example (using SparkPortals)</title>
+  <style>
+    body {
+      margin: 0;
+    }
+    canvas {
+      touch-action: none;
+    }
+  </style>
+</head>
+
+<body>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.180.0/three.module.js",
+        "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.20.0/+esm",
+        "@sparkjsdev/spark": "/dist/spark.module.js"
+      }
+    }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/stats.js@0.17.0/build/stats.min.js"></script>
+  <script type="module">
+    import * as THREE from "three";
+    import {
+      SparkPortals,
+      PackedSplats,
+      SplatMesh,
+      SparkControls,
+    } from "@sparkjsdev/spark";
+    import GUI from "lil-gui";
+
+    // ========== Setup ==========
+    const stats = new Stats();
+    document.body.appendChild(stats.dom);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(
+      90,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      1000
+    );
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    // Local frame for camera (used for movement and teleportation)
+    const localFrame = new THREE.Group();
+    scene.add(localFrame);
+    localFrame.add(camera);
+
+    // ========== Portal System ==========
+    const portals = new SparkPortals({
+      renderer,
+      scene,
+      camera,
+      localFrame,
+      onPortalCross: (pair, fromEntry) => {
+      console.log(`Crossed portal: ${fromEntry ? 'entry→exit' : 'exit→entry'}`);
+      },
+      defaultPortalRadius: 1.0,
+      sparkOptions: {
+        maxStdDev: Math.sqrt(4),
+        lodSplatScale: 0.5,
+        behindFoveate: 0.3,
+        coneFov0: 20.0,
+        coneFov: 150.0,
+        coneFoveate: 0.3,
+      },
+    });
+
+    // Add first portal pair
+    const pair1 = portals.addPortalPair({ radius: 1.0 });
+    pair1.entryPortal.position.set(0, 0, -1);
+    pair1.exitPortal.position.set(-3, 0, -4.5);
+
+    // Add second portal pair (smaller)
+    const pair2 = portals.addPortalPair({ radius: 1.0 });
+    pair2.entryPortal.position.set(4, 0, -2);
+    pair2.exitPortal.position.set(5, 0, -8);
+
+    // ========== Load Splat Assets ==========
+    const URL_BASE = "./splats/";
+
+    async function loadCozyCottage() {
+      let url = `${URL_BASE}/cozy_cottage-lod-0.spz`;
+
+      console.log("Loading", url);
+
+      const absoluteURL = new URL(url, window.location.href).href;
+
+      // const packedSplats = new PackedSplats({ url: absoluteURL });
+      // const mesh = new SplatMesh({ packedSplats });
+
+      const mesh = new SplatMesh({ url: absoluteURL, paged: true });
+      await mesh.initialized;
+
+      mesh.position.fromArray([0, -1, 0]);
+      mesh.quaternion.fromArray([0, 0, 0, 1]);
+
+      scene.add(mesh);
+      console.log("Loaded", url);
+    }
+
+    loadCozyCottage();
+
+    // ========== Controls ==========
+    const controls = new SparkControls({
+      renderer,
+      canvas: renderer.domElement,
+    });
+
+    // ========== GUI ==========
+    const gui = new GUI({ title: "Portal Settings" });
+    gui.add(portals.portalRenderer, "lodSplatScale", 0.001, 2.0, 0.001).name("LOD Scale").onChange((v) => {
+      portals.behindRenderer.lodSplatScale = v;
+    });
+
+    // Portal Pair 1
+    const pair1Folder = gui.addFolder("Portal Pair 1");
+    pair1Folder.add(pair1, "radius", 0.1, 3.0, 0.1).name("Radius");
+
+    const pair1EntryFolder = pair1Folder.addFolder("Entry Portal");
+    pair1EntryFolder.add(pair1.entryPortal.position, "x", -10, 10, 0.1).name("X");
+    pair1EntryFolder.add(pair1.entryPortal.position, "y", -10, 10, 0.1).name("Y");
+    pair1EntryFolder.add(pair1.entryPortal.position, "z", -10, 10, 0.1).name("Z");
+
+    const pair1ExitFolder = pair1Folder.addFolder("Exit Portal");
+    pair1ExitFolder.add(pair1.exitPortal.position, "x", -10, 10, 0.1).name("X");
+    pair1ExitFolder.add(pair1.exitPortal.position, "y", -10, 10, 0.1).name("Y");
+    pair1ExitFolder.add(pair1.exitPortal.position, "z", -10, 10, 0.1).name("Z");
+
+    // Portal Pair 2
+    const pair2Folder = gui.addFolder("Portal Pair 2");
+    pair2Folder.add(pair2, "radius", 0.1, 3.0, 0.1).name("Radius");
+
+    const pair2EntryFolder = pair2Folder.addFolder("Entry Portal");
+    pair2EntryFolder.add(pair2.entryPortal.position, "x", -10, 10, 0.1).name("X");
+    pair2EntryFolder.add(pair2.entryPortal.position, "y", -10, 10, 0.1).name("Y");
+    pair2EntryFolder.add(pair2.entryPortal.position, "z", -10, 10, 0.1).name("Z");
+
+    const pair2ExitFolder = pair2Folder.addFolder("Exit Portal");
+    pair2ExitFolder.add(pair2.exitPortal.position, "x", -10, 10, 0.1).name("X");
+    pair2ExitFolder.add(pair2.exitPortal.position, "y", -10, 10, 0.1).name("Y");
+    pair2ExitFolder.add(pair2.exitPortal.position, "z", -10, 10, 0.1).name("Z");
+
+    // Collapse sub-folders by default
+    pair1EntryFolder.close();
+    pair1ExitFolder.close();
+    pair2Folder.close();
+
+    // ========== Resize Handler ==========
+    window.addEventListener("resize", () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      portals.updateAspect(camera.aspect);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    renderer.setAnimationLoop(function animate(time) {
+      stats.begin();
+
+      // Update controls
+      controls.update(localFrame);
+
+      // Update portals and render
+      portals.animateLoopHook();
+
+      stats.end();
+    });
+
+  </script>
+</body>
+
+</html>
