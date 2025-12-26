@@ -104,3 +104,10 @@ export * as utils from "./utils";
 
 export { LN_SCALE_MIN, LN_SCALE_MAX } from "./defines";
 export * as defines from "./defines";
+
+export {
+  SparkPortals,
+  type SparkPortalsOptions,
+  type PortalPair,
+  DISK_PORTAL_FRAGMENT_SHADER,
+} from "./SparkPortals";
