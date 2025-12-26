@@ -374,28 +374,35 @@ function rescaleModel(newDistance) {
 // Reset
 // ============================================================================
 
+function disposeObject(obj) {
+  if (!obj) return;
+  scene.remove(obj);
+  obj.traverse((child) => {
+    if (child.geometry) child.geometry.dispose();
+    if (child.material) {
+      if (Array.isArray(child.material)) {
+        for (const m of child.material) {
+          m.dispose();
+        }
+      } else {
+        child.material.dispose();
+      }
+    }
+  });
+}
+
 function resetSelection() {
-  // Remove visual elements
-  if (state.marker1) {
-    scene.remove(state.marker1);
-    state.marker1 = null;
-  }
-  if (state.marker2) {
-    scene.remove(state.marker2);
-    state.marker2 = null;
-  }
-  if (state.rayLine1) {
-    scene.remove(state.rayLine1);
-    state.rayLine1 = null;
-  }
-  if (state.rayLine2) {
-    scene.remove(state.rayLine2);
-    state.rayLine2 = null;
-  }
-  if (state.distanceLine) {
-    scene.remove(state.distanceLine);
-    state.distanceLine = null;
-  }
+  // Remove and dispose visual elements
+  disposeObject(state.marker1);
+  state.marker1 = null;
+  disposeObject(state.marker2);
+  state.marker2 = null;
+  disposeObject(state.rayLine1);
+  state.rayLine1 = null;
+  disposeObject(state.rayLine2);
+  state.rayLine2 = null;
+  disposeObject(state.distanceLine);
+  state.distanceLine = null;
 
   // Reset state
   state.point1 = null;
@@ -472,7 +479,7 @@ renderer.domElement.addEventListener("pointermove", (event) => {
     );
     state.point1.copy(newPoint);
     state.marker1.position.copy(newPoint);
-  } else {
+  } else if (state.dragging === "point2") {
     newPoint = closestPointOnRay(
       raycaster.ray,
       state.ray2Origin,
