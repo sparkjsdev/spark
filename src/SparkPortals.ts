@@ -119,6 +119,16 @@ void main() {
 `;
 
 /**
+ * Callback function called when a portal is crossed.
+ * @param pair The portal pair that was crossed
+ * @param fromEntry True if crossing from entry to exit, false if crossing from exit to entry
+ */
+export type PortalCrossCallback = (
+  pair: PortalPair,
+  fromEntry: boolean,
+) => void | Promise<void>;
+
+/**
  * A pair of connected portals. Walking through one teleports you to the other.
  */
 export interface PortalPair {
@@ -128,6 +138,8 @@ export interface PortalPair {
   exitPortal: THREE.Object3D;
   /** Radius of this portal pair's disks */
   radius: number;
+  /** Optional callback function called when this portal is crossed */
+  onCross?: PortalCrossCallback;
   /** Scratch matrix for tracking portal position before frame updates */
   _entryBefore: THREE.Matrix4;
   /** Scratch matrix for tracking portal position before frame updates */
@@ -272,11 +284,15 @@ export class SparkPortals {
    * @param options Optional configuration for this pair
    * @returns The created PortalPair - position the entryPortal and exitPortal as needed
    */
-  addPortalPair(options?: { radius?: number }): PortalPair {
+  addPortalPair(options?: {
+    radius?: number;
+    onCross?: PortalCrossCallback;
+  }): PortalPair {
     const pair: PortalPair = {
       entryPortal: new THREE.Object3D(),
       exitPortal: new THREE.Object3D(),
       radius: options?.radius ?? this.defaultPortalRadius,
+      onCross: options?.onCross,
       _entryBefore: new THREE.Matrix4(),
       _exitBefore: new THREE.Matrix4(),
     };
@@ -521,6 +537,17 @@ export class SparkPortals {
     }
 
     this.camera.getWorldPosition(this.lastCameraWorld);
+
+    // Call the portal's onCross callback if provided
+    if (crossedPair.onCross) {
+      // Call async callback but don't await (updateTeleportation is synchronous)
+      // Errors will be logged but won't block teleportation
+      Promise.resolve(crossedPair.onCross(crossedPair, crossedEntry)).catch(
+        (error) => {
+          console.error("Error in portal onCross callback:", error);
+        },
+      );
+    }
   }
 
   /**
