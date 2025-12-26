@@ -399,7 +399,7 @@ export class NewSparkRenderer extends THREE.Mesh {
 
     this.enableLod = options.enableLod ?? true;
     // enableDriveLod defaults to true if enableLod is true, false otherwise
-    this.enableDriveLod = options.enableDriveLod ?? (this.enableLod ? true : false);
+    this.enableDriveLod = options.enableDriveLod ?? this.enableLod;
     this.lodSplatCount = options.lodSplatCount;
     this.lodSplatScale = options.lodSplatScale ?? 1.0;
     this.globalLodScale = options.globalLodScale ?? 1.0;
