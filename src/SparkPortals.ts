@@ -8,6 +8,9 @@ import {
  * Fragment shader for portal disk clipping.
  * - diskRadius > 0: render "behind portal" only through the disk
  * - diskRadius < 0: render "in front of portal" everywhere except behind disk
+ *
+ * Note: This shader uses view-space uniforms and works correctly in non-VR mode.
+ * In VR mode, visual disk meshes are used instead due to stereo rendering complexity.
  */
 export const DISK_PORTAL_FRAGMENT_SHADER = `
 precision highp float;
@@ -26,6 +29,7 @@ uniform float minAlpha;
 uniform bool disableFalloff;
 uniform float falloff;
 
+// Portal disk in VIEW space (computed on CPU before render)
 uniform vec3 diskCenter;
 uniform vec3 diskNormal;
 uniform float diskRadius;
@@ -251,7 +255,7 @@ export class SparkPortals {
 
     const sparkOpts = options.sparkOptions ?? {};
 
-    // Primary renderer with portal shader
+    // Primary renderer with portal shader (view-space uniforms for non-VR mode)
     this.portalRenderer = new NewSparkRenderer({
       renderer: this.renderer,
       extraUniforms: {
@@ -277,6 +281,49 @@ export class SparkPortals {
     // Secondary camera for behind-portal view
     this.camera2 = this.camera.clone();
     this.scene.add(this.camera2);
+  }
+
+  /**
+   * Set view-space portal uniforms for shader clipping.
+   * Used in non-VR mode only.
+   */
+  private setPortalDiskUniforms(
+    camera: THREE.Camera,
+    portal: THREE.Object3D,
+    radius: number,
+    twoSided: boolean,
+  ): void {
+    camera.updateMatrixWorld(true);
+    portal.updateMatrixWorld(true);
+
+    const inverseCamera = camera.matrixWorld.clone().invert();
+    const portalInCamera = portal.matrixWorld.clone().premultiply(inverseCamera);
+    const portalQuat = new THREE.Quaternion();
+
+    const uniforms = this.portalRenderer.uniforms as typeof this.portalRenderer.uniforms & {
+      diskCenter: { value: THREE.Vector3 };
+      diskNormal: { value: THREE.Vector3 };
+      diskRadius: { value: number };
+      diskTwoSided: { value: boolean };
+    };
+
+    portalInCamera.decompose(
+      uniforms.diskCenter.value,
+      portalQuat,
+      new THREE.Vector3(),
+    );
+
+    uniforms.diskNormal.value.set(0, 0, 1).applyQuaternion(portalQuat);
+    uniforms.diskRadius.value = radius;
+    uniforms.diskTwoSided.value = twoSided;
+  }
+
+  /** Disable shader-based portal clipping */
+  private clearPortalDiskUniforms(): void {
+    const uniforms = this.portalRenderer.uniforms as typeof this.portalRenderer.uniforms & {
+      diskRadius: { value: number };
+    };
+    uniforms.diskRadius.value = 0;
   }
 
   /**
@@ -334,42 +381,6 @@ export class SparkPortals {
       .clone()
       .invert()
       .premultiply(pair.entryPortal.matrixWorld);
-  }
-
-  /** Set portal disk uniforms for shader clipping */
-  private setPortalDiskUniforms(
-    camera: THREE.Camera,
-    portal: THREE.Object3D,
-    radius: number,
-    twoSided: boolean,
-  ): void {
-    camera.updateMatrixWorld(true);
-    portal.updateMatrixWorld(true);
-
-    const inverseCamera = camera.matrixWorld.clone().invert();
-    const portalInCamera = portal.matrixWorld
-      .clone()
-      .premultiply(inverseCamera);
-    const portalQuat = new THREE.Quaternion();
-
-    // Extend the base uniform type with our portal-specific uniforms so TS is happy.
-    const uniforms = this.portalRenderer
-      .uniforms as typeof this.portalRenderer.uniforms & {
-      diskCenter: { value: THREE.Vector3 };
-      diskNormal: { value: THREE.Vector3 };
-      diskRadius: { value: number };
-      diskTwoSided: { value: boolean };
-    };
-
-    portalInCamera.decompose(
-      uniforms.diskCenter.value,
-      portalQuat,
-      new THREE.Vector3(),
-    );
-
-    uniforms.diskNormal.value.set(0, 0, 1).applyQuaternion(portalQuat);
-    uniforms.diskRadius.value = radius;
-    uniforms.diskTwoSided.value = twoSided;
   }
 
   /** Extract portal plane from matrix */
@@ -615,18 +626,34 @@ export class SparkPortals {
    * Render the scene with portals using two-pass rendering.
    * Renders the most relevant portal pair (closest to camera view).
    * Call this instead of renderer.render() in your animation loop.
+   *
+   * In VR mode, shader-based clipping is disabled due to stereo rendering
+   * complexity. Applications can add their own visual fallbacks if needed.
    */
   render(): void {
+    const isVR = this.renderer.xr.isPresenting;
     const primary = this.findPrimaryPortal();
 
     // No portals - just render normally
     if (!primary) {
+      this.clearPortalDiskUniforms();
       this.renderer.autoClear = true;
       this.renderer.render(this.scene, this.camera);
       return;
     }
 
     const { pair, primaryIsEntry, primaryPortal, otherPortal } = primary;
+
+    // VR mode: disable shader clipping, just render normally
+    // Applications can add their own visual fallbacks to portal.entryPortal/exitPortal
+    if (isVR) {
+      this.clearPortalDiskUniforms();
+      this.renderer.autoClear = true;
+      this.portalRenderer.render(this.scene, this.camera);
+      return;
+    }
+
+    // Non-VR mode: use shader-based portal clipping
 
     // Compute camera2 position (transformed through portal)
     const camera2Matrix = primaryIsEntry
