@@ -1,4 +1,4 @@
-import { PackedSplats, SplatMesh } from '.';
+import { ExtSplats, PackedSplats, PagedSplats, SplatMesh, SplatPager } from '.';
 import { NewSplatAccumulator } from './NewSplatAccumulator';
 import { NewSplatWorker } from './NewSplatWorker';
 import * as THREE from "three";
@@ -51,6 +51,11 @@ export interface NewSparkRendererOptions {
      * @default 512.0
      */
     maxPixelRadius?: number;
+    /**
+     * Whether to use extended Gsplat encoding for intermediary splats.
+     * @default false
+     */
+    extSplats?: boolean | "cov";
     /**
      * Minimum alpha value for splat rendering.
      * @default 0.5 * (1.0 / 255.0)
@@ -128,6 +133,13 @@ export interface NewSparkRendererOptions {
     minLodIntervalMs?: number;
     enableLod?: boolean;
     /**
+     * Whether to drive LOD updates (compute lodInstances, update pager, etc.).
+     * Set to false to use LOD instances from another renderer without driving updates.
+     * Only has effect if enableLod is true.
+     * @default true (if enableLod is true)
+     */
+    enableDriveLod?: boolean;
+    /**
      * Set the target # splats for LoD. Recommended # splats is 500K for mobile and 1.5M for desktop,
      * which is set automatically if this isn't set.
      */
@@ -138,9 +150,22 @@ export interface NewSparkRendererOptions {
      * @default 1.0
      */
     lodSplatScale?: number;
+    /**
+     * Scale factor for render size. 2.0 means 2x the render size.
+     * @default 1.0
+     */
+    renderScale?: number;
     globalLodScale?: number;
+    /**
+     * Allocation size of paged splats
+     * @default 16777216
+     */
+    maxPagedSplats?: number;
     outsideFoveate?: number;
     behindFoveate?: number;
+    coneFov0?: number;
+    coneFov?: number;
+    coneFoveate?: number;
     numLodFetchers?: number;
     target?: {
         /**
@@ -166,6 +191,12 @@ export interface NewSparkRendererOptions {
          */
         superXY?: number;
     };
+    extraUniforms?: Record<string, unknown>;
+    vertexShader?: string;
+    fragmentShader?: string;
+    transparent?: boolean;
+    depthTest?: boolean;
+    depthWrite?: boolean;
 }
 export declare class NewSparkRenderer extends THREE.Mesh {
     renderer: THREE.WebGLRenderer;
@@ -179,6 +210,7 @@ export declare class NewSparkRenderer extends THREE.Mesh {
     maxStdDev: number;
     minPixelRadius: number;
     maxPixelRadius: number;
+    extSplats: boolean | "cov";
     minAlpha: number;
     enable2DGS: boolean;
     preBlurAmount: number;
@@ -211,11 +243,17 @@ export declare class NewSparkRenderer extends THREE.Mesh {
     minSortIntervalMs: number;
     minLodIntervalMs: number;
     enableLod: boolean;
+    enableDriveLod: boolean;
     lodSplatCount?: number;
     lodSplatScale: number;
+    renderScale: number;
     globalLodScale: number;
+    maxPagedSplats: number;
     outsideFoveate: number;
     behindFoveate: number;
+    coneFov0: number;
+    coneFov: number;
+    coneFoveate: number;
     numLodFetchers: number;
     lodWorker: NewSplatWorker | null;
     lodMeshes: {
@@ -223,12 +261,13 @@ export declare class NewSparkRenderer extends THREE.Mesh {
         version: number;
     }[];
     lodDirty: boolean;
-    lodIds: Map<PackedSplats, {
+    lodIds: Map<PackedSplats | ExtSplats | PagedSplats, {
         lodId: number;
         lastTouched: number;
+        rootPage?: number;
     }>;
-    lodIdToSplats: Map<number, PackedSplats>;
-    lodInitQueue: PackedSplats[];
+    lodIdToSplats: Map<number, PackedSplats | ExtSplats | PagedSplats>;
+    lodInitQueue: (PackedSplats | ExtSplats | PagedSplats)[];
     lodPos: THREE.Vector3;
     lodQuat: THREE.Quaternion;
     lodInstances: Map<SplatMesh, {
@@ -238,13 +277,19 @@ export declare class NewSparkRenderer extends THREE.Mesh {
         texture: THREE.DataTexture;
     }>;
     lodFetchers: Promise<void>[];
-    lodInserts: {
+    chunksToFetch: {
+        lodId: number;
+        chunk: number;
+    }[];
+    lodUpdates: {
         lodId: number;
         pageBase: number;
         chunkBase: number;
         count: number;
-        lodTreeData: Uint32Array;
+        lodTreeData?: Uint32Array;
     }[];
+    pager?: SplatPager;
+    pagerId: number;
     target?: THREE.WebGLRenderTarget;
     backTarget?: THREE.WebGLRenderTarget;
     superPixels?: Uint8Array;
@@ -270,6 +315,12 @@ export declare class NewSparkRenderer extends THREE.Mesh {
             value: THREE.Quaternion;
         };
         renderToViewPos: {
+            value: THREE.Vector3;
+        };
+        renderToViewBasis: {
+            value: THREE.Matrix3;
+        };
+        renderToViewOffset: {
             value: THREE.Vector3;
         };
         maxStdDev: {
@@ -315,6 +366,9 @@ export declare class NewSparkRenderer extends THREE.Mesh {
             type: string;
             value: THREE.DataTexture;
         };
+        extSplatsMode: {
+            value: number;
+        };
         extSplats: {
             type: string;
             value: THREE.DataArrayTexture;
@@ -341,15 +395,20 @@ export declare class NewSparkRenderer extends THREE.Mesh {
     }): Promise<void>;
     private updateInternal;
     private driveSort;
+    private ensureLodWorker;
     private driveLod;
     private initLodTree;
+    private pageSizeWarning;
     private updateLodInstances;
+    private driveLodFetchers;
+    private fetchLodChunk;
     private cleanupLodTrees;
     private updateLodIndices;
     private readbackDepth;
     private saveRenderState;
     private resetRenderState;
     private static emptyOrdering;
+    render(scene: THREE.Scene, camera: THREE.Camera): void;
     renderTarget({ scene, camera, }: {
         scene: THREE.Scene;
         camera: THREE.Camera;

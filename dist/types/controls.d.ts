@@ -6,7 +6,7 @@ export declare class SparkControls {
     constructor({ canvas }: {
         canvas: HTMLCanvasElement;
     });
-    update(control: THREE.Object3D): void;
+    update(control: THREE.Object3D, camera?: THREE.Camera): void;
 }
 export declare class FpsMovement {
     moveSpeed: number;
@@ -111,6 +111,6 @@ export declare class PointerControls {
         }) => void;
     });
     getPointerPosition(event: PointerEvent): THREE.Vector2;
-    update(deltaTime: number, control: THREE.Object3D): void;
+    update(deltaTime: number, control: THREE.Object3D, camera?: THREE.Camera): void;
 }
 export {};

@@ -1,8 +1,9 @@
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
+import { Readback } from './Readback';
 import { GeneratorMapping } from './SplatAccumulator';
-import { GsplatGenerator, SplatGenerator } from './SplatGenerator';
+import { CovSplatGenerator, GsplatGenerator, SplatGenerator } from './SplatGenerator';
 import { SplatMesh } from './SplatMesh';
-import { DynoBool, DynoProgram, DynoProgramTemplate, DynoVec3 } from './dyno';
+import { DynoBool, DynoProgram, DynoProgramTemplate, DynoUsampler2DArray, DynoVec3 } from './dyno';
 import * as THREE from "three";
 export declare class NewSplatAccumulator {
     time: number;
@@ -19,7 +20,12 @@ export declare class NewSplatAccumulator {
     mapping: GeneratorMapping[];
     version: number;
     mappingVersion: number;
-    constructor();
+    extSplats: boolean | "cov";
+    readback: Readback | null;
+    readbackSplats: DynoUsampler2DArray<"extSplats", THREE.DataArrayTexture>[];
+    constructor({ extSplats }?: {
+        extSplats?: boolean | "cov";
+    });
     dispose(): void;
     getTextures(): THREE.DataArrayTexture[];
     static emptyTexture: THREE.DataArrayTexture;
@@ -36,15 +42,17 @@ export declare class NewSplatAccumulator {
     }): boolean;
     private saveRenderState;
     private resetRenderState;
-    prepareProgramMaterial(generator: GsplatGenerator): {
+    prepareProgramMaterial(generator?: GsplatGenerator, covGenerator?: CovSplatGenerator): {
         program: DynoProgram;
         material: THREE.RawShaderMaterial;
     };
+    static programExtTemplate: DynoProgramTemplate;
     static programTemplate: DynoProgramTemplate;
-    static generatorProgram: Map<GsplatGenerator, DynoProgram>;
+    static generatorProgram: Map<GsplatGenerator | CovSplatGenerator, DynoProgram>;
     static fullScreenQuad: FullScreenQuad;
-    generate({ generator, base, count, renderer, }: {
-        generator: GsplatGenerator;
+    generate({ generator, covGenerator, base, count, renderer, }: {
+        generator?: GsplatGenerator;
+        covGenerator?: CovSplatGenerator;
         base: number;
         count: number;
         renderer: THREE.WebGLRenderer;
@@ -69,6 +77,7 @@ export declare class NewSplatAccumulator {
         mappingVersion: number;
         visibleGenerators: SplatGenerator[];
         generate: () => void;
+        readback: () => Promise<Uint32Array<ArrayBuffer>>;
     };
     checkVersions(otherMapping: GeneratorMapping[]): {
         splatsUpdated: boolean;

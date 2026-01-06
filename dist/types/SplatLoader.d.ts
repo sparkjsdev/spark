@@ -1,15 +1,17 @@
 import { FileLoader, Loader, LoadingManager } from 'three';
+import { ExtSplats } from './ExtSplats';
 import { PackedSplats, SplatEncoding } from './PackedSplats';
 import { SplatMesh } from './SplatMesh';
 export declare class SplatLoader extends Loader {
     fileLoader: FileLoader;
     fileType?: SplatFileType;
     packedSplats?: PackedSplats;
+    extSplats?: ExtSplats;
     static lod: boolean;
-    static nonLod: boolean;
+    static nonLod: boolean | "wait";
     constructor(manager?: LoadingManager);
-    load(url: string | Uint8Array | ArrayBuffer, onLoad?: (decoded: PackedSplats) => void, onProgress?: (event: ProgressEvent) => void, onError?: (error: unknown) => void): void;
-    loadAsync(url: string, onProgress?: (event: ProgressEvent) => void): Promise<PackedSplats>;
+    load(url: string | Uint8Array | ArrayBuffer, onLoad?: (decoded: PackedSplats | ExtSplats) => void, onProgress?: (event: ProgressEvent) => void, onError?: (error: unknown) => void): void;
+    loadAsync(url: string, onProgress?: (event: ProgressEvent) => void): Promise<PackedSplats | ExtSplats>;
     parse(packedSplats: PackedSplats): SplatMesh;
 }
 export declare enum SplatFileType {

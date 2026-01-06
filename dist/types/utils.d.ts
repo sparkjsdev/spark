@@ -15,14 +15,19 @@ export declare function Sint8ToFloat(v: number): number;
 export declare class DataCache {
     maxItems: number;
     asyncFetch: (key: string) => Promise<unknown>;
+    dispose?: (data: unknown) => void;
     items: {
         key: string;
         data: unknown;
     }[];
-    constructor({ asyncFetch, maxItems, }: {
+    pending: Map<string, Promise<unknown>>;
+    constructor({ asyncFetch, dispose, maxItems, }: {
         asyncFetch: (key: string) => Promise<unknown>;
+        dispose?: (data: unknown) => void;
         maxItems?: number;
     });
+    has(key: string): boolean;
+    getImmediate(key: string): unknown | undefined;
     getFetch(key: string): Promise<unknown>;
 }
 export declare function mapObject(obj: Record<string, unknown>, fn: (value: unknown, key: string) => unknown): Record<string, unknown>;
@@ -43,6 +48,26 @@ export declare class FreeList<T, Args> {
     free(item: T): void;
     disposeAll(): void;
 }
+export declare function encodeCovSplat(extArrays: [Uint32Array, Uint32Array], index: number, x: number, y: number, z: number, opacity: number, r: number, g: number, b: number, xx: number, xy: number, xz: number, yy: number, yz: number, zz: number): void;
+export declare function decodeCovSplat(extArrays: [Uint32Array, Uint32Array], index: number): {
+    center: THREE.Vector3;
+    color: THREE.Color;
+    opacity: number;
+    xx: number;
+    xy: number;
+    xz: number;
+    yy: number;
+    yz: number;
+    zz: number;
+};
+export declare function encodeExtSplat(extArrays: [Uint32Array, Uint32Array], index: number, x: number, y: number, z: number, scaleX: number, scaleY: number, scaleZ: number, quatX: number, quatY: number, quatZ: number, quatW: number, opacity: number, r: number, g: number, b: number): void;
+export declare function decodeExtSplat(extArrays: [Uint32Array, Uint32Array], index: number): {
+    center: THREE.Vector3;
+    scales: THREE.Vector3;
+    quaternion: THREE.Quaternion;
+    color: THREE.Color;
+    opacity: number;
+};
 export declare function setPackedSplat(packedSplats: Uint32Array, index: number, x: number, y: number, z: number, scaleX: number, scaleY: number, scaleZ: number, quatX: number, quatY: number, quatZ: number, quatW: number, opacity: number, r: number, g: number, b: number, encoding?: {
     rgbMin?: number;
     rgbMax?: number;
@@ -89,6 +114,7 @@ export declare function computeMaxSplats(numSplats: number): number;
 export declare function isMobile(): boolean;
 export declare function isAndroid(): boolean;
 export declare function isOculus(): boolean;
+export declare function isQuest2(): boolean;
 export declare function isIos(): boolean;
 export declare function isVisionPro(): boolean;
 export declare function flipPixels(pixels: Uint8Array, width: number, height: number): Uint8Array;
@@ -160,6 +186,8 @@ export declare function encodeQuatEulerXyz888(q: THREE.Quaternion): number;
  * and then converting them back to Euler angles in [-π, π] and to a quaternion.
  */
 export declare function decodeQuatEulerXyz888(encoded: number, out: THREE.Quaternion): THREE.Quaternion;
+export declare function encodeQuatOctXy1010R12(qx: number, qy: number, qz: number, qw: number): number;
+export declare function decodeQuatOctXy1010R12(encoded: number, out: THREE.Quaternion): THREE.Quaternion;
 export declare function encodeSh1Rgb(sh1Array: Uint32Array, index: number, sh1Rgb: Float32Array, encoding?: {
     sh1Min?: number;
     sh1Max?: number;
@@ -172,6 +200,11 @@ export declare function encodeSh3Rgb(sh3Array: Uint32Array, index: number, sh3Rg
     sh3Min?: number;
     sh3Max?: number;
 }): void;
+export declare function encodeExtRgb(r: number, g: number, b: number): number;
+export declare function decodeExtRgb(encoded: number): THREE.Color;
+export declare function encodeExtSh1Rgb(sh1Array: Uint32Array, index: number, sh1Rgb: Float32Array): void;
+export declare function encodeExtSh12Rgb(sh1Array: Uint32Array, sh2Array: Uint32Array, index: number, sh1Rgb: Float32Array, sh2Rgb: Float32Array): void;
+export declare function encodeExt3Rgb(sh3ArrayA: Uint32Array, sh3ArrayB: Uint32Array, index: number, sh3Rgb: Float32Array): void;
 export declare function decompressPartialGzip(fileBytes: Uint8Array, numBytes: number): Uint8Array;
 export declare class GunzipReader {
     fileBytes: Uint8Array;

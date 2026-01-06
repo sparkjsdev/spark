@@ -1,15 +1,21 @@
 import { SplatMesh } from './SplatMesh';
-import { DynoUniform, DynoVal, Gsplat } from './dyno';
+import { CovSplat, DynoUniform, DynoVal, Gsplat } from './dyno';
 import * as THREE from "three";
+export declare enum SplatSkinningMode {
+    DUAL_QUATERNION = "dual_quaternion",
+    LINEAR_BLEND_SKINNING = "linear_blend_skinning"
+}
 export type SplatSkinningOptions = {
     mesh: SplatMesh;
     numSplats?: number;
     numBones?: number;
+    mode?: SplatSkinningMode;
 };
 export declare class SplatSkinning {
     mesh: SplatMesh;
     numSplats: number;
-    skinData: Uint16Array;
+    mode: SplatSkinningMode;
+    skinData: Uint16Array<ArrayBuffer>;
     skinTexture: THREE.DataArrayTexture;
     numBones: number;
     boneData: Float32Array;
@@ -17,7 +23,9 @@ export declare class SplatSkinning {
     uniform: DynoUniform<typeof GsplatSkinning, "skinning">;
     constructor(options: SplatSkinningOptions);
     modify(gsplat: DynoVal<typeof Gsplat>): DynoVal<typeof Gsplat>;
+    modifyCov(covsplat: DynoVal<typeof CovSplat>): DynoVal<typeof CovSplat>;
     setRestQuatPos(boneIndex: number, quat: THREE.Quaternion, pos: THREE.Vector3): void;
+    getRestQuatPos(boneIndex: number, quat: THREE.Quaternion, pos: THREE.Vector3): void;
     setBoneQuatPos(boneIndex: number, quat: THREE.Quaternion, pos: THREE.Vector3): void;
     setSplatBones(splatIndex: number, boneIndices: THREE.Vector4, weights: THREE.Vector4): void;
     updateBones(): void;

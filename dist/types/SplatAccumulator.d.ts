@@ -1,9 +1,10 @@
 import { PackedSplats } from './PackedSplats';
-import { GsplatGenerator, SplatGenerator, SplatModifier } from './SplatGenerator';
+import { CovSplatGenerator, GsplatGenerator, SplatGenerator, SplatModifier } from './SplatGenerator';
 import * as THREE from "three";
 export type GeneratorMapping = {
     node: SplatGenerator;
     generator?: GsplatGenerator;
+    covGenerator?: CovSplatGenerator;
     version: number;
     mappingVersion?: number;
     base: number;

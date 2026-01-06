@@ -1,10 +1,12 @@
-import { DynoPackedSplats, PackedSplats, SplatEncoding } from './PackedSplats';
-import { RgbaArray } from './RgbaArray';
-import { SplatEdit } from './SplatEdit';
-import { FrameUpdateContext, GsplatModifier, SplatGenerator, SplatTransformer } from './SplatGenerator';
+import { ExtSplats } from './ExtSplats';
+import { PackedSplats, SplatEncoding } from './PackedSplats';
+import { RgbaArray, TRgbaArray } from './RgbaArray';
+import { SplatEdit, SplatEdits } from './SplatEdit';
+import { CovSplatModifier, CovSplatTransformer, FrameUpdateContext, GsplatModifier, SplatGenerator, SplatTransformer } from './SplatGenerator';
 import { SplatFileType } from './SplatLoader';
+import { PagedSplats, SplatPager } from './SplatPager';
 import { SplatSkinning } from './SplatSkinning';
-import { DynoBool, DynoFloat, DynoInt, DynoUsampler2D, DynoUsampler2DArray, DynoVal, DynoVec4, Gsplat } from './dyno';
+import { DynoBool, DynoFloat, DynoInt, DynoUsampler2D, DynoVal, DynoVec4, Gsplat } from './dyno';
 import * as THREE from "three";
 export type SplatMeshOptions = {
     url?: string;
@@ -12,43 +14,89 @@ export type SplatMeshOptions = {
     fileType?: SplatFileType;
     fileName?: string;
     packedSplats?: PackedSplats;
+    splats?: SplatSource;
     maxSplats?: number;
     constructSplats?: (splats: PackedSplats) => Promise<void> | void;
     onProgress?: (event: ProgressEvent) => void;
     onLoad?: (mesh: SplatMesh) => Promise<void> | void;
     editable?: boolean;
+    raycastable?: boolean;
     onFrame?: ({ mesh, time, deltaTime, }: {
         mesh: SplatMesh;
         time: number;
         deltaTime: number;
     }) => void;
     objectModifier?: GsplatModifier;
+    objectModifiers?: GsplatModifier[];
     worldModifier?: GsplatModifier;
+    worldModifiers?: GsplatModifier[];
+    covObjectModifiers?: CovSplatModifier[];
+    covWorldModifiers?: CovSplatModifier[];
     splatEncoding?: SplatEncoding;
+    extSplats?: boolean | ExtSplats;
+    covSplats?: boolean;
     lod?: boolean | number;
-    nonLod?: boolean;
+    nonLod?: boolean | "wait";
     enableLod?: boolean;
     lodScale?: number;
     outsideFoveate?: number;
     behindFoveate?: number;
+    coneFov0?: number;
+    coneFov?: number;
+    coneFoveate?: number;
+    paged?: boolean | PagedSplats | SplatPager;
 };
 export type SplatMeshContext = {
     transform: SplatTransformer;
     viewToWorld: SplatTransformer;
     worldToView: SplatTransformer;
     viewToObject: SplatTransformer;
+    covTransform: CovSplatTransformer;
+    covViewToWorld: CovSplatTransformer;
+    covWorldToView: CovSplatTransformer;
+    covViewToObject: CovSplatTransformer;
     recolor: DynoVec4<THREE.Vector4>;
     time: DynoFloat;
     deltaTime: DynoFloat;
     numSplats: DynoInt<string>;
-    splats: DynoPackedSplats;
+    splats: SplatSource;
     enableLod: DynoBool<string>;
     lodIndices: DynoUsampler2D<"lodIndices", THREE.DataTexture>;
 };
+export interface SplatSource {
+    prepareFetchSplat(): void;
+    dispose(): void;
+    getNumSplats(): number;
+    hasRgbDir(): boolean;
+    getNumSh(): number;
+    setMaxSh(maxSh: number): void;
+    fetchSplat({ index, viewOrigin, }: {
+        index: DynoVal<"int">;
+        viewOrigin?: DynoVal<"vec3">;
+    }): DynoVal<typeof Gsplat>;
+}
+export declare class EmptySplatSource implements SplatSource {
+    fetchDyno: DynoVal<{
+        type: "Gsplat";
+    }>;
+    prepareFetchSplat(): void;
+    dispose(): void;
+    getNumSplats(): number;
+    hasRgbDir(): boolean;
+    getNumSh(): number;
+    setMaxSh(maxSh: number): void;
+    fetchSplat({ index }: {
+        index: DynoVal<"int">;
+    }): DynoVal<typeof Gsplat>;
+}
 export declare class SplatMesh extends SplatGenerator {
     initialized: Promise<SplatMesh>;
     isInitialized: boolean;
-    packedSplats: PackedSplats;
+    packedSplats?: PackedSplats;
+    extSplats?: ExtSplats;
+    covSplats: boolean;
+    splats?: SplatSource;
+    paged?: PagedSplats;
     recolor: THREE.Color;
     opacity: number;
     context: SplatMeshContext;
@@ -57,21 +105,27 @@ export declare class SplatMesh extends SplatGenerator {
         time: number;
         deltaTime: number;
     }) => void;
-    objectModifier?: GsplatModifier;
-    worldModifier?: GsplatModifier;
+    objectModifiers?: GsplatModifier[];
+    worldModifiers?: GsplatModifier[];
+    covObjectModifiers?: CovSplatModifier[];
+    covWorldModifiers?: CovSplatModifier[];
     enableViewToObject: boolean;
     enableViewToWorld: boolean;
     enableWorldToView: boolean;
     skinning: SplatSkinning | null;
     edits: SplatEdit[] | null;
     editable: boolean;
-    private rgbaDisplaceEdits;
+    raycastable: boolean;
+    rgbaDisplaceEdits: SplatEdits | null;
     splatRgba: RgbaArray | null;
     maxSh: number;
     enableLod?: boolean;
     lodScale: number;
     outsideFoveate?: number;
     behindFoveate?: number;
+    coneFov0?: number;
+    coneFov?: number;
+    coneFoveate?: number;
     constructor(options?: SplatMeshOptions);
     asyncInitialize(options: SplatMeshOptions): Promise<void>;
     static staticInitialized: Promise<void>;
@@ -82,7 +136,10 @@ export declare class SplatMesh extends SplatGenerator {
     forEachSplat(callback: (index: number, center: THREE.Vector3, scales: THREE.Vector3, quaternion: THREE.Quaternion, opacity: number, color: THREE.Color) => void): void;
     dispose(): void;
     getBoundingBox(centers_only?: boolean): THREE.Box3;
-    constructGenerator(context: SplatMeshContext): void;
+    set objectModifier(modifier: GsplatModifier | undefined);
+    set worldModifier(modifier: GsplatModifier | undefined);
+    private constructGenerator;
+    constructCovGenerator(context: SplatMeshContext): void;
     updateGenerator(): void;
     update({ renderer, time, deltaTime, viewToWorld, camera, renderSize, globalEdits, lodIndices, }: FrameUpdateContext): void;
     raycast(raycaster: THREE.Raycaster, intersects: {
@@ -90,8 +147,7 @@ export declare class SplatMesh extends SplatGenerator {
         point: THREE.Vector3;
         object: THREE.Object3D;
     }[]): void;
-    private ensureShTextures;
 }
-export declare function evaluateSH1(gsplat: DynoVal<typeof Gsplat>, sh1: DynoUsampler2DArray<"sh1", THREE.DataArrayTexture>, viewDir: DynoVal<"vec3">): DynoVal<"vec3">;
-export declare function evaluateSH2(gsplat: DynoVal<typeof Gsplat>, sh2: DynoVal<"usampler2DArray">, viewDir: DynoVal<"vec3">): DynoVal<"vec3">;
-export declare function evaluateSH3(gsplat: DynoVal<typeof Gsplat>, sh3: DynoVal<"usampler2DArray">, viewDir: DynoVal<"vec3">): DynoVal<"vec3">;
+export declare function maybeLookupIndex(lodIndices: DynoUsampler2D<"lodIndices", THREE.DataTexture>, index: DynoVal<"int">, numSplats: DynoVal<"int">, enableLod: DynoVal<"bool">): DynoVal<"int">;
+export declare function maybeInjectSplatRgba(gsplat: DynoVal<typeof Gsplat>, rgba: DynoVal<typeof TRgbaArray>, index: DynoVal<"int">, enableLod: DynoVal<"bool">): DynoVal<typeof Gsplat>;
+export declare const emptyLodIndices: THREE.DataTexture;

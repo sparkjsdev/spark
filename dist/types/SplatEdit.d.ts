@@ -1,4 +1,4 @@
-import { DynoUniform, DynoVal, Gsplat } from './dyno';
+import { CovSplat, DynoUniform, DynoVal, Gsplat } from './dyno';
 import * as THREE from "three";
 export declare enum SplatEditSdfType {
     ALL = "all",
@@ -86,6 +86,7 @@ export declare class SplatEdits {
         dynoUpdated: boolean;
     };
     modify(gsplat: DynoVal<typeof Gsplat>): DynoVal<typeof Gsplat>;
+    modifyCov(covsplat: DynoVal<typeof CovSplat>): DynoVal<typeof CovSplat>;
 }
 export declare const SdfArray: {
     type: "SdfArray";
