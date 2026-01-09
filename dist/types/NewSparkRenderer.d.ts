@@ -55,7 +55,12 @@ export interface NewSparkRendererOptions {
      * Whether to use extended Gsplat encoding for intermediary splats.
      * @default false
      */
-    extSplats?: boolean | "cov";
+    extSplats?: boolean;
+    /**
+     * Whether to use covariance Gsplat encoding for intermediary splats.
+     * @default false
+     */
+    covSplats?: boolean;
     /**
      * Minimum alpha value for splat rendering.
      * @default 0.5 * (1.0 / 255.0)
@@ -154,7 +159,7 @@ export interface NewSparkRendererOptions {
      * Scale factor for render size. 2.0 means 2x the render size.
      * @default 1.0
      */
-    renderScale?: number;
+    lodRenderScale?: number;
     globalLodScale?: number;
     /**
      * Allocation size of paged splats
@@ -166,7 +171,6 @@ export interface NewSparkRendererOptions {
     coneFov0?: number;
     coneFov?: number;
     coneFoveate?: number;
-    numLodFetchers?: number;
     target?: {
         /**
          * Width of the render target in pixels.
@@ -210,7 +214,8 @@ export declare class NewSparkRenderer extends THREE.Mesh {
     maxStdDev: number;
     minPixelRadius: number;
     maxPixelRadius: number;
-    extSplats: boolean | "cov";
+    extSplats: boolean;
+    covSplats: boolean;
     minAlpha: number;
     enable2DGS: boolean;
     preBlurAmount: number;
@@ -246,7 +251,7 @@ export declare class NewSparkRenderer extends THREE.Mesh {
     enableDriveLod: boolean;
     lodSplatCount?: number;
     lodSplatScale: number;
-    renderScale: number;
+    lodRenderScale: number;
     globalLodScale: number;
     maxPagedSplats: number;
     outsideFoveate: number;
@@ -254,7 +259,6 @@ export declare class NewSparkRenderer extends THREE.Mesh {
     coneFov0: number;
     coneFov: number;
     coneFoveate: number;
-    numLodFetchers: number;
     lodWorker: NewSplatWorker | null;
     lodMeshes: {
         mesh: SplatMesh;
@@ -276,11 +280,6 @@ export declare class NewSparkRenderer extends THREE.Mesh {
         indices: Uint32Array;
         texture: THREE.DataTexture;
     }>;
-    lodFetchers: Promise<void>[];
-    chunksToFetch: {
-        lodId: number;
-        chunk: number;
-    }[];
     lodUpdates: {
         lodId: number;
         pageBase: number;
@@ -366,8 +365,11 @@ export declare class NewSparkRenderer extends THREE.Mesh {
             type: string;
             value: THREE.DataTexture;
         };
-        extSplatsMode: {
-            value: number;
+        enableExtSplats: {
+            value: boolean;
+        };
+        enableCovSplats: {
+            value: boolean;
         };
         extSplats: {
             type: string;
@@ -400,8 +402,6 @@ export declare class NewSparkRenderer extends THREE.Mesh {
     private initLodTree;
     private pageSizeWarning;
     private updateLodInstances;
-    private driveLodFetchers;
-    private fetchLodChunk;
     private cleanupLodTrees;
     private updateLodIndices;
     private readbackDepth;
@@ -418,4 +418,27 @@ export declare class NewSparkRenderer extends THREE.Mesh {
         scene: THREE.Scene;
         camera: THREE.Camera;
     }): Promise<Uint8Array>;
+    private static cubeRender;
+    private static pmrem;
+    renderCubeMap({ scene, worldCenter, size, near, far, hideObjects, update, filter, }: {
+        scene: THREE.Scene;
+        worldCenter: THREE.Vector3;
+        size?: number;
+        near?: number;
+        far?: number;
+        hideObjects: THREE.Object3D[];
+        update: boolean;
+        filter: boolean;
+    }): Promise<THREE.CubeTexture>;
+    readCubeTargets(): Promise<Uint8Array[]>;
+    renderEnvMap({ scene, worldCenter, size, near, far, hideObjects, update, }: {
+        scene: THREE.Scene;
+        worldCenter: THREE.Vector3;
+        size?: number;
+        near?: number;
+        far?: number;
+        hideObjects: THREE.Object3D[];
+        update: boolean;
+    }): Promise<THREE.Texture>;
+    recurseSetEnvMap(root: THREE.Object3D, envMap: THREE.Texture): void;
 }

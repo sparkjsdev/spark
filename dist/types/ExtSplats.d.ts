@@ -1,6 +1,6 @@
 import { SplatFileType } from './SplatLoader';
 import { SplatSource } from './SplatMesh';
-import { DynoInt, DynoUniform, DynoUsampler2DArray, DynoVal, Gsplat, TExtSplats } from './dyno';
+import { DynoInt, DynoUniform, DynoVal, Gsplat, TExtSplats } from './dyno';
 import * as THREE from "three";
 export type ExtSplatsOptions = {
     url?: string;
@@ -74,17 +74,6 @@ export declare class DynoExtSplats extends DynoUniform<typeof TExtSplats, "extSp
         extSplats?: ExtSplats;
     });
 }
-export declare const defineEvaluateSH1: string;
-export declare const defineEvaluateSH12: string;
-export declare const defineEvaluateSH3: string;
-export declare function evaluateSH({ index, viewDir, numSh, sh1Texture, sh2Texture, sh3TextureA, sh3TextureB, }: {
-    index: DynoVal<"int">;
-    viewDir: DynoVal<"vec3">;
-    numSh: DynoVal<"int">;
-    sh1Texture?: DynoUsampler2DArray<"sh1", THREE.DataArrayTexture>;
-    sh2Texture?: DynoUsampler2DArray<"sh2", THREE.DataArrayTexture>;
-    sh3TextureA?: DynoUsampler2DArray<"sh3a", THREE.DataArrayTexture>;
-    sh3TextureB?: DynoUsampler2DArray<"sh3b", THREE.DataArrayTexture>;
-}): {
-    rgb: DynoVal<"vec3">;
-};
+export declare const defineEvaluateExtSH1: string;
+export declare const defineEvaluateExtSH12: string;
+export declare const defineEvaluateExtSH3: string;

@@ -529,9 +529,7 @@ export class NewSplatAccumulator {
       }
 
       const { generator, covGenerator } = node;
-      const theGenerator =
-        this.extSplats === true ? generator : (covGenerator ?? generator);
-      if (theGenerator && count > 0) {
+      if ((generator || covGenerator) && count > 0) {
         const { version, mappingVersion } = node;
         this.mapping.push({
           node,

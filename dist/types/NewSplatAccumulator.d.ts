@@ -20,11 +20,13 @@ export declare class NewSplatAccumulator {
     mapping: GeneratorMapping[];
     version: number;
     mappingVersion: number;
-    extSplats: boolean | "cov";
+    extSplats: boolean;
+    covSplats: boolean;
     readback: Readback | null;
     readbackSplats: DynoUsampler2DArray<"extSplats", THREE.DataArrayTexture>[];
-    constructor({ extSplats }?: {
-        extSplats?: boolean | "cov";
+    constructor({ extSplats, covSplats, }?: {
+        extSplats?: boolean;
+        covSplats?: boolean;
     });
     dispose(): void;
     getTextures(): THREE.DataArrayTexture[];

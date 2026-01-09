@@ -2,8 +2,9 @@ import { Dyno } from './base';
 import { CovSplat, Gsplat } from './splats';
 import { DynoVal, DynoValue, HasDynoOut } from './value';
 export declare const outputPackedSplat: (gsplat: DynoVal<typeof Gsplat>, rgbMinMaxLnScaleMinMax: DynoVal<"vec4">) => OutputPackedSplat;
+export declare const outputCovSplat: (covsplat: DynoVal<typeof CovSplat>, rgbMinMaxLnScaleMinMax: DynoVal<"vec4">) => OutputCovSplat;
 export declare const outputExtendedSplat: (gsplat: DynoVal<typeof Gsplat>) => OutputExtendedSplat;
-export declare const outputCovSplat: (covsplat: DynoVal<typeof CovSplat>) => OutputCovSplat;
+export declare const outputExtCovSplat: (covsplat: DynoVal<typeof CovSplat>) => OutputExtCovSplat;
 export declare const outputSplatDepth: (gsplat: DynoVal<typeof Gsplat>, viewCenter: DynoVal<"vec3">, viewDir: DynoVal<"vec3">, sortRadial: DynoVal<"bool">) => OutputSplatDepth;
 export declare const outputCovSplatDepth: (covsplat: DynoVal<typeof CovSplat>, viewCenter: DynoVal<"vec3">, viewDir: DynoVal<"vec3">, sortRadial: DynoVal<"bool">) => OutputCovSplatDepth;
 export declare const outputRgba8: (rgba8: DynoVal<"vec4">) => OutputRgba8;
@@ -16,6 +17,15 @@ export declare class OutputPackedSplat extends Dyno<{
         rgbMinMaxLnScaleMinMax?: DynoVal<"vec4">;
     });
 }
+export declare class OutputCovSplat extends Dyno<{
+    covsplat: typeof CovSplat;
+    rgbMinMaxLnScaleMinMax: "vec4";
+}, Record<string, never>> {
+    constructor({ covsplat, rgbMinMaxLnScaleMinMax, }: {
+        covsplat?: DynoVal<typeof CovSplat>;
+        rgbMinMaxLnScaleMinMax?: DynoVal<"vec4">;
+    });
+}
 export declare class OutputExtendedSplat extends Dyno<{
     gsplat: typeof Gsplat;
 }, Record<string, never>> {
@@ -23,7 +33,7 @@ export declare class OutputExtendedSplat extends Dyno<{
         gsplat?: DynoVal<typeof Gsplat>;
     });
 }
-export declare class OutputCovSplat extends Dyno<{
+export declare class OutputExtCovSplat extends Dyno<{
     covsplat: typeof CovSplat;
 }, Record<string, never>> {
     constructor({ covsplat, }: {

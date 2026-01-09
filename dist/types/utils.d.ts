@@ -48,18 +48,6 @@ export declare class FreeList<T, Args> {
     free(item: T): void;
     disposeAll(): void;
 }
-export declare function encodeCovSplat(extArrays: [Uint32Array, Uint32Array], index: number, x: number, y: number, z: number, opacity: number, r: number, g: number, b: number, xx: number, xy: number, xz: number, yy: number, yz: number, zz: number): void;
-export declare function decodeCovSplat(extArrays: [Uint32Array, Uint32Array], index: number): {
-    center: THREE.Vector3;
-    color: THREE.Color;
-    opacity: number;
-    xx: number;
-    xy: number;
-    xz: number;
-    yy: number;
-    yz: number;
-    zz: number;
-};
 export declare function encodeExtSplat(extArrays: [Uint32Array, Uint32Array], index: number, x: number, y: number, z: number, scaleX: number, scaleY: number, scaleZ: number, quatX: number, quatY: number, quatZ: number, quatW: number, opacity: number, r: number, g: number, b: number): void;
 export declare function decodeExtSplat(extArrays: [Uint32Array, Uint32Array], index: number): {
     center: THREE.Vector3;
