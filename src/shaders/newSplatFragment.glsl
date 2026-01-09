@@ -33,7 +33,8 @@ void main() {
     float a = rgba.a;
     float shifted = sqrt(z2) - max(0.0, a - 1.0);
     float exponent = -0.5 * max(1.0, a) * sqr(max(0.0, shifted));
-    rgba.a = min(1.0, a) * exp(exponent);
+    float min1a = min(1.0, a);
+    rgba.a = mix(min1a, min1a * exp(exponent), falloff);
 
     if (rgba.a < minAlpha) {
         discard;

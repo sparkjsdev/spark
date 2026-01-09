@@ -383,6 +383,10 @@ impl TsplatArray for GsplatArray {
         self.extras[parent].children = children.iter().copied().collect();
     }
 
+    fn clear_children(&mut self) {
+        self.extras.clear();
+    }
+
     fn retain<F: (FnMut(&mut Gsplat) -> bool)>(&mut self, mut f: F) {
         let keep: Vec<bool> = self.splats.iter_mut().map(|splat| f(splat)).collect();
         let mut bits = keep.iter();
@@ -402,6 +406,24 @@ impl TsplatArray for GsplatArray {
         if !self.sh3.is_empty() {
             let mut bits = keep.iter();
             self.sh3.retain(|_sh3| *bits.next().unwrap());
+        }
+    }
+
+    fn retain_children<F: (FnMut(&mut Gsplat, &[usize]) -> bool)>(&mut self, mut f: F) {
+        let keep: Vec<bool> = self.splats.iter_mut().enumerate()
+            .map(|(i, splat)| {
+                if i < self.extras.len() {
+                    f(splat, &self.extras[i].children)
+                } else {
+                    f(splat, &[])
+                }
+            })
+            .collect();
+        let mut bits = keep.iter();
+        self.splats.retain(|_splat| *bits.next().unwrap());
+        if !self.extras.is_empty() {
+            let mut bits = keep.iter();
+            self.extras.retain(|_extra| *bits.next().unwrap());
         }
     }
 

@@ -120,11 +120,6 @@ export type PackedSplatsOptions = {
   computeBoneWeights?: boolean;
   minBoneOpacity?: number;
   boneSplats?: PackedSplats;
-  paged?: {
-    url: string;
-    requestHeader?: Record<string, string>;
-    withCredentials?: boolean;
-  };
 };
 
 // A PackedSplats is a collection of Gaussian splats, packed into a format that
@@ -148,17 +143,6 @@ export class PackedSplats implements SplatSource {
   computeBoneWeights?: boolean;
   minBoneOpacity?: number;
   boneSplats?: PackedSplats;
-  paged?: {
-    url: string;
-    requestHeader?: Record<string, string>;
-    withCredentials?: boolean;
-  };
-  pageCache: THREE.DataArrayTexture | null = null;
-  chunkToPage: Map<number, number | null> = new Map();
-  chunkEvict: number[] = [];
-  pageFreelist: number[] = [];
-  pageMax = 0;
-  pageTop = 0;
 
   initialized: Promise<PackedSplats>;
   isInitialized = false;
@@ -178,9 +162,6 @@ export class PackedSplats implements SplatSource {
   dynoSh1MidScale: DynoUniform<"vec2", "sh1MidScale">;
   dynoSh2MidScale: DynoUniform<"vec2", "sh2MidScale">;
   dynoSh3MidScale: DynoUniform<"vec2", "sh3MidScale">;
-  // dynoSh1MinMax: DynoUniform<"vec2", "sh1MinMax">;
-  // dynoSh2MinMax: DynoUniform<"vec2", "sh2MinMax">;
-  // dynoSh3MinMax: DynoUniform<"vec2", "sh3MinMax">;
 
   constructor(options: PackedSplatsOptions = {}) {
     this.extra = {};
@@ -285,35 +266,21 @@ export class PackedSplats implements SplatSource {
     this.extra = options.extra ?? {};
     this.lodSplats = options.lodSplats;
     this.boneSplats = options.boneSplats;
-    this.paged = options.paged;
 
     if (options.packedArray) {
       this.packedArray = options.packedArray;
       this.numSplats = options.numSplats ?? this.packedArray.length / 4;
 
-      if (options.paged) {
-        // Allocate 16M splats worth of paged texture by default
-        this.maxSplats = options.maxSplats ?? (this.maxSplats || 65536 * 256);
-        this.ensurePagedTexture();
-
-        const numPages = Math.ceil(this.numSplats / 65536);
-        for (let page = 0; page < numPages; ++page) {
-          this.chunkToPage.set(page, page);
-        }
-        this.pageMax = Math.ceil(this.maxSplats / 65536);
-        this.pageTop = numPages;
-      } else {
-        // Calculate number of horizontal texture rows that could fit in array.
-        // A properly initialized packedArray should already take into account the
-        // width and height of the texture and be rounded up with padding.
-        this.maxSplats = Math.floor(this.packedArray.length / 4);
-        this.maxSplats =
-          Math.floor(this.maxSplats / SPLAT_TEX_WIDTH) * SPLAT_TEX_WIDTH;
-        this.numSplats = Math.min(
-          this.maxSplats,
-          options.numSplats ?? Number.POSITIVE_INFINITY,
-        );
-      }
+      // Calculate number of horizontal texture rows that could fit in array.
+      // A properly initialized packedArray should already take into account the
+      // width and height of the texture and be rounded up with padding.
+      this.maxSplats = Math.floor(this.packedArray.length / 4);
+      this.maxSplats =
+        Math.floor(this.maxSplats / SPLAT_TEX_WIDTH) * SPLAT_TEX_WIDTH;
+      this.numSplats = Math.min(
+        this.maxSplats,
+        options.numSplats ?? Number.POSITIVE_INFINITY,
+      );
     } else {
       this.maxSplats = options.maxSplats ?? 0;
       this.numSplats = 0;
@@ -324,6 +291,8 @@ export class PackedSplats implements SplatSource {
     const {
       url,
       fileBytes,
+      fileType,
+      fileName,
       construct,
       lod,
       nonLod,
@@ -338,14 +307,15 @@ export class PackedSplats implements SplatSource {
     this.minBoneOpacity = minBoneOpacity;
 
     const loader = new SplatLoader();
-    loader.packedSplats = this;
-    if (fileBytes) {
-      await loader.loadAsync(
-        fileBytes as unknown as string,
-        options.onProgress,
-      );
-    } else if (url) {
-      await loader.loadAsync(url, options.onProgress);
+    if (fileBytes || url) {
+      await loader.loadInternalAsync({
+        packedSplats: this,
+        url,
+        fileBytes,
+        fileType,
+        fileName,
+        onProgress: options.onProgress,
+      });
     }
 
     if (construct) {
@@ -370,10 +340,6 @@ export class PackedSplats implements SplatSource {
     }
     this.disposeLodSplats();
     this.disposeBoneSplats();
-    if (this.pageCache) {
-      this.pageCache.dispose();
-      this.pageCache = null;
-    }
   }
 
   prepareFetchSplat() {
@@ -402,13 +368,6 @@ export class PackedSplats implements SplatSource {
   }: { index: DynoVal<"int">; viewOrigin?: DynoVal<"vec3"> }): DynoVal<
     typeof Gsplat
   > {
-    // return dynoBlock(
-    //   { index: "int", viewOrigin: "vec3" },
-    //   { gsplat: Gsplat },
-    //   ({ index, viewOrigin }) => {
-    //     if (!index) {
-    //       throw new Error("index is required");
-    //     }
     let gsplat = readPackedSplat(this.dyno, index);
 
     if (this.hasRgbDir() && viewOrigin) {
@@ -778,118 +737,6 @@ export class PackedSplats implements SplatSource {
     return PackedSplats.getEmptyArray;
   }
 
-  ensurePagedTexture() {
-    if (this.pageCache) {
-      const { width, height, depth } = this.pageCache.image;
-      if (this.maxSplats !== width * height * depth) {
-        this.pageCache.dispose();
-        this.pageCache = null;
-      }
-    }
-    if (!this.pageCache) {
-      const maxSplats = Math.max(this.maxSplats, 65536 * 2);
-      const width = 256;
-      const height = 256;
-      const depth = Math.ceil(maxSplats / (width * height));
-
-      if (
-        !this.packedArray ||
-        this.packedArray.length < width * height * depth * 4
-      ) {
-        const newArray = new Uint32Array(width * height * depth * 4);
-        if (this.packedArray) {
-          newArray.set(this.packedArray);
-        }
-        this.packedArray = newArray;
-      }
-
-      this.pageCache = new THREE.DataArrayTexture(
-        this.packedArray as Uint32Array<ArrayBuffer>,
-        width,
-        height,
-        depth,
-      );
-      this.pageCache.format = THREE.RGBAIntegerFormat;
-      this.pageCache.type = THREE.UnsignedIntType;
-      this.pageCache.internalFormat = "RGBA32UI";
-      this.pageCache.needsUpdate = true;
-      this.maxSplats = width * height * depth;
-    }
-  }
-
-  allocTexturePage() {
-    let page = this.pageFreelist.shift();
-    if (page != null) {
-      return page;
-    }
-
-    if (this.pageTop >= this.pageMax) {
-      return undefined;
-    }
-    page = this.pageTop;
-    this.pageTop += 1;
-    this.numSplats = this.pageTop * 65536;
-    return page;
-  }
-
-  freeTexturePage(page: number) {
-    this.pageFreelist.push(page);
-  }
-
-  uploadTexturePage(
-    renderer: THREE.WebGLRenderer,
-    packedArray: Uint32Array,
-    page: number,
-  ) {
-    if (!this.packedArray || !this.pageCache) {
-      throw new Error("No packed array or page cache");
-    }
-    this.packedArray
-      .subarray(page * 65536 * 4, (page + 1) * 65536 * 4)
-      .set(packedArray);
-    this.pageCache.addLayerUpdate(page);
-    this.pageCache.needsUpdate = true;
-
-    // console.log("Uploading page", page, packedArray, this.pageCache?.image.data);
-    // new Uint32Array(this.packedArray.buffer, 4 * 4 * 65536 * page).set(packedArray);
-    // this.pageCache.needsUpdate = true;
-
-    // const gl = renderer.getContext() as WebGL2RenderingContext;
-    // if (!renderer.properties.has(this.pageCache)) {
-    //   throw new Error("Page cache not found");
-    // }
-    // const props = renderer.properties.get(this.pageCache) as {
-    //   __webglTexture: WebGLTexture;
-    // };
-    // const glTexture = props.__webglTexture;
-    // if (!glTexture) {
-    //   throw new Error("Page cache texture not found");
-    // }
-    // renderer.state.activeTexture(gl.TEXTURE0);
-    // renderer.state.bindTexture(gl.TEXTURE_2D, glTexture);
-    // const pageRows = 65536 / 4096;
-    // gl.texSubImage2D(
-    //   gl.TEXTURE_2D,
-    //   0,
-    //   0,
-    //   page * pageRows,
-    //   SPLAT_PAGED_WIDTH,
-    //   pageRows,
-    //   gl.RGBA_INTEGER,
-    //   gl.UNSIGNED_INT,
-    //   packedArray,
-    // );
-    // renderer.state.bindTexture(gl.TEXTURE_2D, null);
-  }
-
-  getPagedTexture(): THREE.DataArrayTexture {
-    if (!this.paged) {
-      throw new Error("PackedSplats is not paged");
-    }
-    this.ensurePagedTexture();
-    return this.pageCache as THREE.DataArrayTexture;
-  }
-
   // Check if source texture needs to be created/updated
   private maybeUpdateSource(): THREE.DataArrayTexture {
     if (!this.packedArray) {
@@ -1196,7 +1043,7 @@ export class DynoPackedSplats extends DynoUniform<
     textureArray: THREE.DataArrayTexture;
     numSplats: number;
     rgbMinMaxLnScaleMinMax: THREE.Vector4;
-    flagsPagedLodOpacity: number;
+    lodOpacity: boolean;
   }
 > {
   packedSplats?: PackedSplats;
@@ -1215,18 +1062,11 @@ export class DynoPackedSplats extends DynoUniform<
           LN_SCALE_MIN,
           LN_SCALE_MAX,
         ),
-        flagsPagedLodOpacity: 0,
+        lodOpacity: false,
       },
       update: (value) => {
-        if (this.packedSplats?.paged) {
-          value.textureArray =
-            this.packedSplats?.getPagedTexture() ?? PackedSplats.getEmptyArray;
-          value.flagsPagedLodOpacity = 0x1;
-        } else {
-          value.textureArray =
-            this.packedSplats?.getTexture() ?? PackedSplats.getEmptyArray;
-          value.flagsPagedLodOpacity = 0x0;
-        }
+        value.textureArray =
+          this.packedSplats?.getTexture() ?? PackedSplats.getEmptyArray;
         value.numSplats = this.packedSplats?.numSplats ?? 0;
         value.rgbMinMaxLnScaleMinMax.set(
           this.packedSplats?.splatEncoding?.rgbMin ?? 0,
@@ -1234,9 +1074,8 @@ export class DynoPackedSplats extends DynoUniform<
           this.packedSplats?.splatEncoding?.lnScaleMin ?? LN_SCALE_MIN,
           this.packedSplats?.splatEncoding?.lnScaleMax ?? LN_SCALE_MAX,
         );
-        value.flagsPagedLodOpacity =
-          value.flagsPagedLodOpacity |
-          (this.packedSplats?.splatEncoding?.lodOpacity ? 0x2 : 0x0);
+        value.lodOpacity =
+          this.packedSplats?.splatEncoding?.lodOpacity ?? false;
         return value;
       },
     });
@@ -1244,10 +1083,9 @@ export class DynoPackedSplats extends DynoUniform<
   }
 }
 
-export const defineEvaluateSH1 = unindent(`
-  vec3 evaluateSH1(int index, usampler2DArray sh1, vec3 viewDir) {
+export const defineEvalPackedSH1 = unindent(`
+  vec3 evaluatePackedSH1(uvec2 packed, vec3 viewDir) {
     // Extract sint7 values packed into 2 x uint32
-    uvec2 packed = texelFetch(sh1, splatTexCoord(index), 0).rg;
     vec3 sh1_0 = vec3(ivec3(
       int(packed.x << 25u) >> 25,
       int(packed.x << 18u) >> 25,
@@ -1270,10 +1108,9 @@ export const defineEvaluateSH1 = unindent(`
   }
 `);
 
-export const defineEvaluateSH2 = unindent(`
-  vec3 evaluateSH2(int index, usampler2DArray sh2, vec3 viewDir) {
+export const defineEvalPackedSH2 = unindent(`
+  vec3 evaluatePackedSH2(uvec4 packed, vec3 viewDir) {
     // Extract sint8 values packed into 4 x uint32
-    uvec4 packed = texelFetch(sh2, splatTexCoord(index), 0);
     vec3 sh2_0 = vec3(ivec3(
       int(packed.x << 24u) >> 24,
       int(packed.x << 16u) >> 24,
@@ -1308,10 +1145,9 @@ export const defineEvaluateSH2 = unindent(`
   }
 `);
 
-export const defineEvaluateSH3 = unindent(`
-  vec3 evaluateSH3(int index, usampler2DArray sh3, vec3 viewDir) {
+export const defineEvalPackedSH3 = unindent(`
+  vec3 evaluatePackedSH3(uvec4 packed, vec3 viewDir) {
     // Extract sint6 values packed into 4 x uint32
-    uvec4 packed = texelFetch(sh3, splatTexCoord(index), 0);
     vec3 sh3_0 = vec3(ivec3(
       int(packed.x << 26u) >> 26,
       int(packed.x << 20u) >> 26,
@@ -1365,7 +1201,7 @@ export const defineEvaluateSH3 = unindent(`
   }
 `);
 
-export function evaluateSH({
+function evaluateSH({
   index,
   viewDir,
   numSh,
@@ -1403,35 +1239,53 @@ export function evaluateSH({
       index,
       viewDir,
       numSh,
-      sh1Texture:
-        sh1Texture ?? dynoConst("usampler2DArray", PackedSplats.emptyUint32x2),
-      sh2Texture:
-        sh2Texture ?? dynoConst("usampler2DArray", PackedSplats.emptyUint32x4),
-      sh3Texture:
-        sh3Texture ?? dynoConst("usampler2DArray", PackedSplats.emptyUint32x4),
+      sh1Texture,
+      sh2Texture,
+      sh3Texture,
       sh1MidScale,
       sh2MidScale,
       sh3MidScale,
     },
-    globals: () => [defineEvaluateSH1, defineEvaluateSH2, defineEvaluateSH3],
-    statements: ({ inputs, outputs }) =>
-      unindentLines(`
-      vec3 rgb = vec3(0.0);
-      if (${inputs.numSh} >= 1) {
-        vec3 sh1Rgb = evaluateSH1(${inputs.index}, ${inputs.sh1Texture}, ${inputs.viewDir});
-        rgb += sh1Rgb * ${inputs.sh1MidScale}.y + ${inputs.sh1MidScale}.x;
-
-        if (${inputs.numSh} >= 2) {
-          vec3 sh2Rgb = evaluateSH2(${inputs.index}, ${inputs.sh2Texture}, ${inputs.viewDir});
-          rgb += sh2Rgb * ${inputs.sh2MidScale}.y + ${inputs.sh2MidScale}.x;
-
-          if (${inputs.numSh} >= 3) {
-            vec3 sh3Rgb = evaluateSH3(${inputs.index}, ${inputs.sh3Texture}, ${inputs.viewDir});
-            rgb += sh3Rgb * ${inputs.sh3MidScale}.y + ${inputs.sh3MidScale}.x;
+    globals: () => [
+      defineEvalPackedSH1,
+      defineEvalPackedSH2,
+      defineEvalPackedSH3,
+    ],
+    statements: ({ inputs, outputs }) => {
+      const lines = ["vec3 rgb = vec3(0.0);"];
+      if (inputs.sh1Texture) {
+        lines.push(
+          ...unindentLines(`
+          if (${inputs.numSh} >= 1) {
+            ivec3 coord = splatTexCoord(${inputs.index});
+            vec3 sh1Rgb = evaluatePackedSH1(texelFetch(${inputs.sh1Texture}, coord, 0).rg, ${inputs.viewDir});
+            rgb += sh1Rgb * ${inputs.sh1MidScale}.y + ${inputs.sh1MidScale}.x;
+          `),
+        );
+        if (inputs.sh2Texture) {
+          lines.push(
+            ...unindentLines(`
+            if (${inputs.numSh} >= 2) {
+              vec3 sh2Rgb = evaluatePackedSH2(texelFetch(${inputs.sh2Texture}, coord, 0), ${inputs.viewDir});
+              rgb += sh2Rgb * ${inputs.sh2MidScale}.y + ${inputs.sh2MidScale}.x;
+            `),
+          );
+          if (inputs.sh3Texture) {
+            lines.push(
+              ...unindentLines(`
+              if (${inputs.numSh} >= 3) {
+                vec3 sh3Rgb = evaluatePackedSH3(texelFetch(${inputs.sh3Texture}, coord, 0), ${inputs.viewDir});
+                rgb += sh3Rgb * ${inputs.sh3MidScale}.y + ${inputs.sh3MidScale}.x;
+              }
+            `),
+            );
           }
+          lines.push("}");
         }
+        lines.push("}");
       }
-      ${outputs.rgb} = rgb;
-    `),
+      lines.push(`${outputs.rgb} = rgb;`);
+      return lines;
+    },
   }).outputs;
 }

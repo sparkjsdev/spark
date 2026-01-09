@@ -1,6 +1,7 @@
 import * as THREE from "three";
 
 import {
+  CovSplat,
   Dyno,
   DynoInt,
   DynoUniform,
@@ -543,6 +544,15 @@ export class SplatEdits {
       this.dynoEdits,
     );
   }
+
+  modifyCov(covsplat: DynoVal<typeof CovSplat>): DynoVal<typeof CovSplat> {
+    return applyCovSplatRgbaDisplaceEdits(
+      covsplat,
+      this.dynoSdfArray,
+      this.dynoNumEdits,
+      this.dynoEdits,
+    );
+  }
 }
 
 // Dyno types and components:
@@ -824,6 +834,49 @@ function applyGsplatRgbaDisplaceEdits(
     },
   });
   return dyno.outputs.gsplat;
+}
+
+function applyCovSplatRgbaDisplaceEdits(
+  covsplat: DynoVal<typeof CovSplat>,
+  sdfArray: DynoVal<typeof SdfArray>,
+  numEdits: DynoVal<"int">,
+  rgbaDisplaceEdits: DynoVal<"uvec4">,
+): DynoVal<typeof CovSplat> {
+  const dyno = new Dyno<
+    {
+      covsplat: typeof CovSplat;
+      sdfArray: typeof SdfArray;
+      numEdits: "int";
+      rgbaDisplaceEdits: "uvec4";
+    },
+    { covsplat: typeof CovSplat }
+  >({
+    inTypes: {
+      covsplat: CovSplat,
+      sdfArray: SdfArray,
+      numEdits: "int",
+      rgbaDisplaceEdits: "uvec4",
+    },
+    outTypes: { covsplat: CovSplat },
+    globals: () => [defineSdfArray, defineEdit],
+    inputs: { covsplat, sdfArray, numEdits, rgbaDisplaceEdits },
+    statements: ({ inputs, outputs }) => {
+      const { sdfArray, numEdits, rgbaDisplaceEdits } = inputs;
+      const { covsplat } = outputs;
+      return unindentLines(`
+        ${covsplat} = ${inputs.covsplat};
+        if (isCovSplatActive(${covsplat}.flags)) {
+          for (int editIndex = 0; editIndex < ${numEdits}; ++editIndex) {
+            applyPackedRgbaDisplaceEdit(
+              ${rgbaDisplaceEdits}[editIndex], ${sdfArray}.sdfTexture, ${sdfArray}.numSdfs,
+              ${covsplat}.center, ${covsplat}.rgba
+            );
+          }
+        }
+      `);
+    },
+  });
+  return dyno.outputs.covsplat;
 }
 
 const tempFloat32 = new Float32Array(1);

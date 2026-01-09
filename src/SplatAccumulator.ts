@@ -2,6 +2,7 @@ import * as THREE from "three";
 
 import { PackedSplats } from "./PackedSplats";
 import type {
+  CovSplatGenerator,
   GsplatGenerator,
   SplatGenerator,
   SplatModifier,
@@ -16,6 +17,7 @@ import type {
 export type GeneratorMapping = {
   node: SplatGenerator;
   generator?: GsplatGenerator;
+  covGenerator?: CovSplatGenerator;
   version: number;
   mappingVersion?: number;
   base: number;

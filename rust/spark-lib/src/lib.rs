@@ -7,13 +7,21 @@ pub mod quick_lod;
 pub mod tiny_lod;
 pub mod ply;
 pub mod spz;
+pub mod antisplat;
+pub mod ksplat;
+pub mod sogs;
 pub mod decoder;
 pub mod splat_encode;
 pub mod ordering;
 
 #[cfg(test)]
 mod tests {
-    use super::{gsplat::*, spz::{SpzEncoder, SpzDecoder}};
+    use super::{
+        antisplat::{AntiSplatDecoder, AntiSplatEncoder},
+        gsplat::*,
+        ksplat::{KsplatDecoder, KsplatEncoder},
+        spz::{SpzDecoder, SpzEncoder},
+    };
     use super::decoder::ChunkReceiver;
     use glam::{Quat, Vec3A};
     use crate::tsplat::TsplatArray;
@@ -28,6 +36,59 @@ mod tests {
             Vec3A::from_array(scales),
             Quat::from_array(quat_xyzw),
         )
+    }
+
+    #[test]
+    fn antisplat_roundtrip_basic() {
+        let mut arr = GsplatArray::new_capacity(2, 0);
+        let splat_a = make_splat([0.1, 0.2, -0.3], 0.8, [0.3, 0.6, 0.9], [0.4, 0.5, 0.6], [0.0, 0.1, 0.2, 0.95]);
+        let splat_b = make_splat([-1.2, 3.4, 5.6], 0.4, [0.9, 0.1, 0.2], [1.0, 1.1, 1.2], [-0.3, 0.4, -0.5, 0.6]);
+        arr.push_splat(splat_a, None, None, None);
+        arr.push_splat(splat_b, None, None, None);
+
+        let encoded = AntiSplatEncoder::new(arr).encode().expect("encode ok");
+        let mut dec = AntiSplatDecoder::new(GsplatArray::new());
+        dec.push(&encoded).expect("push ok");
+        dec.finish().expect("finish ok");
+        let out = dec.into_splats();
+
+        assert_eq!(out.max_sh_degree, 0);
+        assert_eq!(out.len(), 2);
+
+        let a = &out.splats[0];
+        assert!(approx(a.center.x, 0.1, 1e-6));
+        assert!(approx(a.center.y, 0.2, 1e-6));
+        assert!(approx(a.center.z, -0.3, 1e-6));
+        assert!(approx(a.opacity.to_f32(), 0.8, 0.01));
+
+        let b = &out.splats[1];
+        assert!(approx(b.center.x, -1.2, 1e-6));
+        assert!(approx(b.center.y, 3.4, 1e-6));
+        assert!(approx(b.center.z, 5.6, 1e-6));
+        assert!(approx(b.opacity.to_f32(), 0.4, 0.01));
+    }
+
+    #[test]
+    fn ksplat_roundtrip_basic() {
+        let mut arr = GsplatArray::new_capacity(1, 1);
+        let splat = make_splat([0.01, -0.02, 0.03], 0.5, [0.25, 0.5, 0.75], [0.9, 1.0, 1.1], [0.2, -0.3, 0.4, 0.8]);
+        let sh1_vals: [f32; 9] = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9];
+        let mut sh1 = GsplatSH1::default();
+        sh1.set_from_array(&sh1_vals);
+        arr.push_splat(splat, Some(sh1), None, None);
+
+        let encoded = KsplatEncoder::new(arr).encode().expect("encode ok");
+        let mut dec = KsplatDecoder::new(GsplatArray::new());
+        dec.push(&encoded).expect("push ok");
+        dec.finish().expect("finish ok");
+        let out = dec.into_splats();
+
+        assert_eq!(out.len(), 1);
+        assert_eq!(out.max_sh_degree, 1);
+        let got = out.sh1[0].to_array();
+        for i in 0..9 {
+            assert!(approx(got[i], sh1_vals[i], 1e-3), "sh1[{i}] {} vs {}", got[i], sh1_vals[i]);
+        }
     }
 
     #[test]

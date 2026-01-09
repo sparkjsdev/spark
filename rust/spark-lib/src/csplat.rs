@@ -99,7 +99,7 @@ impl TsplatArray for CsplatArray {
         Self {
             max_sh_degree,
             splats: Vec::with_capacity(capacity),
-            children: Vec::with_capacity(capacity),
+            children: Vec::new(),//Vec::with_capacity(capacity),
             sh1: Vec::with_capacity(if max_sh_degree >= 1 { capacity } else { 0 }),
             sh2: Vec::with_capacity(if max_sh_degree >= 2 { capacity } else { 0 }),
             sh3: Vec::with_capacity(if max_sh_degree >= 3 { capacity } else { 0 }),
@@ -241,6 +241,10 @@ impl TsplatArray for CsplatArray {
         self.children[parent] = children.iter().map(|&i| i as u32).collect();
     }
 
+    fn clear_children(&mut self) {
+        self.children.clear();
+    }
+
     fn retain<F: (FnMut(&mut Csplat) -> bool)>(&mut self, mut f: F) {
         let keep: Vec<bool> = self.splats.iter_mut().map(|splat| f(splat)).collect();
         let mut bits = keep.iter();
@@ -257,6 +261,42 @@ impl TsplatArray for CsplatArray {
         if !self.sh2.is_empty() {
             let mut bits = keep.iter();
             self.sh2.retain(|_sh2| *bits.next().unwrap());
+        }
+        if !self.sh3.is_empty() {
+            let mut bits = keep.iter();
+            self.sh3.retain(|_sh3| *bits.next().unwrap());
+        }
+    }
+
+    fn retain_children<F: (FnMut(&mut Csplat, &[usize]) -> bool)>(&mut self, mut f: F) {
+        let keep: Vec<bool> = self.splats.iter_mut().enumerate()
+            .map(|(i, splat)| {
+                if let Some(children) = self.children.get(i) {
+                    let children: SmallVec<[usize; 4]> = children.iter().map(|&i| i as usize).collect();
+                    f(splat, &children)
+                } else {
+                    f(splat, &[])
+                }
+            })
+            .collect();
+        let mut bits = keep.iter();
+
+        self.splats.retain(|_splat| *bits.next().unwrap());
+        if !self.children.is_empty() {
+            let mut bits = keep.iter();
+            self.children.retain(|_children| *bits.next().unwrap());
+        }
+        if !self.sh1.is_empty() {
+            let mut bits = keep.iter();
+            self.sh1.retain(|_sh1| *bits.next().unwrap());
+        }
+        if !self.sh2.is_empty() {
+            let mut bits = keep.iter();
+            self.sh2.retain(|_sh2| *bits.next().unwrap());
+        }
+        if !self.sh3.is_empty() {
+            let mut bits = keep.iter();
+            self.sh3.retain(|_sh3| *bits.next().unwrap());
         }
     }
 

@@ -155,19 +155,21 @@ export class ExtSplats implements SplatSource {
   }
 
   async asyncInitialize(options: ExtSplatsOptions) {
-    const { url, fileBytes, construct, lod, nonLod } = options;
+    const { url, fileBytes, fileType, fileName, construct, lod, nonLod } =
+      options;
     this.lod = lod;
     this.nonLod = nonLod;
 
     const loader = new SplatLoader();
-    loader.extSplats = this;
-    if (fileBytes) {
-      await loader.loadAsync(
-        fileBytes as unknown as string,
-        options.onProgress,
-      );
-    } else if (url) {
-      await loader.loadAsync(url, options.onProgress);
+    if (fileBytes || url) {
+      await loader.loadInternalAsync({
+        extSplats: this,
+        url,
+        fileBytes,
+        fileType,
+        fileName,
+        onProgress: options.onProgress,
+      });
     }
 
     if (construct) {
@@ -206,7 +208,13 @@ export class ExtSplats implements SplatSource {
   }
 
   getNumSh(): number {
-    return !this.extra.sh1 ? 0 : !this.extra.sh2 ? 1 : !this.extra.sh3 ? 2 : 3;
+    return !this.extra.sh1
+      ? 0
+      : !this.extra.sh2
+        ? 1
+        : !this.extra.sh3a || !this.extra.sh3b
+          ? 2
+          : 3;
   }
 
   setMaxSh(maxSh: number) {
@@ -695,9 +703,8 @@ export class DynoExtSplats extends DynoUniform<
   }
 }
 
-export const defineEvaluateSH1 = unindent(`
-  vec3 evaluateSH1(ivec3 coord, usampler2DArray sh1, vec3 viewDir) {
-    uvec4 packed = texelFetch(sh1, coord, 0);
+export const defineEvaluateExtSH1 = unindent(`
+  vec3 evaluateExtSH1(uvec4 packed, vec3 viewDir) {
     vec3 sh1_0 = decodeExtRgb(packed.x);
     vec3 sh1_1 = decodeExtRgb(packed.y);
     vec3 sh1_2 = decodeExtRgb(packed.z);
@@ -708,11 +715,8 @@ export const defineEvaluateSH1 = unindent(`
   }
 `);
 
-export const defineEvaluateSH12 = unindent(`
-  vec3 evaluateSH12(ivec3 coord, usampler2DArray sh1, usampler2DArray sh2, vec3 viewDir) {
-    uvec4 packed1 = texelFetch(sh1, coord, 0);
-    uvec4 packed2 = texelFetch(sh2, coord, 0);
-
+export const defineEvaluateExtSH12 = unindent(`
+  vec3 evaluateExtSH12(uvec4 packed1, uvec4 packed2, vec3 viewDir) {
     vec3 sh1_0 = decodeExtRgb(packed1.x);
     vec3 sh1_1 = decodeExtRgb(packed1.y);
     vec3 sh1_2 = decodeExtRgb(packed1.z);
@@ -737,11 +741,8 @@ export const defineEvaluateSH12 = unindent(`
   }
 `);
 
-export const defineEvaluateSH3 = unindent(`
-  vec3 evaluateSH3(ivec3 coord, usampler2DArray sh3A, usampler2DArray sh3B, vec3 viewDir) {
-    uvec4 packedA = texelFetch(sh3A, coord, 0);
-    uvec4 packedB = texelFetch(sh3B, coord, 0);
-
+export const defineEvaluateExtSH3 = unindent(`
+  vec3 evaluateExtSH3(uvec4 packedA, uvec4 packedB, vec3 viewDir) {
     vec3 sh3_0 = decodeExtRgb(packedA.x);
     vec3 sh3_1 = decodeExtRgb(packedA.y);
     vec3 sh3_2 = decodeExtRgb(packedA.z);
@@ -767,7 +768,7 @@ export const defineEvaluateSH3 = unindent(`
   }
 `);
 
-export function evaluateSH({
+function evaluateSH({
   index,
   viewDir,
   numSh,
@@ -799,31 +800,52 @@ export function evaluateSH({
       index,
       viewDir,
       numSh,
-      sh1Texture:
-        sh1Texture ?? dynoConst("usampler2DArray", ExtSplats.emptyUint32x4),
-      sh2Texture:
-        sh2Texture ?? dynoConst("usampler2DArray", ExtSplats.emptyUint32x4),
-      sh3TextureA:
-        sh3TextureA ?? dynoConst("usampler2DArray", ExtSplats.emptyUint32x4),
-      sh3TextureB:
-        sh3TextureB ?? dynoConst("usampler2DArray", ExtSplats.emptyUint32x4),
+      sh1Texture,
+      sh2Texture,
+      sh3TextureA,
+      sh3TextureB,
     },
-    globals: () => [defineEvaluateSH1, defineEvaluateSH12, defineEvaluateSH3],
-    statements: ({ inputs, outputs }) =>
-      unindentLines(`
-      vec3 rgb = vec3(0.0);
-      ivec3 coord = splatTexCoord(${inputs.index});
-      if (${inputs.numSh} >= 2) {
-        rgb = evaluateSH12(coord, ${inputs.sh1Texture}, ${inputs.sh2Texture}, ${inputs.viewDir});
+    globals: () => [
+      defineEvaluateExtSH1,
+      defineEvaluateExtSH12,
+      defineEvaluateExtSH3,
+    ],
+    statements: ({ inputs, outputs }) => {
+      const lines = [
+        "vec3 rgb = vec3(0.0);",
+        `ivec3 coord = splatTexCoord(${inputs.index});`,
+      ];
+      if (inputs.sh1Texture) {
+        if (!inputs.sh2Texture) {
+          lines.push(
+            `rgb = evaluateExtSH1(texelFetch(${inputs.sh1Texture}, coord, 0), ${inputs.viewDir});`,
+          );
+        } else {
+          lines.push(
+            ...unindentLines(`
+            if (${inputs.numSh} == 1) {
+              rgb = evaluateExtSH1(texelFetch(${inputs.sh1Texture}, coord, 0), ${inputs.viewDir});
+            } else {
+              rgb = evaluateExtSH12(texelFetch(${inputs.sh1Texture}, coord, 0), texelFetch(${inputs.sh2Texture}, coord, 0), ${inputs.viewDir});
+            `),
+          );
 
-        if (${inputs.numSh} >= 3) {
-          rgb += evaluateSH3(coord, ${inputs.sh3TextureA}, ${inputs.sh3TextureB}, ${inputs.viewDir});
+          if (inputs.sh3TextureA && inputs.sh3TextureB) {
+            lines.push(
+              ...unindentLines(`
+              if (${inputs.numSh} >= 3) {
+                rgb += evaluateExtSH3(texelFetch(${inputs.sh3TextureA}, coord, 0), texelFetch(${inputs.sh3TextureB}, coord, 0), ${inputs.viewDir});
+              }
+            `),
+            );
+          }
+
+          lines.push("}");
         }
-      } else if (${inputs.numSh} == 1) {
-        rgb = evaluateSH1(coord, ${inputs.sh1Texture}, ${inputs.viewDir});
       }
-      ${outputs.rgb} = rgb;
-    `),
+      lines.push(`${outputs.rgb} = rgb;`);
+      return lines;
+    },
   }).outputs;
 }
 

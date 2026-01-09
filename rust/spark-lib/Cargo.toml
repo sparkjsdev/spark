@@ -17,3 +17,6 @@ miniz_oxide.workspace = true
 serde.workspace = true
 smallvec.workspace = true
 itertools.workspace = true
+serde_json.workspace = true
+zip.workspace = true
+image.workspace = true

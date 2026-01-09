@@ -70,13 +70,13 @@ export class SparkControls {
     this.pointerControls = new PointerControls({ canvas });
   }
 
-  update(control: THREE.Object3D) {
+  update(control: THREE.Object3D, camera?: THREE.Camera) {
     const time = performance.now();
     const deltaTime = (time - (this.lastTime || time)) / 1000;
     this.lastTime = time;
 
     this.fpsMovement.update(deltaTime, control);
-    this.pointerControls.update(deltaTime, control);
+    this.pointerControls.update(deltaTime, control, camera);
   }
 }
 
@@ -566,7 +566,7 @@ export class PointerControls {
     );
   }
 
-  update(deltaTime: number, control: THREE.Object3D) {
+  update(deltaTime: number, control: THREE.Object3D, camera?: THREE.Camera) {
     if (!this.enable) {
       return;
     }
@@ -603,13 +603,13 @@ export class PointerControls {
           .add(this.sliding.last)
           .multiplyScalar(0.5);
         let midpointDir = new THREE.Vector3();
-        if (control instanceof THREE.Camera) {
+        if (camera) {
           const ndcMidpoint = new THREE.Vector2(
             (midpoint.x / this.canvas.clientWidth) * 2 - 1,
             -(midpoint.y / this.canvas.clientHeight) * 2 + 1,
           );
           const raycaster = new THREE.Raycaster();
-          raycaster.setFromCamera(ndcMidpoint, control);
+          raycaster.setFromCamera(ndcMidpoint, camera);
           midpointDir = raycaster.ray.direction;
         }
         const pinchOut = motionDir[1] - motionDir[0];

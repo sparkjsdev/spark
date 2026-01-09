@@ -2,11 +2,18 @@ import * as THREE from "three";
 import { LN_SCALE_MAX, LN_SCALE_MIN, dyno } from ".";
 import { workerPool } from "./NewSplatWorker";
 import {
-  DEFAULT_SPLAT_ENCODING,
   type SplatEncoding,
-  evaluateSH,
+  defineEvalPackedSH1,
+  defineEvalPackedSH2,
+  defineEvalPackedSH3,
 } from "./PackedSplats";
 import type { SplatSource } from "./SplatMesh";
+import {
+  Dyno,
+  type DynoUsampler2DArray,
+  type DynoVal,
+  unindentLines,
+} from "./dyno";
 import { getTextureSize } from "./utils";
 
 export interface PagedSplatsOptions {
@@ -265,7 +272,7 @@ export class PagedSplats implements SplatSource {
       indices: this.dynoIndices,
     }).index;
     if (this.hasRgbDir() && viewOrigin) {
-      this.dynoNumSh.value = Math.min(this.numSh, this.pager.maxSh);
+      this.dynoNumSh.value = Math.min(this.numSh, this.maxSh, this.pager.maxSh);
       return this.pager.readSplatDir.apply({
         index: splatIndex,
         rgbMinMaxLnScaleMinMax: this.rgbMinMaxLnScaleMinMax,
@@ -751,7 +758,6 @@ export class SplatPager {
       .set(packedArray);
     this.packedTexture.value.addLayerUpdate(page);
     this.packedTexture.value.needsUpdate = true;
-    // console.log("*** uploaded page", page, packedArray.slice(0, 5).join(","));
 
     const numSh = extra.sh3 ? 3 : extra.sh2 ? 2 : extra.sh1 ? 1 : 0;
     this.ensureShTextures(numSh);
@@ -775,8 +781,7 @@ export class SplatPager {
       //   extra.sh1 as Uint32Array<ArrayBuffer>,
       // );
       const sh1 = extra.sh1 as Uint32Array<ArrayBuffer>;
-      const array = this.sh1Texture.value.image
-        .data as Uint32Array<ArrayBuffer>;
+      const array = this.sh1Texture.value.image.data;
       array.subarray(pageBase * 2, pageBase * 2 + sh1.length).set(sh1);
       this.sh1Texture.value.addLayerUpdate(page);
       this.sh1Texture.value.needsUpdate = true;
@@ -800,8 +805,7 @@ export class SplatPager {
       //   extra.sh2 as Uint32Array<ArrayBuffer>,
       // );
       const sh2 = extra.sh2 as Uint32Array<ArrayBuffer>;
-      const array = this.sh2Texture.value.image
-        .data as Uint32Array<ArrayBuffer>;
+      const array = this.sh2Texture.value.image.data;
       array.subarray(pageBase * 4, pageBase * 4 + sh2.length).set(sh2);
       this.sh2Texture.value.addLayerUpdate(page);
       this.sh2Texture.value.needsUpdate = true;
@@ -825,11 +829,11 @@ export class SplatPager {
       //   extra.sh3 as Uint32Array<ArrayBuffer>,
       // );
       const sh3 = extra.sh3 as Uint32Array<ArrayBuffer>;
-      const array = this.sh3Texture.value.image
-        .data as Uint32Array<ArrayBuffer>;
+      const array = this.sh3Texture.value.image.data;
       array.subarray(pageBase * 4, pageBase * 4 + sh3.length).set(sh3);
       this.sh3Texture.value.addLayerUpdate(page);
       this.sh3Texture.value.needsUpdate = true;
+      // console.log("*** uploaded sh3Texture", sh3.length, pageBase);
     }
 
     // this.renderer.state.bindTexture(gl.TEXTURE_2D_ARRAY, null);
@@ -1065,4 +1069,94 @@ function getGlTexture(
     throw new Error("texture not found");
   }
   return glTexture;
+}
+
+function evaluateSH({
+  index,
+  viewDir,
+  numSh,
+  sh1Texture,
+  sh2Texture,
+  sh3Texture,
+  sh1MidScale,
+  sh2MidScale,
+  sh3MidScale,
+}: {
+  index: DynoVal<"int">;
+  viewDir: DynoVal<"vec3">;
+  numSh: DynoVal<"int">;
+  sh1Texture?: DynoUsampler2DArray<"sh1", THREE.DataArrayTexture>;
+  sh2Texture?: DynoUsampler2DArray<"sh2", THREE.DataArrayTexture>;
+  sh3Texture?: DynoUsampler2DArray<"sh3", THREE.DataArrayTexture>;
+  sh1MidScale: DynoVal<"vec2">;
+  sh2MidScale: DynoVal<"vec2">;
+  sh3MidScale: DynoVal<"vec2">;
+}) {
+  return new Dyno({
+    inTypes: {
+      index: "int",
+      viewDir: "vec3",
+      numSh: "int",
+      sh1Texture: "usampler2DArray",
+      sh2Texture: "usampler2DArray",
+      sh3Texture: "usampler2DArray",
+      sh1MidScale: "vec2",
+      sh2MidScale: "vec2",
+      sh3MidScale: "vec2",
+    },
+    outTypes: { rgb: "vec3" },
+    inputs: {
+      index,
+      viewDir,
+      numSh,
+      sh1Texture,
+      sh2Texture,
+      sh3Texture,
+      sh1MidScale,
+      sh2MidScale,
+      sh3MidScale,
+    },
+    globals: () => [
+      defineEvalPackedSH1,
+      defineEvalPackedSH2,
+      defineEvalPackedSH3,
+    ],
+    statements: ({ inputs, outputs }) => {
+      const lines = ["vec3 rgb = vec3(0.0);"];
+      if (inputs.sh1Texture) {
+        lines.push(
+          ...unindentLines(`
+          if (${inputs.numSh} >= 1) {
+            int index = ${inputs.index};
+            ivec3 coord = ivec3(index & 255, (index >> 8) & 255, index >> 16);
+            vec3 sh1Rgb = evaluatePackedSH1(texelFetch(${inputs.sh1Texture}, coord, 0).rg, ${inputs.viewDir});
+            rgb += sh1Rgb * ${inputs.sh1MidScale}.y + ${inputs.sh1MidScale}.x;
+          `),
+        );
+        if (inputs.sh2Texture) {
+          lines.push(
+            ...unindentLines(`
+            if (${inputs.numSh} >= 2) {
+              vec3 sh2Rgb = evaluatePackedSH2(texelFetch(${inputs.sh2Texture}, coord, 0), ${inputs.viewDir});
+              rgb += sh2Rgb * ${inputs.sh2MidScale}.y + ${inputs.sh2MidScale}.x;
+            `),
+          );
+          if (inputs.sh3Texture) {
+            lines.push(
+              ...unindentLines(`
+              if (${inputs.numSh} >= 3) {
+                vec3 sh3Rgb = evaluatePackedSH3(texelFetch(${inputs.sh3Texture}, coord, 0), ${inputs.viewDir});
+                rgb += sh3Rgb * ${inputs.sh3MidScale}.y + ${inputs.sh3MidScale}.x;
+              }
+            `),
+            );
+          }
+          lines.push("}");
+        }
+        lines.push("}");
+      }
+      lines.push(`${outputs.rgb} = rgb;`);
+      return lines;
+    },
+  }).outputs;
 }

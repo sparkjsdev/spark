@@ -4,8 +4,11 @@ use miniz_oxide::inflate::{core::{decompress, inflate_flags::{TINFL_FLAG_HAS_MOR
 use serde::Serialize;
 
 use crate::{
-    ply::{PlyDecoder, PLY_MAGIC},
-    spz::{SpzDecoder, SPZ_MAGIC},
+    antisplat::AntiSplatDecoder,
+    ksplat::KsplatDecoder,
+    ply::{PLY_MAGIC, PlyDecoder},
+    sogs::SogsDecoder,
+    spz::{SPZ_MAGIC, SpzDecoder},
 };
 
 pub trait ChunkReceiver: Any {
@@ -291,6 +294,9 @@ pub trait SplatGetter: 'static {
 pub enum SplatFileType {
     PLY,
     SPZ,
+    ANTISPLAT,
+    KSPLAT,
+    SOGS,
 }
 
 impl SplatFileType {
@@ -298,6 +304,9 @@ impl SplatFileType {
         match self {
             Self::PLY => "ply",
             Self::SPZ => "spz",
+            Self::ANTISPLAT => "antisplat",
+            Self::KSPLAT => "ksplat",
+            Self::SOGS => "sogs",
         }
     }
 
@@ -305,6 +314,9 @@ impl SplatFileType {
         match enum_str {
             "ply" => Ok(Self::PLY),
             "spz" => Ok(Self::SPZ),
+            "antisplat" => Ok(Self::ANTISPLAT),
+            "ksplat" => Ok(Self::KSPLAT),
+            "sogs" => Ok(Self::SOGS),
             _ => Err(anyhow::anyhow!("Invalid file type: {}", enum_str)),
         }
     }
@@ -313,6 +325,10 @@ impl SplatFileType {
         match extension.to_lowercase().as_str() {
             "ply" => Some(Self::PLY),
             "spz" => Some(Self::SPZ),
+            "splat" => Some(Self::ANTISPLAT),
+            "ksplat" => Some(Self::KSPLAT),
+            "sogs" => Some(Self::SOGS),
+            "zip" => Some(Self::SOGS),
             _ => None,
         }
     }
@@ -358,10 +374,23 @@ impl<T: SplatReceiver> MultiDecoder<T> {
             Ok(ply) => { return ply.into_splats(); },
             Err(inner_any) => inner_any,
         };
-        let _inner_any = match inner_any.downcast::<SpzDecoder<T>>() {
+        let inner_any = match inner_any.downcast::<SpzDecoder<T>>() {
             Ok(spz) => { return spz.into_splats(); },
             Err(inner_any) => inner_any,
         };
+        let inner_any = match inner_any.downcast::<AntiSplatDecoder<T>>() {
+            Ok(antisplat) => { return antisplat.into_splats(); },
+            Err(inner_any) => inner_any,
+        };
+        let inner_any = match inner_any.downcast::<KsplatDecoder<T>>() {
+            Ok(ksplat) => { return ksplat.into_splats(); },
+            Err(inner_any) => inner_any,
+        };
+        let inner_any = match inner_any.downcast::<SogsDecoder<T>>() {
+            Ok(sogs) => { return sogs.into_splats(); },
+            Err(inner_any) => inner_any,
+        };
+        let _ = inner_any;
         panic!("Invalid decoder type");
     }
 
@@ -407,6 +436,13 @@ impl<T: SplatReceiver> ChunkReceiver for MultiDecoder<T> {
                         }
                     }
                 }
+            } else if magic == 0x04034b50 {
+                detection_complete = true;
+                if let Some(pathname) = &self.pathname {
+                    if let Some(SplatFileType::SOGS) = SplatFileType::from_pathname(pathname) {
+                        return self.init_file_type(SplatFileType::SOGS);
+                    }
+                }
             } else {
                 detection_complete = true;
             }
@@ -440,6 +476,9 @@ fn new_decoder<T: SplatReceiver>(file_type: SplatFileType, splats: T) -> Box<dyn
     match file_type {
         SplatFileType::PLY => Box::new(PlyDecoder::new(splats)),
         SplatFileType::SPZ => Box::new(SpzDecoder::new(splats)),
+        SplatFileType::ANTISPLAT => Box::new(AntiSplatDecoder::new(splats)),
+        SplatFileType::KSPLAT => Box::new(KsplatDecoder::new(splats)),
+        SplatFileType::SOGS => Box::new(SogsDecoder::new(splats, None)),
     }
 }
 
@@ -537,7 +576,7 @@ fn try_gunzip(buffer: &[u8], max_bytes: usize) -> anyhow::Result<Option<Vec<u8>>
 }
 
 pub fn copy_getter_to_receiver<G: SplatGetter, R: SplatReceiver>(getter: &mut G, receiver: &mut R) -> anyhow::Result<()> {
-    const MAX_SPLAT_CHUNK: usize = 16384;
+    const MAX_SPLAT_CHUNK: usize = 65536;
 
     let num_splats = getter.num_splats();
     let max_sh_degree = getter.max_sh_degree();

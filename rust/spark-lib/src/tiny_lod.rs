@@ -39,7 +39,7 @@ pub fn compute_lod_tree<SA: TsplatArray>(splats: &mut SA, lod_base: f32, merge_f
     let mut level = level_min;
     let initial_splats = splats.len();
     let mut frontier = 0;
-    let mut active: Vec<usize> = Vec::new();
+    let mut active: Vec<(usize, [u64; 3])> = Vec::new();
     let mut levels_output: Vec<_> = Vec::new();
     let mut make_root = false;
 
@@ -52,25 +52,25 @@ pub fn compute_lod_tree<SA: TsplatArray>(splats: &mut SA, lod_base: f32, merge_f
             if splats.get(frontier).feature_size() > step {
                 break;
             }
-            active.push(frontier);
+            active.push((frontier, [0, 0, 0]));
             frontier += 1;
         }
         logger(&format!("Level: {}, step: {}, frontier: {} / {}", level, step, frontier, initial_splats));
 
-        active.sort_unstable_by_key(|&index| {
-            let grid = splats.get(index as usize).grid(step);
-            let index3 = ordering::morton_coord64_to_index(grid.to_array().map(|x| x as u64));
-            [index3[2], index3[1], index3[0]]
-        });
+        for (index, morton3) in active.iter_mut() {
+            let grid = splats.get(*index).grid(step);
+            *morton3 = ordering::morton_coord64_to_index(grid.to_array().map(|x| x as u64));
+        }
+        active.sort_unstable_by_key(|&(_, coord)| coord);
         logger(&format!("Sorted active: {}", active.len()));
 
-        let mut min_max_size = [f32::INFINITY, -f32::INFINITY];
-        for &index in &active {
-            let size = splats.get(index).feature_size();
-            min_max_size[0] = min_max_size[0].min(size);
-            min_max_size[1] = min_max_size[1].max(size);
-        }
-        logger(&format!("min_max_size: {:?}", min_max_size));
+        // let mut min_max_size = [f32::INFINITY, -f32::INFINITY];
+        // for &index in &active {
+        //     let size = splats.get(index).feature_size();
+        //     min_max_size[0] = min_max_size[0].min(size);
+        //     min_max_size[1] = min_max_size[1].max(size);
+        // }
+        // logger(&format!("min_max_size: {:?}", min_max_size));
 
         let mut start = 0;
         let mut next_active = Vec::new();
@@ -80,12 +80,12 @@ pub fn compute_lod_tree<SA: TsplatArray>(splats: &mut SA, lod_base: f32, merge_f
         let mut grid_min_max = [I64Vec3::splat(i64::MAX), I64Vec3::splat(i64::MIN)];
 
         while start < active.len() {
-            let grid = splats.get(active[start] as usize).grid(step);
+            let grid = splats.get(active[start].0).grid(step);
             grid_min_max = [grid_min_max[0].min(grid), grid_min_max[1].max(grid)];
 
             let mut end = start + 1;
             while end < active.len() {
-                if !make_root && splats.get(active[end] as usize).grid(step) != grid {
+                if !make_root && splats.get(active[end].0).grid(step) != grid {
                     break;
                 }
                 end += 1;
@@ -97,12 +97,13 @@ pub fn compute_lod_tree<SA: TsplatArray>(splats: &mut SA, lod_base: f32, merge_f
 
             if count > 1 {
                 let merge_step = if merge_filter { step } else { 0.0 };
-                let merged = splats.new_merged(&active[start..end], merge_step);
+                let indices: SmallVec<[usize; 4]> = (start..end).map(|i| active[i].0).collect();
+                let merged = splats.new_merged(&indices, merge_step);
                 next_active.push(merged);
-                output.push((merged, (start..end).map(|i| active[i]).collect::<SmallVec<[usize; 4]>>()));
+                output.push((merged, indices));
                 merged_count += 1;
             } else {
-                next_active.push(active[start]);
+                next_active.push(active[start].0);
             }
 
             start = end;
@@ -111,10 +112,11 @@ pub fn compute_lod_tree<SA: TsplatArray>(splats: &mut SA, lod_base: f32, merge_f
         logger(&format!("Merged: {} / {}", merged_count, cell_count));
         let mut child_counts = child_counts.drain().collect::<Vec<_>>();
         child_counts.sort_unstable_by_key(|(len, _)| *len);
-        logger(&format!("Child counts: {:?}", child_counts));
+        // logger(&format!("Child counts: {:?}", child_counts));
 
         levels_output.push(output);
-        std::mem::swap(&mut active, &mut next_active);
+        active.clear();
+        active.extend(next_active.into_iter().map(|index| (index, [0, 0, 0])));
         level += 1;
 
         if frontier < initial_splats {
@@ -134,7 +136,7 @@ pub fn compute_lod_tree<SA: TsplatArray>(splats: &mut SA, lod_base: f32, merge_f
     }
 
     assert_eq!(active.len(), 1);
-    let root_index = active[0];
+    let root_index = active[0].0;
     levels_output.push(vec![(usize::MAX, smallvec![root_index])]);
 
     logger(&format!("Root index: {}", root_index));

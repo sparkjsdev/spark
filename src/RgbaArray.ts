@@ -132,7 +132,7 @@ export class RgbaArray {
       if (!this.source) {
         const { width, height, depth } = getTextureSize(this.capacity);
         this.source = new THREE.DataArrayTexture(
-          this.array,
+          this.array as Uint8Array<ArrayBuffer>,
           width,
           height,
           depth,

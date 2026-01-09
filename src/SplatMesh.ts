@@ -4,7 +4,6 @@ import init_wasm, { raycast_splats } from "spark-internal-rs";
 import { ExtSplats } from "./ExtSplats";
 import {
   DEFAULT_SPLAT_ENCODING,
-  DynoPackedSplats,
   PackedSplats,
   type SplatEncoding,
 } from "./PackedSplats";
@@ -12,6 +11,8 @@ import { type RgbaArray, TRgbaArray } from "./RgbaArray";
 import { SparkRenderer } from "./SparkRenderer";
 import { SplatEdit, SplatEditSdf, SplatEdits } from "./SplatEdit";
 import {
+  type CovSplatModifier,
+  CovSplatTransformer,
   type FrameUpdateContext,
   type GsplatModifier,
   SplatGenerator,
@@ -22,6 +23,7 @@ import { PagedSplats, SplatPager } from "./SplatPager";
 import type { SplatSkinning } from "./SplatSkinning";
 import { LN_SCALE_MAX, LN_SCALE_MIN } from "./defines";
 import {
+  CovSplat,
   Dyno,
   DynoBool,
   DynoFloat,
@@ -30,12 +32,14 @@ import {
   type DynoVal,
   DynoVec4,
   Gsplat,
-  add,
+  combineCovSplat,
   combineGsplat,
   defineGsplat,
   dyno,
   dynoBlock,
+  gsplatToCovSplat,
   mul,
+  splitCovSplat,
   splitGsplat,
   unindentLines,
 } from "./dyno";
@@ -91,14 +95,20 @@ export type SplatMeshOptions = {
   // gsplat: DynoVal<Gsplat> to an output gsplat: DynoVal<Gsplat> with gsplat.center
   // coordinate in object-space. (default: undefined)
   objectModifier?: GsplatModifier;
+  objectModifiers?: GsplatModifier[];
   // Gsplat modifier to apply in world-space after transformations.
   // (default: undefined)
   worldModifier?: GsplatModifier;
+  worldModifiers?: GsplatModifier[];
+  covObjectModifiers?: CovSplatModifier[];
+  covWorldModifiers?: CovSplatModifier[];
   // Override the default splat encoding ranges for the PackedSplats.
   // (default: undefined)
   splatEncoding?: SplatEncoding;
   // Set to true to load/use "extended splat" encoding with float32 x/y/z
   extSplats?: boolean | ExtSplats;
+  // Set to true to output covariance splats for anisotropic scaling
+  covSplats?: boolean;
   // Enable LOD. If a number is provided, it will be used as LoD level base,
   // otherwise the default 1.5 is used. When loading a file without pre-computed
   // LoD it will use the "quick lod" algorithm to generate one on-the-fly with
@@ -134,11 +144,14 @@ export type SplatMeshContext = {
   viewToWorld: SplatTransformer;
   worldToView: SplatTransformer;
   viewToObject: SplatTransformer;
+  covTransform: CovSplatTransformer;
+  covViewToWorld: CovSplatTransformer;
+  covWorldToView: CovSplatTransformer;
+  covViewToObject: CovSplatTransformer;
   recolor: DynoVec4<THREE.Vector4>;
   time: DynoFloat;
   deltaTime: DynoFloat;
   numSplats: DynoInt<string>;
-  // splats: DynoPackedSplats;
   splats: SplatSource;
   enableLod: DynoBool<string>;
   lodIndices: DynoUsampler2D<"lodIndices", THREE.DataTexture>;
@@ -207,6 +220,7 @@ export class SplatMesh extends SplatGenerator {
   // for an example of rendering "Gsplat hands" in WebXR using this technique.)
   packedSplats?: PackedSplats;
   extSplats?: ExtSplats;
+  covSplats: boolean;
   splats?: SplatSource;
   paged?: PagedSplats;
 
@@ -226,8 +240,10 @@ export class SplatMesh extends SplatGenerator {
     deltaTime,
   }: { mesh: SplatMesh; time: number; deltaTime: number }) => void;
 
-  objectModifier?: GsplatModifier;
-  worldModifier?: GsplatModifier;
+  objectModifiers?: GsplatModifier[];
+  worldModifiers?: GsplatModifier[];
+  covObjectModifiers?: CovSplatModifier[];
+  covWorldModifiers?: CovSplatModifier[];
   // Set to true to have the viewToObject property in context be updated each frame.
   // If the mesh has extra.sh1 (first order spherical harmonics directional lighting)
   // this property will always be updated. (default: false)
@@ -247,7 +263,7 @@ export class SplatMesh extends SplatGenerator {
   editable: boolean;
   raycastable: boolean;
   // Compiled SplatEdits for applying SDF edits to splat RGBA + centers
-  private rgbaDisplaceEdits: SplatEdits | null = null;
+  rgbaDisplaceEdits: SplatEdits | null = null;
   // Optional RgbaArray to overwrite splat RGBA values with custom values.
   // Useful for "baking" RGB and opacity edits into the SplatMesh. (default: null)
   splatRgba: RgbaArray | null = null;
@@ -265,25 +281,6 @@ export class SplatMesh extends SplatGenerator {
   coneFoveate?: number;
 
   constructor(options: SplatMeshOptions = {}) {
-    const context = {
-      transform: new SplatTransformer(),
-      viewToWorld: new SplatTransformer(),
-      worldToView: new SplatTransformer(),
-      viewToObject: new SplatTransformer(),
-      recolor: new DynoVec4({
-        value: new THREE.Vector4().setScalar(Number.NEGATIVE_INFINITY),
-      }),
-      time: new DynoFloat({ value: 0 }),
-      deltaTime: new DynoFloat({ value: 0 }),
-      numSplats: new DynoInt({ value: 0 }),
-      splats: new EmptySplatSource(),
-      enableLod: new DynoBool({ value: false }),
-      lodIndices: new DynoUsampler2D({
-        value: emptyLodIndices,
-        key: "lodIndices",
-      }),
-    };
-
     super({
       update: (context) => this.update(context),
     });
@@ -323,9 +320,44 @@ export class SplatMesh extends SplatGenerator {
     this.raycastable = options.raycastable ?? true;
     this.onFrame = options.onFrame;
 
-    this.context = context;
-    this.objectModifier = options.objectModifier;
-    this.worldModifier = options.worldModifier;
+    this.context = {
+      transform: new SplatTransformer(),
+      viewToWorld: new SplatTransformer(),
+      worldToView: new SplatTransformer(),
+      viewToObject: new SplatTransformer(),
+      covTransform: new CovSplatTransformer(),
+      covViewToWorld: new CovSplatTransformer(),
+      covWorldToView: new CovSplatTransformer(),
+      covViewToObject: new CovSplatTransformer(),
+      recolor: new DynoVec4({
+        value: new THREE.Vector4().setScalar(Number.NEGATIVE_INFINITY),
+      }),
+      time: new DynoFloat({ value: 0 }),
+      deltaTime: new DynoFloat({ value: 0 }),
+      numSplats: new DynoInt({ value: 0 }),
+      splats: new EmptySplatSource(),
+      enableLod: new DynoBool({ value: false }),
+      lodIndices: new DynoUsampler2D({
+        value: emptyLodIndices,
+        key: "lodIndices",
+      }),
+    };
+
+    this.covSplats = options.covSplats ?? false;
+
+    this.objectModifiers = options.objectModifier
+      ? [options.objectModifier]
+      : undefined;
+    this.worldModifiers = options.worldModifier
+      ? [options.worldModifier]
+      : undefined;
+
+    if (options.objectModifiers) {
+      this.objectModifiers = options.objectModifiers;
+    }
+    if (options.worldModifiers) {
+      this.worldModifiers = options.worldModifiers;
+    }
 
     this.enableLod = options.enableLod;
     this.lodScale = options.lodScale ?? 1.0;
@@ -568,7 +600,24 @@ export class SplatMesh extends SplatGenerator {
     return box;
   }
 
-  constructGenerator(context: SplatMeshContext) {
+  set objectModifier(modifier: GsplatModifier | undefined) {
+    if (modifier) {
+      this.objectModifiers = [modifier];
+    } else {
+      this.objectModifiers = undefined;
+    }
+  }
+
+  set worldModifier(modifier: GsplatModifier | undefined) {
+    if (modifier) {
+      this.worldModifiers = [modifier];
+    } else {
+      this.worldModifiers = undefined;
+    }
+  }
+
+  private constructGenerator(context: SplatMeshContext) {
+    // console.log("SplatMesh.constructGenerator");
     const { transform, viewToObject, recolor } = context;
     const generator = dynoBlock(
       { index: "int" },
@@ -586,6 +635,7 @@ export class SplatMesh extends SplatGenerator {
         );
 
         // Read a Gsplat from the SplatSource
+        context.splats.setMaxSh(this.maxSh);
         context.splats.prepareFetchSplat();
         let gsplat = context.splats.fetchSplat({
           index,
@@ -607,9 +657,11 @@ export class SplatMesh extends SplatGenerator {
           gsplat = this.skinning.modify(gsplat);
         }
 
-        if (this.objectModifier) {
+        if (this.objectModifiers) {
           // Inject object-space Gsplat modifier dyno
-          gsplat = this.objectModifier.apply({ gsplat }).gsplat;
+          for (const modifier of this.objectModifiers) {
+            gsplat = modifier.apply({ gsplat }).gsplat;
+          }
         }
 
         // Transform from object to world-space
@@ -623,9 +675,12 @@ export class SplatMesh extends SplatGenerator {
           // Apply RGBA edit layer SDFs
           gsplat = this.rgbaDisplaceEdits.modify(gsplat);
         }
-        if (this.worldModifier) {
+
+        if (this.worldModifiers) {
           // Inject world-space Gsplat modifier dyno
-          gsplat = this.worldModifier.apply({ gsplat }).gsplat;
+          for (const modifier of this.worldModifiers) {
+            gsplat = modifier.apply({ gsplat }).gsplat;
+          }
         }
 
         // We're done! Output resulting Gsplat
@@ -633,6 +688,90 @@ export class SplatMesh extends SplatGenerator {
       },
     );
     this.generator = generator;
+    this.covGenerator = undefined;
+  }
+
+  constructCovGenerator(context: SplatMeshContext) {
+    // console.log("CovSplatMesh.constructCovGenerator");
+    const { covTransform, covViewToObject, recolor } = context;
+    const generator = dynoBlock(
+      { index: "int" },
+      { covsplat: CovSplat },
+      ({ index }) => {
+        if (!index) {
+          throw new Error("index is undefined");
+        }
+
+        index = maybeLookupIndex(
+          context.lodIndices,
+          index,
+          context.numSplats,
+          context.enableLod,
+        );
+
+        // Read a Gsplat from the SplatSource
+        context.splats.prepareFetchSplat();
+        let gsplat = context.splats.fetchSplat({
+          index,
+          viewOrigin: covViewToObject.offset,
+        });
+
+        if (this.splatRgba) {
+          // Overwrite RGBA with baked RGBA values
+          gsplat = maybeInjectSplatRgba(
+            gsplat,
+            this.splatRgba.dyno,
+            index,
+            context.enableLod,
+          );
+        }
+
+        if (this.objectModifiers) {
+          // Inject object-space Gsplat modifier dyno
+          for (const modifier of this.objectModifiers) {
+            gsplat = modifier.apply({ gsplat }).gsplat;
+          }
+        }
+
+        let covsplat = gsplatToCovSplat(gsplat);
+
+        if (this.skinning) {
+          // Transform according to bones + skinning weights
+          covsplat = this.skinning.modifyCov(covsplat);
+        }
+
+        if (this.covObjectModifiers) {
+          // Inject object-space CovSplat modifier dyno
+          for (const modifier of this.covObjectModifiers) {
+            covsplat = modifier.apply({ covsplat }).covsplat;
+          }
+        }
+
+        // Transform from object to world-space
+        covsplat = covTransform.applyCovSplat(covsplat);
+
+        // Apply any global recoloring and opacity
+        const recolorRgba = mul(recolor, splitCovSplat(covsplat).outputs.rgba);
+        covsplat = combineCovSplat({ covsplat, rgba: recolorRgba });
+
+        if (this.rgbaDisplaceEdits) {
+          // Apply RGBA edit layer SDFs
+          covsplat = this.rgbaDisplaceEdits.modifyCov(covsplat);
+        }
+
+        if (this.covWorldModifiers) {
+          // Inject world-space CovSplat modifier dyno
+          for (const modifier of this.covWorldModifiers) {
+            covsplat = modifier.apply({ covsplat }).covsplat;
+          }
+        }
+
+        // We're done! Output resulting Gsplat
+        return { covsplat };
+      },
+    );
+    this.generator = undefined;
+    this.covGenerator = generator;
   }
 
   // Call this whenever something changes in the Gsplat processing pipeline,
@@ -640,12 +779,17 @@ export class SplatMesh extends SplatGenerator {
   // Compiled generators are cached for efficiency and re-use when the same
   // pipeline structure emerges after successive changes.
   updateGenerator() {
+    // console.log("SplatMesh.updateGenerator", this.uuid, this);
     const splats = this.splats ?? this.packedSplats ?? this.extSplats;
     if (splats) {
       this.context.splats = splats;
     }
 
-    this.constructGenerator(this.context);
+    if (this.covSplats) {
+      this.constructCovGenerator(this.context);
+    } else {
+      this.constructGenerator(this.context);
+    }
   }
 
   // This is called automatically by SparkRenderer and you should not have to
@@ -669,49 +813,72 @@ export class SplatMesh extends SplatGenerator {
     if (splats) {
       this.context.splats = splats;
     }
-    // this.context.splats.prepareFetchSplat();
     this.numSplats = this.context.splats.getNumSplats();
 
-    const { transform, viewToObject, recolor } = this.context;
-    let updated = transform.update(this);
+    let updated = false;
 
-    if (
-      this.context.viewToWorld.updateFromMatrix(viewToWorld) &&
-      this.enableViewToWorld
-    ) {
-      updated = true;
-    }
-    const worldToView = viewToWorld.clone().invert();
-    if (
-      this.context.worldToView.updateFromMatrix(worldToView) &&
-      this.enableWorldToView
-    ) {
-      updated = true;
-    }
+    if (!this.covSplats) {
+      if (this.context.transform.update(this)) {
+        updated = true;
+      }
 
-    const objectToWorld = new THREE.Matrix4().compose(
-      transform.translate.value,
-      transform.rotate.value,
-      new THREE.Vector3().setScalar(transform.scale.value),
-    );
-    const worldToObject = objectToWorld.invert();
-    const viewToObjectMatrix = worldToObject.multiply(viewToWorld);
-    if (
-      viewToObject.updateFromMatrix(viewToObjectMatrix) &&
-      (this.enableViewToObject || this.context.splats.hasRgbDir())
-    ) {
-      // Only trigger update if we have view-dependent spherical harmonics
-      updated = true;
-    }
+      if (
+        this.context.viewToWorld.updateFromMatrix(viewToWorld) &&
+        this.enableViewToWorld
+      ) {
+        updated = true;
+      }
+      const worldToView = viewToWorld.clone().invert();
+      if (
+        this.context.worldToView.updateFromMatrix(worldToView) &&
+        this.enableWorldToView
+      ) {
+        updated = true;
+      }
 
-    const viewInObject = new THREE.Vector3().setFromMatrixColumn(
-      viewToObjectMatrix,
-      3,
-    );
-    const viewDirInObject = new THREE.Vector3()
-      .setFromMatrixColumn(viewToObjectMatrix, 2)
-      .negate()
-      .normalize();
+      const objectToWorld = new THREE.Matrix4().compose(
+        this.context.transform.translate.value,
+        this.context.transform.rotate.value,
+        new THREE.Vector3().setScalar(this.context.transform.scale.value),
+      );
+      const worldToObject = objectToWorld.invert();
+      const viewToObjectMatrix = worldToObject.multiply(viewToWorld);
+      if (
+        this.context.viewToObject.updateFromMatrix(viewToObjectMatrix) &&
+        (this.enableViewToObject || this.context.splats.hasRgbDir())
+      ) {
+        // Only trigger update if we have view-dependent spherical harmonics
+        updated = true;
+      }
+    } else {
+      if (this.context.covTransform.update(this)) {
+        updated = true;
+      }
+
+      if (
+        this.context.covViewToWorld.updateFromMatrix(viewToWorld) &&
+        this.enableViewToWorld
+      ) {
+        updated = true;
+      }
+      const worldToView = viewToWorld.clone().invert();
+      if (
+        this.context.covWorldToView.updateFromMatrix(worldToView) &&
+        this.enableWorldToView
+      ) {
+        updated = true;
+      }
+
+      const worldToObject = this.matrixWorld.clone().invert();
+      const viewToObjectMatrix = worldToObject.multiply(viewToWorld);
+      if (
+        this.context.covViewToObject.updateFromMatrix(viewToObjectMatrix) &&
+        (this.enableViewToObject || this.context.splats.hasRgbDir())
+      ) {
+        // Only trigger update if we have view-dependent spherical harmonics
+        updated = true;
+      }
+    }
 
     const newRecolor = new THREE.Vector4(
       this.recolor.r,
@@ -719,8 +886,8 @@ export class SplatMesh extends SplatGenerator {
       this.recolor.b,
       this.opacity,
     );
-    if (!newRecolor.equals(recolor.value)) {
-      recolor.value.copy(newRecolor);
+    if (!newRecolor.equals(this.context.recolor.value)) {
+      this.context.recolor.value.copy(newRecolor);
       updated = true;
     }
 
@@ -846,33 +1013,9 @@ export class SplatMesh extends SplatGenerator {
       });
     }
   }
-
-  // ensureLodIndices() {
-  //   if (this.lodState) {
-  //     const maxSplats = Math.min(this.packedSplats.numSplats, 16 * 1048576);
-  //     const numSplats = Math.max(16384, Math.min(this.lodMaxSplats, maxSplats));
-  //     const rows = Math.ceil(numSplats / 16384);
-  //     const capacity = rows * 16384;
-
-  //     if (capacity > this.lodState.indices.length) {
-  //       this.context.lodIndices.value.dispose();
-
-  //       this.lodState.indices = new Uint32Array(capacity);
-  //       this.context.lodIndices.value = new THREE.DataTexture(
-  //         this.lodState.indices,
-  //         4096,
-  //         rows,
-  //         THREE.RGBAIntegerFormat,
-  //         THREE.UnsignedIntType,
-  //       );
-  //       this.context.lodIndices.value.internalFormat = "RGBA32UI";
-  //       this.context.lodIndices.value.needsUpdate = true;
-  //     }
-  //   }
-  // }
 }
 
-function maybeLookupIndex(
+export function maybeLookupIndex(
   lodIndices: DynoUsampler2D<"lodIndices", THREE.DataTexture>,
   index: DynoVal<"int">,
   numSplats: DynoVal<"int">,
@@ -910,7 +1053,7 @@ function maybeLookupIndex(
   }).outputs.index;
 }
 
-function maybeInjectSplatRgba(
+export function maybeInjectSplatRgba(
   gsplat: DynoVal<typeof Gsplat>,
   rgba: DynoVal<typeof TRgbaArray>,
   index: DynoVal<"int">,
@@ -935,7 +1078,7 @@ function maybeInjectSplatRgba(
   }).outputs.gsplat;
 }
 
-const emptyLodIndices = (() => {
+export const emptyLodIndices = (() => {
   const texture = new THREE.DataTexture(
     new Uint32Array(16384),
     4096,

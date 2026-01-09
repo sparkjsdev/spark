@@ -1,27 +1,43 @@
 import * as THREE from "three";
 import type { SplatEdit } from "./SplatEdit";
 import {
-  type Dyno,
+  CovSplat,
+  Dyno,
   DynoFloat,
+  DynoMat3,
   type DynoVal,
   DynoVec3,
   DynoVec4,
   Gsplat,
+  add,
   dynoBlock,
+  mul,
+  projectH,
   transformDir,
   transformGsplat,
   transformPos,
+  unindentLines,
 } from "./dyno";
 
 // A GsplatGenerator is a dyno program that maps an index to a Gsplat's properties
 
 export type GsplatGenerator = Dyno<{ index: "int" }, { gsplat: typeof Gsplat }>;
 
+export type CovSplatGenerator = Dyno<
+  { index: "int" },
+  { covsplat: typeof CovSplat }
+>;
+
 // A GsplatModifier is a dyno program that inputs a Gsplat, modifies, and outputs it
 
 export type GsplatModifier = Dyno<
   { gsplat: typeof Gsplat },
   { gsplat: typeof Gsplat }
+>;
+
+export type CovSplatModifier = Dyno<
+  { covsplat: typeof CovSplat },
+  { covsplat: typeof CovSplat }
 >;
 
 // A SplatModifier is a utility class to apply a GsplatModifier to
@@ -138,6 +154,80 @@ export class SplatTransformer {
   }
 }
 
+export class CovSplatTransformer {
+  basis: DynoMat3<"basis", THREE.Matrix3>;
+  offset: DynoVec3<THREE.Vector3>;
+
+  constructor() {
+    this.basis = new DynoMat3({ value: new THREE.Matrix3() });
+    this.offset = new DynoVec3({ value: new THREE.Vector3() });
+  }
+
+  // Apply the transform to a Vec3 position in a dyno program.
+  apply(position: DynoVal<"vec3">): DynoVal<"vec3"> {
+    const rebased = mul(this.basis, position);
+    return add(rebased, this.offset);
+  }
+
+  applyDir(dir: DynoVal<"vec3">): DynoVal<"vec3"> {
+    return mul(this.basis, dir);
+  }
+
+  // Apply the transform to a Gsplat in a dyno program.
+  applyCovSplat(covsplat: DynoVal<typeof CovSplat>): DynoVal<typeof CovSplat> {
+    return new Dyno({
+      inTypes: { covsplat: CovSplat, basis: "mat3", offset: "vec3" },
+      outTypes: { covsplat: CovSplat },
+      inputs: { covsplat, basis: this.basis, offset: this.offset },
+      statements: ({ inputs, outputs }) => {
+        const { covsplat, basis, offset } = inputs;
+        if (!covsplat || !basis || !offset) {
+          return [`${outputs.covsplat}.flags = 0u;`];
+        }
+        return unindentLines(`
+          ${outputs.covsplat}.flags = 0u;
+          if (isCovSplatActive(${covsplat}.flags)) {
+            ${outputs.covsplat}.flags = ${covsplat}.flags;
+            ${outputs.covsplat}.index = ${covsplat}.index;
+            ${outputs.covsplat}.rgba = ${covsplat}.rgba;
+
+            ${outputs.covsplat}.center = ${basis} * ${covsplat}.center + ${offset};
+            
+            mat3 cov = mat3(
+              ${covsplat}.xxyyzz.x, ${covsplat}.xyxzyz.x, ${covsplat}.xyxzyz.y,
+              ${covsplat}.xyxzyz.x, ${covsplat}.xxyyzz.y, ${covsplat}.xyxzyz.z,
+              ${covsplat}.xyxzyz.y, ${covsplat}.xyxzyz.z, ${covsplat}.xxyyzz.z
+            );
+            cov = ${basis} * cov * transpose(${basis});
+            ${outputs.covsplat}.xxyyzz = vec3(cov[0][0], cov[1][1], cov[2][2]);
+            ${outputs.covsplat}.xyxzyz = vec3(cov[0][1], cov[0][2], cov[1][2]);
+          }
+        `);
+      },
+    }).outputs.covsplat;
+  }
+
+  // Update the uniforms to match the given transform matrix.
+  updateFromMatrix(transform: THREE.Matrix4) {
+    const basis = new THREE.Matrix3().setFromMatrix4(transform);
+    const offset = new THREE.Vector3().setFromMatrixColumn(transform, 3);
+
+    const updated =
+      !basis.equals(this.basis.value) || !offset.equals(this.offset.value);
+    if (updated) {
+      this.basis.value.copy(basis);
+      this.offset.value.copy(offset);
+    }
+    return updated;
+  }
+
+  // Update this transform to match the object's to-world transform.
+  update(object: THREE.Object3D): boolean {
+    object.updateMatrixWorld();
+    return this.updateFromMatrix(object.matrixWorld);
+  }
+}
+
 // SplatGenerator is an Object3D that can be placed anywhere in the scene
 // to generate Gsplats into the world for SparkRenderer. All Gsplats from
 // SplatGenerators across the scene will be accumulated into a single
@@ -176,7 +266,9 @@ export interface FrameUpdateContext {
 export class SplatGenerator extends THREE.Object3D {
   numSplats: number;
   generator?: GsplatGenerator;
+  covGenerator?: CovSplatGenerator;
   generatorError?: unknown;
+  covGeneratorError?: unknown;
   frameUpdate?: (context: FrameUpdateContext) => void;
   version: number;
   mappingVersion: number;
@@ -184,13 +276,16 @@ export class SplatGenerator extends THREE.Object3D {
   constructor({
     numSplats,
     generator,
+    covGenerator,
     construct,
     update,
   }: {
     numSplats?: number;
     generator?: GsplatGenerator;
+    covGenerator?: CovSplatGenerator;
     construct?: (object: SplatGenerator) => {
       generator?: GsplatGenerator;
+      covGenerator?: CovSplatGenerator;
       numSplats?: number;
       frameUpdate?: (context: FrameUpdateContext) => void;
     };
@@ -200,6 +295,7 @@ export class SplatGenerator extends THREE.Object3D {
 
     this.numSplats = numSplats ?? 0;
     this.generator = generator;
+    this.covGenerator = covGenerator;
     this.frameUpdate = update;
     this.version = 0;
     this.mappingVersion = 0;

@@ -20,9 +20,6 @@ import { decompressPartialGzip, getTextureSize } from "./utils";
 
 export class SplatLoader extends Loader {
   fileLoader: FileLoader;
-  fileType?: SplatFileType;
-  packedSplats?: PackedSplats;
-  extSplats?: ExtSplats;
 
   static lod = false;
   static nonLod: boolean | "wait" = false;
@@ -33,37 +30,75 @@ export class SplatLoader extends Loader {
   }
 
   load(
-    // Hack: Allow passing in URL or file bytes directly
-    url: string | Uint8Array | ArrayBuffer,
+    url: string,
     onLoad?: (decoded: PackedSplats | ExtSplats) => void,
     onProgress?: (event: ProgressEvent) => void,
     onError?: (error: unknown) => void,
   ) {
-    const packedSplats = this.packedSplats;
-    const extSplats = this.extSplats;
-    const fileBytes =
-      url instanceof Uint8Array
-        ? url
-        : url instanceof ArrayBuffer
-          ? new Uint8Array(url)
-          : undefined;
+    return this.loadInternal({
+      url,
+      onLoad,
+      onProgress,
+      onError,
+    });
+  }
+
+  async loadAsync(
+    url: string,
+    onProgress?: (event: ProgressEvent) => void,
+  ): Promise<PackedSplats | ExtSplats> {
+    return new Promise((resolve, reject) => {
+      this.load(
+        url,
+        (decoded) => {
+          resolve(decoded);
+        },
+        onProgress,
+        reject,
+      );
+    });
+  }
+
+  parse(packedSplats: PackedSplats): SplatMesh {
+    return new SplatMesh({ packedSplats });
+  }
+
+  loadInternal({
+    packedSplats,
+    extSplats,
+    url,
+    fileBytes,
+    fileType,
+    fileName,
+    onLoad,
+    onProgress,
+    onError,
+    lod,
+    nonLod,
+    lodBase,
+  }: {
+    packedSplats?: PackedSplats;
+    extSplats?: ExtSplats;
+    url?: string;
+    fileBytes?: Uint8Array | ArrayBuffer;
+    fileType?: SplatFileType;
+    fileName?: string;
+    onLoad?: (decoded: PackedSplats | ExtSplats) => void;
+    onProgress?: (event: ProgressEvent) => void;
+    onError?: (error: unknown) => void;
+    lod?: boolean;
+    nonLod?: boolean | "wait";
+    lodBase?: number;
+  }) {
     const resolvedURL = fileBytes
       ? undefined
       : this.manager.resolveURL((this.path ?? "") + (url ?? ""));
-
-    // const headers = new Headers(this.requestHeader);
-    // const credentials = this.withCredentials ? "include" : "same-origin";
-    // const request = new Request(resolvedURL, { headers, credentials });
-    // let fileType = this.fileType;
 
     this.manager.itemStart(resolvedURL ?? "");
     let calledOnLoad = false;
 
     workerPool
       .withWorker(async (worker) => {
-        let lod = SplatLoader.lod;
-        let nonLod = SplatLoader.nonLod;
-        let lodBase = 1.5;
         // If LoD is set and not falsey
         const splatsLod = packedSplats?.lod ?? extSplats?.lod;
         if (splatsLod) {
@@ -144,24 +179,15 @@ export class SplatLoader extends Loader {
         const basedUrl = resolvedURL
           ? new URL(resolvedURL, window.location.href).toString()
           : undefined;
-        const paged =
-          basedUrl && resolvedURL?.endsWith("-lod-0.spz")
-            ? {
-                url: basedUrl,
-                requestHeader: this.requestHeader,
-                withCredentials: this.withCredentials,
-              }
-            : undefined;
         const decoded = (await worker.call(
           extSplats ? "loadExtSplats" : "loadPackedSplats",
           {
             url: basedUrl,
-            // baseUri: window.location.href,
             requestHeader: this.requestHeader,
             withCredentials: this.withCredentials,
             fileBytes: fileBytes?.slice(),
-            fileType: this.fileType,
-            pathName: resolvedURL,
+            fileType,
+            pathName: resolvedURL ?? fileName,
             lod,
             lodBase,
             nonLod,
@@ -217,7 +243,6 @@ export class SplatLoader extends Loader {
                 extra: Record<string, unknown>;
                 splatEncoding: SplatEncoding;
               }),
-              paged,
               maxSplats: packedSplats?.maxSplats,
             });
           }
@@ -275,123 +300,44 @@ export class SplatLoader extends Loader {
       .finally(() => {
         this.manager.itemEnd(resolvedURL ?? "");
       });
-
-    // fetchWithProgress(request, onProgress)
-    //   .then(async (input) => {
-    //     const progresses = [
-    //       new ProgressEvent("progress", {
-    //         lengthComputable: true,
-    //         loaded: input.byteLength,
-    //         total: input.byteLength,
-    //       }),
-    //     ];
-
-    //     function updateProgresses() {
-    //       if (onProgress) {
-    //         const lengthComputable = progresses.every((p) => {
-    //           // Either it's computable or no progress yet
-    //           return p.lengthComputable || (p.loaded === 0 && p.total === 0);
-    //         });
-    //         const loaded = progresses.reduce((sum, p) => sum + p.loaded, 0);
-    //         const total = progresses.reduce((sum, p) => sum + p.total, 0);
-    //         onProgress(
-    //           new ProgressEvent("progress", {
-    //             lengthComputable,
-    //             loaded,
-    //             total,
-    //           }),
-    //         );
-    //       }
-    //     }
-
-    //     const extraFiles: Record<string, ArrayBuffer> = {};
-    //     const promises = [];
-
-    //     const pcSogsJson = tryPcSogs(input);
-    //     if (fileType === SplatFileType.PCSOGS) {
-    //       if (pcSogsJson === undefined) {
-    //         throw new Error("Invalid PC SOGS file");
-    //       }
-    //     }
-    //     if (pcSogsJson !== undefined) {
-    //       fileType = SplatFileType.PCSOGS;
-    //       for (const key of ["means", "scales", "quats", "sh0", "shN"]) {
-    //         const prop = pcSogsJson[key as keyof PcSogsJson];
-    //         if (prop) {
-    //           for (const file of prop.files) {
-    //             const fileUrl = new URL(file, resolvedURL).toString();
-    //             const progressIndex = progresses.length;
-    //             progresses.push(new ProgressEvent("progress"));
-
-    //             this.manager.itemStart(fileUrl);
-    //             const request = new Request(fileUrl, { headers, credentials });
-    //             const promise = fetchWithProgress(request, (progress) => {
-    //               progresses[progressIndex] = progress;
-    //               updateProgresses();
-    //             })
-    //               .then((data) => {
-    //                 extraFiles[file] = data;
-    //               })
-    //               .catch((error) => {
-    //                 this.manager.itemError(fileUrl);
-    //                 throw error;
-    //               })
-    //               .finally(() => {
-    //                 this.manager.itemEnd(fileUrl);
-    //               });
-    //             promises.push(promise);
-    //           }
-    //         }
-    //       }
-    //     }
-
-    //     await Promise.all(promises);
-    //     if (onLoad) {
-    //       const splatEncoding =
-    //         this.packedSplats?.splatEncoding ?? DEFAULT_SPLAT_ENCODING;
-    //       const decoded = await unpackSplats({
-    //         input,
-    //         extraFiles,
-    //         fileType,
-    //         pathOrUrl: resolvedURL,
-    //         splatEncoding,
-    //       });
-
-    //       if (this.packedSplats) {
-    //         this.packedSplats.initialize(decoded);
-    //         onLoad(this.packedSplats);
-    //       } else {
-    //         onLoad(new PackedSplats(decoded));
-    //       }
-    //     }
-    //   })
-    //   .catch((error) => {
-    //     this.manager.itemError(resolvedURL);
-    //     onError?.(error);
-    //   })
-    //   .finally(() => {
-    //     this.manager.itemEnd(resolvedURL);
-    //   });
   }
 
-  async loadAsync(
-    url: string,
-    onProgress?: (event: ProgressEvent) => void,
-  ): Promise<PackedSplats | ExtSplats> {
+  async loadInternalAsync({
+    packedSplats,
+    extSplats,
+    url,
+    fileBytes,
+    fileType,
+    fileName,
+    onProgress,
+    lod,
+    nonLod,
+    lodBase,
+  }: {
+    packedSplats?: PackedSplats;
+    extSplats?: ExtSplats;
+    url?: string;
+    fileBytes?: Uint8Array | ArrayBuffer;
+    fileType?: SplatFileType;
+    fileName?: string;
+    onProgress?: (event: ProgressEvent) => void;
+    lod?: boolean;
+    nonLod?: boolean | "wait";
+    lodBase?: number;
+  }) {
     return new Promise((resolve, reject) => {
-      this.load(
+      this.loadInternal({
+        packedSplats,
+        extSplats,
         url,
-        (decoded) => {
-          resolve(decoded);
-        },
+        fileBytes,
+        fileType,
+        fileName,
+        onLoad: resolve,
         onProgress,
-        reject,
-      );
+        onError: reject,
+      });
     });
-  }
-
-  parse(packedSplats: PackedSplats): SplatMesh {
-    return new SplatMesh({ packedSplats });
   }
 }
 
