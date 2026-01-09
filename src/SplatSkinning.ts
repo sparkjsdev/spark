@@ -14,6 +14,7 @@ import * as THREE from "three";
 
 import type { SplatMesh } from "./SplatMesh";
 import {
+  CovSplat,
   Dyno,
   DynoUniform,
   type DynoVal,
@@ -22,6 +23,11 @@ import {
   unindentLines,
 } from "./dyno";
 import { getTextureSize } from "./utils";
+
+export enum SplatSkinningMode {
+  DUAL_QUATERNION = "dual_quaternion",
+  LINEAR_BLEND_SKINNING = "linear_blend_skinning",
+}
 
 export type SplatSkinningOptions = {
   // Specifies the SplatMesh that will be animated.
@@ -32,15 +38,19 @@ export type SplatSkinningOptions = {
   // Set the number of bones used to animate the SplatMesh, with a maximum
   // of 256 (in order to compactly encode the bone index). (default: 256)
   numBones?: number;
+  // Set the mode of skinning to use.
+  // (default: DUAL_QUATERNION)
+  mode?: SplatSkinningMode;
 };
 
 export class SplatSkinning {
   mesh: SplatMesh;
   numSplats: number;
+  mode: SplatSkinningMode;
 
   // Store the skinning weights for each Gsplat, composed of a 4-vector
   // of bone indices and weight
-  skinData: Uint16Array;
+  skinData: Uint16Array<ArrayBuffer>;
   skinTexture: THREE.DataArrayTexture;
 
   numBones: number;
@@ -89,11 +99,17 @@ export class SplatSkinning {
         boneTexture: this.boneTexture,
       },
     });
+
+    this.mode = options.mode ?? SplatSkinningMode.DUAL_QUATERNION;
   }
 
   // Apply the skeletal animation to a Gsplat in a dyno program.
   modify(gsplat: DynoVal<typeof Gsplat>): DynoVal<typeof Gsplat> {
     return applyGsplatSkinning(gsplat, this.uniform);
+  }
+
+  modifyCov(covsplat: DynoVal<typeof CovSplat>): DynoVal<typeof CovSplat> {
+    return applyCovSplatSkinning(covsplat, this.uniform);
   }
 
   // Set the "rest" pose for a bone with position and quaternion orientation.
@@ -314,4 +330,32 @@ function applyGsplatSkinning(
     },
   });
   return dyno.outputs.gsplat;
+}
+
+function applyCovSplatSkinning(
+  covsplat: DynoVal<typeof CovSplat>,
+  skinning: DynoVal<typeof GsplatSkinning>,
+): DynoVal<typeof CovSplat> {
+  const dyno = new Dyno<
+    { covsplat: typeof CovSplat; skinning: typeof GsplatSkinning },
+    { covsplat: typeof CovSplat }
+  >({
+    inTypes: { covsplat: CovSplat, skinning: GsplatSkinning },
+    outTypes: { covsplat: CovSplat },
+    globals: () => [defineGsplatSkinning, defineApplyGsplatSkinning],
+    inputs: { covsplat, skinning },
+    statements: ({ inputs, outputs }) => {
+      const { skinning } = inputs;
+      const { covsplat } = outputs;
+      return unindentLines(`
+        ${covsplat} = ${inputs.covsplat};
+        if (isCovSplatActive(${covsplat}.flags)) {
+          // applyCovSplatSkinning(
+          // TODO
+          // );
+        }
+      `);
+    },
+  });
+  return dyno.outputs.covsplat;
 }

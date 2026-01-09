@@ -12,7 +12,7 @@ use wasm_bindgen::prelude::*;
 use crate::packed_splats::PackedSplatsData;
 use spark_lib::decoder::SplatGetter;
 
-const MAX_SPLAT_CHUNK: usize = 16384;
+const MAX_SPLAT_CHUNK: usize = 65536;
 
 #[derive(Debug, Clone, Default)]
 struct LodSplat {

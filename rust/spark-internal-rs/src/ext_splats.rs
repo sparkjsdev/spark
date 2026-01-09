@@ -158,7 +158,7 @@ impl ExtSplatsData {
     }
 
     fn new_from_gsplat_array_with_lod(splats: &GsplatArray, lod_tree: bool) -> anyhow::Result<Self> {
-        const MAX_SPLAT_CHUNK: usize = 16384;
+        const MAX_SPLAT_CHUNK: usize = 65536;
 
         let mut receiver = Self::new();
         receiver.init_splats(&SplatInit {
@@ -328,7 +328,7 @@ impl SplatReceiver for ExtSplatsData {
                 return Err(anyhow::anyhow!("Missing child_counts or child_starts"));
             }
 
-            const MAX_SPLAT_CHUNK: usize = 16384;
+            const MAX_SPLAT_CHUNK: usize = 65536;
             self.ensure_buffer(MAX_SPLAT_CHUNK);
             self.lod_tree = Some(Uint32Array::new_with_length((self.num_splats * 4) as u32));
             let Self { buffer_a, buffer_b, ext_arrays, lod_tree, child_counts, child_starts, .. } = self;

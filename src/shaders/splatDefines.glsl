@@ -243,6 +243,120 @@ void unpackSplat(uvec4 packed, out vec3 center, out vec3 scales, out vec4 quater
     unpackSplatEncoding(packed, center, scales, quaternion, rgba, vec4(0.0, 1.0, LN_SCALE_MIN, LN_SCALE_MAX));
 }
 
+uvec4 packSplatCovEncoding(
+    vec3 center, vec4 rgba, vec3 xxyyzz, vec3 xyxzyz, vec4 rgbMinMaxLnScaleMinMax
+) {
+    float rgbMin = rgbMinMaxLnScaleMinMax.x;
+    float rgbMax = rgbMinMaxLnScaleMinMax.y;
+    vec3 encRgb = (rgba.rgb - vec3(rgbMin)) / (rgbMax - rgbMin);
+    uvec4 uRgba = uvec4(round(clamp(vec4(encRgb, rgba.a) * 255.0, 0.0, 255.0)));
+
+    float lnScaleMin = rgbMinMaxLnScaleMinMax.z;
+    float lnScaleMax = rgbMinMaxLnScaleMinMax.w;
+    float diagScale = 255.0 / (2.0 * (lnScaleMax - lnScaleMin));
+    uvec3 uXxyyzz = uvec3(round(clamp((log(xxyyzz) - 2.0 * lnScaleMin) * diagScale, 0.0, 255.0)));
+
+    vec3 xyxzyzCor = vec3(
+        clamp(xyxzyz.x / sqrt(xxyyzz.x * xxyyzz.y), -1.0, 1.0),
+        clamp(xyxzyz.y / sqrt(xxyyzz.x * xxyyzz.z), -1.0, 1.0),
+        clamp(xyxzyz.z / sqrt(xxyyzz.y * xxyyzz.z), -1.0, 1.0)
+    );
+    float offScale = 126.0 / 20.0;
+    ivec3 iXyxzyzCor = ivec3(round(sign(xyxzyzCor) * (clamp(log(abs(xyxzyzCor)) * offScale, -126.0, -0.0000001) - 1.0)));
+    // ivec3 iXyxzyzCor = ivec3(round(xyxzyzCor * 127.0));
+
+    // Pack it all into 4 x uint32
+    uint word0 = uRgba.r | (uRgba.g << 8u) | (uRgba.b << 16u) | (uRgba.a << 24u);
+    uint word1 = packHalf2x16(center.xy);
+    uint word2 = packHalf2x16(vec2(center.z, 0.0)) |
+        ((uint(iXyxzyzCor.y) & 0xffu) << 16u) |
+        ((uint(iXyxzyzCor.z) & 0xffu) << 24u);
+    uint word3 =
+        uXxyyzz.x | (uXxyyzz.y << 8u) | (uXxyyzz.z << 16u) |
+        ((uint(iXyxzyzCor.x) & 0xffu) << 24u);
+    return uvec4(word0, word1, word2, word3);
+}
+
+void unpackSplatCovEncoding(uvec4 packed, out vec3 center, out vec4 rgba, out vec3 xxyyzz, out vec3 xyxzyz, vec4 rgbMinMaxLnScaleMinMax) {
+    uint word0 = packed.x, word1 = packed.y, word2 = packed.z, word3 = packed.w;
+
+    uvec4 uRgba = uvec4(word0 & 0xffu, (word0 >> 8u) & 0xffu, (word0 >> 16u) & 0xffu, (word0 >> 24u) & 0xffu);
+    float rgbMin = rgbMinMaxLnScaleMinMax.x;
+    float rgbMax = rgbMinMaxLnScaleMinMax.y;
+    rgba = (vec4(uRgba) / 255.0);
+    rgba.rgb = rgba.rgb * (rgbMax - rgbMin) + rgbMin;
+
+    center = vec3(
+        unpackHalf2x16(word1),
+        unpackHalf2x16(word2 & 0xffffu).x
+    );
+
+    uvec3 uXxyyzz = uvec3(word3 & 0xffu, (word3 >> 8u) & 0xffu, (word3 >> 16u) & 0xffu);
+    ivec3 iXyxzyzCor = ivec3(int(word3) >> 24, int(word2 << 8u) >> 24, int(word2) >> 24);
+
+    float lnScaleMin = rgbMinMaxLnScaleMinMax.z;
+    float lnScaleMax = rgbMinMaxLnScaleMinMax.w;
+    float diagScale = 2.0 * (lnScaleMax - lnScaleMin) / 255.0;
+    xxyyzz = exp(2.0 * lnScaleMin + vec3(uXxyyzz) * diagScale);
+
+    float offScale = 20.0 / 126.0;
+    vec3 xyxzyzCor = -vec3(sign(iXyxzyzCor)) * exp(-vec3(abs(iXyxzyzCor) - 1) * offScale);
+    // vec3 xyxzyzCor = vec3(iXyxzyzCor) / 127.0;
+    xyxzyz = xyxzyzCor * vec3(
+        sqrt(xxyyzz.x * xxyyzz.y),
+        sqrt(xxyyzz.x * xxyyzz.z),
+        sqrt(xxyyzz.y * xxyyzz.z)
+    );
+}
+
+void packSplatExtCov(
+    out uvec4 packed, out uvec4 packed2,
+    vec3 center, vec4 rgba, vec3 xxyyzz, vec3 xyxzyz
+) {
+    packed.x = floatBitsToUint(center.x);
+    packed.y = floatBitsToUint(center.y);
+    packed.z = floatBitsToUint(center.z);
+    packed.w = packHalf2x16(vec2(rgba.a, rgba.b));
+    packed2.x = packHalf2x16(rgba.rg);
+
+    vec3 xyxzyzCor = vec3(
+        clamp(xyxzyz.x / sqrt(xxyyzz.x * xxyyzz.y), -1.0, 1.0),
+        clamp(xyxzyz.y / sqrt(xxyyzz.x * xxyyzz.z), -1.0, 1.0),
+        clamp(xyxzyz.z / sqrt(xxyyzz.y * xxyyzz.z), -1.0, 1.0)
+    );
+    xyxzyzCor = sign(xyxzyzCor) * clamp(log(abs(xyxzyzCor)), -100.0, -0.0000001);
+    xxyyzz = log(xxyyzz);
+
+    packed2.y = packHalf2x16(vec2(xxyyzz.x, xxyyzz.y));
+    packed2.z = packHalf2x16(vec2(xxyyzz.z, xyxzyzCor.x));
+    packed2.w = packHalf2x16(vec2(xyxzyzCor.y, xyxzyzCor.z));
+}
+
+void unpackSplatExtCov(
+    uvec4 packed, uvec4 packed2,
+    out vec3 center, out vec4 rgba, out vec3 xxyyzz, out vec3 xyxzyz
+) {
+    center.x = uintBitsToFloat(packed.x);
+    center.y = uintBitsToFloat(packed.y);
+    center.z = uintBitsToFloat(packed.z);
+
+    vec2 ab = unpackHalf2x16(packed.w);
+    vec2 rg = unpackHalf2x16(packed2.x);
+    rgba = vec4(rg, ab.y, ab.x);
+
+    vec2 xxyy = unpackHalf2x16(packed2.y);
+    vec2 zzxy = unpackHalf2x16(packed2.z);
+    vec2 xzyz = unpackHalf2x16(packed2.w);
+    xxyyzz = exp(vec3(xxyy.x, xxyy.y, zzxy.x));
+    xyxzyz = vec3(zzxy.y, xzyz.x, xzyz.y);
+    xyxzyz = -sign(xyxzyz) * exp(-abs(xyxzyz));
+    xyxzyz *= vec3(
+        sqrt(xxyyzz.x * xxyyzz.y),
+        sqrt(xxyyzz.x * xxyyzz.z),
+        sqrt(xxyyzz.y * xxyyzz.z)
+    );
+}
+
 void packSplatExt(
     out uvec4 packed, out uvec4 packed2,
     vec3 center, vec3 scales, vec4 quaternion, vec4 rgba
@@ -382,8 +496,7 @@ ivec3 splatTexCoord(int index) {
     return ivec3(x, y, z);
 }
 
-vec4 floatToVec4(float f) {
-    uint u32 = floatBitsToUint(f);
+vec4 uintToVec4(uint u32) {
     uvec4 bytes = uvec4(
         u32 & 0xFFu,
         (u32 >> 8u) & 0xFFu,
@@ -391,4 +504,9 @@ vec4 floatToVec4(float f) {
         (u32 >> 24u) & 0xFFu
     );
     return vec4(bytes) / 255.0;
+}
+
+vec4 floatToVec4(float f) {
+    uint u32 = floatBitsToUint(f);
+    return uintToVec4(u32);
 }

@@ -10,7 +10,7 @@ use miniz_oxide::deflate::compress_to_vec;
 
 pub const SPZ_MAGIC: u32 = 0x5053474e; // "NGSP"
 const SH_C0: f32 = 0.28209479177387814;
-const MAX_SPLAT_CHUNK: usize = 16384;
+const MAX_SPLAT_CHUNK: usize = 65536;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SpzDecoderStage { Centers, Alphas, Rgb, Scales, Quats, Sh, Extension, ChildCounts, ChildStarts, Done }
@@ -317,17 +317,23 @@ impl<T: SplatReceiver> SpzDecoder<T> {
 
                         for i in 0..chunk {
                             let base = i * sh_components;
-                            for k in 0..9 {
-                                state.output[9 * i + k] = (self.buffer[base + k] as f32 - 128.0) / 128.0;
+                            for d in 0..3 {
+                                for k in 0..3 {
+                                    state.output[9 * i + k * 3 + d] = (self.buffer[base + k * 3 + d] as f32 - 128.0) / 128.0;
+                                }
                             }
                             if state.sh_degree >= 2 {
-                                for k in 0..15 {
-                                    state.output[9 * chunk + 15 * i + k] = (self.buffer[base + 9 + k] as f32 - 128.0) / 128.0;
+                                for d in 0..3 {
+                                    for k in 0..5 {
+                                        state.output[9 * chunk + 15 * i + k * 3 + d] = (self.buffer[base + 9 + k * 3 + d] as f32 - 128.0) / 128.0;
+                                    }
                                 }
                             }
                             if state.sh_degree >= 3 {
-                                for k in 0..21 {
-                                    state.output[24 * chunk + 21 * i + k] = (self.buffer[base + 24 + k] as f32 - 128.0) / 128.0;
+                                for d in 0..3 {
+                                    for k in 0..7 {
+                                        state.output[24 * chunk + 21 * i + k * 3 + d] = (self.buffer[base + 24 + k * 3 + d] as f32 - 128.0) / 128.0;
+                                    }
                                 }
                             }
                         }
@@ -808,37 +814,41 @@ impl<T: SplatGetter> SpzEncoder<T> {
                 if base >= num_splats { break; }
                 let count = (num_splats - base).min(MAX_SPLAT_CHUNK);
                 let bands = match sh_degree { 1 => 3, 2 => 8, 3 => 15, _ => 0 } as usize;
-                ensure_len(&mut f32_buf, count * 9);
-                ensure_len(&mut f32_buf_b, count * 15);
+                let total_components = bands * 3;
+
+                ensure_len(&mut f32_buf, count * total_components);
+                
                 if sh_degree >= 1 {
                     self.getter.get_sh1(base, count, &mut f32_buf[..count * 9]);
                 }
-                if sh_degree >= 2 {
-                    self.getter.get_sh2(base, count, &mut f32_buf_b[..count * 15]);
+                if sh_degree >= 2{
+                    self.getter.get_sh2(base, count, &mut f32_buf[count * 9..count * 24]);
                 }
-                // write degree1 (9)
-                if sh_degree >= 1 {
-                    for i in 0..count {
+                if sh_degree >= 3 {
+                    self.getter.get_sh3(base, count, &mut f32_buf[count * 24..count * 45]);
+                }
+
+                for i in 0..count {
+                    if sh_degree >= 1 {
                         for k in 0..9 {
                             raw.push(quantize_sh_byte(f32_buf[i * 9 + k], 5));
                         }
                     }
-                }
-                // degree2 (15)
-                if sh_degree >= 2 {
-                    for i in 0..count {
-                        for k in 0..15 { raw.push(quantize_sh_byte(f32_buf_b[i * 15 + k], 4)); }
+
+                    if sh_degree >= 2 {
+                        for k in 0..15 {
+                            raw.push(quantize_sh_byte(f32_buf[(count * 9) + i * 15 + k], 4));
+                        }
+                    }
+
+                    if sh_degree >= 3 {
+                        for k in 0..21 {
+                            raw.push(quantize_sh_byte(f32_buf[(count * 24) + i * 21 + k], 4));
+                        }
                     }
                 }
-                // degree3 (21)
-                if sh_degree >= 3 {
-                    ensure_len(&mut f32_buf, count * 21);
-                    self.getter.get_sh3(base, count, &mut f32_buf[..count * 21]);
-                    for i in 0..count {
-                        for k in 0..21 { raw.push(quantize_sh_byte(f32_buf[i * 21 + k], 4)); }
-                    }
-                }
-                let _ = bands; // silence warning in case of degree 0
+
+                // let _ = bands; // silence warning in case of degree 0
                 base += count;
             }
         }

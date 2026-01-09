@@ -1,8 +1,13 @@
 import * as THREE from "three";
 import { FullScreenQuad } from "three/examples/jsm/postprocessing/Pass.js";
+import { Readback } from "./Readback";
 import type { GeneratorMapping } from "./SplatAccumulator";
 import { SplatEdit } from "./SplatEdit";
-import { type GsplatGenerator, SplatGenerator } from "./SplatGenerator";
+import {
+  type CovSplatGenerator,
+  type GsplatGenerator,
+  SplatGenerator,
+} from "./SplatGenerator";
 import { SplatMesh } from "./SplatMesh";
 import {
   LN_SCALE_MAX,
@@ -11,19 +16,30 @@ import {
   SPLAT_TEX_WIDTH,
 } from "./defines";
 import {
+  type CovSplat,
+  Dyno,
   DynoBool,
   DynoProgram,
   DynoProgramTemplate,
+  DynoUsampler2DArray,
+  type DynoVal,
   DynoVec3,
+  combineCovSplat,
   combineGsplat,
   dynoBlock,
   dynoConst,
+  gsplatToCovSplat,
   mul,
+  outputCovSplat,
+  outputCovSplatDepth,
+  outputExtCovSplat,
   outputExtendedSplat,
   outputPackedSplat,
   outputSplatDepth,
+  splitCovSplat,
   splitGsplat,
   sub,
+  unindentLines,
 } from "./dyno";
 import computeUvec4Vec4Template from "./shaders/computeUvec4_Vec4.glsl";
 import computeUvec4x2Vec4Template from "./shaders/computeUvec4x2_Vec4.glsl";
@@ -45,12 +61,20 @@ export class NewSplatAccumulator {
   version = -1;
   mappingVersion = -1;
   extSplats: boolean;
+  covSplats: boolean;
+  readback: Readback | null = null;
+  readbackSplats: DynoUsampler2DArray<"extSplats", THREE.DataArrayTexture>[] =
+    [];
 
-  constructor({ extSplats }: { extSplats?: boolean } = {}) {
+  constructor({
+    extSplats,
+    covSplats,
+  }: { extSplats?: boolean; covSplats?: boolean } = {}) {
     if (!threeMrtArray) {
       throw new Error("Spark requires THREE.js r179 or above");
     }
     this.extSplats = extSplats ?? true;
+    this.covSplats = covSplats ?? false;
   }
 
   dispose() {
@@ -172,45 +196,123 @@ export class NewSplatAccumulator {
 
   // Get a program and THREE.RawShaderMaterial for a given GsplatGenerator,
   // generating it if necessary and caching the result.
-  prepareProgramMaterial(generator: GsplatGenerator) {
-    let program = NewSplatAccumulator.generatorProgram.get(generator);
+  prepareProgramMaterial(
+    generator?: GsplatGenerator,
+    covGenerator?: CovSplatGenerator,
+  ) {
+    const theGenerator = generator ?? covGenerator;
+    if (!theGenerator) {
+      throw new Error("Either generator or covGenerator must be provided");
+    }
+
+    let program = NewSplatAccumulator.generatorProgram.get(theGenerator);
     if (!program) {
       const graph = dynoBlock(
         { index: "int" },
         {},
         ({ index }, _outputs, { roots }) => {
-          generator.inputs.index = index;
-          if (this.extSplats) {
-            const output = outputExtendedSplat(generator.outputs.gsplat);
-            roots.push(output);
-          } else {
-            const centerSubView = sub(
-              splitGsplat(generator.outputs.gsplat).outputs.center,
-              NewSplatAccumulator.viewCenterUniform,
-            );
-            // Use expanded LoD opacity encoding
-            const halfAlpha = mul(
-              splitGsplat(generator.outputs.gsplat).outputs.opacity,
-              dynoConst("float", 0.5),
-            );
-            const gsplat = combineGsplat({
-              gsplat: generator.outputs.gsplat,
-              center: centerSubView,
-              opacity: halfAlpha,
-            });
-            const output = outputPackedSplat(
-              gsplat,
-              dynoConst("vec4", [0, 1, LN_SCALE_MIN, LN_SCALE_MAX]),
-            );
-            roots.push(output);
+          if (generator) {
+            generator.inputs.index = index;
           }
-          const outputDepth = outputSplatDepth(
-            generator.outputs.gsplat,
-            NewSplatAccumulator.viewCenterUniform,
-            NewSplatAccumulator.viewDirUniform,
-            NewSplatAccumulator.sortRadialUniform,
-          );
-          roots.push(outputDepth);
+          if (covGenerator) {
+            covGenerator.inputs.index = index;
+          }
+
+          if (this.extSplats) {
+            if (!this.covSplats) {
+              if (generator) {
+                const output = outputExtendedSplat(generator.outputs.gsplat);
+                roots.push(output);
+              } else {
+                throw new Error("Generator must be provided");
+              }
+            } else {
+              if (covGenerator) {
+                const output = outputExtCovSplat(covGenerator.outputs.covsplat);
+                roots.push(output);
+              } else if (generator) {
+                const covsplat = gsplatToCovSplat(generator.outputs.gsplat);
+                const output = outputExtCovSplat(covsplat);
+                roots.push(output);
+              } else {
+                throw new Error("Generator must be provided");
+              }
+            }
+          } else {
+            if (!this.covSplats) {
+              if (generator) {
+                const centerSubView = sub(
+                  splitGsplat(generator.outputs.gsplat).outputs.center,
+                  NewSplatAccumulator.viewCenterUniform,
+                );
+                // Use expanded LoD opacity encoding
+                const halfAlpha = mul(
+                  splitGsplat(generator.outputs.gsplat).outputs.opacity,
+                  dynoConst("float", 0.5),
+                );
+                const gsplat = combineGsplat({
+                  gsplat: generator.outputs.gsplat,
+                  center: centerSubView,
+                  opacity: halfAlpha,
+                });
+                const output = outputPackedSplat(
+                  gsplat,
+                  dynoConst("vec4", [0, 1, LN_SCALE_MIN, LN_SCALE_MAX]),
+                );
+                roots.push(output);
+              } else {
+                throw new Error("Generator must be provided");
+              }
+            } else {
+              let covsplat: DynoVal<typeof CovSplat>;
+              if (covGenerator) {
+                covsplat = covGenerator.outputs.covsplat;
+              } else if (generator) {
+                covsplat = gsplatToCovSplat(generator.outputs.gsplat);
+              } else {
+                throw new Error("Generator must be provided");
+              }
+              const centerSubView = sub(
+                splitCovSplat(covsplat).outputs.center,
+                NewSplatAccumulator.viewCenterUniform,
+              );
+              const halfAlpha = mul(
+                splitCovSplat(covsplat).outputs.opacity,
+                dynoConst("float", 0.5),
+              );
+              covsplat = combineCovSplat({
+                covsplat,
+                center: centerSubView,
+                opacity: halfAlpha,
+              });
+              const output = outputCovSplat(
+                covsplat,
+                dynoConst("vec4", [0, 1, LN_SCALE_MIN, LN_SCALE_MAX]),
+              );
+              roots.push(output);
+            }
+            if (!generator) {
+              throw new Error("Generator must be provided");
+            }
+          }
+          if (generator) {
+            const outputDepth = outputSplatDepth(
+              generator.outputs.gsplat,
+              NewSplatAccumulator.viewCenterUniform,
+              NewSplatAccumulator.viewDirUniform,
+              NewSplatAccumulator.sortRadialUniform,
+            );
+            roots.push(outputDepth);
+          }
+          if (covGenerator) {
+            const outputDepth = outputCovSplatDepth(
+              covGenerator.outputs.covsplat,
+              NewSplatAccumulator.viewCenterUniform,
+              NewSplatAccumulator.viewDirUniform,
+              NewSplatAccumulator.sortRadialUniform,
+            );
+            roots.push(outputDepth);
+          }
           return undefined;
         },
       );
@@ -223,13 +325,14 @@ export class NewSplatAccumulator {
           : NewSplatAccumulator.programTemplate,
         // consoleLog: true,
       });
+
+      NewSplatAccumulator.generatorProgram.set(theGenerator, program);
     }
     Object.assign(program.uniforms, {
       targetLayer: { value: 0 },
       targetBase: { value: 0 },
       targetCount: { value: 0 },
     });
-    NewSplatAccumulator.generatorProgram.set(generator, program);
 
     const material = program.prepareMaterial();
     NewSplatAccumulator.fullScreenQuad.material = material;
@@ -240,18 +343,23 @@ export class NewSplatAccumulator {
     computeUvec4x2Vec4Template,
   );
   static programTemplate = new DynoProgramTemplate(computeUvec4Vec4Template);
-  static generatorProgram = new Map<GsplatGenerator, DynoProgram>();
+  static generatorProgram = new Map<
+    GsplatGenerator | CovSplatGenerator,
+    DynoProgram
+  >();
   static fullScreenQuad = new FullScreenQuad(
     new THREE.RawShaderMaterial({ visible: false }),
   );
 
   generate({
     generator,
+    covGenerator,
     base,
     count,
     renderer,
   }: {
-    generator: GsplatGenerator;
+    generator?: GsplatGenerator;
+    covGenerator?: CovSplatGenerator;
     base: number;
     count: number;
     renderer: THREE.WebGLRenderer;
@@ -263,7 +371,10 @@ export class NewSplatAccumulator {
       throw new Error("Base + count exceeds maxSplats");
     }
 
-    const { program, material } = this.prepareProgramMaterial(generator);
+    const { program, material } = this.prepareProgramMaterial(
+      generator,
+      covGenerator,
+    );
     program.update();
 
     const renderState = this.saveRenderState(renderer);
@@ -382,6 +493,7 @@ export class NewSplatAccumulator {
       } catch (error) {
         console.error("frameUpdate error", error);
         object.generator = undefined;
+        object.covGenerator = undefined;
         object.generatorError = error;
       }
     }
@@ -413,16 +525,18 @@ export class NewSplatAccumulator {
       const node = visibleGenerators[index];
       const previousNode = previousMappings.get(node);
       if (previousNode && previousNode.count !== node.numSplats) {
-        // console.log("Updating version for node", node.uuid, previousNode.count, node.numSplats);
         node.updateMappingVersion();
       }
 
-      const generator = node.generator;
-      if (generator && count > 0) {
+      const { generator, covGenerator } = node;
+      const theGenerator =
+        this.extSplats === true ? generator : (covGenerator ?? generator);
+      if (theGenerator && count > 0) {
         const { version, mappingVersion } = node;
         this.mapping.push({
           node,
           generator,
+          covGenerator,
           version,
           mappingVersion,
           base,
@@ -446,11 +560,93 @@ export class NewSplatAccumulator {
         this.ensureGenerate({ maxSplats });
 
         for (const { node, base, count } of this.mapping) {
-          const generator = node.generator;
-          if (generator && count > 0) {
-            this.generate({ generator, base, count, renderer });
+          const { generator, covGenerator } = node;
+          if ((generator || covGenerator) && count > 0) {
+            this.generate({ generator, covGenerator, base, count, renderer });
           }
         }
+      },
+      readback: async () => {
+        const textures = this.getTextures();
+        if (this.readbackSplats.length === 0) {
+          this.readbackSplats = [
+            new DynoUsampler2DArray({ value: textures[0], key: "extSplats" }),
+            new DynoUsampler2DArray({ value: textures[1], key: "extSplats" }),
+          ];
+        }
+        this.readbackSplats[0].value = textures[0];
+        this.readbackSplats[1].value = textures[1];
+
+        if (!this.readback) {
+          this.readback = new Readback({ renderer });
+        }
+        const readback = this.readback;
+        const words = this.extSplats ? 8 : 4;
+        const array = readback.ensureBuffer(
+          this.numSplats * words,
+          new Uint32Array(0),
+        );
+
+        const reader = dynoBlock(
+          { index: "int" },
+          { rgba8: "vec4" },
+          ({ index }) => {
+            const rgba8 = new Dyno({
+              inTypes: {
+                index: "int",
+                extSplats1: "usampler2DArray",
+                extSplats2: "usampler2DArray",
+              },
+              outTypes: { rgba8: "vec4" },
+              inputs: {
+                index,
+                extSplats1: this.readbackSplats[0],
+                extSplats2: this.readbackSplats[1],
+              },
+              statements: ({ inputs, outputs }) => {
+                if (this.extSplats) {
+                  return unindentLines(`
+                    int indexDiv8 = ${inputs.index} >> 3;
+                    ivec3 coord = splatTexCoord(indexDiv8);
+                    uvec4 packed;
+                    if ((${inputs.index} & 4) == 0) {
+                      packed = texelFetch(${inputs.extSplats1}, coord, 0);
+                    } else {
+                      packed = texelFetch(${inputs.extSplats2}, coord, 0);
+                    }
+
+                    int indexMod4 = ${inputs.index} & 3;
+                    uint data = (indexMod4 == 0) ? packed.x
+                      : (indexMod4 == 1) ? packed.y
+                      : (indexMod4 == 2) ? packed.z
+                      : packed.w;
+                    ${outputs.rgba8} = uintToVec4(data);
+                  `);
+                }
+                return unindentLines(`
+                  int indexDiv4 = ${inputs.index} >> 2;
+                  ivec3 coord = splatTexCoord(indexDiv4);
+                  uvec4 packed = texelFetch(${inputs.extSplats1}, coord, 0);
+
+                  int indexMod4 = ${inputs.index} & 3;
+                  uint data = (indexMod4 == 0) ? packed.x
+                    : (indexMod4 == 1) ? packed.y
+                    : (indexMod4 == 2) ? packed.z
+                    : packed.w;
+                  ${outputs.rgba8} = uintToVec4(data);
+                `);
+              },
+            }).outputs.rgba8;
+            return { rgba8 };
+          },
+        );
+
+        return await readback.renderReadback({
+          reader,
+          count: this.numSplats * words,
+          renderer,
+          readback: array,
+        });
       },
     };
   }

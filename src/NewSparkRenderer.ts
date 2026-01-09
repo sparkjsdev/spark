@@ -7,7 +7,6 @@ import {
   type SplatGenerator,
   SplatMesh,
   SplatPager,
-  dyno,
 } from ".";
 import { NewSplatAccumulator } from "./NewSplatAccumulator";
 import { NewSplatGeometry } from "./NewSplatGeometry";
@@ -75,6 +74,11 @@ export interface NewSparkRendererOptions {
    * @default false
    */
   extSplats?: boolean;
+  /**
+   * Whether to use covariance Gsplat encoding for intermediary splats.
+   * @default false
+   */
+  covSplats?: boolean;
   /**
    * Minimum alpha value for splat rendering.
    * @default 0.5 * (1.0 / 255.0)
@@ -172,6 +176,11 @@ export interface NewSparkRendererOptions {
    * @default 1.0
    */
   lodSplatScale?: number;
+  /**
+   * Scale factor for render size. 2.0 means 2x the render size.
+   * @default 1.0
+   */
+  lodRenderScale?: number;
   /* Global LoD scale to apply @default 1.0
    */
   globalLodScale?: number;
@@ -201,7 +210,6 @@ export interface NewSparkRendererOptions {
    * @default 1.0
    */
   coneFoveate?: number;
-  numLodFetchers?: number;
   target?: {
     /**
      * Width of the render target in pixels.
@@ -249,6 +257,7 @@ export class NewSparkRenderer extends THREE.Mesh {
   minPixelRadius: number;
   maxPixelRadius: number;
   extSplats: boolean;
+  covSplats: boolean;
   minAlpha: number;
   enable2DGS: boolean;
   preBlurAmount: number;
@@ -291,6 +300,7 @@ export class NewSparkRenderer extends THREE.Mesh {
   enableDriveLod: boolean;
   lodSplatCount?: number;
   lodSplatScale: number;
+  lodRenderScale: number;
   globalLodScale: number;
   maxPagedSplats: number;
   outsideFoveate: number;
@@ -298,7 +308,6 @@ export class NewSparkRenderer extends THREE.Mesh {
   coneFov0: number;
   coneFov: number;
   coneFoveate: number;
-  numLodFetchers: number;
 
   lodWorker: NewSplatWorker | null = null;
   lodMeshes: { mesh: SplatMesh; version: number }[] = [];
@@ -321,8 +330,6 @@ export class NewSparkRenderer extends THREE.Mesh {
       texture: THREE.DataTexture;
     }
   > = new Map();
-  lodFetchers: Promise<void>[] = [];
-  chunksToFetch: { lodId: number; chunk: number }[] = [];
   lodUpdates: {
     lodId: number;
     pageBase: number;
@@ -363,6 +370,7 @@ export class NewSparkRenderer extends THREE.Mesh {
       depthTest: options.depthTest ?? true,
       depthWrite: options.depthWrite ?? false,
       side: THREE.DoubleSide,
+      allowOverride: false,
     });
 
     super(geometry, material);
@@ -382,6 +390,7 @@ export class NewSparkRenderer extends THREE.Mesh {
     this.minPixelRadius = options.minPixelRadius ?? 0.0; //1.6;
     this.maxPixelRadius = options.maxPixelRadius ?? 512.0;
     this.extSplats = options.extSplats ?? false;
+    this.covSplats = options.covSplats ?? false;
     this.minAlpha = options.minAlpha ?? 0.5 * (1.0 / 255.0);
     this.enable2DGS = options.enable2DGS ?? false;
     this.preBlurAmount = options.preBlurAmount ?? 0.0;
@@ -402,6 +411,7 @@ export class NewSparkRenderer extends THREE.Mesh {
     this.enableDriveLod = options.enableDriveLod ?? this.enableLod;
     this.lodSplatCount = options.lodSplatCount;
     this.lodSplatScale = options.lodSplatScale ?? 1.0;
+    this.lodRenderScale = options.lodRenderScale ?? 1.0;
     this.globalLodScale = options.globalLodScale ?? 1.0;
     this.maxPagedSplats = options.maxPagedSplats ?? 16777216;
     this.outsideFoveate = options.outsideFoveate ?? 1.0;
@@ -409,11 +419,13 @@ export class NewSparkRenderer extends THREE.Mesh {
     this.coneFov0 = options.coneFov0 ?? 0.0;
     this.coneFov = options.coneFov ?? 0.0;
     this.coneFoveate = options.coneFoveate ?? 1.0;
-    this.numLodFetchers = options.numLodFetchers ?? 3;
 
     this.clock = options.clock ? cloneClock(options.clock) : new THREE.Clock();
 
-    const accumulatorOptions = { extSplats: this.extSplats };
+    const accumulatorOptions = {
+      extSplats: this.extSplats,
+      covSplats: this.covSplats,
+    };
     this.display = new NewSplatAccumulator(accumulatorOptions);
     this.current = this.display;
     this.accumulators.push(new NewSplatAccumulator(accumulatorOptions));
@@ -429,17 +441,23 @@ export class NewSparkRenderer extends THREE.Mesh {
 
       const superWidth = width * superXY;
       const superHeight = height * superXY;
-      this.target = new THREE.WebGLRenderTarget(superWidth, superHeight, {
+      const targetOptions: THREE.RenderTargetOptions = {
         format: THREE.RGBAFormat,
         type: THREE.UnsignedByteType,
         colorSpace: THREE.SRGBColorSpace,
-      });
+      };
+
+      this.target = new THREE.WebGLRenderTarget(
+        superWidth,
+        superHeight,
+        targetOptions,
+      );
       if (doubleBuffer) {
-        this.backTarget = new THREE.WebGLRenderTarget(superWidth, superHeight, {
-          format: THREE.RGBAFormat,
-          type: THREE.UnsignedByteType,
-          colorSpace: THREE.SRGBColorSpace,
-        });
+        this.backTarget = new THREE.WebGLRenderTarget(
+          superWidth,
+          superHeight,
+          targetOptions,
+        );
       }
       this.encodeLinear = options.encodeLinear ?? true;
     }
@@ -458,6 +476,8 @@ export class NewSparkRenderer extends THREE.Mesh {
       renderToViewQuat: { value: new THREE.Quaternion() },
       // SplatAccumulator to view transformation translation
       renderToViewPos: { value: new THREE.Vector3() },
+      renderToViewBasis: { value: new THREE.Matrix3() },
+      renderToViewOffset: { value: new THREE.Vector3() },
       // Maximum distance (in stddevs) from Gsplat center to render
       maxStdDev: { value: 1.0 },
       // Minimum pixel radius for splat rendering
@@ -487,7 +507,8 @@ export class NewSparkRenderer extends THREE.Mesh {
       encodeLinear: { value: false },
       // Back-to-front sort ordering of splat indices
       ordering: { type: "t", value: NewSparkRenderer.emptyOrdering },
-      enableExtSplats: { value: true },
+      enableExtSplats: { value: false },
+      enableCovSplats: { value: false },
       // Gsplat collection to render
       extSplats: { type: "t", value: NewSplatAccumulator.emptyTexture },
       extSplats2: { type: "t", value: NewSplatAccumulator.emptyTexture },
@@ -596,6 +617,7 @@ export class NewSparkRenderer extends THREE.Mesh {
       this.uniforms.renderToViewQuat.value,
       new THREE.Vector3(),
     );
+    this.uniforms.renderToViewBasis.value.setFromMatrix4(accumToCamera);
 
     this.uniforms.maxStdDev.value = spark.maxStdDev;
     this.uniforms.minPixelRadius.value = spark.minPixelRadius;
@@ -613,13 +635,13 @@ export class NewSparkRenderer extends THREE.Mesh {
 
     this.uniforms.ordering.value =
       spark.orderingTexture ?? NewSparkRenderer.emptyOrdering;
+    this.uniforms.enableExtSplats.value = this.display.extSplats;
+    this.uniforms.enableCovSplats.value = this.display.covSplats;
     if (this.display.extSplats) {
-      this.uniforms.enableExtSplats.value = true;
       const extSplats = spark.display.getTextures();
       this.uniforms.extSplats.value = extSplats[0];
       this.uniforms.extSplats2.value = extSplats[1];
     } else {
-      this.uniforms.enableExtSplats.value = false;
       const packedSplats = spark.display.getTextures();
       this.uniforms.extSplats.value = packedSplats[0];
       this.uniforms.extSplats2.value = packedSplats[0];
@@ -690,16 +712,17 @@ export class NewSparkRenderer extends THREE.Mesh {
       // Should never happen
       throw new Error("No next accumulator");
     }
-    const { version, visibleGenerators, generate } = next.prepareGenerate({
-      renderer,
-      scene,
-      time,
-      camera,
-      sortRadial: this.sortRadial ?? true,
-      renderSize: this.renderSize,
-      previous: this.current,
-      lodInstances: this.enableLod ? this.lodInstances : undefined,
-    });
+    const { version, visibleGenerators, generate, readback } =
+      next.prepareGenerate({
+        renderer,
+        scene,
+        time,
+        camera,
+        sortRadial: this.sortRadial ?? true,
+        renderSize: this.renderSize,
+        previous: this.current,
+        lodInstances: this.enableLod ? this.lodInstances : undefined,
+      });
 
     if (this.enableDriveLod) {
       this.driveLod({ visibleGenerators, camera });
@@ -1080,6 +1103,8 @@ export class NewSparkRenderer extends THREE.Mesh {
         ((Math.atan(tanYfov * camera.aspect) * 180) / Math.PI) * 2.0;
     }
 
+    pixelScaleLimit *= this.lodRenderScale;
+
     const uuidToMesh: Map<string, SplatMesh> = new Map();
 
     const instances = lodMeshes.reduce(
@@ -1206,136 +1231,6 @@ export class NewSparkRenderer extends THREE.Mesh {
 
       this.pager.driveFetchers();
     }
-
-    const splatStats = new Map();
-
-    // Update chunk LRU ordering. Touch in reverse order so first chunk is MRU.
-    for (let i = chunks.length - 1; i >= 0; --i) {
-      const [lodId, chunk] = chunks[i];
-      const splats = this.lodIdToSplats.get(lodId);
-      if (!splats || !(splats instanceof PackedSplats) || !splats.paged) {
-        continue;
-      }
-
-      const page = splats.chunkToPage.get(chunk);
-      if (page !== undefined) {
-        // Update LRU ordering
-        splats.chunkToPage.delete(chunk);
-        splats.chunkToPage.set(chunk, page);
-      }
-    }
-
-    this.chunksToFetch = [];
-
-    for (const [lodId, chunk] of chunks) {
-      const splats = this.lodIdToSplats.get(lodId);
-      if (!splats || !(splats instanceof PackedSplats) || !splats.paged) {
-        continue;
-      }
-
-      let stats = splatStats.get(splats);
-      if (!stats) {
-        const maxPages = Math.ceil(splats.maxSplats / 65536);
-        // const buffer = Math.max(1, Math.min(16, Math.round(0.1 * maxPages)));
-        const buffer = 0;
-        const pageLimit = maxPages - buffer;
-        const pages = 0;
-        splats.chunkEvict = [];
-        stats = { pageLimit, pages };
-        splatStats.set(splats, stats);
-      }
-      stats.pages += 1;
-
-      const page = splats.chunkToPage.get(chunk);
-      if (page === undefined) {
-        this.chunksToFetch.push({ lodId, chunk });
-      } else if (page !== null) {
-        if (stats.pages > stats.pageLimit) {
-          splats.chunkEvict.push(chunk);
-        }
-      }
-    }
-
-    this.driveLodFetchers();
-  }
-
-  private driveLodFetchers() {
-    if (this.lodFetchers.length >= this.numLodFetchers) {
-      return;
-    }
-
-    this.chunksToFetch = this.chunksToFetch.filter(({ lodId, chunk }) => {
-      if (this.lodFetchers.length >= this.numLodFetchers) {
-        return true;
-      }
-
-      const splats = this.lodIdToSplats.get(lodId);
-      if (!splats || !(splats instanceof PackedSplats) || !splats.paged) {
-        return false;
-      }
-
-      const page = splats.allocTexturePage();
-      if (page === undefined) {
-        // Out of free pages, skip for now
-        return true;
-      }
-
-      const promise = this.fetchLodChunk(lodId, splats, chunk, page).then(
-        () => {
-          this.lodFetchers = this.lodFetchers.filter((p) => p !== promise);
-        },
-      );
-      this.lodFetchers.push(promise);
-
-      promise.then(() => this.driveLodFetchers());
-      return false;
-    });
-  }
-
-  private async fetchLodChunk(
-    lodId: number,
-    splats: PackedSplats,
-    chunk: number,
-    page: number,
-  ) {
-    // Mark the chunk as "in progress" by setting to null
-    splats.chunkToPage.set(chunk, null);
-
-    const start = performance.now();
-    const url = (splats.paged?.url ?? "").replace(/-lod-0\./, `-lod-${chunk}.`);
-    const decoded = await workerPool.withWorker(async (worker) => {
-      const decoded = (await worker.call("loadPackedSplats", {
-        url,
-        requestHeader: splats.paged?.requestHeader,
-        withCredentials: splats.paged?.withCredentials,
-      })) as {
-        lodSplats: {
-          numSplats: number;
-          packedArray: Uint32Array;
-          extra: Record<string, unknown>;
-        };
-      };
-      return decoded.lodSplats;
-    });
-
-    // console.log(`Uploading chunk ${chunk} to page ${page}`);
-    splats.uploadTexturePage(this.renderer, decoded.packedArray, page);
-    splats.chunkToPage.set(chunk, page);
-    // console.log("chunkToPage.size", splats.chunkToPage.size);
-    this.lodUpdates.push({
-      lodId,
-      pageBase: page * 65536,
-      chunkBase: chunk * 65536,
-      count: decoded.numSplats,
-      lodTreeData: decoded.extra.lodTree as Uint32Array,
-    });
-    this.lodDirty = true;
-    console.log(
-      "Fetched LOD chunk",
-      chunk,
-      decoded.numSplats,
-      performance.now() - start,
-    );
   }
 
   private async cleanupLodTrees(worker: NewSplatWorker) {
@@ -1599,7 +1494,7 @@ export class NewSparkRenderer extends THREE.Mesh {
     const byteSize = width * height * 4;
     if (!this.superPixels || this.superPixels.length < byteSize) {
       this.superPixels = new Uint8Array(byteSize);
-      // console.log(`Allocated superPixels: ${width}x${height} = ${byteSize} bytes`);
+      // console.log(`Allocated superPixels: ${width}x${height} = ${pixelCount} bytes`);
     }
     const superPixels = this.superPixels;
 
@@ -1658,8 +1553,187 @@ export class NewSparkRenderer extends THREE.Mesh {
   async renderReadTarget({
     scene,
     camera,
-  }: { scene: THREE.Scene; camera: THREE.Camera }): Promise<Uint8Array> {
+  }: {
+    scene: THREE.Scene;
+    camera: THREE.Camera;
+  }): Promise<Uint8Array> {
     this.renderTarget({ scene, camera });
     return this.readTarget();
+  }
+
+  // Data and buffers used for environment map rendering
+  private static cubeRender: {
+    target: THREE.WebGLCubeRenderTarget;
+    cubeCamera: THREE.CubeCamera;
+    near: number;
+    far: number;
+  } | null = null;
+  private static pmrem: THREE.PMREMGenerator | null = null;
+
+  // Renders out the scene to a cube map that can be used for
+  // Image-based lighting or similar applications. First optionally updates Gsplats,
+  // sorts them with respect to the provided worldCenter, renders 6 cube faces.
+  async renderCubeMap({
+    scene,
+    worldCenter,
+    size = 256,
+    near = 0.1,
+    far = 1000,
+    hideObjects = [],
+    update = true,
+    filter = false,
+  }: {
+    scene: THREE.Scene;
+    worldCenter: THREE.Vector3;
+    size?: number;
+    near?: number;
+    far?: number;
+    hideObjects: THREE.Object3D[];
+    update: boolean;
+    filter: boolean;
+  }): Promise<THREE.CubeTexture> {
+    const renderer = this.renderer;
+    if (
+      !NewSparkRenderer.cubeRender ||
+      NewSparkRenderer.cubeRender.target.width !== size ||
+      NewSparkRenderer.cubeRender.near !== near ||
+      NewSparkRenderer.cubeRender.far !== far
+    ) {
+      if (NewSparkRenderer.cubeRender) {
+        NewSparkRenderer.cubeRender.target.dispose();
+      }
+      const target = new THREE.WebGLCubeRenderTarget(size, {
+        format: THREE.RGBAFormat,
+        type: THREE.UnsignedByteType,
+        generateMipmaps: filter,
+        minFilter: filter ? THREE.LinearMipMapLinearFilter : THREE.LinearFilter,
+        magFilter: THREE.LinearFilter,
+        colorSpace: filter ? THREE.LinearSRGBColorSpace : THREE.SRGBColorSpace,
+      });
+      const cubeCamera = new THREE.CubeCamera(near, far, target);
+      NewSparkRenderer.cubeRender = { target, cubeCamera, near, far };
+    }
+
+    const { target, cubeCamera } = NewSparkRenderer.cubeRender;
+    cubeCamera.position.copy(worldCenter);
+
+    // Save the visibility state of objects we want to hide before render
+    const objectVisibility = new Map<THREE.Object3D, boolean>();
+    for (const object of hideObjects) {
+      objectVisibility.set(object, object.visible);
+      object.visible = false;
+    }
+
+    if (update) {
+      const tempCamera = new THREE.Camera();
+      tempCamera.position.copy(worldCenter);
+      await this.update({ scene, camera: tempCamera });
+    }
+
+    try {
+      NewSparkRenderer.sparkOverride = this;
+      // Update the CubeCamera, which performs 6 cube face renders
+      cubeCamera.update(this.renderer, scene);
+    } finally {
+      NewSparkRenderer.sparkOverride = undefined;
+    }
+
+    // Restore viewpoint to default and object visibility
+    for (const [object, visible] of objectVisibility.entries()) {
+      object.visible = visible;
+    }
+
+    return target.texture;
+  }
+
+  async readCubeTargets(): Promise<Uint8Array[]> {
+    if (!NewSparkRenderer.cubeRender) {
+      throw new Error("No cube render");
+    }
+
+    const textures = NewSparkRenderer.cubeRender.target.texture;
+    const promises = [];
+    const buffers = [];
+
+    for (let i = 0; i < textures.images.length; ++i) {
+      const { width, height } = textures.images[i];
+      const byteSize = width * height * 4;
+      const readback = new Uint8Array(byteSize);
+      buffers.push(readback);
+      const promise = this.renderer.readRenderTargetPixelsAsync(
+        NewSparkRenderer.cubeRender.target,
+        0,
+        0,
+        width,
+        height,
+        readback,
+        i,
+      );
+      promises.push(promise);
+    }
+
+    await Promise.all(promises);
+    return buffers;
+  }
+
+  // Renders out the scene to an environment map that can be used for
+  // Image-based lighting or similar applications. First optionally updates Gsplats,
+  // sorts them with respect to the provided worldCenter, renders 6 cube faces,
+  // then pre-filters them using THREE.PMREMGenerator and returns a THREE.Texture
+  // that can assigned directly to a THREE.MeshStandardMaterial.envMap property.
+  async renderEnvMap({
+    scene,
+    worldCenter,
+    size = 256,
+    near = 0.1,
+    far = 1000,
+    hideObjects = [],
+    update = true,
+  }: {
+    scene: THREE.Scene;
+    worldCenter: THREE.Vector3;
+    size?: number;
+    near?: number;
+    far?: number;
+    hideObjects: THREE.Object3D[];
+    update: boolean;
+  }): Promise<THREE.Texture> {
+    const cubeTexture = await this.renderCubeMap({
+      scene,
+      worldCenter,
+      size,
+      near,
+      far,
+      hideObjects,
+      update,
+      filter: true,
+    });
+    // Pre-filter the cube map using THREE.PMREMGenerator if requested
+    if (!NewSparkRenderer.pmrem) {
+      NewSparkRenderer.pmrem = new THREE.PMREMGenerator(this.renderer);
+      console.log("Created PMREMGenerator");
+    }
+
+    return NewSparkRenderer.pmrem?.fromCubemap(cubeTexture).texture;
+  }
+
+  // Utility function to recursively set the envMap property for any
+  // THREE.MeshStandardMaterial within the subtree of root.
+  recurseSetEnvMap(root: THREE.Object3D, envMap: THREE.Texture) {
+    root.traverse((node) => {
+      if (node instanceof THREE.Mesh) {
+        if (Array.isArray(node.material)) {
+          for (const material of node.material) {
+            if (material instanceof THREE.MeshStandardMaterial) {
+              material.envMap = envMap;
+            }
+          }
+        } else {
+          if (node.material instanceof THREE.MeshStandardMaterial) {
+            node.material.envMap = envMap;
+          }
+        }
+      }
+    });
   }
 }

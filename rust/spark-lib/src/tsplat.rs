@@ -65,8 +65,10 @@ pub trait TsplatArray {
     fn prepare_extra(&mut self);
     fn new_merged(&mut self, indices: &[usize], filter_size: f32) -> usize;
     fn set_children(&mut self, parent: usize, children: &[usize]);
+    fn clear_children(&mut self);
 
     fn retain<F: (FnMut(&mut Self::Splat) -> bool)>(&mut self, f: F);
+    fn retain_children<F: (FnMut(&mut Self::Splat, &[usize]) -> bool)>(&mut self, f: F);
     fn permute(&mut self, index_map: &[usize]);
     fn new_from_index_map(&mut self, index_map: &[usize]) -> Self;
     fn clone_subset(&self, start: usize, count: usize) -> Self;

@@ -6,7 +6,7 @@ use anyhow::anyhow;
 use crate::decoder::{ChunkReceiver, SplatGetter, SplatInit, SplatProps, SplatReceiver};
 
 pub const PLY_MAGIC: u32 = 0x00796c70; // "ply"
-const MAX_SPLAT_CHUNK: usize = 16384;
+const MAX_SPLAT_CHUNK: usize = 65536;
 const SH_C0: f32 = 0.28209479177387814;
 
 pub struct PlyDecoder<T: SplatReceiver> {
