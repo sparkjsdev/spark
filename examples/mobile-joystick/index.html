@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Spark • Mobile Joystick</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      touch-action: none;
+    }
+    #info {
+      position: fixed;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.7);
+      color: #fff;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-family: system-ui, sans-serif;
+      font-size: 14px;
+      text-align: center;
+      z-index: 100;
+      pointer-events: none;
+    }
+    #info.mobile {
+      background: rgba(40, 120, 200, 0.8);
+    }
+  </style>
+</head>
+
+<body>
+  <div id="info">Loading...</div>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.179.0/three.module.js",
+        "@sparkjsdev/spark": "/dist/spark.module.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { NewSparkRenderer, SplatMesh, SparkControls } from "@sparkjsdev/spark";
+    import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+    import { initMobileControls, getMobileInput, isMobileDevice } from "./mobile-joystick.js";
+
+    // Scene setup
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    document.body.appendChild(renderer.domElement);
+
+    // Handle window resize
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Camera control group
+    const cameraRig = new THREE.Group();
+    cameraRig.add(camera);
+    scene.add(cameraRig);
+
+    // Create Spark renderer (required for splats to render)
+    const spark = new NewSparkRenderer({ renderer });
+    scene.add(spark);
+
+    // Load the valley environment
+    const splatURL = await getAssetFileURL("valley.spz");
+    const splat = new SplatMesh({ url: splatURL });
+    splat.quaternion.set(1, 0, 0, 0);
+    splat.position.set(0, 0, -3);
+    scene.add(splat);
+
+    // Start position inside the valley
+    cameraRig.position.set(0, 1.6, 0);
+
+    // Desktop controls (mouse/keyboard)
+    const controls = new SparkControls({ canvas: renderer.domElement });
+
+    // Mobile joystick
+    const isMobile = isMobileDevice();
+    const info = document.getElementById('info');
+
+    if (isMobile) {
+      initMobileControls({
+        joystickSize: 140,
+        knobSize: 60,
+        marginLeft: 40,
+        marginBottom: 40,
+      });
+      info.textContent = '🕹️ Use joystick to move • Drag to look around';
+      info.classList.add('mobile');
+    } else {
+      info.textContent = 'WASD to move • Drag to look around';
+    }
+
+    // Movement settings
+    const MOVE_SPEED = 2.0;
+
+    // Animation loop
+    let lastTime = performance.now();
+    renderer.setAnimationLoop(function animate(time) {
+      const deltaTime = (time - lastTime) / 1000;
+      lastTime = time;
+
+      // Update desktop controls (handles mouse look on both desktop & mobile)
+      controls.update(cameraRig);
+
+      // Apply mobile joystick movement
+      if (isMobile) {
+        const input = getMobileInput();
+        if (input.x !== 0 || input.y !== 0) {
+          const move = new THREE.Vector3(input.x, 0, input.y);
+          move.multiplyScalar(MOVE_SPEED * deltaTime);
+          move.applyQuaternion(cameraRig.quaternion);
+          cameraRig.position.add(move);
+        }
+      }
+
+      renderer.render(scene, camera);
+    });
+  </script>
+</body>
+
+</html>
