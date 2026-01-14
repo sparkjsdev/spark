@@ -80,7 +80,9 @@ export class PlyReader {
   // "vertex" contains the Gsplat data.
   async parseHeader() {
     const bufferStream = new ReadableStream({
-      start: (controller: ReadableStreamController<Uint8Array>) => {
+      start: (
+        controller: ReadableStreamController<Uint8Array<ArrayBuffer>>,
+      ) => {
         // Assume the header is less than 64KB
         controller.enqueue(this.fileBytes.slice(0, 65536));
         controller.close();

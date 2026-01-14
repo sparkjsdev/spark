@@ -669,7 +669,6 @@ impl<T: SplatGetter> SpzEncoder<T> {
 
         // Temporary buffers
         let mut f32_buf: Vec<f32> = Vec::new();
-        let mut f32_buf_b: Vec<f32> = Vec::new();
         let mut u16_buf: Vec<u16> = Vec::new();
 
         // Centers (i24 xyz)
