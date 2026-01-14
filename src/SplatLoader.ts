@@ -217,6 +217,7 @@ export enum SplatFileType {
   PLY = "ply",
   SPZ = "spz",
   SPLAT = "splat",
+  CSPLAT = "csplat",
   KSPLAT = "ksplat",
   PCSOGS = "pcsogs",
   PCSOGSZIP = "pcsogszip",
@@ -519,6 +520,18 @@ export async function unpackSplats({
       return await withWorker(async (worker) => {
         const { packedArray, numSplats } = (await worker.call(
           "decodeAntiSplat",
+          {
+            fileBytes,
+            splatEncoding,
+          },
+        )) as { packedArray: Uint32Array; numSplats: number };
+        return { packedArray, numSplats };
+      });
+    }
+    case SplatFileType.CSPLAT: {
+      return await withWorker(async (worker) => {
+        const { packedArray, numSplats } = (await worker.call(
+          "decodeCSplat",
           {
             fileBytes,
             splatEncoding,

@@ -2,6 +2,7 @@ import init_wasm, { sort_splats, sort32_splats } from "spark-internal-rs";
 import type { SplatEncoding } from "./PackedSplats";
 import type { PcSogsJson, TranscodeSpzInput } from "./SplatLoader";
 import { unpackAntiSplat } from "./antisplat";
+import { unpackCSplat } from "./csplat";
 import { WASM_SPLAT_SORT } from "./defines";
 import { unpackKsplat } from "./ksplat";
 import { unpackPcSogs, unpackPcSogsZip } from "./pcsogs";
@@ -76,6 +77,19 @@ async function onMessage(event: MessageEvent) {
           splatEncoding: SplatEncoding;
         };
         const decoded = unpackAntiSplat(fileBytes, splatEncoding);
+        result = {
+          id,
+          numSplats: decoded.numSplats,
+          packedArray: decoded.packedArray,
+        };
+        break;
+      }
+      case "decodeCSplat": {
+        const { fileBytes, splatEncoding } = args as {
+          fileBytes: Uint8Array;
+          splatEncoding: SplatEncoding;
+        };
+        const decoded = unpackCSplat(fileBytes, splatEncoding);
         result = {
           id,
           numSplats: decoded.numSplats,
