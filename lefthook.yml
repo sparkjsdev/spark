@@ -1,6 +1,0 @@
-pre-commit:
-  jobs:
-    - name: lint
-      run: npm run lint
-    - name: test
-      run: npm run test
