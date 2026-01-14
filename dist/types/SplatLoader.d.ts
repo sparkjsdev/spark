@@ -14,6 +14,7 @@ export declare enum SplatFileType {
     PLY = "ply",
     SPZ = "spz",
     SPLAT = "splat",
+    CSPLAT = "csplat",
     KSPLAT = "ksplat",
     PCSOGS = "pcsogs",
     PCSOGSZIP = "pcsogszip"
