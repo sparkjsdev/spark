@@ -74,9 +74,9 @@ We downsample splats by merging a set of splats into a single "average" splat. W
 
 For downsampling code, refer to `GsplatArray::new_merged()` in [rust/spark-lib/src/gsplat.rs](../../rust/spark-lib/src/gsplat.rs).
 
-The downsampled splat opacity is a more complicated matter, however. In traditional Gaussian splatting the maximum opacity parameter is `A=1.0` which results in `opacity(x) = A * e^(-0.5 * x^2)`. If we had `K` identical splats at the same location, the combined opacity is `opacity(x) = 1 - (1 - (e^(-0.5 * x^2)) ^ K)`. As `K` grows larger, this becomes a very non-Gaussian profile, so the traditional opacity parameterization is insufficient to represent the appearance of these downsampled/merged splats.
+The downsampled splat opacity is a more complicated matter, however. In traditional Gaussian splatting the maximum opacity parameter is `A=1.0` which results in `opacity(x) = A * e^(-0.5 * x^2)`. If we had `K` identical splats at the same location, the combined opacity is `opacity(x) = 1 - (1 - (e^(-0.5 * x^2))) ^ K`. As `K` grows larger, this becomes a very non-Gaussian profile, so the traditional opacity parameterization is insufficient to represent the appearance of these downsampled/merged splats.
 
-![Plot A: 1 - (1 - (e^(-0.5 * x^2)) ^ K) for K=1, 2, 5, 20, 100, 1000](images/lod-opacity-plot-A.png)
+![Plot A: 1 - (1 - (e^(-0.5 * x^2))) ^ K for K=1, 2, 5, 20, 100, 1000](images/lod-opacity-plot-A.png)
 
 Kerbl et al. address this problem by extending opacity beyond 1.0 and using `opacity(x) = min(1.0, A * e^(-0.5 * x^2))` and estimating this value by inverting the splat weighting formula: `opacity = weight / area`, where `weight` is the sum of the individual splat weights and `area` is the surface area of the merged splat ellipsoid. As `A` grows larger (more splats merged) the profile has a visually objectionable corner:
 
