@@ -697,7 +697,14 @@ export class NewSparkRenderer extends THREE.Mesh {
    * affecting main LOD selection.
    */
   setPrefetchCameras(cameras?: THREE.Camera[], lodScaleMultiplier = 1.0) {
-    this.prefetchCameras = cameras?.filter(Boolean) ?? [];
+    const next = cameras?.filter(Boolean) ?? [];
+    const sameCameras =
+      this.prefetchCameras.length === next.length &&
+      this.prefetchCameras.every((camera, index) => camera === next[index]);
+    if (sameCameras && this.prefetchLodScale === lodScaleMultiplier) {
+      return;
+    }
+    this.prefetchCameras = next;
     this.prefetchLodScale = lodScaleMultiplier;
     this.invalidatePrefetchCache();
   }
