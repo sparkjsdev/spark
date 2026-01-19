@@ -340,6 +340,10 @@ export class NewSparkRenderer extends THREE.Mesh {
 
   pager?: SplatPager;
   pagerId = 0;
+  prefetchCameras: THREE.Camera[] = [];
+  prefetchLodScale = 1.0;
+  prefetchMeshesCache: SplatMesh[] = [];
+  prefetchMeshesCacheScene?: THREE.Scene;
 
   target?: THREE.WebGLRenderTarget;
   backTarget?: THREE.WebGLRenderTarget;
@@ -688,6 +692,24 @@ export class NewSparkRenderer extends THREE.Mesh {
     await this.updateInternal({ scene, camera, autoUpdate: false });
   }
 
+  /**
+   * Provide additional cameras to prefetch paged splat chunks without
+   * affecting main LOD selection.
+   */
+  setPrefetchCameras(cameras?: THREE.Camera[], lodScaleMultiplier = 1.0) {
+    this.prefetchCameras = cameras?.filter(Boolean) ?? [];
+    this.prefetchLodScale = lodScaleMultiplier;
+    this.invalidatePrefetchCache();
+  }
+
+  /**
+   * Invalidate the prefetch meshes cache. Call this when SplatMeshes are
+   * added or removed from the scene.
+   */
+  invalidatePrefetchCache() {
+    this.prefetchMeshesCacheScene = undefined;
+  }
+
   private async updateInternal({
     scene,
     camera,
@@ -725,7 +747,7 @@ export class NewSparkRenderer extends THREE.Mesh {
       });
 
     if (this.enableDriveLod) {
-      this.driveLod({ visibleGenerators, camera });
+      this.driveLod({ visibleGenerators, camera, scene });
     }
     this.driveSort();
 
@@ -913,7 +935,12 @@ export class NewSparkRenderer extends THREE.Mesh {
   private async driveLod({
     visibleGenerators,
     camera: inputCamera,
-  }: { visibleGenerators: SplatGenerator[]; camera: THREE.Camera }) {
+    scene,
+  }: {
+    visibleGenerators: SplatGenerator[];
+    camera: THREE.Camera;
+    scene: THREE.Scene;
+  }) {
     const lodMeshes = !this.enableLod
       ? []
       : (visibleGenerators.filter((generator) => {
@@ -951,7 +978,8 @@ export class NewSparkRenderer extends THREE.Mesh {
       return;
     }
 
-    const camera = inputCamera.clone();
+    const camera = inputCamera;
+    camera.updateMatrixWorld(true);
 
     this.lodInitQueue = [];
     const now = performance.now();
@@ -1048,7 +1076,7 @@ export class NewSparkRenderer extends THREE.Mesh {
         this.lodPos.copy(viewPos);
         this.lodQuat.copy(viewQuat);
         this.lodDirty = false;
-        await this.updateLodInstances(worker, camera, lodMeshes);
+        await this.updateLodInstances(worker, camera, lodMeshes, scene);
       }
 
       await this.cleanupLodTrees(worker);
@@ -1083,6 +1111,7 @@ export class NewSparkRenderer extends THREE.Mesh {
     worker: NewSplatWorker,
     camera: THREE.Camera,
     lodMeshes: SplatMesh[],
+    scene: THREE.Scene,
   ) {
     const defaultSplatCount =
       isAndroid() || isOculus() || isVisionPro()
@@ -1092,72 +1121,98 @@ export class NewSparkRenderer extends THREE.Mesh {
           : 1500000;
     const splatCount = this.lodSplatCount ?? defaultSplatCount;
     const maxSplats = splatCount * this.lodSplatScale;
-    let pixelScaleLimit = 0.0;
-    let fovXdegrees = Number.POSITIVE_INFINITY;
-    let fovYdegrees = Number.POSITIVE_INFINITY;
-    if (camera instanceof THREE.PerspectiveCamera) {
-      const tanYfov = Math.tan((0.5 * camera.fov * Math.PI) / 180);
-      pixelScaleLimit = (2.0 * tanYfov) / this.renderSize.y;
-      fovYdegrees = camera.fov;
-      fovXdegrees =
-        ((Math.atan(tanYfov * camera.aspect) * 180) / Math.PI) * 2.0;
-    }
+    const getLodViewParams = (viewCamera: THREE.Camera) => {
+      let pixelScaleLimit = 0.0;
+      let fovXdegrees = Number.POSITIVE_INFINITY;
+      let fovYdegrees = Number.POSITIVE_INFINITY;
+      if (viewCamera instanceof THREE.PerspectiveCamera) {
+        const tanYfov = Math.tan((0.5 * viewCamera.fov * Math.PI) / 180);
+        pixelScaleLimit = (2.0 * tanYfov) / this.renderSize.y;
+        fovYdegrees = viewCamera.fov;
+        fovXdegrees =
+          ((Math.atan(tanYfov * viewCamera.aspect) * 180) / Math.PI) * 2.0;
+      }
+      pixelScaleLimit *= this.lodRenderScale;
+      return { pixelScaleLimit, fovXdegrees, fovYdegrees };
+    };
 
-    pixelScaleLimit *= this.lodRenderScale;
+    const buildInstancesForCamera = (
+      viewCamera: THREE.Camera,
+      trackMeshes: boolean,
+      meshes: SplatMesh[],
+      lodScaleMultiplier = 1.0,
+      allowMissingRootPage = false,
+    ) => {
+      const uuidToMesh: Map<string, SplatMesh> | null = trackMeshes
+        ? new Map()
+        : null;
+      viewCamera.updateMatrixWorld();
+      const instances = meshes.reduce(
+        (instances, mesh) => {
+          uuidToMesh?.set(mesh.uuid, mesh);
+          const viewToObject = mesh.matrixWorld
+            .clone()
+            .invert()
+            .multiply(viewCamera.matrixWorld);
 
-    const uuidToMesh: Map<string, SplatMesh> = new Map();
+          const splats =
+            mesh.packedSplats?.lodSplats ??
+            mesh.extSplats?.lodSplats ??
+            mesh.paged;
+          if (!splats) {
+            return instances;
+          }
+          const record = this.lodIds.get(splats);
+          if (!record) {
+            return instances;
+          }
 
-    const instances = lodMeshes.reduce(
-      (instances, mesh) => {
-        uuidToMesh.set(mesh.uuid, mesh);
-        const viewToObject = mesh.matrixWorld
-          .clone()
-          .invert()
-          .multiply(camera.matrixWorld);
+          if (
+            !allowMissingRootPage &&
+            this.pager &&
+            mesh.paged &&
+            record.rootPage === undefined
+          ) {
+            return instances;
+          }
 
-        const splats =
-          mesh.packedSplats?.lodSplats ??
-          mesh.extSplats?.lodSplats ??
-          mesh.paged;
-        if (!splats) {
+          instances[mesh.uuid] = {
+            lodId: record.lodId,
+            rootPage: record.rootPage,
+            viewToObjectCols: viewToObject.elements,
+            lodScale: mesh.lodScale * this.globalLodScale * lodScaleMultiplier,
+            outsideFoveate: mesh.outsideFoveate ?? this.outsideFoveate,
+            behindFoveate: mesh.behindFoveate ?? this.behindFoveate,
+            coneFov0: mesh.coneFov0 ?? this.coneFov0,
+            coneFov: mesh.coneFov ?? this.coneFov,
+            coneFoveate: mesh.coneFoveate ?? this.coneFoveate,
+          };
           return instances;
-        }
-        const record = this.lodIds.get(splats);
-        if (!record) {
-          return instances;
-        }
+        },
+        {} as Record<
+          string,
+          {
+            lodId: number;
+            rootPage?: number;
+            viewToObjectCols: number[];
+            lodScale: number;
+            outsideFoveate: number;
+            behindFoveate: number;
+            coneFov0: number;
+            coneFov: number;
+            coneFoveate: number;
+          }
+        >,
+      );
+      return { instances, uuidToMesh };
+    };
 
-        if (this.pager && mesh.paged && record.rootPage === undefined) {
-          return instances;
-        }
-
-        instances[mesh.uuid] = {
-          lodId: record.lodId,
-          rootPage: record.rootPage,
-          viewToObjectCols: viewToObject.elements,
-          lodScale: mesh.lodScale * this.globalLodScale,
-          outsideFoveate: mesh.outsideFoveate ?? this.outsideFoveate,
-          behindFoveate: mesh.behindFoveate ?? this.behindFoveate,
-          coneFov0: mesh.coneFov0 ?? this.coneFov0,
-          coneFov: mesh.coneFov ?? this.coneFov,
-          coneFoveate: mesh.coneFoveate ?? this.coneFoveate,
-        };
-        return instances;
-      },
-      {} as Record<
-        string,
-        {
-          lodId: number;
-          rootPage?: number;
-          viewToObjectCols: number[];
-          lodScale: number;
-          outsideFoveate: number;
-          behindFoveate: number;
-          coneFov0: number;
-          coneFov: number;
-          coneFoveate: number;
-        }
-      >,
+    const { pixelScaleLimit, fovXdegrees, fovYdegrees } =
+      getLodViewParams(camera);
+    const { instances, uuidToMesh } = buildInstancesForCamera(
+      camera,
+      true,
+      lodMeshes,
     );
     // console.log("instances", instances);
 
@@ -1186,8 +1241,101 @@ export class NewSparkRenderer extends THREE.Mesh {
     // }
     // console.log("*** counts", JSON.stringify(chunks));
 
-    this.updateLodIndices(uuidToMesh, keyIndices);
-    // console.log("chunks.length =", chunks.length);
+    const mergedKeyIndices = { ...keyIndices };
+    const mergedChunks: [number, number][] = [...chunks];
+    let prefetchRootTargets: { splats: PagedSplats; distance: number }[] = [];
+
+    if (this.prefetchCameras.length > 0) {
+      // Use cached prefetch meshes, rebuild if scene changed
+      if (this.prefetchMeshesCacheScene !== scene) {
+        this.prefetchMeshesCache = [];
+        this.prefetchMeshesCacheScene = scene;
+        scene.traverse((node) => {
+          if (
+            node instanceof SplatMesh &&
+            (node.packedSplats?.lodSplats ||
+              node.extSplats?.lodSplats ||
+              node.paged) &&
+            node.enableLod !== false
+          ) {
+            this.prefetchMeshesCache.push(node);
+          }
+        });
+      }
+      const prefetchMeshes = this.prefetchMeshesCache;
+
+      if (uuidToMesh) {
+        for (const mesh of prefetchMeshes) {
+          if (!uuidToMesh.has(mesh.uuid)) {
+            uuidToMesh.set(mesh.uuid, mesh);
+          }
+        }
+      }
+
+      const prefetchRootDistances = new Map<PagedSplats, number>();
+
+      for (const prefetchCamera of this.prefetchCameras) {
+        const prefetchCameraPosition = prefetchCamera.getWorldPosition(
+          new THREE.Vector3(),
+        );
+        for (const mesh of prefetchMeshes) {
+          if (!mesh.paged) continue;
+          const meshPosition = mesh.getWorldPosition(new THREE.Vector3());
+          const distance = meshPosition.distanceTo(prefetchCameraPosition);
+          const existing = prefetchRootDistances.get(mesh.paged);
+          if (existing === undefined || distance < existing) {
+            prefetchRootDistances.set(mesh.paged, distance);
+          }
+        }
+
+        const {
+          pixelScaleLimit: prefetchPixelScaleLimit,
+          fovXdegrees: prefetchFovXdegrees,
+          fovYdegrees: prefetchFovYdegrees,
+        } = getLodViewParams(prefetchCamera);
+        const { instances: prefetchInstances } = buildInstancesForCamera(
+          prefetchCamera,
+          false,
+          prefetchMeshes,
+          this.prefetchLodScale,
+          false,
+        );
+        if (Object.keys(prefetchInstances).length === 0) {
+          continue;
+        }
+        const { keyIndices: prefetchKeyIndices, chunks: extraChunks } =
+          (await worker.call("traverseLodTrees", {
+            maxSplats,
+            pixelScaleLimit: prefetchPixelScaleLimit,
+            fovXdegrees: prefetchFovXdegrees,
+            fovYdegrees: prefetchFovYdegrees,
+            instances: prefetchInstances,
+          })) as {
+            keyIndices: Record<
+              string,
+              { lodId: number; numSplats: number; indices: Uint32Array }
+            >;
+            chunks: [number, number][];
+          };
+        mergedChunks.push(...extraChunks);
+
+        for (const [uuid, prefetchData] of Object.entries(prefetchKeyIndices)) {
+          const existing = mergedKeyIndices[uuid];
+          if (!existing || prefetchData.numSplats > existing.numSplats) {
+            mergedKeyIndices[uuid] = prefetchData;
+          }
+        }
+      }
+
+      prefetchRootTargets = Array.from(prefetchRootDistances.entries())
+        .map(([splats, distance]) => ({ splats, distance }))
+        .sort((a, b) => a.distance - b.distance);
+    }
+
+    if (uuidToMesh) {
+      this.updateLodIndices(uuidToMesh, mergedKeyIndices);
+    }
+    // console.log("chunks.length =", mergedChunks.length);
 
     if (this.pager) {
       this.pager.processUploads();
@@ -1215,22 +1363,39 @@ export class NewSparkRenderer extends THREE.Mesh {
 
       // Fetch root chunk of each paged splats in priority of distance to camera
       pagedMeshes.sort((a, b) => a.distance - b.distance);
-      this.pager.fetchPriority = pagedMeshes.map(({ splats }) => ({
-        splats,
-        chunk: 0,
-      }));
+      const fetchPriority: { splats: PagedSplats; chunk: number }[] = [];
+      const seen = new Map<PagedSplats, Set<number>>();
+      const addPriority = (splats: PagedSplats, chunk: number) => {
+        const existing = seen.get(splats);
+        if (existing) {
+          if (existing.has(chunk)) return;
+          existing.add(chunk);
+        } else {
+          seen.set(splats, new Set([chunk]));
+        }
+        fetchPriority.push({ splats, chunk });
+      };
 
-      for (const [lodId, chunk] of chunks) {
+      for (const { splats } of prefetchRootTargets) {
+        addPriority(splats, 0);
+      }
+
+      for (const { splats } of pagedMeshes) {
+        addPriority(splats, 0);
+      }
+
+      for (const [lodId, chunk] of mergedChunks) {
         const splats = this.lodIdToSplats.get(lodId);
         if (splats instanceof PagedSplats) {
-          if (chunk !== 0) {
-            this.pager.fetchPriority.push({ splats, chunk });
-          }
+          addPriority(splats, chunk);
         }
       }
 
+      this.pager.fetchPriority = fetchPriority;
+
       this.pager.driveFetchers();
     }
+
   }
 
   private async cleanupLodTrees(worker: NewSplatWorker) {

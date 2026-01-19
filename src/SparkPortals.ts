@@ -277,6 +277,9 @@ export class SparkPortals {
     // Secondary camera for behind-portal view
     this.camera2 = this.camera.clone();
     this.scene.add(this.camera2);
+
+    // Keep portal prefetch camera set persistently so driveLod sees it
+    this.portalRenderer.setPrefetchCameras([this.camera2]);
   }
 
   /**
