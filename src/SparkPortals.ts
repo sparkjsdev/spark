@@ -216,6 +216,8 @@ export class SparkPortals {
 
   /** Used to detect crossing between frames */
   private lastCameraWorld = new THREE.Vector3().setScalar(Number.NaN);
+  /** Whether portal LoD prefetch is currently enabled */
+  private prefetchActive = false;
 
   // Preallocated objects for scratch work to avoid per frame allocations
   private scratch = {
@@ -277,9 +279,6 @@ export class SparkPortals {
     // Secondary camera for behind-portal view
     this.camera2 = this.camera.clone();
     this.scene.add(this.camera2);
-
-    // Keep portal prefetch camera set persistently so driveLod sees it
-    this.portalRenderer.setPrefetchCameras([this.camera2]);
   }
 
   /**
@@ -624,9 +623,18 @@ export class SparkPortals {
 
     // No portals - just render normally
     if (!primary) {
+      if (this.prefetchActive) {
+        this.portalRenderer.setPrefetchCameras();
+        this.prefetchActive = false;
+      }
       this.renderer.autoClear = true;
       this.renderer.render(this.scene, this.camera);
       return;
+    }
+
+    if (!this.prefetchActive) {
+      this.portalRenderer.setPrefetchCameras([this.camera2]);
+      this.prefetchActive = true;
     }
 
     const { pair, primaryIsEntry, primaryPortal, otherPortal } = primary;
