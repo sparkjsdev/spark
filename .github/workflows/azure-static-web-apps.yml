@@ -28,7 +28,15 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
+
+      - name: Build WASM (if needed)
+        run: |
+          if command -v rustup &> /dev/null; then
+            npm run build:wasm
+          else
+            echo "Rust not available, using pre-built WASM"
+          fi
 
       - name: Install MkDocs
         run: pip install mkdocs-material
@@ -43,4 +51,6 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: "upload"
           skip_app_build: true
+          skip_api_build: true
           app_location: "site"
+          output_location: ""
