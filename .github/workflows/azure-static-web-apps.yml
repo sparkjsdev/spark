@@ -11,6 +11,7 @@ on:
       - 'examples/**'
       - 'docs/**'
       - 'index.html'
+      - 'examples.html'
       - 'package.json'
       - '.github/workflows/azure-static-web-apps.yml'
 
