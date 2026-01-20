@@ -1,3 +1,4 @@
+# Builds and deploys Spark examples site to Azure Static Web Apps
 name: Deploy to Azure Static Web Apps
 
 on:
