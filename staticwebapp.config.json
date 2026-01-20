@@ -1,0 +1,23 @@
+{
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": [
+      "/dist/*",
+      "/examples/*",
+      "*.js",
+      "*.css",
+      "*.spz",
+      "*.ply",
+      "*.glb"
+    ]
+  },
+  "mimeTypes": {
+    ".spz": "application/octet-stream",
+    ".splat": "application/octet-stream",
+    ".ply": "application/octet-stream",
+    ".wasm": "application/wasm"
+  },
+  "globalHeaders": {
+    "X-Content-Type-Options": "nosniff"
+  }
+}
