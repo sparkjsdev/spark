@@ -11,6 +11,7 @@ on:
       - 'docs/**'
       - 'index.html'
       - 'package.json'
+      - '.github/workflows/azure-static-web-apps.yml'
 
 jobs:
   build_and_deploy:
