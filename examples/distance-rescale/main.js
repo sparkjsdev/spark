@@ -388,11 +388,15 @@ function rescaleModel(newDistance) {
 function transformOriginTo(newOrigin) {
   if (!splatMesh) return;
 
-  console.log("🎯 Transforming origin to:", newOrigin.toFixed(2));
+  console.log(
+    `🎯 Transforming origin to: (${newOrigin.x.toFixed(2)}, ${newOrigin.y.toFixed(2)}, ${newOrigin.z.toFixed(2)})`,
+  );
 
   // Calculate translation: move newOrigin to (0,0,0)
   const translation = newOrigin.clone().negate();
-  console.log("📐 Translation vector:", translation.toFixed(2));
+  console.log(
+    `📐 Translation vector: (${translation.x.toFixed(2)}, ${translation.y.toFixed(2)}, ${translation.z.toFixed(2)})`,
+  );
 
   // Transform all splat centers
   splatMesh.packedSplats.forEachSplat(
@@ -415,7 +419,7 @@ function transformOriginTo(newOrigin) {
   const oldCameraPos = camera.position.clone();
   camera.position.add(translation);
   console.log(
-    `📷 Camera moved from ${oldCameraPos.toFixed(2)} to ${camera.position.toFixed(2)}`,
+    `📷 Camera moved from (${oldCameraPos.x.toFixed(2)}, ${oldCameraPos.y.toFixed(2)}, ${oldCameraPos.z.toFixed(2)}) to (${camera.position.x.toFixed(2)}, ${camera.position.y.toFixed(2)}, ${camera.position.z.toFixed(2)})`,
   );
 
   // TrackballControls don't have a target, just update
