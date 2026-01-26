@@ -4,3 +4,11 @@ pre-commit:
       run: npm run lint
     - name: test
       run: npm run test
+    - name: detect-secrets
+      run: |
+        if command -v detect-secrets >/dev/null 2>&1; then
+          detect-secrets-hook --baseline ~/.config/git/hooks/.secrets.baseline {staged_files}
+        else
+          echo "⚠️  Warning: detect-secrets not installed, skipping secret scan"
+          echo "   Install with: pip install detect-secrets"
+        fi
