@@ -387,10 +387,11 @@ function rescaleModel(newDistance) {
 function transformOriginTo(newOrigin) {
   if (!splatMesh) return;
 
-  console.log("Transforming origin to:", newOrigin.toFixed(2));
+  console.log("🎯 Transforming origin to:", newOrigin.toFixed(2));
 
   // Calculate translation: move newOrigin to (0,0,0)
   const translation = newOrigin.clone().negate();
+  console.log("📐 Translation vector:", translation.toFixed(2));
 
   // Transform all splat centers
   splatMesh.packedSplats.forEachSplat(
@@ -400,23 +401,29 @@ function transformOriginTo(newOrigin) {
     },
   );
   splatMesh.packedSplats.needsUpdate = true;
+  console.log("✓ Splats transformed");
 
-  // Transform axes helper if exists
-  if (state.axesHelper) {
-    state.axesHelper.position.add(translation);
-  }
+  // Axes helper stays at (0,0,0) to mark the new origin
+  // No need to move it - it already represents world origin
 
   // Reset measurements (user preference)
   resetSelection();
+  console.log("✓ Measurements reset");
 
   // Transform camera to maintain view
+  const oldCameraPos = camera.position.clone();
   camera.position.add(translation);
+  console.log(
+    `📷 Camera moved from ${oldCameraPos.toFixed(2)} to ${camera.position.toFixed(2)}`,
+  );
+
   // TrackballControls don't have a target, just update
   controls.update();
 
   updateInstructions(
     "Origin set! Left-click to measure | Right double-click for new origin",
   );
+  console.log("✅ Origin transformation complete!");
 }
 
 // ============================================================================
@@ -586,8 +593,26 @@ let lastRightClickTime = 0;
 let lastRightClickPos = null;
 const RIGHT_DOUBLE_CLICK_DELAY = 300; // milliseconds
 
+// Track right mouse down position to detect drags
+let rightPointerDownPos = null;
+
 renderer.domElement.addEventListener("mousedown", (event) => {
   if (event.button !== 2) return; // Only right button
+  rightPointerDownPos = { x: event.clientX, y: event.clientY };
+});
+
+renderer.domElement.addEventListener("mouseup", (event) => {
+  if (event.button !== 2) return; // Only right button
+
+  // Check if it was a click (not a drag)
+  if (rightPointerDownPos) {
+    const dx = event.clientX - rightPointerDownPos.x;
+    const dy = event.clientY - rightPointerDownPos.y;
+    if (Math.sqrt(dx * dx + dy * dy) > 5) {
+      rightPointerDownPos = null;
+      return; // Was a drag, not a click
+    }
+  }
 
   const now = Date.now();
   const currentPos = { x: event.clientX, y: event.clientY };
@@ -599,11 +624,20 @@ renderer.domElement.addEventListener("mousedown", (event) => {
     const distance = Math.sqrt(dx * dx + dy * dy);
     const timeSinceLastClick = now - lastRightClickTime;
 
+    console.log(
+      `Right click: distance=${distance.toFixed(1)}px, time=${timeSinceLastClick}ms`,
+    );
+
     if (timeSinceLastClick < RIGHT_DOUBLE_CLICK_DELAY && distance < 10) {
       // Right double-click detected!
+      console.log("✓ Right double-click detected!");
       event.preventDefault();
+      event.stopPropagation();
 
-      if (!splatMesh) return;
+      if (!splatMesh) {
+        console.warn("No model loaded");
+        return;
+      }
 
       const ndc = getMouseNDC(event);
       const hitPoint = getHitPoint(ndc);
@@ -612,18 +646,23 @@ renderer.domElement.addEventListener("mousedown", (event) => {
         console.log("Right double-click missed model");
         lastRightClickTime = 0;
         lastRightClickPos = null;
+        rightPointerDownPos = null;
         return;
       }
 
+      console.log("Hit point:", hitPoint);
       transformOriginTo(hitPoint);
       lastRightClickTime = 0;
       lastRightClickPos = null;
+      rightPointerDownPos = null;
       return;
     }
   }
 
   lastRightClickTime = now;
   lastRightClickPos = currentPos;
+  rightPointerDownPos = null;
+  console.log("First right click registered");
 });
 
 // Prevent context menu on right-click
