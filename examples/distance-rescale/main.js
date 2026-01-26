@@ -388,15 +388,8 @@ function rescaleModel(newDistance) {
 function transformOriginTo(newOrigin) {
   if (!splatMesh) return;
 
-  console.log(
-    `🎯 Transforming origin to: (${newOrigin.x.toFixed(2)}, ${newOrigin.y.toFixed(2)}, ${newOrigin.z.toFixed(2)})`,
-  );
-
   // Calculate translation: move newOrigin to (0,0,0)
   const translation = newOrigin.clone().negate();
-  console.log(
-    `📐 Translation vector: (${translation.x.toFixed(2)}, ${translation.y.toFixed(2)}, ${translation.z.toFixed(2)})`,
-  );
 
   // Transform all splat centers
   splatMesh.packedSplats.forEachSplat(
@@ -406,21 +399,15 @@ function transformOriginTo(newOrigin) {
     },
   );
   splatMesh.packedSplats.needsUpdate = true;
-  console.log("✓ Splats transformed");
 
   // Axes helper stays at (0,0,0) to mark the new origin
   // No need to move it - it already represents world origin
 
   // Reset measurements (user preference)
   resetSelection();
-  console.log("✓ Measurements reset");
 
   // Transform camera to maintain view
-  const oldCameraPos = camera.position.clone();
   camera.position.add(translation);
-  console.log(
-    `📷 Camera moved from (${oldCameraPos.x.toFixed(2)}, ${oldCameraPos.y.toFixed(2)}, ${oldCameraPos.z.toFixed(2)}) to (${camera.position.x.toFixed(2)}, ${camera.position.y.toFixed(2)}, ${camera.position.z.toFixed(2)})`,
-  );
 
   // TrackballControls don't have a target, just update
   controls.update();
@@ -428,7 +415,6 @@ function transformOriginTo(newOrigin) {
   updateInstructions(
     "Origin set! Left-click to measure | Right double-click for new origin",
   );
-  console.log("✅ Origin transformation complete!");
 }
 
 // ============================================================================
@@ -606,7 +592,6 @@ renderer.domElement.addEventListener(
   (event) => {
     if (event.button !== 2) return; // Only right button
     rightPointerDownPos = { x: event.clientX, y: event.clientY };
-    console.log("🖱️ Right mousedown captured");
   },
   { capture: true },
 );
@@ -616,15 +601,12 @@ renderer.domElement.addEventListener(
   (event) => {
     if (event.button !== 2) return; // Only right button
 
-    console.log("🖱️ Right mouseup captured");
-
     // Check if it was a click (not a drag)
     if (rightPointerDownPos) {
       const dx = event.clientX - rightPointerDownPos.x;
       const dy = event.clientY - rightPointerDownPos.y;
       const dragDistance = Math.sqrt(dx * dx + dy * dy);
       if (dragDistance > 5) {
-        console.log(`❌ Was a drag (${dragDistance.toFixed(1)}px), ignoring`);
         rightPointerDownPos = null;
         return; // Was a drag, not a click
       }
@@ -640,13 +622,8 @@ renderer.domElement.addEventListener(
       const distance = Math.sqrt(dx * dx + dy * dy);
       const timeSinceLastClick = now - lastRightClickTime;
 
-      console.log(
-        `Right click: distance=${distance.toFixed(1)}px, time=${timeSinceLastClick}ms`,
-      );
-
       if (timeSinceLastClick < RIGHT_DOUBLE_CLICK_DELAY && distance < 10) {
         // Right double-click detected!
-        console.log("✓ Right double-click detected!");
         event.preventDefault();
         event.stopPropagation();
 
@@ -659,14 +636,12 @@ renderer.domElement.addEventListener(
         const hitPoint = getHitPoint(ndc);
 
         if (!hitPoint) {
-          console.log("Right double-click missed model");
           lastRightClickTime = 0;
           lastRightClickPos = null;
           rightPointerDownPos = null;
           return;
         }
 
-        console.log("Hit point:", hitPoint);
         transformOriginTo(hitPoint);
         lastRightClickTime = 0;
         lastRightClickPos = null;
@@ -678,7 +653,6 @@ renderer.domElement.addEventListener(
     lastRightClickTime = now;
     lastRightClickPos = currentPos;
     rightPointerDownPos = null;
-    console.log("First right click registered");
   },
   { capture: true },
 );
