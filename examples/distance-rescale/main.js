@@ -1,9 +1,8 @@
 import { PlyWriter, SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
 import { GUI } from "lil-gui";
 import * as THREE from "three";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { TrackballControls } from "three/addons/controls/TrackballControls.js";
 import { getAssetFileURL } from "/examples/js/get-asset-url.js";
-import { setupInfiniteRotation } from "/examples/js/orbit-controls-utils.js";
 
 // ============================================================================
 // Scene Setup
@@ -23,11 +22,13 @@ document.body.appendChild(renderer.domElement);
 const spark = new SparkRenderer({ renderer });
 scene.add(spark);
 
-// Camera controls - using OrbitControls for reliability
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.dampingFactor = 0.05;
-setupInfiniteRotation(controls); // Enable infinite rotation without angle limits
+// Camera controls - using TrackballControls for infinite rotation
+const controls = new TrackballControls(camera, renderer.domElement);
+controls.rotateSpeed = 1.5;
+controls.zoomSpeed = 1.2;
+controls.panSpeed = 0.8;
+controls.staticMoving = false; // Enable smooth movement
+controls.dynamicDampingFactor = 0.15;
 camera.position.set(0, 2, 5);
 camera.lookAt(0, 0, 0);
 
@@ -36,6 +37,7 @@ function onWindowResize() {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  controls.handleResize();
 }
 
 // ============================================================================
@@ -409,7 +411,7 @@ function transformOriginTo(newOrigin) {
 
   // Transform camera to maintain view
   camera.position.add(translation);
-  controls.target.add(translation);
+  // TrackballControls don't have a target, just update
   controls.update();
 
   updateInstructions(
@@ -579,21 +581,49 @@ renderer.domElement.addEventListener("pointerup", (event) => {
   pointerDownPos = null;
 });
 
-// Right double-click handler for setting coordinate origin
-renderer.domElement.addEventListener("dblclick", (event) => {
+// Right double-click detection using manual timing
+let lastRightClickTime = 0;
+let lastRightClickPos = null;
+const RIGHT_DOUBLE_CLICK_DELAY = 300; // milliseconds
+
+renderer.domElement.addEventListener("mousedown", (event) => {
   if (event.button !== 2) return; // Only right button
 
-  if (!splatMesh) return;
+  const now = Date.now();
+  const currentPos = { x: event.clientX, y: event.clientY };
 
-  const ndc = getMouseNDC(event);
-  const hitPoint = getHitPoint(ndc);
+  // Check if this is a double-click (same position, within time limit)
+  if (lastRightClickPos) {
+    const dx = currentPos.x - lastRightClickPos.x;
+    const dy = currentPos.y - lastRightClickPos.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    const timeSinceLastClick = now - lastRightClickTime;
 
-  if (!hitPoint) {
-    console.log("Right double-click missed model");
-    return;
+    if (timeSinceLastClick < RIGHT_DOUBLE_CLICK_DELAY && distance < 10) {
+      // Right double-click detected!
+      event.preventDefault();
+
+      if (!splatMesh) return;
+
+      const ndc = getMouseNDC(event);
+      const hitPoint = getHitPoint(ndc);
+
+      if (!hitPoint) {
+        console.log("Right double-click missed model");
+        lastRightClickTime = 0;
+        lastRightClickPos = null;
+        return;
+      }
+
+      transformOriginTo(hitPoint);
+      lastRightClickTime = 0;
+      lastRightClickPos = null;
+      return;
+    }
   }
 
-  transformOriginTo(hitPoint);
+  lastRightClickTime = now;
+  lastRightClickPos = currentPos;
 });
 
 // Prevent context menu on right-click
@@ -760,8 +790,7 @@ function centerCameraOnModel() {
     camera.far = cameraDistance * 10;
     camera.updateProjectionMatrix();
 
-    // Update OrbitControls target
-    controls.target.copy(center);
+    // Update TrackballControls
     controls.update();
 
     console.log(
