@@ -224,7 +224,7 @@ function selectPoint1(hitPoint) {
   scene.add(state.rayLine1);
 
   state.mode = "select2";
-  updateInstructions("Click on the model to select second measurement point");
+  updateInstructions("Left-click to select second measurement point");
 }
 
 function selectPoint2(hitPoint) {
@@ -256,7 +256,9 @@ function selectPoint2(hitPoint) {
 
   state.mode = "complete";
   calculateDistance();
-  updateInstructions("Drag markers to adjust position along ray lines");
+  updateInstructions(
+    "Drag markers to adjust | Right double-click to set origin",
+  );
 }
 
 // ============================================================================
@@ -411,7 +413,7 @@ function transformOriginTo(newOrigin) {
   controls.update();
 
   updateInstructions(
-    "Coordinate origin set. Click to select first measurement point",
+    "Origin set! Left-click to measure | Right double-click for new origin",
   );
 }
 
@@ -463,7 +465,9 @@ function resetSelection() {
   // Update UI
   document.getElementById("distance-display").style.display = "none";
   guiParams.measuredDistance = "0.0000";
-  updateInstructions("Click on the model to select first measurement point");
+  updateInstructions(
+    "Left-click to measure distance | Right double-click to set origin",
+  );
 }
 
 // ============================================================================
@@ -546,6 +550,9 @@ renderer.domElement.addEventListener("pointerup", (event) => {
     return;
   }
 
+  // Only handle left clicks for measurement points
+  if (event.button !== 0) return;
+
   // Check if it was a click (not a drag)
   if (pointerDownPos) {
     const dx = event.clientX - pointerDownPos.x;
@@ -572,9 +579,9 @@ renderer.domElement.addEventListener("pointerup", (event) => {
   pointerDownPos = null;
 });
 
-// Double-click handler for setting coordinate origin
+// Right double-click handler for setting coordinate origin
 renderer.domElement.addEventListener("dblclick", (event) => {
-  if (event.button !== 0) return; // Only left button
+  if (event.button !== 2) return; // Only right button
 
   if (!splatMesh) return;
 
@@ -582,11 +589,16 @@ renderer.domElement.addEventListener("dblclick", (event) => {
   const hitPoint = getHitPoint(ndc);
 
   if (!hitPoint) {
-    console.log("Double-click missed model");
+    console.log("Right double-click missed model");
     return;
   }
 
   transformOriginTo(hitPoint);
+});
+
+// Prevent context menu on right-click
+renderer.domElement.addEventListener("contextmenu", (event) => {
+  event.preventDefault();
 });
 
 // Drag and drop handlers
@@ -689,7 +701,9 @@ async function loadSplatFile(urlOrFile) {
     // Create or update coordinate axes
     createOrUpdateAxes();
 
-    updateInstructions("Click on the model to select first measurement point");
+    updateInstructions(
+      "Left-click to measure distance | Right double-click to set origin",
+    );
   } catch (error) {
     console.error("Error loading splat:", error);
     updateInstructions("Error loading model. Check console for details.");
