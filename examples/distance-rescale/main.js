@@ -25,10 +25,11 @@ scene.add(spark);
 // Camera controls - using TrackballControls for infinite rotation
 const controls = new TrackballControls(camera, renderer.domElement);
 controls.rotateSpeed = 1.5;
-controls.zoomSpeed = 1.2;
+controls.zoomSpeed = 0.8; // Reduced from 1.2 for smoother zoom
 controls.panSpeed = 0.8;
-controls.staticMoving = false; // Enable smooth movement
-controls.dynamicDampingFactor = 0.15;
+controls.staticMoving = true; // Disable smooth damping for better performance
+controls.minDistance = 0.5; // Prevent zooming too close (causes slowness)
+controls.maxDistance = 50; // Prevent zooming too far
 camera.position.set(0, 2, 5);
 camera.lookAt(0, 0, 0);
 
@@ -596,74 +597,87 @@ const RIGHT_DOUBLE_CLICK_DELAY = 300; // milliseconds
 // Track right mouse down position to detect drags
 let rightPointerDownPos = null;
 
-renderer.domElement.addEventListener("mousedown", (event) => {
-  if (event.button !== 2) return; // Only right button
-  rightPointerDownPos = { x: event.clientX, y: event.clientY };
-});
+renderer.domElement.addEventListener(
+  "mousedown",
+  (event) => {
+    if (event.button !== 2) return; // Only right button
+    rightPointerDownPos = { x: event.clientX, y: event.clientY };
+    console.log("🖱️ Right mousedown captured");
+  },
+  { capture: true },
+);
 
-renderer.domElement.addEventListener("mouseup", (event) => {
-  if (event.button !== 2) return; // Only right button
+renderer.domElement.addEventListener(
+  "mouseup",
+  (event) => {
+    if (event.button !== 2) return; // Only right button
 
-  // Check if it was a click (not a drag)
-  if (rightPointerDownPos) {
-    const dx = event.clientX - rightPointerDownPos.x;
-    const dy = event.clientY - rightPointerDownPos.y;
-    if (Math.sqrt(dx * dx + dy * dy) > 5) {
-      rightPointerDownPos = null;
-      return; // Was a drag, not a click
-    }
-  }
+    console.log("🖱️ Right mouseup captured");
 
-  const now = Date.now();
-  const currentPos = { x: event.clientX, y: event.clientY };
-
-  // Check if this is a double-click (same position, within time limit)
-  if (lastRightClickPos) {
-    const dx = currentPos.x - lastRightClickPos.x;
-    const dy = currentPos.y - lastRightClickPos.y;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-    const timeSinceLastClick = now - lastRightClickTime;
-
-    console.log(
-      `Right click: distance=${distance.toFixed(1)}px, time=${timeSinceLastClick}ms`,
-    );
-
-    if (timeSinceLastClick < RIGHT_DOUBLE_CLICK_DELAY && distance < 10) {
-      // Right double-click detected!
-      console.log("✓ Right double-click detected!");
-      event.preventDefault();
-      event.stopPropagation();
-
-      if (!splatMesh) {
-        console.warn("No model loaded");
-        return;
+    // Check if it was a click (not a drag)
+    if (rightPointerDownPos) {
+      const dx = event.clientX - rightPointerDownPos.x;
+      const dy = event.clientY - rightPointerDownPos.y;
+      const dragDistance = Math.sqrt(dx * dx + dy * dy);
+      if (dragDistance > 5) {
+        console.log(`❌ Was a drag (${dragDistance.toFixed(1)}px), ignoring`);
+        rightPointerDownPos = null;
+        return; // Was a drag, not a click
       }
+    }
 
-      const ndc = getMouseNDC(event);
-      const hitPoint = getHitPoint(ndc);
+    const now = Date.now();
+    const currentPos = { x: event.clientX, y: event.clientY };
 
-      if (!hitPoint) {
-        console.log("Right double-click missed model");
+    // Check if this is a double-click (same position, within time limit)
+    if (lastRightClickPos) {
+      const dx = currentPos.x - lastRightClickPos.x;
+      const dy = currentPos.y - lastRightClickPos.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      const timeSinceLastClick = now - lastRightClickTime;
+
+      console.log(
+        `Right click: distance=${distance.toFixed(1)}px, time=${timeSinceLastClick}ms`,
+      );
+
+      if (timeSinceLastClick < RIGHT_DOUBLE_CLICK_DELAY && distance < 10) {
+        // Right double-click detected!
+        console.log("✓ Right double-click detected!");
+        event.preventDefault();
+        event.stopPropagation();
+
+        if (!splatMesh) {
+          console.warn("No model loaded");
+          return;
+        }
+
+        const ndc = getMouseNDC(event);
+        const hitPoint = getHitPoint(ndc);
+
+        if (!hitPoint) {
+          console.log("Right double-click missed model");
+          lastRightClickTime = 0;
+          lastRightClickPos = null;
+          rightPointerDownPos = null;
+          return;
+        }
+
+        console.log("Hit point:", hitPoint);
+        transformOriginTo(hitPoint);
         lastRightClickTime = 0;
         lastRightClickPos = null;
         rightPointerDownPos = null;
         return;
       }
-
-      console.log("Hit point:", hitPoint);
-      transformOriginTo(hitPoint);
-      lastRightClickTime = 0;
-      lastRightClickPos = null;
-      rightPointerDownPos = null;
-      return;
     }
-  }
 
-  lastRightClickTime = now;
-  lastRightClickPos = currentPos;
-  rightPointerDownPos = null;
-  console.log("First right click registered");
-});
+    lastRightClickTime = now;
+    lastRightClickPos = currentPos;
+    rightPointerDownPos = null;
+    console.log("First right click registered");
+  },
+  { capture: true },
+);
 
 // Prevent context menu on right-click
 renderer.domElement.addEventListener("contextmenu", (event) => {
