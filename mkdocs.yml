@@ -24,6 +24,8 @@ nav:
   - Dyno standard library: docs/dyno-stdlib.md
   - Controls: docs/controls.md
   - Performance tuning: docs/performance.md
+  - Distance Measurement & Rescale Guide: distance-rescale-guide.md
+  - Distance Measurement & Rescale Guide (日本語): distance-rescale-guide-ja.md
   - Community Resources: docs/community-resources.md
 markdown_extensions:
   - pymdownx.highlight:
