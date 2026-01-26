@@ -19,9 +19,9 @@ export function setupInfiniteRotation(controls) {
   controls.minAzimuthAngle = Number.NEGATIVE_INFINITY;
   controls.maxAzimuthAngle = Number.POSITIVE_INFINITY;
 
-  // Allow full vertical rotation (polar angle)
-  controls.minPolarAngle = 0;
-  controls.maxPolarAngle = Math.PI;
+  // Enable infinite vertical rotation (polar angle)
+  controls.minPolarAngle = Number.NEGATIVE_INFINITY;
+  controls.maxPolarAngle = Number.POSITIVE_INFINITY;
 
   return controls;
 }
