@@ -671,6 +671,7 @@ const onDragover = (e) => {
 
 const onDragLeave = (e) => {
   e.preventDefault();
+  if (e.target !== renderer.domElement) return;
   renderer.domElement.style.outline = "none";
 };
 
@@ -680,7 +681,16 @@ const onDrop = (e) => {
 
   const files = e.dataTransfer.files;
   if (files.length > 0) {
-    loadSplatFile(files[0]);
+    const file = files[0];
+    const validExtensions = [".ply", ".spz", ".splat"];
+    const ext = file.name.toLowerCase().slice(file.name.lastIndexOf("."));
+    if (!validExtensions.includes(ext)) {
+      console.warn(
+        `Unsupported file type: ${ext}. Expected: ${validExtensions.join(", ")}`,
+      );
+      return;
+    }
+    loadSplatFile(file);
   } else {
     console.warn("No files dropped");
   }
@@ -841,8 +851,7 @@ function createOrUpdateAxes() {
 
   // Remove existing axes
   if (state.axesHelper) {
-    scene.remove(state.axesHelper);
-    state.axesHelper.dispose();
+    disposeObject(state.axesHelper);
   }
 
   // Get model bounding box to size axes appropriately
