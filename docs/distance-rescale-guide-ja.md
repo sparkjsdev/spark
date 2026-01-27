@@ -2,7 +2,7 @@
 
 ## アクセス方法
 
-**URL**: [https://sparkjs.dev/examples/distance-rescale/](https://sparkjs.dev/examples/distance-rescale/)
+**URL**: [https://nice-meadow-018297c00.eastasia.6.azurestaticapps.net/examples/distance-rescale/](https://nice-meadow-018297c00.eastasia.6.azurestaticapps.net/examples/distance-rescale/)
 
 ---
 
