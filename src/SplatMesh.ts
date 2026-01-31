@@ -288,18 +288,6 @@ export class SplatMesh extends SplatGenerator {
     if (options.splats) {
       this.splats = options.splats;
       this.numSplats = options.splats.getNumSplats();
-    } else if (options.extSplats) {
-      this.extSplats =
-        options.extSplats instanceof ExtSplats
-          ? options.extSplats
-          : new ExtSplats();
-      options.extSplats = this.extSplats;
-      this.numSplats = this.extSplats.numSplats;
-    } else if (options.packedSplats) {
-      this.packedSplats = options.packedSplats;
-      this.packedSplats.splatEncoding = options.splatEncoding ?? {
-        ...DEFAULT_SPLAT_ENCODING,
-      };
     } else if (options.paged) {
       const rootUrl = options.url ?? "";
       if (options.paged === true) {
@@ -312,6 +300,18 @@ export class SplatMesh extends SplatGenerator {
         throw new Error("Invalid paged option");
       }
       this.splats = this.paged;
+    } else if (options.extSplats) {
+      this.extSplats =
+        options.extSplats instanceof ExtSplats
+          ? options.extSplats
+          : new ExtSplats();
+      options.extSplats = this.extSplats;
+      this.numSplats = this.extSplats.numSplats;
+    } else if (options.packedSplats) {
+      this.packedSplats = options.packedSplats;
+      this.packedSplats.splatEncoding = options.splatEncoding ?? {
+        ...DEFAULT_SPLAT_ENCODING,
+      };
     } else {
       this.packedSplats = new PackedSplats();
     }

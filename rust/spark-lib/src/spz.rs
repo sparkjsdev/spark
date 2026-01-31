@@ -628,14 +628,14 @@ fn read_u16_le(two: &[u8]) -> u16 {
 
 pub struct SpzEncoder<T: SplatGetter> {
     getter: T,
-    max_sh_out: Option<u8>,
+    max_sh_out: Option<usize>,
     fractional_bits: u8,
 }
 
 impl<T: SplatGetter> SpzEncoder<T> {
     pub fn new(getter: T) -> Self { Self { getter, max_sh_out: None, fractional_bits: 12 } }
 
-    pub fn with_max_sh(mut self, max_sh: u8) -> Self {
+    pub fn with_max_sh(mut self, max_sh: usize) -> Self {
         self.max_sh_out = Some(max_sh.min(3));
         self
     }
@@ -647,7 +647,7 @@ impl<T: SplatGetter> SpzEncoder<T> {
 
     pub fn encode(mut self) -> anyhow::Result<Vec<u8>> {
         let num_splats = self.getter.num_splats();
-        let sh_src = self.getter.max_sh_degree() as u8;
+        let sh_src = self.getter.max_sh_degree();
         let sh_degree = self.max_sh_out.map(|m| m.min(sh_src)).unwrap_or(sh_src);
         let fractional_bits = self.fractional_bits;
         let flag_antialias = self.getter.flag_antialias();
@@ -659,7 +659,7 @@ impl<T: SplatGetter> SpzEncoder<T> {
         write_u32_le(&mut raw, SPZ_MAGIC);
         write_u32_le(&mut raw, version);
         write_u32_le(&mut raw, num_splats as u32);
-        raw.push(sh_degree);
+        raw.push(sh_degree as u8);
         raw.push(fractional_bits);
         let mut flags: u8 = 0;
         if flag_antialias { flags |= 0x01; }

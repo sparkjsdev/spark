@@ -266,11 +266,25 @@ pub fn decode_quat_oct101012(encoded: u32) -> [f32; 4] {
 }
 
 pub fn encode_scale8(scale: f32, ln_scale_min: f32, ln_scale_max: f32) -> u8 {
-    if scale == 0.0 {
+    if scale <= 0.0 {
         0
     } else {
         let n = (scale.ln() - ln_scale_min) / (ln_scale_max - ln_scale_min);
         1 + (n.clamp(0.0, 1.0) * 254.0).round() as u8
+    }
+}
+
+pub fn encode_scale8_zero(scale: f32, ln_scale_zero: f32, ln_scale_min: f32, ln_scale_max: f32) -> u8 {
+    if scale <= 0.0 {
+        0
+    } else {
+        let ln_scale = scale.ln();
+        if ln_scale <= ln_scale_zero {
+            0
+        } else {
+            let value = (ln_scale - ln_scale_min) / (ln_scale_max - ln_scale_min) * 254.0;
+            value.clamp(0.0, 254.0).round() as u8 + 1
+        }
     }
 }
 

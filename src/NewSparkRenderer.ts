@@ -70,10 +70,10 @@ export interface NewSparkRendererOptions {
    */
   maxPixelRadius?: number;
   /**
-   * Whether to use extended Gsplat encoding for intermediary splats.
+   * Whether to use extended Gsplat encoding for intermediary accumulator splats.
    * @default false
    */
-  extSplats?: boolean;
+  accumExtSplats?: boolean;
   /**
    * Whether to use covariance Gsplat encoding for intermediary splats.
    * @default false
@@ -185,10 +185,20 @@ export interface NewSparkRendererOptions {
    */
   globalLodScale?: number;
   /**
+   * Whether to use extended Gsplat encoding for paged splats.
+   * @default false
+   */
+  pagedExtSplats?: boolean;
+  /**
    * Allocation size of paged splats
    * @default 16777216
    */
   maxPagedSplats?: number;
+  /**
+   * Number of parallel chunk fetchers for LoD.
+   * @default 3
+   */
+  numLodFetchers?: number;
   /* Foveation scale to apply outside the view frustum (but not behind viewer)
    * @default 1.0
    */
@@ -256,7 +266,7 @@ export class NewSparkRenderer extends THREE.Mesh {
   maxStdDev: number;
   minPixelRadius: number;
   maxPixelRadius: number;
-  extSplats: boolean;
+  accumExtSplats: boolean;
   covSplats: boolean;
   minAlpha: number;
   enable2DGS: boolean;
@@ -302,7 +312,9 @@ export class NewSparkRenderer extends THREE.Mesh {
   lodSplatScale: number;
   lodRenderScale: number;
   globalLodScale: number;
+  pagedExtSplats: boolean;
   maxPagedSplats: number;
+  numLodFetchers: number;
   outsideFoveate: number;
   behindFoveate: number;
   coneFov0: number;
@@ -321,6 +333,7 @@ export class NewSparkRenderer extends THREE.Mesh {
   lodInitQueue: (PackedSplats | ExtSplats | PagedSplats)[] = [];
   lodPos = new THREE.Vector3().setScalar(Number.NEGATIVE_INFINITY);
   lodQuat = new THREE.Quaternion().set(0, 0, 0, 0);
+  lodTimestamp = 0;
   lodInstances: Map<
     SplatMesh,
     {
@@ -337,6 +350,7 @@ export class NewSparkRenderer extends THREE.Mesh {
     count: number;
     lodTreeData?: Uint32Array;
   }[] = [];
+  lastTraverseTime = 0;
 
   pager?: SplatPager;
   pagerId = 0;
@@ -393,7 +407,7 @@ export class NewSparkRenderer extends THREE.Mesh {
     this.maxStdDev = options.maxStdDev ?? Math.sqrt(8.0);
     this.minPixelRadius = options.minPixelRadius ?? 0.0; //1.6;
     this.maxPixelRadius = options.maxPixelRadius ?? 512.0;
-    this.extSplats = options.extSplats ?? false;
+    this.accumExtSplats = options.accumExtSplats ?? false;
     this.covSplats = options.covSplats ?? false;
     this.minAlpha = options.minAlpha ?? 0.5 * (1.0 / 255.0);
     this.enable2DGS = options.enable2DGS ?? false;
@@ -417,7 +431,9 @@ export class NewSparkRenderer extends THREE.Mesh {
     this.lodSplatScale = options.lodSplatScale ?? 1.0;
     this.lodRenderScale = options.lodRenderScale ?? 1.0;
     this.globalLodScale = options.globalLodScale ?? 1.0;
+    this.pagedExtSplats = options.pagedExtSplats ?? false;
     this.maxPagedSplats = options.maxPagedSplats ?? 16777216;
+    this.numLodFetchers = options.numLodFetchers ?? 3;
     this.outsideFoveate = options.outsideFoveate ?? 1.0;
     this.behindFoveate = options.behindFoveate ?? 1.0;
     this.coneFov0 = options.coneFov0 ?? 0.0;
@@ -427,7 +443,7 @@ export class NewSparkRenderer extends THREE.Mesh {
     this.clock = options.clock ? cloneClock(options.clock) : new THREE.Clock();
 
     const accumulatorOptions = {
-      extSplats: this.extSplats,
+      extSplats: this.accumExtSplats,
       covSplats: this.covSplats,
     };
     this.display = new NewSplatAccumulator(accumulatorOptions);
@@ -985,8 +1001,8 @@ export class NewSparkRenderer extends THREE.Mesh {
       return;
     }
 
-    const camera = inputCamera;
-    camera.updateMatrixWorld(true);
+    inputCamera.updateMatrixWorld(true);
+    const camera = inputCamera.clone();
 
     this.lodInitQueue = [];
     const now = performance.now();
@@ -1008,7 +1024,9 @@ export class NewSparkRenderer extends THREE.Mesh {
       if (hasPaged && !this.pager) {
         this.pager = new SplatPager({
           renderer: this.renderer,
+          extSplats: this.pagedExtSplats,
           maxSplats: this.maxPagedSplats,
+          numFetchers: this.numLodFetchers,
         });
 
         const { lodId } = (await worker.call("newLodTree", {
@@ -1080,10 +1098,23 @@ export class NewSparkRenderer extends THREE.Mesh {
         viewQuat.dot(this.lodQuat) < 0.999;
 
       if (this.lodDirty || viewChanged) {
+        const now = performance.now();
+        const deltaTime = now - this.lodTimestamp;
+        const deltaPos = viewPos.clone().sub(this.lodPos);
+        const deltaPred = deltaPos.multiplyScalar(
+          this.lastTraverseTime / deltaTime,
+        );
         this.lodPos.copy(viewPos);
         this.lodQuat.copy(viewQuat);
+        this.lodTimestamp = now;
         this.lodDirty = false;
-        await this.updateLodInstances(worker, camera, lodMeshes, scene);
+        await this.updateLodInstances(
+          worker,
+          camera,
+          deltaPred,
+          lodMeshes,
+          scene,
+        );
       }
 
       await this.cleanupLodTrees(worker);
@@ -1117,15 +1148,19 @@ export class NewSparkRenderer extends THREE.Mesh {
   private async updateLodInstances(
     worker: NewSplatWorker,
     camera: THREE.Camera,
+    deltaPred: THREE.Vector3,
     lodMeshes: SplatMesh[],
     scene: THREE.Scene,
   ) {
-    const defaultSplatCount =
-      isAndroid() || isOculus() || isVisionPro()
-        ? 500000
-        : isIos()
-          ? 500000
-          : 1500000;
+    const defaultSplatCount = isOculus()
+      ? 500000
+      : isVisionPro()
+        ? 750000
+        : isAndroid()
+          ? 1000000
+          : isIos()
+            ? 1500000
+            : 2500000;
     const splatCount = this.lodSplatCount ?? defaultSplatCount;
     const maxSplats = splatCount * this.lodSplatScale;
     const getLodViewParams = (viewCamera: THREE.Camera) => {
@@ -1157,10 +1192,12 @@ export class NewSparkRenderer extends THREE.Mesh {
       const instances = meshes.reduce(
         (instances, mesh) => {
           uuidToMesh?.set(mesh.uuid, mesh);
+          const predictedView = new THREE.Matrix4().makeTranslation(deltaPred);
+          predictedView.multiply(viewCamera.matrixWorld);
           const viewToObject = mesh.matrixWorld
             .clone()
             .invert()
-            .multiply(viewCamera.matrixWorld);
+            .multiply(predictedView);
 
           const splats =
             mesh.packedSplats?.lodSplats ??
@@ -1223,7 +1260,7 @@ export class NewSparkRenderer extends THREE.Mesh {
     );
     // console.log("instances", instances);
 
-    // const traverseStart = performance.now();
+    const traverseStart = performance.now();
     const { keyIndices, chunks } = (await worker.call("traverseLodTrees", {
       maxSplats,
       pixelScaleLimit,
@@ -1237,16 +1274,7 @@ export class NewSparkRenderer extends THREE.Mesh {
       >;
       chunks: [number, number][];
     };
-    // const splatCounts = Object.keys(keyIndices).map(
-    //   (uuid) => keyIndices[uuid].numSplats,
-    // );
-    // if (Math.random() < 0.1) {
-    //   console.log(
-    //     `traverseLodTrees in ${(performance.now() - traverseStart).toFixed(0)} ms, splatCounts=${JSON.stringify(splatCounts)}`,
-    //     // JSON.stringify(chunks),
-    //   );
-    // }
-    // console.log("*** counts", JSON.stringify(chunks));
+    this.lastTraverseTime = performance.now() - traverseStart;
 
     const mergedKeyIndices = { ...keyIndices };
     const mergedChunks: [number, number][] = [...chunks];
@@ -1402,7 +1430,6 @@ export class NewSparkRenderer extends THREE.Mesh {
 
       this.pager.driveFetchers();
     }
-
   }
 
   private async cleanupLodTrees(worker: NewSplatWorker) {

@@ -1,10 +1,10 @@
-use std::{collections::VecDeque, iter::zip};
+use std::collections::VecDeque;
 
 use ahash::AHashMap;
 use glam::I64Vec3;
 use smallvec::{smallvec, SmallVec};
 
-use crate::{gsplat::*, tsplat::{Tsplat, TsplatArray}};
+use crate::{gsplat::*, tsplat::{Tsplat, TsplatMut, TsplatArray}};
 
 const CHUNK_LEVELS: i16 = 2;
 
@@ -17,15 +17,15 @@ pub fn compute_lod_tree(splats: &mut GsplatArray, lod_base: f32, merge_filter: b
     logger(&format!("Removed empty splats, splats.len={}", splats.len()));
 
     splats.sort_by(|splat| splat.feature_size());
-    splats.compute_extras();
+    splats.prepare_children();
 
     let mut level_min_max = [i16::MAX, i16::MIN];
     let mut level_counts = AHashMap::<i16, usize>::new();
-    for (splat, extra) in zip(&splats.splats, &mut splats.extras) {
-        extra.level = splat.feature_size().log(lod_base).ceil() as i16;
-        *level_counts.entry(extra.level).or_default() += 1;
+    for splat in splats.splats.iter() {
+        let level = splat.feature_size().log(lod_base).ceil() as i16;
+        *level_counts.entry(level).or_default() += 1;
         let [min, max] = level_min_max;
-        level_min_max = [min.min(extra.level), max.max(extra.level)];
+        level_min_max = [min.min(level), max.max(level)];
     }
     let [level_min, level_max] = level_min_max;
     logger(&format!("level_min: {}, level_max: {}", level_min, level_max));
@@ -44,10 +44,12 @@ pub fn compute_lod_tree(splats: &mut GsplatArray, lod_base: f32, merge_filter: b
         let mut grid_min_max = [I64Vec3::splat(i64::MAX), I64Vec3::splat(i64::MIN)];
 
         while frontier < initial_splats {
-            if splats.extras[frontier].level > level {
+            let splat = splats.get(frontier);
+            let splat_level = splat.feature_size().log(lod_base).ceil() as i16;
+            if splat_level > level {
                 break;
             }
-            let grid = splats.splats[frontier].grid(step);
+            let grid = splat.grid(step);
             grid_min_max = [grid_min_max[0].min(grid), grid_min_max[1].max(grid)];
             cells.entry(grid.to_array()).or_default().push(frontier);
             frontier += 1;
@@ -66,7 +68,8 @@ pub fn compute_lod_tree(splats: &mut GsplatArray, lod_base: f32, merge_filter: b
         if let Some(mut previous) = previous_level {
             for indices in previous.values_mut() {
                 for &index in indices.iter() {
-                    let grid = splats.splats[index].grid(step);
+                    let splat = splats.get(index);
+                    let grid = splat.grid(step);
                     grid_min_max = [grid_min_max[0].min(grid), grid_min_max[1].max(grid)];
                     cells.entry(grid.to_array()).or_default().push(index);
                 }
@@ -83,7 +86,7 @@ pub fn compute_lod_tree(splats: &mut GsplatArray, lod_base: f32, merge_filter: b
             if indices.len() > 1 {
                 let merge_step = if merge_filter { step } else { 0.0 };
                 let merged = splats.new_merged(indices, merge_step);
-                splats.extras[merged].level = level + 1;
+                // splats.extras[merged].level = level + 1;
                 indices.clear();
                 indices.push(merged);
                 merged_count += 1;
@@ -175,12 +178,12 @@ pub fn compute_lod_tree(splats: &mut GsplatArray, lod_base: f32, merge_filter: b
 
         while let Some((orig_parent, children)) = remaining.pop_front() {
             if orig_parent != usize::MAX {
-                // splats.extras[orig_parent].children = smallvec![indices.len(), children.len()];
-                splats.extras[orig_parent].children = (indices.len()..(indices.len() + children.len())).collect();
+                let new_children: SmallVec<[usize; 8]> = (indices.len()..(indices.len() + children.len())).collect();
+                splats.set_children(orig_parent, &new_children);
             }
 
             for &node in children.iter() {
-                let node_children: SmallVec<[usize; 8]> = splats.extras[node].children.drain(..).collect();
+                let node_children: SmallVec<[usize; 8]> = splats.children[node].drain(..).collect();
                 if !node_children.is_empty() {
                     // if node_children[0] >= splats.extras.len() {
                     //     println!("indices.len(): {}", indices.len());
@@ -188,7 +191,7 @@ pub fn compute_lod_tree(splats: &mut GsplatArray, lod_base: f32, merge_filter: b
                     //     println!("Child index out of bounds: node={}, children={:?}", node, node_children);
                     // }
                     // let child_level = splats.extras[node_children[0]].level;
-                    let child_level = node_children.iter().map(|&c| splats.extras[c].level).max().unwrap();
+                    let child_level = node_children.iter().map(|&c| splats.get(c).feature_size().log(lod_base).ceil() as i16).max().unwrap();
                     if child_level <= (level - CHUNK_LEVELS) {
                         // Defer to future chunk
                         frontier.push_back((node, node_children));
@@ -209,7 +212,7 @@ pub fn compute_lod_tree(splats: &mut GsplatArray, lod_base: f32, merge_filter: b
     logger(&format!("indices.len(): {}", indices.len()));
     splats.permute(&indices);
 
-    for splat in splats.splats.iter_mut() {
+    for mut splat in splats.splats.iter_mut() {
         if splat.opacity() > 1.0 {
             let d = splat.lod_opacity();
             // // Map 1..5 LOD-encoded opacity to 1..2 opacity

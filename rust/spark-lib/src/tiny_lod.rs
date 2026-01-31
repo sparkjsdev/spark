@@ -2,7 +2,7 @@ use ahash::AHashMap;
 use glam::I64Vec3;
 use smallvec::{smallvec, SmallVec};
 
-use crate::{ordering, tsplat::{Tsplat, TsplatArray}};
+use crate::{ordering, tsplat::{Tsplat, TsplatMut, TsplatArray}};
 
 const CHUNK_SIZE: usize = 65536;
 // const CHUNK_LEVELS: i16 = 2;
@@ -32,7 +32,7 @@ pub fn compute_lod_tree<SA: TsplatArray>(splats: &mut SA, lod_base: f32, merge_f
     //     logger(&format!("after sort splats[{}].opacity: {}, .scales: {:?}, .feature_size: {}", i, splat.opacity(), splat.scales(), splat.feature_size()));
     // }
 
-    splats.prepare_extra();
+    splats.prepare_children();
 
     let level_min = splats.get(0).feature_size().log(lod_base).ceil() as i16;
     logger(&format!("level_min: {}, feature_size[0]: {}", level_min, splats.get(0).feature_size()));
@@ -144,7 +144,9 @@ pub fn compute_lod_tree<SA: TsplatArray>(splats: &mut SA, lod_base: f32, merge_f
 
     let mut indices = Vec::new();
 
-    let mut remap_children = |indices: &mut Vec<usize>, parent: usize, children: &[usize]| {
+    fn remap_children<SA: TsplatArray>(
+        splats: &mut SA, indices: &mut Vec<usize>, parent: usize, children: &[usize],
+    ) {
         if parent != usize::MAX {
             let remapped_children: Vec<_> = (indices.len()..(indices.len() + children.len())).collect();
             splats.set_children(parent, &remapped_children);
@@ -152,7 +154,7 @@ pub fn compute_lod_tree<SA: TsplatArray>(splats: &mut SA, lod_base: f32, merge_f
         for &child in children.iter() {
             indices.push(child);
         }
-    };
+    }
 
     while let Some(level) = levels_output.pop() {
         let level_children: usize = level.iter().map(|(_p, c)| c.len()).sum();
@@ -162,20 +164,20 @@ pub fn compute_lod_tree<SA: TsplatArray>(splats: &mut SA, lod_base: f32, merge_f
         }
 
         for (parent, children) in level {
-            remap_children(&mut indices, parent, &children);
+            remap_children(splats, &mut indices, parent, &children);
         }
     }
 
     while let Some(level) = levels_output.pop() {
         for (parent, children) in level {
-            remap_children(&mut indices, parent, &children);
+            remap_children(splats, &mut indices, parent, &children);
         }
     }
 
     splats.permute(&indices);
 
     for i in 0..splats.len() {
-        let splat = splats.get_mut(i);
+        let mut splat = splats.get_mut(i);
         if splat.opacity() > 1.0 {
             let d = splat.lod_opacity();
             // // Map 1..5 LOD-encoded opacity to 1..2 opacity

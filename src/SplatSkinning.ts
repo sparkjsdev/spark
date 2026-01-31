@@ -22,11 +22,11 @@ import {
   unindent,
   unindentLines,
 } from "./dyno";
-import { getTextureSize } from "./utils";
+import { getTextureSize, newArray } from "./utils";
 
 export enum SplatSkinningMode {
   DUAL_QUATERNION = "dual_quaternion",
-  LINEAR_BLEND_SKINNING = "linear_blend_skinning",
+  LINEAR_BLEND = "linear_blend",
 }
 
 export type SplatSkinningOptions = {
@@ -57,11 +57,19 @@ export class SplatSkinning {
   boneData: Float32Array;
   boneTexture: THREE.DataTexture;
 
+  boneRestQuatPosScale: {
+    quat: THREE.Quaternion;
+    pos: THREE.Vector3;
+    scale: THREE.Vector3;
+  }[];
+  boneRestInvMats: THREE.Matrix4[];
+
   uniform: DynoUniform<typeof GsplatSkinning, "skinning">;
 
   constructor(options: SplatSkinningOptions) {
     this.mesh = options.mesh;
     this.numSplats = options.numSplats ?? this.mesh.numSplats;
+    this.mode = options.mode ?? SplatSkinningMode.DUAL_QUATERNION;
 
     const { width, height, depth, maxSplats } = getTextureSize(this.numSplats);
     this.skinData = new Uint16Array(maxSplats * 4);
@@ -88,6 +96,18 @@ export class SplatSkinning {
     this.boneTexture.internalFormat = "RGBA32F";
     this.boneTexture.needsUpdate = true;
 
+    this.boneRestQuatPosScale = newArray(this.numBones, () => ({
+      quat: new THREE.Quaternion(),
+      pos: new THREE.Vector3(),
+      scale: new THREE.Vector3(),
+    }));
+
+    if (this.mode === SplatSkinningMode.LINEAR_BLEND) {
+      this.boneRestInvMats = newArray(this.numBones, () => new THREE.Matrix4());
+    } else {
+      this.boneRestInvMats = [];
+    }
+
     this.uniform = new DynoUniform({
       key: "skinning",
       type: GsplatSkinning,
@@ -99,17 +119,21 @@ export class SplatSkinning {
         boneTexture: this.boneTexture,
       },
     });
-
-    this.mode = options.mode ?? SplatSkinningMode.DUAL_QUATERNION;
   }
 
   // Apply the skeletal animation to a Gsplat in a dyno program.
   modify(gsplat: DynoVal<typeof Gsplat>): DynoVal<typeof Gsplat> {
+    if (this.mode === SplatSkinningMode.LINEAR_BLEND) {
+      throw new Error("Linear blend skinning requires covSplats=true");
+    }
     return applyGsplatSkinning(gsplat, this.uniform);
   }
 
   modifyCov(covsplat: DynoVal<typeof CovSplat>): DynoVal<typeof CovSplat> {
-    return applyCovSplatSkinning(covsplat, this.uniform);
+    if (this.mode === SplatSkinningMode.DUAL_QUATERNION) {
+      return applyCovSplatDQSkinning(covsplat, this.uniform);
+    }
+    return applyCovSplatLBSkinning(covsplat, this.uniform);
   }
 
   // Set the "rest" pose for a bone with position and quaternion orientation.
@@ -118,23 +142,17 @@ export class SplatSkinning {
     quat: THREE.Quaternion,
     pos: THREE.Vector3,
   ) {
-    const i16 = boneIndex * 16;
-    this.boneData[i16 + 0] = quat.x;
-    this.boneData[i16 + 1] = quat.y;
-    this.boneData[i16 + 2] = quat.z;
-    this.boneData[i16 + 3] = quat.w;
-    this.boneData[i16 + 4] = pos.x;
-    this.boneData[i16 + 5] = pos.y;
-    this.boneData[i16 + 6] = pos.z;
-    this.boneData[i16 + 7] = 0;
-    this.boneData[i16 + 8] = 0;
-    this.boneData[i16 + 9] = 0;
-    this.boneData[i16 + 10] = 0;
-    this.boneData[i16 + 11] = 1;
-    this.boneData[i16 + 12] = 0;
-    this.boneData[i16 + 13] = 0;
-    this.boneData[i16 + 14] = 0;
-    this.boneData[i16 + 15] = 0;
+    this.boneRestQuatPosScale[boneIndex].quat.copy(quat);
+    this.boneRestQuatPosScale[boneIndex].pos.copy(pos);
+    this.boneRestQuatPosScale[boneIndex].scale.copy(SplatSkinning.UNIT_SCALE);
+
+    if (this.mode === SplatSkinningMode.LINEAR_BLEND) {
+      this.boneRestInvMats[boneIndex]
+        .compose(pos, quat, SplatSkinning.UNIT_SCALE)
+        .invert();
+    }
+
+    this.setBoneQuatPos(boneIndex, quat, pos);
   }
 
   getRestQuatPos(
@@ -142,18 +160,51 @@ export class SplatSkinning {
     quat: THREE.Quaternion,
     pos: THREE.Vector3,
   ) {
-    const i16 = boneIndex * 16;
-    quat.set(
-      this.boneData[i16 + 0],
-      this.boneData[i16 + 1],
-      this.boneData[i16 + 2],
-      this.boneData[i16 + 3],
-    );
-    pos.set(
-      this.boneData[i16 + 4],
-      this.boneData[i16 + 5],
-      this.boneData[i16 + 6],
-    );
+    quat.copy(this.boneRestQuatPosScale[boneIndex].quat);
+    pos.copy(this.boneRestQuatPosScale[boneIndex].pos);
+  }
+
+  setRestQuatPosScale(
+    boneIndex: number,
+    quat: THREE.Quaternion,
+    pos: THREE.Vector3,
+    scale: THREE.Vector3,
+  ) {
+    this.boneRestQuatPosScale[boneIndex].quat.copy(quat);
+    this.boneRestQuatPosScale[boneIndex].pos.copy(pos);
+    this.boneRestQuatPosScale[boneIndex].scale.copy(scale);
+
+    if (this.mode === SplatSkinningMode.LINEAR_BLEND) {
+      this.boneRestInvMats[boneIndex].compose(pos, quat, scale).invert();
+    }
+
+    this.setBoneQuatPosScale(boneIndex, quat, pos, scale);
+  }
+
+  getRestQuatPosScale(
+    boneIndex: number,
+    quat: THREE.Quaternion,
+    pos: THREE.Vector3,
+    scale: THREE.Vector3,
+  ) {
+    quat.copy(this.boneRestQuatPosScale[boneIndex].quat);
+    pos.copy(this.boneRestQuatPosScale[boneIndex].pos);
+    scale.copy(this.boneRestQuatPosScale[boneIndex].scale);
+  }
+
+  setRestMatrix(boneIndex: number, matrix: THREE.Matrix4) {
+    if (this.mode !== SplatSkinningMode.LINEAR_BLEND) {
+      throw new Error("setRestMat only supported for linear blend skinning");
+    }
+    this.boneRestInvMats[boneIndex].copy(matrix).invert();
+    this.setBoneMatrix(boneIndex, matrix);
+  }
+
+  getRestMatrix(boneIndex: number, matrix: THREE.Matrix4) {
+    if (this.mode !== SplatSkinningMode.LINEAR_BLEND) {
+      throw new Error("getRestMat only supported for linear blend skinning");
+    }
+    matrix.copy(this.boneRestInvMats[boneIndex]).invert();
   }
 
   // Set the "current" position and orientation of a bone.
@@ -162,38 +213,75 @@ export class SplatSkinning {
     quat: THREE.Quaternion,
     pos: THREE.Vector3,
   ) {
+    if (this.mode === SplatSkinningMode.DUAL_QUATERNION) {
+      SplatSkinning.relQuat
+        .copy(this.boneRestQuatPosScale[boneIndex].quat)
+        .invert();
+      SplatSkinning.relPos
+        .copy(pos)
+        .sub(this.boneRestQuatPosScale[boneIndex].pos);
+      SplatSkinning.relQuat.multiply(quat);
+      SplatSkinning.dual
+        .set(
+          SplatSkinning.relPos.x,
+          SplatSkinning.relPos.y,
+          SplatSkinning.relPos.z,
+          0.0,
+        )
+        .multiply(SplatSkinning.relQuat);
+
+      const i16 = boneIndex * 16;
+      this.boneData[i16 + 0] = SplatSkinning.relQuat.x;
+      this.boneData[i16 + 1] = SplatSkinning.relQuat.y;
+      this.boneData[i16 + 2] = SplatSkinning.relQuat.z;
+      this.boneData[i16 + 3] = SplatSkinning.relQuat.w;
+      this.boneData[i16 + 4] = 0.5 * SplatSkinning.dual.x;
+      this.boneData[i16 + 5] = 0.5 * SplatSkinning.dual.y;
+      this.boneData[i16 + 6] = 0.5 * SplatSkinning.dual.z;
+      this.boneData[i16 + 7] = 0.5 * SplatSkinning.dual.w;
+    } else {
+      this.setBoneQuatPosScale(boneIndex, quat, pos, SplatSkinning.UNIT_SCALE);
+    }
+  }
+
+  setBoneQuatPosScale(
+    boneIndex: number,
+    quat: THREE.Quaternion,
+    pos: THREE.Vector3,
+    scale: THREE.Vector3,
+  ) {
+    if (this.mode === SplatSkinningMode.DUAL_QUATERNION) {
+      throw new Error(
+        "setBoneQuatPosScale only supported for linear blend skinning",
+      );
+    }
+
+    SplatSkinning.skinMat.compose(pos, quat, scale);
+    this.setBoneMatrix(boneIndex, SplatSkinning.skinMat);
+  }
+
+  setBoneMatrix(boneIndex: number, matrix: THREE.Matrix4) {
+    if (this.mode !== SplatSkinningMode.LINEAR_BLEND) {
+      throw new Error("setBoneMatrix only supported for linear blend skinning");
+    }
+
+    SplatSkinning.skinMat.multiplyMatrices(
+      this.boneRestInvMats[boneIndex],
+      matrix,
+    );
     const i16 = boneIndex * 16;
-    const origQuat = new THREE.Quaternion(
-      this.boneData[i16 + 0],
-      this.boneData[i16 + 1],
-      this.boneData[i16 + 2],
-      this.boneData[i16 + 3],
-    );
-    const origPos = new THREE.Vector3(
-      this.boneData[i16 + 4],
-      this.boneData[i16 + 5],
-      this.boneData[i16 + 6],
-    );
-
-    const relQuat = origQuat.clone().invert();
-    const relPos = pos.clone().sub(origPos);
-    relPos.applyQuaternion(relQuat);
-    relQuat.multiply(quat);
-    const dual = new THREE.Quaternion(
-      relPos.x,
-      relPos.y,
-      relPos.z,
-      0.0,
-    ).multiply(origQuat);
-
-    this.boneData[i16 + 8] = relQuat.x;
-    this.boneData[i16 + 9] = relQuat.y;
-    this.boneData[i16 + 10] = relQuat.z;
-    this.boneData[i16 + 11] = relQuat.w;
-    this.boneData[i16 + 12] = 0.5 * dual.x;
-    this.boneData[i16 + 13] = 0.5 * dual.y;
-    this.boneData[i16 + 14] = 0.5 * dual.z;
-    this.boneData[i16 + 15] = 0.5 * dual.w;
+    this.boneData[i16 + 0] = SplatSkinning.skinMat.elements[0];
+    this.boneData[i16 + 1] = SplatSkinning.skinMat.elements[1];
+    this.boneData[i16 + 2] = SplatSkinning.skinMat.elements[2];
+    this.boneData[i16 + 3] = SplatSkinning.skinMat.elements[4];
+    this.boneData[i16 + 4] = SplatSkinning.skinMat.elements[5];
+    this.boneData[i16 + 5] = SplatSkinning.skinMat.elements[6];
+    this.boneData[i16 + 6] = SplatSkinning.skinMat.elements[8];
+    this.boneData[i16 + 7] = SplatSkinning.skinMat.elements[9];
+    this.boneData[i16 + 8] = SplatSkinning.skinMat.elements[10];
+    this.boneData[i16 + 9] = SplatSkinning.skinMat.elements[12];
+    this.boneData[i16 + 10] = SplatSkinning.skinMat.elements[13];
+    this.boneData[i16 + 11] = SplatSkinning.skinMat.elements[14];
   }
 
   // Set up to 4 bone indices and weights for a Gsplat. For fewer than 4 bones,
@@ -224,6 +312,12 @@ export class SplatSkinning {
     this.boneTexture.needsUpdate = true;
     this.mesh.needsUpdate = true;
   }
+
+  private static UNIT_SCALE = new THREE.Vector3(1, 1, 1);
+  private static relQuat = new THREE.Quaternion();
+  private static relPos = new THREE.Vector3();
+  private static dual = new THREE.Quaternion();
+  private static skinMat = new THREE.Matrix4();
 }
 
 // dyno program definitions for SplatSkinning
@@ -273,8 +367,8 @@ export const defineApplyGsplatSkinning = unindent(`
         vec4 boneQuat = vec4(0.0, 0.0, 0.0, 1.0);
         vec4 boneDual = vec4(0.0);
         if (boneIndex < numBones) {
-          boneQuat = texelFetch(boneTexture, ivec2(2, boneIndex), 0);
-          boneDual = texelFetch(boneTexture, ivec2(3, boneIndex), 0);
+          boneQuat = texelFetch(boneTexture, ivec2(0, boneIndex), 0);
+          boneDual = texelFetch(boneTexture, ivec2(1, boneIndex), 0);
         }
 
         if ((i > 0) && (dot(quat, boneQuat) < 0.0)) {
@@ -332,7 +426,122 @@ function applyGsplatSkinning(
   return dyno.outputs.gsplat;
 }
 
-function applyCovSplatSkinning(
+export const defineApplyCovSplatDQSkinning = unindent(`
+  void applyCovSplatDQSkinning(
+    int numSplats, int numBones,
+    usampler2DArray skinTexture, sampler2D boneTexture,
+    int splatIndex, inout vec3 center, inout vec3 xxyyzz, inout vec3 xyxzyz
+  ) {
+    if ((splatIndex < 0) || (splatIndex >= numSplats)) {
+      return;
+    }
+
+    uvec4 skinData = texelFetch(skinTexture, splatTexCoord(splatIndex), 0);
+
+    float weights[4];
+    weights[0] = float(skinData.x & 0xffu) / 255.0;
+    weights[1] = float(skinData.y & 0xffu) / 255.0;
+    weights[2] = float(skinData.z & 0xffu) / 255.0;
+    weights[3] = float(skinData.w & 0xffu) / 255.0;
+
+    uint boneIndices[4];
+    boneIndices[0] = (skinData.x >> 8u) & 0xffu;
+    boneIndices[1] = (skinData.y >> 8u) & 0xffu;
+    boneIndices[2] = (skinData.z >> 8u) & 0xffu;
+    boneIndices[3] = (skinData.w >> 8u) & 0xffu;
+
+    vec4 quat = vec4(0.0);
+    vec4 dual = vec4(0.0);
+    for (int i = 0; i < 4; i++) {
+      if (weights[i] > 0.0) {
+        int boneIndex = int(boneIndices[i]);
+        vec4 boneQuat = vec4(0.0, 0.0, 0.0, 1.0);
+        vec4 boneDual = vec4(0.0);
+        if (boneIndex < numBones) {
+          boneQuat = texelFetch(boneTexture, ivec2(0, boneIndex), 0);
+          boneDual = texelFetch(boneTexture, ivec2(1, boneIndex), 0);
+        }
+
+        if ((i > 0) && (dot(quat, boneQuat) < 0.0)) {
+          // Flip sign if next blend is pointing in the opposite direction
+          boneQuat = -boneQuat;
+          boneDual = -boneDual;
+        }
+        quat += weights[i] * boneQuat;
+        dual += weights[i] * boneDual;
+      }
+    }
+
+    // Normalize dual quaternion
+    float norm = length(quat);
+    quat /= norm;
+    dual /= norm;
+    vec3 translate = vec3(
+      2.0 * (-dual.w * quat.x + dual.x * quat.w - dual.y * quat.z + dual.z * quat.y),
+      2.0 * (-dual.w * quat.y + dual.x * quat.z + dual.y * quat.w - dual.z * quat.x),
+      2.0 * (-dual.w * quat.z - dual.x * quat.y + dual.y * quat.x + dual.z * quat.w)
+    );
+    mat3 basis = quaternionToMatrix(quat);
+
+    center = quatVec(quat, center) + translate;
+
+    mat3 cov = mat3(xxyyzz.x, xyxzyz.x, xyxzyz.y, xyxzyz.x, xxyyzz.y, xyxzyz.z, xyxzyz.y, xyxzyz.z, xxyyzz.z);
+    cov = basis * cov * transpose(basis);
+    xxyyzz = vec3(cov[0][0], cov[1][1], cov[2][2]);
+    xyxzyz = vec3(cov[0][1], cov[0][2], cov[1][2]);
+  }
+`);
+
+export const defineApplyCovSplatLBSkinning = unindent(`
+  void applyCovSplatLBSkinning(
+    int numSplats, int numBones,
+    usampler2DArray skinTexture, sampler2D boneTexture,
+    int splatIndex, inout vec3 center, inout vec3 xxyyzz, inout vec3 xyxzyz
+  ) {
+    if ((splatIndex < 0) || (splatIndex >= numSplats)) {
+      return;
+    }
+
+    uvec4 skinData = texelFetch(skinTexture, splatTexCoord(splatIndex), 0);
+
+    float weights[4];
+    weights[0] = float(skinData.x & 0xffu) / 255.0;
+    weights[1] = float(skinData.y & 0xffu) / 255.0;
+    weights[2] = float(skinData.z & 0xffu) / 255.0;
+    weights[3] = float(skinData.w & 0xffu) / 255.0;
+
+    uint boneIndices[4];
+    boneIndices[0] = (skinData.x >> 8u) & 0xffu;
+    boneIndices[1] = (skinData.y >> 8u) & 0xffu;
+    boneIndices[2] = (skinData.z >> 8u) & 0xffu;
+    boneIndices[3] = (skinData.w >> 8u) & 0xffu;
+
+    mat3 basis = mat3(0.0);
+    vec3 offset = vec3(0.0);
+
+    for (int i = 0; i < 4; i++) {
+      if (weights[i] > 0.0) {
+        int boneIndex = int(boneIndices[i]);
+        if (boneIndex < numBones) {
+          vec4 v0 = texelFetch(boneTexture, ivec2(0, boneIndex), 0);
+          vec4 v1 = texelFetch(boneTexture, ivec2(1, boneIndex), 0);
+          vec4 v2 = texelFetch(boneTexture, ivec2(2, boneIndex), 0);
+          basis += weights[i] * mat3(v0.x, v0.y, v0.z, v0.w, v1.x, v1.y, v1.z, v1.w, v2.x);
+          offset += weights[i] * vec3(v2.y, v2.z, v2.w);
+        }
+      }
+    }
+
+    center = basis * center + offset;
+
+    mat3 cov = mat3(xxyyzz.x, xyxzyz.x, xyxzyz.y, xyxzyz.x, xxyyzz.y, xyxzyz.z, xyxzyz.y, xyxzyz.z, xxyyzz.z);
+    cov = basis * cov * transpose(basis);
+    xxyyzz = vec3(cov[0][0], cov[1][1], cov[2][2]);
+    xyxzyz = vec3(cov[0][1], cov[0][2], cov[1][2]);
+  }
+`);
+
+function applyCovSplatDQSkinning(
   covsplat: DynoVal<typeof CovSplat>,
   skinning: DynoVal<typeof GsplatSkinning>,
 ): DynoVal<typeof CovSplat> {
@@ -342,7 +551,7 @@ function applyCovSplatSkinning(
   >({
     inTypes: { covsplat: CovSplat, skinning: GsplatSkinning },
     outTypes: { covsplat: CovSplat },
-    globals: () => [defineGsplatSkinning, defineApplyGsplatSkinning],
+    globals: () => [defineGsplatSkinning, defineApplyCovSplatDQSkinning],
     inputs: { covsplat, skinning },
     statements: ({ inputs, outputs }) => {
       const { skinning } = inputs;
@@ -350,9 +559,41 @@ function applyCovSplatSkinning(
       return unindentLines(`
         ${covsplat} = ${inputs.covsplat};
         if (isCovSplatActive(${covsplat}.flags)) {
-          // applyCovSplatSkinning(
-          // TODO
-          // );
+          applyCovSplatDQSkinning(
+            ${skinning}.numSplats, ${skinning}.numBones,
+            ${skinning}.skinTexture, ${skinning}.boneTexture,
+            ${covsplat}.index, ${covsplat}.center, ${covsplat}.xxyyzz, ${covsplat}.xyxzyz
+          );
+        }
+      `);
+    },
+  });
+  return dyno.outputs.covsplat;
+}
+
+function applyCovSplatLBSkinning(
+  covsplat: DynoVal<typeof CovSplat>,
+  skinning: DynoVal<typeof GsplatSkinning>,
+): DynoVal<typeof CovSplat> {
+  const dyno = new Dyno<
+    { covsplat: typeof CovSplat; skinning: typeof GsplatSkinning },
+    { covsplat: typeof CovSplat }
+  >({
+    inTypes: { covsplat: CovSplat, skinning: GsplatSkinning },
+    outTypes: { covsplat: CovSplat },
+    globals: () => [defineGsplatSkinning, defineApplyCovSplatLBSkinning],
+    inputs: { covsplat, skinning },
+    statements: ({ inputs, outputs }) => {
+      const { skinning } = inputs;
+      const { covsplat } = outputs;
+      return unindentLines(`
+        ${covsplat} = ${inputs.covsplat};
+        if (isCovSplatActive(${covsplat}.flags)) {
+          applyCovSplatLBSkinning(
+            ${skinning}.numSplats, ${skinning}.numBones,
+            ${skinning}.skinTexture, ${skinning}.boneTexture,
+            ${covsplat}.index, ${covsplat}.center, ${covsplat}.xxyyzz, ${covsplat}.xyxzyz
+          );
         }
       `);
     },

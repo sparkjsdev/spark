@@ -6,7 +6,7 @@ use half::f16;
 use itertools::izip;
 use js_sys::{Array, Object, Reflect, Uint32Array};
 use ordered_float::OrderedFloat;
-use spark_lib::splat_encode::{decode_lod_tree_children, decode_packed_splat_center, decode_packed_splat_opacity, decode_packed_splat_quat, decode_packed_splat_scale};
+use spark_lib::{decoder::SplatEncoding, splat_encode::{decode_lod_tree_children, decode_packed_splat_center, decode_packed_splat_opacity, decode_packed_splat_quat, decode_packed_splat_scale}};
 use wasm_bindgen::prelude::*;
 
 use crate::packed_splats::PackedSplatsData;
@@ -450,239 +450,243 @@ fn compute_pixel_scale(
     }
 }
 
-#[wasm_bindgen]
-pub fn traverse_bones(
-    num_lod_splats: u32,
-    lod_packed: Uint32Array,
-    extra: Option<Object>,
-    max_bone_splats: u32,
-    num_splats: u32,
-    packed: Option<Uint32Array>,
-    compute_weights: bool,
-    min_bone_opacity: f32,
-) -> Result<Object, JsValue> {
-    let mut lod_packed_data = match PackedSplatsData::from_js_arrays(lod_packed, num_lod_splats as usize, extra.as_ref()) {
-        Ok(lod_packed_data) => lod_packed_data,
-        Err(err) => { return Err(JsValue::from(err.to_string())); }
-    };
+// #[wasm_bindgen]
+// pub fn traverse_bones(
+//     num_lod_splats: u32,
+//     lod_packed: Uint32Array,
+//     extra: Option<Object>,
+//     encoding: JsValue,
+//     max_bone_splats: u32,
+//     num_splats: u32,
+//     packed: Option<Uint32Array>,
+//     compute_weights: bool,
+//     min_bone_opacity: f32,
+// ) -> Result<Object, JsValue> {
+//     let encoding = if encoding.is_falsy() {
+//         SplatEncoding::default()
+//     } else {
+//         serde_wasm_bindgen::from_value(encoding)?
+//     };
+//     let mut lod_packed_data = match PackedSplatsData::from_js_arrays(lod_packed, num_lod_splats as usize, extra.as_ref(), encoding.clone()) {
+//         Ok(lod_packed_data) => lod_packed_data,
+//         Err(err) => { return Err(JsValue::from(err.to_string())); }
+//     };
 
-    let lod_splat_encoding = lod_packed_data.get_encoding();
-    
-    type Chunk = (usize, usize, Vec<u32>, Vec<u32>);
-    let mut chunks: Vec<Chunk> = Vec::new();
-    let mut frontier = BinaryHeap::new();
-    const CHUNK_SIZE: usize = 4096;
+//     type Chunk = (usize, usize, Vec<u32>, Vec<u32>);
+//     let mut chunks: Vec<Chunk> = Vec::new();
+//     let mut frontier = BinaryHeap::new();
+//     const CHUNK_SIZE: usize = 4096;
 
-    let get_chunk_index = |chunks: &mut Vec<Chunk>, packed_data: &mut PackedSplatsData, index: usize| {
-        for (chunk_index, (base, count, _packed, _lod_tree)) in chunks.iter().enumerate().rev() {
-            if index >= *base && index < *base + *count {
-                let i4 = 4 * (index - base);
-                return (chunk_index, i4);
-            }
-        }
+//     let get_chunk_index = |chunks: &mut Vec<Chunk>, packed_data: &mut PackedSplatsData, index: usize| {
+//         for (chunk_index, (base, count, _packed, _lod_tree)) in chunks.iter().enumerate().rev() {
+//             if index >= *base && index < *base + *count {
+//                 let i4 = 4 * (index - base);
+//                 return (chunk_index, i4);
+//             }
+//         }
 
-        let mut packed = vec![0; 4 * CHUNK_SIZE];
-        let mut lod_tree = vec![0; 4 * CHUNK_SIZE];
-        packed_data.get_packed_array(index, CHUNK_SIZE, &mut packed);
-        let got_lod_tree = packed_data.get_lod_tree_array(index, CHUNK_SIZE, &mut lod_tree).is_some();
-        assert!(got_lod_tree);
+//         let mut packed = vec![0; 4 * CHUNK_SIZE];
+//         let mut lod_tree = vec![0; 4 * CHUNK_SIZE];
+//         packed_data.get_packed_array(index, CHUNK_SIZE, &mut packed);
+//         let got_lod_tree = packed_data.get_lod_tree_array(index, CHUNK_SIZE, &mut lod_tree).is_some();
+//         assert!(got_lod_tree);
         
-        chunks.push((index, CHUNK_SIZE, packed, lod_tree));
-        return (chunks.len() - 1, 0);
-    };
+//         chunks.push((index, CHUNK_SIZE, packed, lod_tree));
+//         return (chunks.len() - 1, 0);
+//     };
 
-    let get_splat_data = |chunks: &mut Vec<Chunk>, packed_data: &mut PackedSplatsData, index: usize| {
-        let (chunk_index, i4) = get_chunk_index(chunks, packed_data, index);
-        let (_, _, packed, lod_tree) = &chunks[chunk_index];
+//     let get_splat_data = |chunks: &mut Vec<Chunk>, packed_data: &mut PackedSplatsData, index: usize| {
+//         let (chunk_index, i4) = get_chunk_index(chunks, packed_data, index);
+//         let (_, _, packed, lod_tree) = &chunks[chunk_index];
 
-        // let opacity = decode_packed_splat_opacity(&packed[i4..i4+4], &lod_splat_encoding);
-        let scales = decode_packed_splat_scale(&packed[i4..i4+4], &lod_splat_encoding);
-        let (child_count, child_start) = decode_lod_tree_children(&lod_tree[i4..i4+4]);
+//         // let opacity = decode_packed_splat_opacity(&packed[i4..i4+4], &encoding);
+//         let scales = decode_packed_splat_scale(&packed[i4..i4+4], &encoding);
+//         let (child_count, child_start) = decode_lod_tree_children(&lod_tree[i4..i4+4]);
 
-        // let metric = scales[0] * scales[1] * scales[2];
-        // let metric = scales[0].max(scales[1]).max(scales[2]);
-        // let metric = scales[0].max(scales[1]).max(scales[2]) * opacity;
-        let metric = scales[0] + scales[1] + scales[2];
-        (OrderedFloat(metric), index, child_count as usize, child_start as usize)
-    };
+//         // let metric = scales[0] * scales[1] * scales[2];
+//         // let metric = scales[0].max(scales[1]).max(scales[2]);
+//         // let metric = scales[0].max(scales[1]).max(scales[2]) * opacity;
+//         let metric = scales[0] + scales[1] + scales[2];
+//         (OrderedFloat(metric), index, child_count as usize, child_start as usize)
+//     };
 
-    let mut output = Vec::new();
-    frontier.push(get_splat_data(&mut chunks, &mut lod_packed_data, 0));
+//     let mut output = Vec::new();
+//     frontier.push(get_splat_data(&mut chunks, &mut lod_packed_data, 0));
 
-    while let Some((OrderedFloat(_volume), index, child_count, child_start)) = frontier.pop() {
-        if child_count == 0 {
-            output.push(index as u32)
-        } else {
-            // output.push(index as u32);
+//     while let Some((OrderedFloat(_volume), index, child_count, child_start)) = frontier.pop() {
+//         if child_count == 0 {
+//             output.push(index as u32)
+//         } else {
+//             // output.push(index as u32);
 
-            let new_num_bones = output.len() + frontier.len() + child_count as usize;
-            if new_num_bones > max_bone_splats as usize {
-                output.push(index as u32);
-                break;
-            }
+//             let new_num_bones = output.len() + frontier.len() + child_count as usize;
+//             if new_num_bones > max_bone_splats as usize {
+//                 output.push(index as u32);
+//                 break;
+//             }
 
-            for child in 0..child_count as usize {
-                let child_index = child_start + child;
-                frontier.push(get_splat_data(&mut chunks, &mut lod_packed_data, child_index));
-            }
-        }
-    }
+//             for child in 0..child_count as usize {
+//                 let child_index = child_start + child;
+//                 frontier.push(get_splat_data(&mut chunks, &mut lod_packed_data, child_index));
+//             }
+//         }
+//     }
 
-    for (_volume, index, _child_count, _child_start) in frontier.drain() {
-        output.push(index as u32);
-    }
+//     for (_volume, index, _child_count, _child_start) in frontier.drain() {
+//         output.push(index as u32);
+//     }
 
-    output.sort_unstable();
+//     output.sort_unstable();
 
-    output.retain(|&index| {
-        let (chunk_index, i4) = get_chunk_index(&mut chunks, &mut lod_packed_data, index as usize);
-        let (_, _, packed, _) = &chunks[chunk_index];
-        let opacity = decode_packed_splat_opacity(&packed[i4..i4+4], &lod_splat_encoding);
-        opacity >= min_bone_opacity
-    });
+//     output.retain(|&index| {
+//         let (chunk_index, i4) = get_chunk_index(&mut chunks, &mut lod_packed_data, index as usize);
+//         let (_, _, packed, _) = &chunks[chunk_index];
+//         let opacity = decode_packed_splat_opacity(&packed[i4..i4+4], &encoding);
+//         opacity >= min_bone_opacity
+//     });
 
-    let mut index_mapping = AHashMap::new();
-    for (new_index, &old_index) in output.iter().enumerate() {
-        index_mapping.insert(old_index, new_index as u32);
-    }
+//     let mut index_mapping = AHashMap::new();
+//     for (new_index, &old_index) in output.iter().enumerate() {
+//         index_mapping.insert(old_index, new_index as u32);
+//     }
 
-    let num_bones = output.len();
-    let mut packed_out: Vec<u32> = Vec::with_capacity(num_bones * 4);
-    let mut child_counts: Vec<u32> = Vec::with_capacity(num_bones);
-    let mut child_starts: Vec<u32> = Vec::with_capacity(num_bones);
+//     let num_bones = output.len();
+//     let mut packed_out: Vec<u32> = Vec::with_capacity(num_bones * 4);
+//     let mut child_counts: Vec<u32> = Vec::with_capacity(num_bones);
+//     let mut child_starts: Vec<u32> = Vec::with_capacity(num_bones);
 
-    let mut centers: Vec<glam::Vec3A> = Vec::with_capacity(num_bones);
-    // let mut opacities: Vec<f32> = Vec::with_capacity(num_bones);
-    let mut scales: Vec<glam::Vec3A> = Vec::with_capacity(num_bones);
-    let mut quats: Vec<glam::Quat> = Vec::with_capacity(num_bones);
+//     let mut centers: Vec<glam::Vec3A> = Vec::with_capacity(num_bones);
+//     // let mut opacities: Vec<f32> = Vec::with_capacity(num_bones);
+//     let mut scales: Vec<glam::Vec3A> = Vec::with_capacity(num_bones);
+//     let mut quats: Vec<glam::Quat> = Vec::with_capacity(num_bones);
 
-    for old_index in output {
-        let (chunk_index, i4) = get_chunk_index(&mut chunks, &mut lod_packed_data, old_index as usize);
-        let (_, _, packed, lod_tree) = &chunks[chunk_index];
-        let packed = &packed[i4..i4+4];
-        let (child_count, child_start) = decode_lod_tree_children(&lod_tree[i4..i4+4]);
+//     for old_index in output {
+//         let (chunk_index, i4) = get_chunk_index(&mut chunks, &mut lod_packed_data, old_index as usize);
+//         let (_, _, packed, lod_tree) = &chunks[chunk_index];
+//         let packed = &packed[i4..i4+4];
+//         let (child_count, child_start) = decode_lod_tree_children(&lod_tree[i4..i4+4]);
         
-        packed_out.extend_from_slice(packed);
-        child_counts.push(child_count as u32);
-        child_starts.push(*index_mapping.get(&child_start).unwrap_or(&0));
+//         packed_out.extend_from_slice(packed);
+//         child_counts.push(child_count as u32);
+//         child_starts.push(*index_mapping.get(&child_start).unwrap_or(&0));
 
-        centers.push(Vec3A::from_array(decode_packed_splat_center(packed)));
-        // opacities.push(decode_packed_splat_opacity(packed, &lod_splat_encoding));
-        let scale = Vec3A::from_array(decode_packed_splat_scale(packed, &lod_splat_encoding));
-        scales.push(scale.max(Vec3A::splat(1.0e-4)));
-        quats.push(Quat::from_array(decode_packed_splat_quat(packed)));
-    }
+//         centers.push(Vec3A::from_array(decode_packed_splat_center(packed)));
+//         // opacities.push(decode_packed_splat_opacity(packed, &encoding));
+//         let scale = Vec3A::from_array(decode_packed_splat_scale(packed, &encoding));
+//         scales.push(scale.max(Vec3A::splat(1.0e-4)));
+//         quats.push(Quat::from_array(decode_packed_splat_quat(packed)));
+//     }
 
-    drop(chunks);
+//     drop(chunks);
 
-    let rows = num_bones.div_ceil(2048);
-    let capacity = rows * 2048;
-    packed_out.resize(capacity * 4, 0);
+//     let rows = num_bones.div_ceil(2048);
+//     let capacity = rows * 2048;
+//     packed_out.resize(capacity * 4, 0);
 
-    let result = Object::new();
-    Reflect::set(&result, &JsValue::from_str("numSplats"), &JsValue::from(num_bones)).unwrap();
-    Reflect::set(&result, &JsValue::from_str("packed"), &JsValue::from(packed_out)).unwrap();   
-    Reflect::set(&result, &JsValue::from_str("childCounts"), &JsValue::from(child_counts)).unwrap();
-    Reflect::set(&result, &JsValue::from_str("childStarts"), &JsValue::from(child_starts)).unwrap();
-    Reflect::set(&result, &JsValue::from_str("splatEncoding"), &serde_wasm_bindgen::to_value(&lod_splat_encoding).unwrap()).unwrap();
+//     let result = Object::new();
+//     Reflect::set(&result, &JsValue::from_str("numSplats"), &JsValue::from(num_bones)).unwrap();
+//     Reflect::set(&result, &JsValue::from_str("packed"), &JsValue::from(packed_out)).unwrap();   
+//     Reflect::set(&result, &JsValue::from_str("childCounts"), &JsValue::from(child_counts)).unwrap();
+//     Reflect::set(&result, &JsValue::from_str("childStarts"), &JsValue::from(child_starts)).unwrap();
+//     Reflect::set(&result, &JsValue::from_str("splatEncoding"), &serde_wasm_bindgen::to_value(&encoding).unwrap()).unwrap();
 
-    if compute_weights {
-        let mut lod_bone_weights: Vec<u16> = Vec::with_capacity(num_lod_splats as usize * 4);
-        let mut bone_weights: Vec<u16> = Vec::with_capacity(num_splats as usize * 4);
-        let mut top_bones: Vec<(f32, usize)> = Vec::new();
+//     if compute_weights {
+//         let mut lod_bone_weights: Vec<u16> = Vec::with_capacity(num_lod_splats as usize * 4);
+//         let mut bone_weights: Vec<u16> = Vec::with_capacity(num_splats as usize * 4);
+//         let mut top_bones: Vec<(f32, usize)> = Vec::new();
 
-        let mut splat_centers = Vec::new();
-        splat_centers.resize(CHUNK_SIZE * 3, 0.0);
+//         let mut splat_centers = Vec::new();
+//         splat_centers.resize(CHUNK_SIZE * 3, 0.0);
 
-        let find_top_bones = |num_bones: usize, centers: &[Vec3A], quats: &[Quat], scales: &[Vec3A], top_bones: &mut Vec<(f32, usize)>, splat_center: Vec3A| {
-            top_bones.clear();
-            for b in 0..num_bones {
-                let bone_splat = splat_center - centers[b];
-                let bone_splat = quats[b].inverse() * bone_splat;
-                let bone_splat = bone_splat / scales[b];
-                let bone_score = (bone_splat.length(), b);
+//         let find_top_bones = |num_bones: usize, centers: &[Vec3A], quats: &[Quat], scales: &[Vec3A], top_bones: &mut Vec<(f32, usize)>, splat_center: Vec3A| {
+//             top_bones.clear();
+//             for b in 0..num_bones {
+//                 let bone_splat = splat_center - centers[b];
+//                 let bone_splat = quats[b].inverse() * bone_splat;
+//                 let bone_splat = bone_splat / scales[b];
+//                 let bone_score = (bone_splat.length(), b);
 
-                let n = top_bones.len();
-                top_bones.push(bone_score); // Temporary, we'll shift as needed
-                let mut j = n;
-                while j > 0 && bone_score.0 < top_bones[j - 1].0 {
-                    top_bones[j] = top_bones[j - 1];
-                    j -= 1;
-                }
-                top_bones[j] = bone_score;
+//                 let n = top_bones.len();
+//                 top_bones.push(bone_score); // Temporary, we'll shift as needed
+//                 let mut j = n;
+//                 while j > 0 && bone_score.0 < top_bones[j - 1].0 {
+//                     top_bones[j] = top_bones[j - 1];
+//                     j -= 1;
+//                 }
+//                 top_bones[j] = bone_score;
 
-                // Drop the last element if we have more than 4
-                if top_bones.len() > 4 {
-                    top_bones.pop();
-                }
-            }
+//                 // Drop the last element if we have more than 4
+//                 if top_bones.len() > 4 {
+//                     top_bones.pop();
+//                 }
+//             }
 
-            // top_bones.truncate(1);
+//             // top_bones.truncate(1);
 
-            let total_score = top_bones.iter().map(|(score, _)| (-score).exp()).sum::<f32>();
+//             let total_score = top_bones.iter().map(|(score, _)| (-score).exp()).sum::<f32>();
 
-            let bone_weights: [u16; 4] = array::from_fn(|d| {
-                let bone_weight = if d < top_bones.len() {
-                    (top_bones[d].1, (-top_bones[d].0).exp() / total_score)
-                } else {
-                    (0, 0.0)
-                };
+//             let bone_weights: [u16; 4] = array::from_fn(|d| {
+//                 let bone_weight = if d < top_bones.len() {
+//                     (top_bones[d].1, (-top_bones[d].0).exp() / total_score)
+//                 } else {
+//                     (0, 0.0)
+//                 };
 
-                // if bone_weight.0 > 255 {
-                //     panic!("Bone index out of range");
-                // }
-                let weight_u8 = (bone_weight.1 * 255.0).clamp(0.0, 255.0).round() as u8;
-                let bone_index_u8 = bone_weight.0 as u8;
-                let bone_weight_u16 = (bone_index_u8 as u16) << 8 | weight_u8 as u16;
-                bone_weight_u16
-            });
-            bone_weights
-        };
+//                 // if bone_weight.0 > 255 {
+//                 //     panic!("Bone index out of range");
+//                 // }
+//                 let weight_u8 = (bone_weight.1 * 255.0).clamp(0.0, 255.0).round() as u8;
+//                 let bone_index_u8 = bone_weight.0 as u8;
+//                 let bone_weight_u16 = (bone_index_u8 as u16) << 8 | weight_u8 as u16;
+//                 bone_weight_u16
+//             });
+//             bone_weights
+//         };
 
-        let mut base = 0;
-        while base < num_lod_splats as usize {
-            let chunk_size = (num_lod_splats as usize - base).min(CHUNK_SIZE);
-            lod_packed_data.get_center(base, chunk_size, &mut splat_centers);
-            for i in 0..chunk_size {
-                let i3 = i * 3;
-                let splat_center = Vec3A::from_slice(&splat_centers[i3..i3+3]);
-                let bone_weights_u16 = find_top_bones(num_bones, &centers, &quats, &scales, &mut top_bones, splat_center);
-                lod_bone_weights.extend_from_slice(&bone_weights_u16);
-            }
-            base += chunk_size;
-        }
+//         let mut base = 0;
+//         while base < num_lod_splats as usize {
+//             let chunk_size = (num_lod_splats as usize - base).min(CHUNK_SIZE);
+//             lod_packed_data.get_center(base, chunk_size, &mut splat_centers);
+//             for i in 0..chunk_size {
+//                 let i3 = i * 3;
+//                 let splat_center = Vec3A::from_slice(&splat_centers[i3..i3+3]);
+//                 let bone_weights_u16 = find_top_bones(num_bones, &centers, &quats, &scales, &mut top_bones, splat_center);
+//                 lod_bone_weights.extend_from_slice(&bone_weights_u16);
+//             }
+//             base += chunk_size;
+//         }
 
-        if let Some(packed) = packed {
-            let mut packed_data = match PackedSplatsData::from_js_arrays(packed, num_splats as usize, None) {
-                Ok(packed_data) => packed_data,
-                Err(err) => { return Err(JsValue::from(err.to_string())); }
-            };
+//         if let Some(packed) = packed {
+//             let mut packed_data = match PackedSplatsData::from_js_arrays(packed, num_splats as usize, None, encoding) {
+//                 Ok(packed_data) => packed_data,
+//                 Err(err) => { return Err(JsValue::from(err.to_string())); }
+//             };
 
-            let mut base = 0;
-            while base < num_splats as usize {
-                let chunk_size = (num_splats as usize - base).min(CHUNK_SIZE);
-                packed_data.get_center(base, chunk_size, &mut splat_centers);
-                for i in 0..chunk_size {
-                    let i3 = i * 3;
-                    let splat_center = Vec3A::from_slice(&splat_centers[i3..i3+3]);
-                    let bone_weights_u16 = find_top_bones(num_bones, &centers, &quats, &scales, &mut top_bones, splat_center);
-                    bone_weights.extend_from_slice(&bone_weights_u16);
-                }
-                base += chunk_size;
-            }
-        }
+//             let mut base = 0;
+//             while base < num_splats as usize {
+//                 let chunk_size = (num_splats as usize - base).min(CHUNK_SIZE);
+//                 packed_data.get_center(base, chunk_size, &mut splat_centers);
+//                 for i in 0..chunk_size {
+//                     let i3 = i * 3;
+//                     let splat_center = Vec3A::from_slice(&splat_centers[i3..i3+3]);
+//                     let bone_weights_u16 = find_top_bones(num_bones, &centers, &quats, &scales, &mut top_bones, splat_center);
+//                     bone_weights.extend_from_slice(&bone_weights_u16);
+//                 }
+//                 base += chunk_size;
+//             }
+//         }
 
-        let lod_splat_rows = (num_lod_splats as usize).div_ceil(2048);
-        let lod_splat_capacity = lod_splat_rows * 2048;
-        lod_bone_weights.resize(lod_splat_capacity * 4, 0);
+//         let lod_splat_rows = (num_lod_splats as usize).div_ceil(2048);
+//         let lod_splat_capacity = lod_splat_rows * 2048;
+//         lod_bone_weights.resize(lod_splat_capacity * 4, 0);
 
-        let splat_rows = (num_splats as usize).div_ceil(2048);
-        let splat_capacity = splat_rows * 2048;
-        bone_weights.resize(splat_capacity * 4, 0);
+//         let splat_rows = (num_splats as usize).div_ceil(2048);
+//         let splat_capacity = splat_rows * 2048;
+//         bone_weights.resize(splat_capacity * 4, 0);
 
-        Reflect::set(&result, &JsValue::from_str("boneWeights"), &JsValue::from(bone_weights)).unwrap();
-        Reflect::set(&result, &JsValue::from_str("lodBoneWeights"), &JsValue::from(lod_bone_weights)).unwrap();
-    }
+//         Reflect::set(&result, &JsValue::from_str("boneWeights"), &JsValue::from(bone_weights)).unwrap();
+//         Reflect::set(&result, &JsValue::from_str("lodBoneWeights"), &JsValue::from(lod_bone_weights)).unwrap();
+//     }
     
-    Ok(result)
-}
+//     Ok(result)
+// }

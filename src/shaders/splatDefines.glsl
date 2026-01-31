@@ -261,9 +261,7 @@ uvec4 packSplatCovEncoding(
         clamp(xyxzyz.y / sqrt(xxyyzz.x * xxyyzz.z), -1.0, 1.0),
         clamp(xyxzyz.z / sqrt(xxyyzz.y * xxyyzz.z), -1.0, 1.0)
     );
-    float offScale = 126.0 / 20.0;
-    ivec3 iXyxzyzCor = ivec3(round(sign(xyxzyzCor) * (clamp(log(abs(xyxzyzCor)) * offScale, -126.0, -0.0000001) - 1.0)));
-    // ivec3 iXyxzyzCor = ivec3(round(xyxzyzCor * 127.0));
+    ivec3 iXyxzyzCor = ivec3(round(xyxzyzCor * 127.0));
 
     // Pack it all into 4 x uint32
     uint word0 = uRgba.r | (uRgba.g << 8u) | (uRgba.b << 16u) | (uRgba.a << 24u);
@@ -299,9 +297,7 @@ void unpackSplatCovEncoding(uvec4 packed, out vec3 center, out vec4 rgba, out ve
     float diagScale = 2.0 * (lnScaleMax - lnScaleMin) / 255.0;
     xxyyzz = exp(2.0 * lnScaleMin + vec3(uXxyyzz) * diagScale);
 
-    float offScale = 20.0 / 126.0;
-    vec3 xyxzyzCor = -vec3(sign(iXyxzyzCor)) * exp(-vec3(abs(iXyxzyzCor) - 1) * offScale);
-    // vec3 xyxzyzCor = vec3(iXyxzyzCor) / 127.0;
+    vec3 xyxzyzCor = vec3(iXyxzyzCor) / 127.0;
     xyxzyz = xyxzyzCor * vec3(
         sqrt(xxyyzz.x * xxyyzz.y),
         sqrt(xxyyzz.x * xxyyzz.z),
@@ -442,6 +438,20 @@ vec4 quatQuat(vec4 q1, vec4 q2) {
         q1.w * q2.y - q1.x * q2.z + q1.y * q2.w + q1.z * q2.x,
         q1.w * q2.z + q1.x * q2.y - q1.y * q2.x + q1.z * q2.w,
         q1.w * q2.w - q1.x * q2.x - q1.y * q2.y - q1.z * q2.z
+    );
+}
+
+mat3 quaternionToMatrix(vec4 q) {
+    return mat3(
+        (1.0 - 2.0 * (q.y * q.y + q.z * q.z)),
+        (2.0 * (q.x * q.y + q.w * q.z)),
+        (2.0 * (q.x * q.z - q.w * q.y)),
+        (2.0 * (q.x * q.y - q.w * q.z)),
+        (1.0 - 2.0 * (q.x * q.x + q.z * q.z)),
+        (2.0 * (q.y * q.z + q.w * q.x)),
+        (2.0 * (q.x * q.z + q.w * q.y)),
+        (2.0 * (q.y * q.z - q.w * q.x)),
+        (1.0 - 2.0 * (q.x * q.x + q.y * q.y))
     );
 }
 

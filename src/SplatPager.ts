@@ -1,19 +1,13 @@
 import * as THREE from "three";
 import { LN_SCALE_MAX, LN_SCALE_MIN, dyno } from ".";
+import { evaluateExtSH } from "./ExtSplats";
 import { workerPool } from "./NewSplatWorker";
 import {
+  DEFAULT_SPLAT_ENCODING,
   type SplatEncoding,
-  defineEvalPackedSH1,
-  defineEvalPackedSH2,
-  defineEvalPackedSH3,
+  evaluatePackedSH,
 } from "./PackedSplats";
 import type { SplatSource } from "./SplatMesh";
-import {
-  Dyno,
-  type DynoUsampler2DArray,
-  type DynoVal,
-  unindentLines,
-} from "./dyno";
 import { getTextureSize } from "./utils";
 
 export interface PagedSplatsOptions {
@@ -33,7 +27,6 @@ export class PagedSplats implements SplatSource {
   maxSh: number;
 
   numSplats: number;
-  // indicesTexture: THREE.DataTexture;
   splatEncoding?: SplatEncoding;
 
   dynoNumSplats: dyno.DynoInt<"numSplats">;
@@ -60,30 +53,24 @@ export class PagedSplats implements SplatSource {
 
     this.dynoNumSplats = new dyno.DynoInt({ value: 0 });
     this.dynoIndices = new dyno.DynoUsampler2D({
-      key: "indices",
       value: SplatPager.emptyIndicesTexture,
     });
 
     this.rgbMinMaxLnScaleMinMax = new dyno.DynoVec4({
-      key: "rgbMinMaxLnScaleMinMax",
       value: new THREE.Vector4(0.0, 1.0, LN_SCALE_MIN, LN_SCALE_MAX),
     });
     this.lodOpacity = new dyno.DynoBool({
-      key: "lodOpacity",
       value: false,
     });
 
     this.dynoNumSh = new dyno.DynoInt({ value: 0 });
     this.sh1MidScale = new dyno.DynoVec2({
-      key: "sh1MidScale",
       value: new THREE.Vector2(0, 1),
     });
     this.sh2MidScale = new dyno.DynoVec2({
-      key: "sh2MidScale",
       value: new THREE.Vector2(0, 1),
     });
     this.sh3MidScale = new dyno.DynoVec2({
-      key: "sh3MidScale",
       value: new THREE.Vector2(0, 1),
     });
   }
@@ -107,7 +94,6 @@ export class PagedSplats implements SplatSource {
       headers: this.requestHeader ? new Headers(this.requestHeader) : undefined,
       credentials: this.withCredentials ? "include" : "same-origin",
     });
-    // console.log("fetchDecodeChunk", url);
     const response = await fetch(request);
     if (!response.ok || !response.body) {
       throw new Error(
@@ -115,71 +101,83 @@ export class PagedSplats implements SplatSource {
       );
     }
     const fileBytes = new Uint8Array(await response.arrayBuffer());
-    // console.log(`=> fetched ${fileBytes.length} bytes from ${url}`);
 
-    const lodSplats = await workerPool.withWorker(async (worker) => {
-      const result = (await worker.call(
-        "loadPackedSplats",
-        {
+    return await workerPool.withWorker(async (worker) => {
+      if (!this.pager) {
+        throw new Error("PagedSplats.pager not set");
+      }
+      if (!this.pager.extSplats) {
+        const result = (await worker.call("loadPackedSplats", {
           fileBytes,
           pathName: url,
-        },
-        {},
-      )) as { lodSplats: PackedResult };
-      return result.lodSplats;
+        })) as { lodSplats: PackedResult };
+        const lodSplats = result.lodSplats;
+        if (!this.splatEncoding) {
+          this.splatEncoding = lodSplats.splatEncoding;
+
+          this.numSh = lodSplats.extra.sh3
+            ? 3
+            : lodSplats.extra.sh2
+              ? 2
+              : lodSplats.extra.sh1
+                ? 1
+                : 0;
+
+          this.rgbMinMaxLnScaleMinMax.value.set(
+            this.splatEncoding.rgbMin ?? 0.0,
+            this.splatEncoding.rgbMax ?? 1.0,
+            this.splatEncoding.lnScaleMin ?? LN_SCALE_MIN,
+            this.splatEncoding.lnScaleMax ?? LN_SCALE_MAX,
+          );
+
+          this.lodOpacity.value = this.splatEncoding.lodOpacity ?? false;
+
+          this.sh1MidScale.value.set(
+            0.5 *
+              ((this.splatEncoding.sh1Max ?? 1.0) +
+                (this.splatEncoding.sh1Min ?? -1.0)),
+            0.5 *
+              ((this.splatEncoding.sh1Max ?? 1.0) -
+                (this.splatEncoding.sh1Min ?? -1.0)),
+          );
+          this.sh2MidScale.value.set(
+            0.5 *
+              ((this.splatEncoding.sh2Max ?? 1.0) +
+                (this.splatEncoding.sh2Min ?? -1.0)),
+            0.5 *
+              ((this.splatEncoding.sh2Max ?? 1.0) -
+                (this.splatEncoding.sh2Min ?? -1.0)),
+          );
+          this.sh3MidScale.value.set(
+            0.5 *
+              ((this.splatEncoding.sh3Max ?? 1.0) +
+                (this.splatEncoding.sh3Min ?? -1.0)),
+            0.5 *
+              ((this.splatEncoding.sh3Max ?? 1.0) -
+                (this.splatEncoding.sh3Min ?? -1.0)),
+          );
+        }
+        return lodSplats;
+      }
+
+      const result = (await worker.call("loadExtSplats", {
+        fileBytes,
+        pathName: url,
+      })) as { lodSplats: ExtResult };
+      const lodSplats = result.lodSplats;
+      if (!this.splatEncoding) {
+        this.splatEncoding = DEFAULT_SPLAT_ENCODING;
+        this.numSh =
+          lodSplats.extra.sh3a && lodSplats.extra.sh3b
+            ? 3
+            : lodSplats.extra.sh2
+              ? 2
+              : lodSplats.extra.sh1
+                ? 1
+                : 0;
+      }
+      return lodSplats;
     });
-
-    if (!this.splatEncoding) {
-      this.numSh = lodSplats.extra.sh3
-        ? 3
-        : lodSplats.extra.sh2
-          ? 2
-          : lodSplats.extra.sh1
-            ? 1
-            : 0;
-
-      this.splatEncoding = lodSplats.splatEncoding;
-      this.rgbMinMaxLnScaleMinMax.value.set(
-        this.splatEncoding.rgbMin ?? 0.0,
-        this.splatEncoding.rgbMax ?? 1.0,
-        this.splatEncoding.lnScaleMin ?? LN_SCALE_MIN,
-        this.splatEncoding.lnScaleMax ?? LN_SCALE_MAX,
-      );
-
-      this.lodOpacity.value = this.splatEncoding.lodOpacity ?? false;
-
-      if (this.numSh >= 1) {
-        this.sh1MidScale.value.set(
-          0.5 *
-            ((this.splatEncoding.sh1Max ?? 1.0) +
-              (this.splatEncoding.sh1Min ?? -1.0)),
-          0.5 *
-            ((this.splatEncoding.sh1Max ?? 1.0) -
-              (this.splatEncoding.sh1Min ?? -1.0)),
-        );
-      }
-      if (this.numSh >= 2) {
-        this.sh2MidScale.value.set(
-          0.5 *
-            ((this.splatEncoding.sh2Max ?? 1.0) +
-              (this.splatEncoding.sh2Min ?? -1.0)),
-          0.5 *
-            ((this.splatEncoding.sh2Max ?? 1.0) -
-              (this.splatEncoding.sh2Min ?? -1.0)),
-        );
-      }
-      if (this.numSh >= 3) {
-        this.sh3MidScale.value.set(
-          0.5 *
-            ((this.splatEncoding.sh3Max ?? 1.0) +
-              (this.splatEncoding.sh3Min ?? -1.0)),
-          0.5 *
-            ((this.splatEncoding.sh3Max ?? 1.0) -
-              (this.splatEncoding.sh3Min ?? -1.0)),
-        );
-      }
-    }
-    return lodSplats;
   }
 
   update(numSplats: number, indices: Uint32Array) {
@@ -271,24 +269,41 @@ export class PagedSplats implements SplatSource {
       numSplats: this.dynoNumSplats,
       indices: this.dynoIndices,
     }).index;
-    if (this.hasRgbDir() && viewOrigin) {
-      this.dynoNumSh.value = Math.min(this.numSh, this.maxSh, this.pager.maxSh);
-      return this.pager.readSplatDir.apply({
+
+    if (!this.pager.extSplats) {
+      if (this.hasRgbDir() && viewOrigin) {
+        this.dynoNumSh.value = Math.min(
+          this.numSh,
+          this.maxSh,
+          this.pager.maxSh,
+        );
+        return this.pager.readSplatDir.apply({
+          index: splatIndex,
+          rgbMinMaxLnScaleMinMax: this.rgbMinMaxLnScaleMinMax,
+          lodOpacity: this.lodOpacity,
+          viewOrigin,
+          numSh: this.dynoNumSh,
+          sh1MidScale: this.sh1MidScale,
+          sh2MidScale: this.sh2MidScale,
+          sh3MidScale: this.sh3MidScale,
+        }).gsplat;
+      }
+      return this.pager.readSplat.apply({
         index: splatIndex,
         rgbMinMaxLnScaleMinMax: this.rgbMinMaxLnScaleMinMax,
         lodOpacity: this.lodOpacity,
-        viewOrigin,
-        numSh: this.dynoNumSh,
-        sh1MidScale: this.sh1MidScale,
-        sh2MidScale: this.sh2MidScale,
-        sh3MidScale: this.sh3MidScale,
       }).gsplat;
     }
-    return this.pager.readSplat.apply({
-      index: splatIndex,
-      rgbMinMaxLnScaleMinMax: this.rgbMinMaxLnScaleMinMax,
-      lodOpacity: this.lodOpacity,
-    }).gsplat;
+
+    if (this.hasRgbDir() && viewOrigin) {
+      this.dynoNumSh.value = Math.min(this.numSh, this.maxSh, this.pager.maxSh);
+      return this.pager.readSplatExtDir.apply({
+        index: splatIndex,
+        viewOrigin,
+        numSh: this.dynoNumSh,
+      }).gsplat;
+    }
+    return this.pager.readSplatExt.apply({ index: splatIndex }).gsplat;
   }
 }
 
@@ -299,11 +314,22 @@ export type PackedResult = {
   splatEncoding: SplatEncoding;
 };
 
+export type ExtResult = {
+  numSplats: number;
+  extArrays: [Uint32Array, Uint32Array];
+  extra: Record<string, unknown>;
+};
+
 export interface SplatPagerOptions {
   /**
    * THREE.WebGLRenderer instance to upload texture data
    */
   renderer: THREE.WebGLRenderer;
+  /**
+   * Whether to use extended Gsplat encoding for paged splats.
+   * @default false
+   */
+  extSplats?: boolean;
   /**
    * Maximum size of splat page pool
    * @default 65536 * 256 = 16777216
@@ -329,6 +355,7 @@ export interface SplatPagerOptions {
 export class SplatPager {
   renderer: THREE.WebGLRenderer;
 
+  extSplats: boolean;
   maxPages: number;
   maxSplats: number;
   pageSplats: number;
@@ -352,12 +379,14 @@ export class SplatPager {
     page: number;
     numSplats: number;
     packedArray: Uint32Array;
+    extArray?: Uint32Array;
     extra: Record<string, unknown>;
   }[];
   readyUploads: {
     page: number;
     numSplats: number;
     packedArray: Uint32Array;
+    extArray?: Uint32Array;
     extra: Record<string, unknown>;
   }[];
   lodTreeUpdates: {
@@ -369,16 +398,23 @@ export class SplatPager {
   }[];
 
   fetchers: { splats: PagedSplats; chunk: number; promise: Promise<void> }[];
-  fetched: { splats: PagedSplats; chunk: number; data: PackedResult }[];
+  fetched: {
+    splats: PagedSplats;
+    chunk: number;
+    data: PackedResult | ExtResult;
+  }[];
   fetchPriority: { splats: PagedSplats; chunk: number }[];
 
   packedTexture: dyno.DynoUsampler2DArray<
     "packedTexture",
     THREE.DataArrayTexture
   >;
+  extTexture: dyno.DynoUsampler2DArray<"extTexture", THREE.DataArrayTexture>;
+
   sh1Texture: dyno.DynoUsampler2DArray<"sh1", THREE.DataArrayTexture>;
   sh2Texture: dyno.DynoUsampler2DArray<"sh2", THREE.DataArrayTexture>;
   sh3Texture: dyno.DynoUsampler2DArray<"sh3", THREE.DataArrayTexture>;
+  sh3TextureB: dyno.DynoUsampler2DArray<"sh3b", THREE.DataArrayTexture>;
 
   readIndex: dyno.DynoBlock<
     { index: "int"; numSplats: "int"; indices: "usampler2D" },
@@ -388,7 +424,10 @@ export class SplatPager {
     { index: "int"; rgbMinMaxLnScaleMinMax: "vec4"; lodOpacity: "bool" },
     { gsplat: typeof dyno.Gsplat }
   >;
-  // evaluateSh: dyno.DynoBlock<{ index: "int", viewDir: "vec3" }, { rgb: "vec3" }>;
+  readSplatExt: dyno.DynoBlock<
+    { index: "int" },
+    { gsplat: typeof dyno.Gsplat }
+  >;
   readSplatDir: dyno.DynoBlock<
     {
       index: "int";
@@ -402,9 +441,14 @@ export class SplatPager {
     },
     { gsplat: typeof dyno.Gsplat }
   >;
+  readSplatExtDir: dyno.DynoBlock<
+    { index: "int"; viewOrigin: "vec3"; numSh: "int" },
+    { gsplat: typeof dyno.Gsplat }
+  >;
 
   constructor(options: SplatPagerOptions) {
     this.renderer = options.renderer;
+    this.extSplats = options.extSplats ?? false;
 
     this.pageSplats = 65536;
     this.maxSplats = options.maxSplats ?? 16777216;
@@ -431,7 +475,6 @@ export class SplatPager {
     this.fetchPriority = [];
 
     this.packedTexture = new dyno.DynoUsampler2DArray({
-      key: "packedTexture",
       value: this.newUint32ArrayTexture(
         new Uint32Array(this.maxPages * 256 * 256 * 4),
         256,
@@ -442,17 +485,36 @@ export class SplatPager {
         "RGBA32UI",
       ),
     });
+    this.extTexture = new dyno.DynoUsampler2DArray({
+      value: this.extSplats
+        ? this.newUint32ArrayTexture(
+            new Uint32Array(this.maxPages * 256 * 256 * 4),
+            256,
+            256,
+            this.maxPages,
+            THREE.RGBAIntegerFormat,
+            THREE.UnsignedIntType,
+            "RGBA32UI",
+          )
+        : SplatPager.emptyExtTexture,
+    });
     this.sh1Texture = new dyno.DynoUsampler2DArray({
-      key: "sh1",
-      value: SplatPager.emptySh1Texture,
+      value: this.extSplats
+        ? SplatPager.emptyExtSh1Texture
+        : SplatPager.emptySh1Texture,
     });
     this.sh2Texture = new dyno.DynoUsampler2DArray({
-      key: "sh2",
-      value: SplatPager.emptySh2Texture,
+      value: this.extSplats
+        ? SplatPager.emptyExtSh2Texture
+        : SplatPager.emptySh2Texture,
     });
     this.sh3Texture = new dyno.DynoUsampler2DArray({
-      key: "sh3",
-      value: SplatPager.emptySh3Texture,
+      value: this.extSplats
+        ? SplatPager.emptyExtSh3Texture
+        : SplatPager.emptySh3Texture,
+    });
+    this.sh3TextureB = new dyno.DynoUsampler2DArray({
+      value: SplatPager.emptyExtSh3BTexture,
     });
 
     this.readIndex = dyno.dynoBlock(
@@ -566,7 +628,7 @@ export class SplatPager {
 
         const splatCenter = dyno.splitGsplat(gsplat).outputs.center;
         const viewDir = dyno.normalize(dyno.sub(splatCenter, viewOrigin));
-        let rgb = evaluateSH({
+        let rgb = evaluatePackedSH({
           index,
           viewDir,
           numSh,
@@ -582,6 +644,75 @@ export class SplatPager {
         return { gsplat };
       },
     );
+
+    this.readSplatExt = dyno.dynoBlock(
+      { index: "int" },
+      { gsplat: dyno.Gsplat },
+      ({ index }) => {
+        return new dyno.Dyno({
+          inTypes: {
+            index: "int",
+            extTexture1: "usampler2DArray",
+            extTexture2: "usampler2DArray",
+          },
+          outTypes: { gsplat: dyno.Gsplat },
+          inputs: {
+            index,
+            extTexture1: this.packedTexture,
+            extTexture2: this.extTexture,
+          },
+          globals: () => [dyno.defineGsplat],
+          statements: ({ inputs, outputs }) =>
+            dyno.unindentLines(`
+            int index = ${inputs.index};
+            ivec3 splatCoord = ivec3(index & 255, (index >> 8) & 255, index >> 16);
+            uvec4 ext1 = texelFetch(${inputs.extTexture1}, splatCoord, 0);
+            float alpha = unpackSplatExtAlpha(ext1);
+            if (alpha == 0.0) {
+              return;
+            }
+
+            uvec4 ext2 = texelFetch(${inputs.extTexture2}, splatCoord, 0);
+            unpackSplatExt(ext1, ext2, ${outputs.gsplat}.center, ${outputs.gsplat}.scales, ${outputs.gsplat}.quaternion, ${outputs.gsplat}.rgba);
+            if (all(equal(${outputs.gsplat}.scales, vec3(0.0, 0.0, 0.0)))) {
+              return;
+            }
+            
+            ${outputs.gsplat}.flags = GSPLAT_FLAG_ACTIVE;
+          `),
+        }).outputs;
+      },
+    );
+
+    this.readSplatExtDir = dyno.dynoBlock(
+      {
+        index: "int",
+        viewOrigin: "vec3",
+        numSh: "int",
+      },
+      { gsplat: dyno.Gsplat },
+      ({ index, viewOrigin, numSh }) => {
+        if (!index || !viewOrigin || !numSh) {
+          throw new Error("index and viewOrigin are required");
+        }
+        let gsplat = this.readSplatExt.apply({ index }).gsplat;
+
+        const splatCenter = dyno.splitGsplat(gsplat).outputs.center;
+        const viewDir = dyno.normalize(dyno.sub(splatCenter, viewOrigin));
+        let rgb = evaluateExtSH({
+          index,
+          viewDir,
+          numSh,
+          sh1Texture: this.sh1Texture,
+          sh2Texture: this.sh2Texture,
+          sh3TextureA: this.sh3Texture,
+          sh3TextureB: this.sh3TextureB,
+        }).rgb;
+        rgb = dyno.add(rgb, dyno.splitGsplat(gsplat).outputs.rgb);
+        gsplat = dyno.combineGsplat({ gsplat, rgb });
+        return { gsplat };
+      },
+    );
   }
 
   dispose() {
@@ -589,37 +720,75 @@ export class SplatPager {
     this.numFetchers = 0;
 
     this.packedTexture.value.dispose();
+    if (this.extTexture.value !== SplatPager.emptyExtTexture) {
+      this.extTexture.value.dispose();
+    }
 
-    if (this.sh1Texture.value !== SplatPager.emptySh1Texture) {
-      this.sh1Texture.value.dispose();
-    }
-    if (this.sh2Texture.value !== SplatPager.emptySh2Texture) {
-      this.sh2Texture.value.dispose();
-    }
-    if (this.sh3Texture.value !== SplatPager.emptySh3Texture) {
-      this.sh3Texture.value.dispose();
+    if (!this.extSplats) {
+      if (this.sh1Texture.value !== SplatPager.emptySh1Texture) {
+        this.sh1Texture.value.dispose();
+      }
+      if (this.sh2Texture.value !== SplatPager.emptySh2Texture) {
+        this.sh2Texture.value.dispose();
+      }
+      if (this.sh3Texture.value !== SplatPager.emptySh3Texture) {
+        this.sh3Texture.value.dispose();
+      }
+    } else {
+      if (this.sh1Texture.value !== SplatPager.emptyExtSh1Texture) {
+        this.sh1Texture.value.dispose();
+      }
+      if (this.sh2Texture.value !== SplatPager.emptyExtSh2Texture) {
+        this.sh2Texture.value.dispose();
+      }
+      if (this.sh3Texture.value !== SplatPager.emptyExtSh3Texture) {
+        this.sh3Texture.value.dispose();
+      }
+      if (this.sh3TextureB.value !== SplatPager.emptyExtSh3BTexture) {
+        this.sh3TextureB.value.dispose();
+      }
     }
   }
 
   private ensureShTextures(numSh: number) {
     this.curSh = Math.max(this.curSh, numSh);
-    if (
-      this.curSh >= 1 &&
-      this.sh1Texture.value === SplatPager.emptySh1Texture
-    ) {
-      this.sh1Texture.value = this.newUint32ArrayTexture(
-        new Uint32Array(this.maxPages * 256 * 256 * 2),
-        256,
-        256,
-        this.maxPages,
-        THREE.RGIntegerFormat,
-        THREE.UnsignedIntType,
-        "RG32UI",
-      );
+    if (!this.extSplats) {
+      if (
+        this.curSh >= 1 &&
+        this.sh1Texture.value === SplatPager.emptySh1Texture
+      ) {
+        this.sh1Texture.value = this.newUint32ArrayTexture(
+          new Uint32Array(this.maxPages * 256 * 256 * 2),
+          256,
+          256,
+          this.maxPages,
+          THREE.RGIntegerFormat,
+          THREE.UnsignedIntType,
+          "RG32UI",
+        );
+      }
+    } else {
+      if (
+        this.curSh >= 1 &&
+        this.sh1Texture.value === SplatPager.emptyExtSh1Texture
+      ) {
+        this.sh1Texture.value = this.newUint32ArrayTexture(
+          new Uint32Array(this.maxPages * 256 * 256 * 4),
+          256,
+          256,
+          this.maxPages,
+          THREE.RGBAIntegerFormat,
+          THREE.UnsignedIntType,
+          "RGBA32UI",
+        );
+      }
     }
     if (
       this.curSh >= 2 &&
-      this.sh2Texture.value === SplatPager.emptySh2Texture
+      this.sh2Texture.value ===
+        (!this.extSplats
+          ? SplatPager.emptySh2Texture
+          : SplatPager.emptyExtSh2Texture)
     ) {
       this.sh2Texture.value = this.newUint32ArrayTexture(
         new Uint32Array(this.maxPages * 256 * 256 * 4),
@@ -631,19 +800,46 @@ export class SplatPager {
         "RGBA32UI",
       );
     }
-    if (
-      this.curSh >= 3 &&
-      this.sh3Texture.value === SplatPager.emptySh3Texture
-    ) {
-      this.sh3Texture.value = this.newUint32ArrayTexture(
-        new Uint32Array(this.maxPages * 256 * 256 * 4),
-        256,
-        256,
-        this.maxPages,
-        THREE.RGBAIntegerFormat,
-        THREE.UnsignedIntType,
-        "RGBA32UI",
-      );
+    if (!this.extSplats) {
+      if (
+        this.curSh >= 3 &&
+        this.sh3Texture.value === SplatPager.emptySh3Texture
+      ) {
+        this.sh3Texture.value = this.newUint32ArrayTexture(
+          new Uint32Array(this.maxPages * 256 * 256 * 4),
+          256,
+          256,
+          this.maxPages,
+          THREE.RGBAIntegerFormat,
+          THREE.UnsignedIntType,
+          "RGBA32UI",
+        );
+      }
+    } else {
+      if (this.curSh >= 3) {
+        if (this.sh3Texture.value === SplatPager.emptyExtSh3Texture) {
+          this.sh3Texture.value = this.newUint32ArrayTexture(
+            new Uint32Array(this.maxPages * 256 * 256 * 4),
+            256,
+            256,
+            this.maxPages,
+            THREE.RGBAIntegerFormat,
+            THREE.UnsignedIntType,
+            "RGBA32UI",
+          );
+        }
+        if (this.sh3TextureB.value === SplatPager.emptyExtSh3BTexture) {
+          this.sh3TextureB.value = this.newUint32ArrayTexture(
+            new Uint32Array(this.maxPages * 256 * 256 * 4),
+            256,
+            256,
+            this.maxPages,
+            THREE.RGBAIntegerFormat,
+            THREE.UnsignedIntType,
+            "RGBA32UI",
+          );
+        }
+      }
     }
   }
 
@@ -725,9 +921,9 @@ export class SplatPager {
 
   private uploadPage(
     page: number,
-    numSplats: number,
     packedArray: Uint32Array,
     extra: Record<string, unknown>,
+    extArray?: Uint32Array,
   ) {
     const pageBase = page * this.pageSplats;
 
@@ -759,33 +955,56 @@ export class SplatPager {
     this.packedTexture.value.addLayerUpdate(page);
     this.packedTexture.value.needsUpdate = true;
 
+    if (extArray) {
+      const array = this.extTexture.value.image.data;
+      array
+        .subarray(pageBase * 4, pageBase * 4 + extArray.length)
+        .set(extArray);
+      this.extTexture.value.addLayerUpdate(page);
+      this.extTexture.value.needsUpdate = true;
+    }
+
     const numSh = extra.sh3 ? 3 : extra.sh2 ? 2 : extra.sh1 ? 1 : 0;
     this.ensureShTextures(numSh);
 
-    if (this.sh1Texture.value !== SplatPager.emptySh1Texture && extra.sh1) {
-      // this.renderer.state.bindTexture(
-      //   gl.TEXTURE_2D_ARRAY,
-      //   this.getGlTexture(this.sh1Texture.value),
-      // );
-      // gl.texSubImage3D(
-      //   gl.TEXTURE_2D_ARRAY,
-      //   0,
-      //   0,
-      //   0,
-      //   page,
-      //   256,
-      //   256,
-      //   1,
-      //   gl.RG_INTEGER,
-      //   gl.UNSIGNED_INT,
-      //   extra.sh1 as Uint32Array<ArrayBuffer>,
-      // );
-      const sh1 = extra.sh1 as Uint32Array<ArrayBuffer>;
-      const array = this.sh1Texture.value.image.data;
-      array.subarray(pageBase * 2, pageBase * 2 + sh1.length).set(sh1);
-      this.sh1Texture.value.addLayerUpdate(page);
-      this.sh1Texture.value.needsUpdate = true;
+    if (!this.extSplats) {
+      if (this.sh1Texture.value !== SplatPager.emptySh1Texture && extra.sh1) {
+        // this.renderer.state.bindTexture(
+        //   gl.TEXTURE_2D_ARRAY,
+        //   this.getGlTexture(this.sh1Texture.value),
+        // );
+        // gl.texSubImage3D(
+        //   gl.TEXTURE_2D_ARRAY,
+        //   0,
+        //   0,
+        //   0,
+        //   page,
+        //   256,
+        //   256,
+        //   1,
+        //   gl.RG_INTEGER,
+        //   gl.UNSIGNED_INT,
+        //   extra.sh1 as Uint32Array<ArrayBuffer>,
+        // );
+        const sh1 = extra.sh1 as Uint32Array<ArrayBuffer>;
+        const array = this.sh1Texture.value.image.data;
+        array.subarray(pageBase * 2, pageBase * 2 + sh1.length).set(sh1);
+        this.sh1Texture.value.addLayerUpdate(page);
+        this.sh1Texture.value.needsUpdate = true;
+      }
+    } else {
+      if (
+        this.sh1Texture.value !== SplatPager.emptyExtSh1Texture &&
+        extra.sh1
+      ) {
+        const sh1 = extra.sh1 as Uint32Array<ArrayBuffer>;
+        const array = this.sh1Texture.value.image.data;
+        array.subarray(pageBase * 4, pageBase * 4 + sh1.length).set(sh1);
+        this.sh1Texture.value.addLayerUpdate(page);
+        this.sh1Texture.value.needsUpdate = true;
+      }
     }
+
     if (this.sh2Texture.value !== SplatPager.emptySh2Texture && extra.sh2) {
       // this.renderer.state.bindTexture(
       //   gl.TEXTURE_2D_ARRAY,
@@ -810,30 +1029,54 @@ export class SplatPager {
       this.sh2Texture.value.addLayerUpdate(page);
       this.sh2Texture.value.needsUpdate = true;
     }
-    if (this.sh3Texture.value !== SplatPager.emptySh3Texture && extra.sh3) {
-      // this.renderer.state.bindTexture(
-      //   gl.TEXTURE_2D_ARRAY,
-      //   this.getGlTexture(this.sh3Texture.value),
-      // );
-      // gl.texSubImage3D(
-      //   gl.TEXTURE_2D_ARRAY,
-      //   0,
-      //   0,
-      //   0,
-      //   page,
-      //   256,
-      //   256,
-      //   1,
-      //   gl.RGBA_INTEGER,
-      //   gl.UNSIGNED_INT,
-      //   extra.sh3 as Uint32Array<ArrayBuffer>,
-      // );
-      const sh3 = extra.sh3 as Uint32Array<ArrayBuffer>;
-      const array = this.sh3Texture.value.image.data;
-      array.subarray(pageBase * 4, pageBase * 4 + sh3.length).set(sh3);
-      this.sh3Texture.value.addLayerUpdate(page);
-      this.sh3Texture.value.needsUpdate = true;
-      // console.log("*** uploaded sh3Texture", sh3.length, pageBase);
+
+    if (!this.extSplats) {
+      if (this.sh3Texture.value !== SplatPager.emptySh3Texture && extra.sh3) {
+        // this.renderer.state.bindTexture(
+        //   gl.TEXTURE_2D_ARRAY,
+        //   this.getGlTexture(this.sh3Texture.value),
+        // );
+        // gl.texSubImage3D(
+        //   gl.TEXTURE_2D_ARRAY,
+        //   0,
+        //   0,
+        //   0,
+        //   page,
+        //   256,
+        //   256,
+        //   1,
+        //   gl.RGBA_INTEGER,
+        //   gl.UNSIGNED_INT,
+        //   extra.sh3 as Uint32Array<ArrayBuffer>,
+        // );
+        const sh3 = extra.sh3 as Uint32Array<ArrayBuffer>;
+        const array = this.sh3Texture.value.image.data;
+        array.subarray(pageBase * 4, pageBase * 4 + sh3.length).set(sh3);
+        this.sh3Texture.value.addLayerUpdate(page);
+        this.sh3Texture.value.needsUpdate = true;
+        // console.log("*** uploaded sh3Texture", sh3.length, pageBase);
+      }
+    } else {
+      if (
+        this.sh3Texture.value !== SplatPager.emptyExtSh3Texture &&
+        extra.sh3a
+      ) {
+        const sh3a = extra.sh3a as Uint32Array<ArrayBuffer>;
+        const array = this.sh3Texture.value.image.data;
+        array.subarray(pageBase * 4, pageBase * 4 + sh3a.length).set(sh3a);
+        this.sh3Texture.value.addLayerUpdate(page);
+        this.sh3Texture.value.needsUpdate = true;
+      }
+      if (
+        this.sh3TextureB.value !== SplatPager.emptyExtSh3BTexture &&
+        extra.sh3b
+      ) {
+        const sh3b = extra.sh3b as Uint32Array<ArrayBuffer>;
+        const array = this.sh3TextureB.value.image.data;
+        array.subarray(pageBase * 4, pageBase * 4 + sh3b.length).set(sh3b);
+        this.sh3TextureB.value.addLayerUpdate(page);
+        this.sh3TextureB.value.needsUpdate = true;
+      }
     }
 
     // this.renderer.state.bindTexture(gl.TEXTURE_2D_ARRAY, null);
@@ -973,8 +1216,8 @@ export class SplatPager {
         }
       }
 
-      const { numSplats, packedArray, extra } = data;
       this.insertSplatsChunkPage(splats, chunk, page, now);
+      const { numSplats, extra } = data;
       this.lodTreeUpdates.push({
         splats,
         page,
@@ -982,7 +1225,16 @@ export class SplatPager {
         numSplats,
         lodTree: extra.lodTree as Uint32Array,
       });
-      this.newUploads.push({ page, numSplats, packedArray, extra });
+
+      if (!this.extSplats) {
+        const packedArray = (data as PackedResult).packedArray;
+        this.newUploads.push({ page, numSplats, packedArray, extra });
+      } else {
+        const extArrays = (data as ExtResult).extArrays;
+        const packedArray = extArrays[0];
+        const extArray = extArrays[1];
+        this.newUploads.push({ page, numSplats, packedArray, extArray, extra });
+      }
     }
   }
 
@@ -992,8 +1244,8 @@ export class SplatPager {
       if (!upload) {
         break;
       }
-      const { page, numSplats, packedArray, extra } = upload;
-      this.uploadPage(page, numSplats, packedArray, extra);
+      const { page, numSplats, packedArray, extArray, extra } = upload;
+      this.uploadPage(page, packedArray, extra, extArray);
     }
   }
 
@@ -1049,9 +1301,14 @@ export class SplatPager {
   })();
 
   static emptyPackedTexture = this.emptyUint32x4;
+  static emptyExtTexture = this.emptyUint32x4;
   static emptySh1Texture = this.emptyUint32x2;
   static emptySh2Texture = this.emptyUint32x4;
   static emptySh3Texture = this.emptyUint32x4;
+  static emptyExtSh1Texture = this.emptyUint32x4;
+  static emptyExtSh2Texture = this.emptyUint32x4;
+  static emptyExtSh3Texture = this.emptyUint32x4;
+  static emptyExtSh3BTexture = this.emptyUint32x4;
 }
 
 function getGlTexture(
@@ -1069,94 +1326,4 @@ function getGlTexture(
     throw new Error("texture not found");
   }
   return glTexture;
-}
-
-function evaluateSH({
-  index,
-  viewDir,
-  numSh,
-  sh1Texture,
-  sh2Texture,
-  sh3Texture,
-  sh1MidScale,
-  sh2MidScale,
-  sh3MidScale,
-}: {
-  index: DynoVal<"int">;
-  viewDir: DynoVal<"vec3">;
-  numSh: DynoVal<"int">;
-  sh1Texture?: DynoUsampler2DArray<"sh1", THREE.DataArrayTexture>;
-  sh2Texture?: DynoUsampler2DArray<"sh2", THREE.DataArrayTexture>;
-  sh3Texture?: DynoUsampler2DArray<"sh3", THREE.DataArrayTexture>;
-  sh1MidScale: DynoVal<"vec2">;
-  sh2MidScale: DynoVal<"vec2">;
-  sh3MidScale: DynoVal<"vec2">;
-}) {
-  return new Dyno({
-    inTypes: {
-      index: "int",
-      viewDir: "vec3",
-      numSh: "int",
-      sh1Texture: "usampler2DArray",
-      sh2Texture: "usampler2DArray",
-      sh3Texture: "usampler2DArray",
-      sh1MidScale: "vec2",
-      sh2MidScale: "vec2",
-      sh3MidScale: "vec2",
-    },
-    outTypes: { rgb: "vec3" },
-    inputs: {
-      index,
-      viewDir,
-      numSh,
-      sh1Texture,
-      sh2Texture,
-      sh3Texture,
-      sh1MidScale,
-      sh2MidScale,
-      sh3MidScale,
-    },
-    globals: () => [
-      defineEvalPackedSH1,
-      defineEvalPackedSH2,
-      defineEvalPackedSH3,
-    ],
-    statements: ({ inputs, outputs }) => {
-      const lines = ["vec3 rgb = vec3(0.0);"];
-      if (inputs.sh1Texture) {
-        lines.push(
-          ...unindentLines(`
-          if (${inputs.numSh} >= 1) {
-            int index = ${inputs.index};
-            ivec3 coord = ivec3(index & 255, (index >> 8) & 255, index >> 16);
-            vec3 sh1Rgb = evaluatePackedSH1(texelFetch(${inputs.sh1Texture}, coord, 0).rg, ${inputs.viewDir});
-            rgb += sh1Rgb * ${inputs.sh1MidScale}.y + ${inputs.sh1MidScale}.x;
-          `),
-        );
-        if (inputs.sh2Texture) {
-          lines.push(
-            ...unindentLines(`
-            if (${inputs.numSh} >= 2) {
-              vec3 sh2Rgb = evaluatePackedSH2(texelFetch(${inputs.sh2Texture}, coord, 0), ${inputs.viewDir});
-              rgb += sh2Rgb * ${inputs.sh2MidScale}.y + ${inputs.sh2MidScale}.x;
-            `),
-          );
-          if (inputs.sh3Texture) {
-            lines.push(
-              ...unindentLines(`
-              if (${inputs.numSh} >= 3) {
-                vec3 sh3Rgb = evaluatePackedSH3(texelFetch(${inputs.sh3Texture}, coord, 0), ${inputs.viewDir});
-                rgb += sh3Rgb * ${inputs.sh3MidScale}.y + ${inputs.sh3MidScale}.x;
-              }
-            `),
-            );
-          }
-          lines.push("}");
-        }
-        lines.push("}");
-      }
-      lines.push(`${outputs.rgb} = rgb;`);
-      return lines;
-    },
-  }).outputs;
 }

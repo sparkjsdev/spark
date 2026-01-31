@@ -39,7 +39,11 @@ export {
   type SplatMeshOptions,
   type SplatMeshContext,
 } from "./SplatMesh";
-export { SplatSkinning, type SplatSkinningOptions } from "./SplatSkinning";
+export {
+  SplatSkinning,
+  type SplatSkinningOptions,
+  SplatSkinningMode,
+} from "./SplatSkinning";
 export {
   SplatEdit,
   type SplatEditOptions,

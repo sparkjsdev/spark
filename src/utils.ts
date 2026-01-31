@@ -866,7 +866,12 @@ export function isIos(): boolean {
 }
 
 export function isVisionPro(): boolean {
-  return !!navigator.xr && /Safari/.test(navigator.userAgent) && isMobile();
+  return (
+    !!navigator.xr &&
+    isIos() &&
+    /Safari/.test(navigator.userAgent) &&
+    isMobile()
+  );
 }
 
 // Take an array of RGBA8 encoded pixels and flip them vertically in-place.

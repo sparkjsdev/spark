@@ -118,10 +118,10 @@ export type PackedSplatsOptions = {
   nonLod?: boolean | "wait";
   // The LoD version of the PackedSplats
   lodSplats?: PackedSplats;
-  maxBoneSplats?: number;
-  computeBoneWeights?: boolean;
-  minBoneOpacity?: number;
-  boneSplats?: PackedSplats;
+  // maxBoneSplats?: number;
+  // computeBoneWeights?: boolean;
+  // minBoneOpacity?: number;
+  // boneSplats?: PackedSplats;
 };
 
 // A PackedSplats is a collection of Gaussian splats, packed into a format that
@@ -141,10 +141,10 @@ export class PackedSplats implements SplatSource {
   lod?: boolean | number;
   nonLod?: boolean | "wait";
   lodSplats?: PackedSplats;
-  maxBoneSplats?: number;
-  computeBoneWeights?: boolean;
-  minBoneOpacity?: number;
-  boneSplats?: PackedSplats;
+  // maxBoneSplats?: number;
+  // computeBoneWeights?: boolean;
+  // minBoneOpacity?: number;
+  // boneSplats?: PackedSplats;
 
   initialized: Promise<PackedSplats>;
   isInitialized = false;
@@ -247,9 +247,9 @@ export class PackedSplats implements SplatSource {
     this.splatEncoding = options.splatEncoding;
     this.lod = options.lod;
     this.nonLod = options.nonLod;
-    this.maxBoneSplats = options.maxBoneSplats;
-    this.computeBoneWeights = options.computeBoneWeights;
-    this.minBoneOpacity = options.minBoneOpacity;
+    // this.maxBoneSplats = options.maxBoneSplats;
+    // this.computeBoneWeights = options.computeBoneWeights;
+    // this.minBoneOpacity = options.minBoneOpacity;
 
     if (options.url || options.fileBytes || options.construct) {
       // We need to initialize asynchronously given the options
@@ -266,8 +266,9 @@ export class PackedSplats implements SplatSource {
 
   initialize(options: PackedSplatsOptions) {
     this.extra = options.extra ?? {};
+    this.splatEncoding = options.splatEncoding ?? this.splatEncoding;
     this.lodSplats = options.lodSplats;
-    this.boneSplats = options.boneSplats;
+    // this.boneSplats = options.boneSplats;
 
     if (options.packedArray) {
       this.packedArray = options.packedArray;
@@ -298,15 +299,15 @@ export class PackedSplats implements SplatSource {
       construct,
       lod,
       nonLod,
-      maxBoneSplats,
-      computeBoneWeights,
-      minBoneOpacity,
+      // maxBoneSplats,
+      // computeBoneWeights,
+      // minBoneOpacity,
     } = options;
     this.lod = lod;
     this.nonLod = nonLod;
-    this.maxBoneSplats = maxBoneSplats;
-    this.computeBoneWeights = computeBoneWeights;
-    this.minBoneOpacity = minBoneOpacity;
+    // this.maxBoneSplats = maxBoneSplats;
+    // this.computeBoneWeights = computeBoneWeights;
+    // this.minBoneOpacity = minBoneOpacity;
 
     const loader = new SplatLoader();
     if (fileBytes || url) {
@@ -343,7 +344,7 @@ export class PackedSplats implements SplatSource {
       this.source = null;
     }
     this.disposeLodSplats();
-    this.disposeBoneSplats();
+    // this.disposeBoneSplats();
   }
 
   prepareFetchSplat() {
@@ -378,7 +379,7 @@ export class PackedSplats implements SplatSource {
       const splatCenter = splitGsplat(gsplat).outputs.center;
       const viewDir = normalize(sub(splatCenter, viewOrigin));
       const { sh1Texture, sh2Texture, sh3Texture } = this.ensureShTextures();
-      let { rgb } = evaluateSH({
+      let { rgb } = evaluatePackedSH({
         index,
         viewDir,
         numSh: this.dynoNumSh,
@@ -393,8 +394,6 @@ export class PackedSplats implements SplatSource {
       gsplat = combineGsplat({ gsplat, rgb });
     }
     return gsplat;
-    //   },
-    // ).outputs.gsplat;
   }
 
   private ensureShTextures(): {
@@ -943,14 +942,17 @@ export class PackedSplats implements SplatSource {
     }
   }
 
-  disposeBoneSplats() {
-    if (this.boneSplats) {
-      this.boneSplats.dispose();
-      this.boneSplats = undefined;
-    }
-  }
+  // disposeBoneSplats() {
+  //   if (this.boneSplats) {
+  //     this.boneSplats.dispose();
+  //     this.boneSplats = undefined;
+  //   }
+  // }
 
-  async createLodSplats({ rgbaArray }: { rgbaArray?: RgbaArray } = {}) {
+  async createLodSplats({
+    rgbaArray,
+    quality,
+  }: { rgbaArray?: RgbaArray; quality?: boolean } = {}) {
     const lodBase =
       typeof this.lod === "number"
         ? Math.max(1.1, Math.min(2.0, this.lod))
@@ -963,12 +965,13 @@ export class PackedSplats implements SplatSource {
       sh3: this.extra.sh3 ? (this.extra.sh3 as Uint32Array).slice() : undefined,
     };
     const decoded = await workerPool.withWorker(async (worker) => {
-      return (await worker.call("quickLod", {
+      return (await worker.call(quality ? "bhattLod" : "tinyLod", {
         numSplats: this.numSplats,
         packedArray,
         extra,
         lodBase,
         rgba,
+        encoding: this.splatEncoding,
       })) as {
         numSplats: number;
         packedArray: Uint32Array;
@@ -1090,23 +1093,23 @@ export class DynoPackedSplats extends DynoUniform<
 }
 
 export const defineEvalPackedSH1 = unindent(`
-  vec3 evaluatePackedSH1(uvec2 packed, vec3 viewDir) {
+  vec3 evaluatePackedSH1(uvec2 packed, vec3 viewDir, vec2 midScale) {
     // Extract sint7 values packed into 2 x uint32
     vec3 sh1_0 = vec3(ivec3(
       int(packed.x << 25u) >> 25,
       int(packed.x << 18u) >> 25,
       int(packed.x << 11u) >> 25
-    )) / 63.0;
+    )) / 63.0 * midScale.y + midScale.x;
     vec3 sh1_1 = vec3(ivec3(
       int(packed.x << 4u) >> 25,
       int((packed.x >> 3u) | (packed.y << 29u)) >> 25,
       int(packed.y << 22u) >> 25
-    )) / 63.0;
+    )) / 63.0 * midScale.y + midScale.x;
     vec3 sh1_2 = vec3(ivec3(
       int(packed.y << 15u) >> 25,
       int(packed.y << 8u) >> 25,
       int(packed.y << 1u) >> 25
-    )) / 63.0;
+    )) / 63.0 * midScale.y + midScale.x;
 
     return sh1_0 * (-0.4886025 * viewDir.y)
       + sh1_1 * (0.4886025 * viewDir.z)
@@ -1115,33 +1118,33 @@ export const defineEvalPackedSH1 = unindent(`
 `);
 
 export const defineEvalPackedSH2 = unindent(`
-  vec3 evaluatePackedSH2(uvec4 packed, vec3 viewDir) {
+  vec3 evaluatePackedSH2(uvec4 packed, vec3 viewDir, vec2 midScale) {
     // Extract sint8 values packed into 4 x uint32
     vec3 sh2_0 = vec3(ivec3(
       int(packed.x << 24u) >> 24,
       int(packed.x << 16u) >> 24,
       int(packed.x << 8u) >> 24
-    )) / 127.0;
+    )) / 127.0 * midScale.y + midScale.x;
     vec3 sh2_1 = vec3(ivec3(
       int(packed.x) >> 24,
       int(packed.y << 24u) >> 24,
       int(packed.y << 16u) >> 24
-    )) / 127.0;
+    )) / 127.0 * midScale.y + midScale.x;
     vec3 sh2_2 = vec3(ivec3(
       int(packed.y << 8u) >> 24,
       int(packed.y) >> 24,
       int(packed.z << 24u) >> 24
-    )) / 127.0;
+    )) / 127.0 * midScale.y + midScale.x;
     vec3 sh2_3 = vec3(ivec3(
       int(packed.z << 16u) >> 24,
       int(packed.z << 8u) >> 24,
       int(packed.z) >> 24
-    )) / 127.0;
+    )) / 127.0 * midScale.y + midScale.x;
     vec3 sh2_4 = vec3(ivec3(
       int(packed.w << 24u) >> 24,
       int(packed.w << 16u) >> 24,
       int(packed.w << 8u) >> 24
-    )) / 127.0;
+    )) / 127.0 * midScale.y + midScale.x;
 
     return sh2_0 * (1.0925484 * viewDir.x * viewDir.y)
       + sh2_1 * (-1.0925484 * viewDir.y * viewDir.z)
@@ -1152,43 +1155,43 @@ export const defineEvalPackedSH2 = unindent(`
 `);
 
 export const defineEvalPackedSH3 = unindent(`
-  vec3 evaluatePackedSH3(uvec4 packed, vec3 viewDir) {
+  vec3 evaluatePackedSH3(uvec4 packed, vec3 viewDir, vec2 midScale) {
     // Extract sint6 values packed into 4 x uint32
     vec3 sh3_0 = vec3(ivec3(
       int(packed.x << 26u) >> 26,
       int(packed.x << 20u) >> 26,
       int(packed.x << 14u) >> 26
-    )) / 31.0;
+    )) / 31.0 * midScale.y + midScale.x;
     vec3 sh3_1 = vec3(ivec3(
       int(packed.x << 8u) >> 26,
       int(packed.x << 2u) >> 26,
       int((packed.x >> 4u) | (packed.y << 28u)) >> 26
-    )) / 31.0;
+    )) / 31.0 * midScale.y + midScale.x;
     vec3 sh3_2 = vec3(ivec3(
       int(packed.y << 22u) >> 26,
       int(packed.y << 16u) >> 26,
       int(packed.y << 10u) >> 26
-    )) / 31.0;
+    )) / 31.0 * midScale.y + midScale.x;
     vec3 sh3_3 = vec3(ivec3(
       int(packed.y << 4u) >> 26,
       int((packed.y >> 2u) | (packed.z << 30u)) >> 26,
       int(packed.z << 24u) >> 26
-    )) / 31.0;
+    )) / 31.0 * midScale.y + midScale.x;
     vec3 sh3_4 = vec3(ivec3(
       int(packed.z << 18u) >> 26,
       int(packed.z << 12u) >> 26,
       int(packed.z << 6u) >> 26
-    )) / 31.0;
+    )) / 31.0 * midScale.y + midScale.x;
     vec3 sh3_5 = vec3(ivec3(
       int(packed.z) >> 26,
       int(packed.w << 26u) >> 26,
       int(packed.w << 20u) >> 26
-    )) / 31.0;
+    )) / 31.0 * midScale.y + midScale.x;
     vec3 sh3_6 = vec3(ivec3(
       int(packed.w << 14u) >> 26,
       int(packed.w << 8u) >> 26,
       int(packed.w << 2u) >> 26
-    )) / 31.0;
+    )) / 31.0 * midScale.y + midScale.x;
 
     float xx = viewDir.x * viewDir.x;
     float yy = viewDir.y * viewDir.y;
@@ -1207,7 +1210,7 @@ export const defineEvalPackedSH3 = unindent(`
   }
 `);
 
-function evaluateSH({
+export function evaluatePackedSH({
   index,
   viewDir,
   numSh,
@@ -1264,24 +1267,24 @@ function evaluateSH({
           ...unindentLines(`
           if (${inputs.numSh} >= 1) {
             ivec3 coord = splatTexCoord(${inputs.index});
-            vec3 sh1Rgb = evaluatePackedSH1(texelFetch(${inputs.sh1Texture}, coord, 0).rg, ${inputs.viewDir});
-            rgb += sh1Rgb * ${inputs.sh1MidScale}.y + ${inputs.sh1MidScale}.x;
+            vec3 sh1Rgb = evaluatePackedSH1(texelFetch(${inputs.sh1Texture}, coord, 0).rg, ${inputs.viewDir}, ${inputs.sh1MidScale});
+            rgb += sh1Rgb;
           `),
         );
         if (inputs.sh2Texture) {
           lines.push(
             ...unindentLines(`
             if (${inputs.numSh} >= 2) {
-              vec3 sh2Rgb = evaluatePackedSH2(texelFetch(${inputs.sh2Texture}, coord, 0), ${inputs.viewDir});
-              rgb += sh2Rgb * ${inputs.sh2MidScale}.y + ${inputs.sh2MidScale}.x;
+              vec3 sh2Rgb = evaluatePackedSH2(texelFetch(${inputs.sh2Texture}, coord, 0), ${inputs.viewDir}, ${inputs.sh2MidScale});
+              rgb += sh2Rgb;
             `),
           );
           if (inputs.sh3Texture) {
             lines.push(
               ...unindentLines(`
               if (${inputs.numSh} >= 3) {
-                vec3 sh3Rgb = evaluatePackedSH3(texelFetch(${inputs.sh3Texture}, coord, 0), ${inputs.viewDir});
-                rgb += sh3Rgb * ${inputs.sh3MidScale}.y + ${inputs.sh3MidScale}.x;
+                vec3 sh3Rgb = evaluatePackedSH3(texelFetch(${inputs.sh3Texture}, coord, 0), ${inputs.viewDir}, ${inputs.sh3MidScale});
+                rgb += sh3Rgb;
               }
             `),
             );

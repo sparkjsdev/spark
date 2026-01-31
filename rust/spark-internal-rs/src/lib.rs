@@ -1,8 +1,9 @@
 
 use std::cell::RefCell;
 use js_sys::{Float32Array, Object, Reflect, Uint8Array, Uint16Array, Uint32Array};
-use spark_lib::decoder::{ChunkReceiver, MultiDecoder, SplatFileType};
+use spark_lib::decoder::{ChunkReceiver, MultiDecoder, SplatEncoding, SplatFileType, SplatGetter};
 use spark_lib::gsplat::GsplatArray as GsplatArrayInner;
+use spark_lib::csplat::CsplatArray as CsplatArrayInner;
 use spark_lib::tsplat::TsplatArray;
 use wasm_bindgen::prelude::*;
 
@@ -132,7 +133,13 @@ pub fn raycast_splats(
 }
 
 #[wasm_bindgen]
-pub fn decode_to_packedsplats(file_type: Option<String>, path_name: Option<String>) -> Result<ChunkDecoder, JsValue> {
+pub fn decode_to_packedsplats(file_type: Option<String>, path_name: Option<String>, encoding: JsValue) -> Result<ChunkDecoder, JsValue> {
+    let encoding = if encoding.is_falsy() {
+        SplatEncoding::default()
+    } else {
+        serde_wasm_bindgen::from_value(encoding)?
+    };
+
     let file_type = if let Some(file_type) = file_type {
         match SplatFileType::from_enum_str(&file_type) {
             Ok(file_type) => Some(file_type),
@@ -142,7 +149,7 @@ pub fn decode_to_packedsplats(file_type: Option<String>, path_name: Option<Strin
         None
     };
 
-    let splats = PackedSplatsData::new();
+    let splats = PackedSplatsData::new(encoding);
     let decoder = MultiDecoder::new(splats, file_type, path_name.as_deref());
     let on_finish = |receiver: Box<dyn ChunkReceiver>| {
         let decoder: Box<MultiDecoder<PackedSplatsData>> = receiver.into_any().downcast().unwrap();
@@ -206,24 +213,42 @@ impl GsplatArray {
     }
 
     pub fn has_lod(&self) -> bool {
-        !self.inner.extras.is_empty()
+        self.inner.has_lod_tree()
     }
 
-    pub fn quick_lod(&mut self, lod_base: f32, merge_filter: bool) {
-        // spark_lib::quick_lod::compute_lod_tree(&mut self.inner, lod_base, merge_filter, |s| web_sys::console::log_1(&JsValue::from(s)));
-        spark_lib::quick_lod::compute_lod_tree(&mut self.inner, lod_base, merge_filter, |_s| {});
+    // pub fn quick_lod(&mut self, lod_base: f32, merge_filter: bool) {
+    //     spark_lib::quick_lod::compute_lod_tree(&mut self.inner, lod_base, merge_filter, |s| web_sys::console::log_1(&JsValue::from(s)));
+    //     // spark_lib::quick_lod::compute_lod_tree(&mut self.inner, lod_base, merge_filter, |_s| {});
+    // }
+
+    pub fn tiny_lod(&mut self, lod_base: f32, merge_filter: bool) {
+        spark_lib::tiny_lod::compute_lod_tree(&mut self.inner, lod_base, merge_filter, |s| web_sys::console::log_1(&JsValue::from(s)));
     }
 
-    pub fn to_packedsplats(&self) -> Result<Object, JsValue> {
-        let splats = match PackedSplatsData::new_from_gsplat_array(&self.inner) {
+    pub fn bhatt_lod(&mut self, lod_base: f32) {
+        spark_lib::bhatt_lod::compute_lod_tree(&mut self.inner, lod_base, |s| web_sys::console::log_1(&JsValue::from(s)));
+    }
+
+    pub fn to_packedsplats(&self, encoding: JsValue) -> Result<Object, JsValue> {
+        let encoding = if encoding.is_falsy() {
+            None
+        } else {
+            Some(serde_wasm_bindgen::from_value(encoding)?)
+        };
+        let splats = match PackedSplatsData::new_from_tsplat_array(&self.inner, encoding) {
             Err(err) => { return Err(JsValue::from(err.to_string())); },
             Ok(splats) => splats,
         };
         Ok(splats.into_splat_object())
     }
 
-    pub fn to_packedsplats_lod(&self) -> Result<Object, JsValue> {
-        let splats = match PackedSplatsData::new_from_gsplat_array_lod(&self.inner) {
+    pub fn to_packedsplats_lod(&self, encoding: JsValue) -> Result<Object, JsValue> {
+        let encoding = if encoding.is_falsy() {
+            None
+        } else {
+            Some(serde_wasm_bindgen::from_value(encoding)?)
+        };
+        let splats = match PackedSplatsData::new_from_tsplat_array_lod(&self.inner, encoding) {
             Err(err) => { return Err(JsValue::from(err.to_string())); },
             Ok(splats) => splats,
         };
@@ -231,7 +256,7 @@ impl GsplatArray {
     }
 
     pub fn to_extsplats(&self) -> Result<Object, JsValue> {
-        let splats = match ExtSplatsData::new_from_gsplat_array(&self.inner) {
+        let splats = match ExtSplatsData::new_from_tsplat_array(&self.inner) {
             Err(err) => { return Err(JsValue::from(err.to_string())); },
             Ok(splats) => splats,
         };
@@ -239,7 +264,7 @@ impl GsplatArray {
     }
 
     pub fn to_extsplats_lod(&self) -> Result<Object, JsValue> {
-        let splats = match ExtSplatsData::new_from_gsplat_array_lod(&self.inner) {
+        let splats = match ExtSplatsData::new_from_tsplat_array_lod(&self.inner) {
             Err(err) => { return Err(JsValue::from(err.to_string())); },
             Ok(splats) => splats,
         };
@@ -275,9 +300,9 @@ pub fn decode_to_gsplatarray(file_type: Option<String>, path_name: Option<String
 }
 
 #[wasm_bindgen]
-pub fn packedsplats_to_gsplatarray(num_splats: u32, packed: Uint32Array, extra: Option<Object>) -> Result<GsplatArray, JsValue> {
-    use crate::packed_splats::PackedSplatsData;
-    let mut receiver = match PackedSplatsData::from_js_arrays(packed, num_splats as usize, extra.as_ref()) {
+pub fn packedsplats_to_gsplatarray(num_splats: u32, packed: Uint32Array, extra: Option<Object>, encoding: JsValue) -> Result<GsplatArray, JsValue> {
+    let encoding = serde_wasm_bindgen::from_value(encoding)?;
+    let mut receiver = match PackedSplatsData::from_js_arrays(packed, num_splats as usize, extra.as_ref(), encoding) {
         Ok(receiver) => receiver,
         Err(err) => { return Err(JsValue::from(err.to_string())); }
     };
@@ -289,11 +314,148 @@ pub fn packedsplats_to_gsplatarray(num_splats: u32, packed: Uint32Array, extra: 
 }
 
 #[wasm_bindgen]
-pub fn quick_lod_packedsplats(num_splats: u32, packed: Uint32Array, extra: Option<Object>, lod_base: f32, merge_filter: bool, rgba: Option<Uint8Array>) -> Result<Object, JsValue> {
-    let mut gs = packedsplats_to_gsplatarray(num_splats, packed, extra)?;
+#[allow(non_snake_case)]
+pub struct CsplatArray {
+    pub numSplats: usize,
+    pub maxShDegree: usize,
+    inner: CsplatArrayInner,
+}
+
+impl CsplatArray {
+    pub fn new(inner: CsplatArrayInner) -> Self {
+        Self {
+            numSplats: inner.len(),
+            maxShDegree: inner.max_sh_degree,
+            inner,
+        }
+    }
+}
+
+#[wasm_bindgen]
+impl CsplatArray {
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    pub fn has_lod(&self) -> bool {
+        self.inner.has_children()
+    }
+
+    pub fn tiny_lod(&mut self, lod_base: f32, merge_filter: bool) {
+        spark_lib::tiny_lod::compute_lod_tree(&mut self.inner, lod_base, merge_filter, |s| web_sys::console::log_1(&JsValue::from(s)));
+    }
+
+    pub fn bhatt_lod(&mut self, lod_base: f32) {
+        spark_lib::bhatt_lod::compute_lod_tree(&mut self.inner, lod_base, |s| web_sys::console::log_1(&JsValue::from(s)));
+    }
+
+    pub fn to_packedsplats(&self) -> Result<Object, JsValue> {
+        let encoding = self.inner.encoding.clone();
+        let splats = match PackedSplatsData::new_from_tsplat_array(&self.inner, encoding) {
+            Err(err) => { return Err(JsValue::from(err.to_string())); },
+            Ok(splats) => splats,
+        };
+        Ok(splats.into_splat_object())
+    }
+
+    pub fn to_packedsplats_lod(&self) -> Result<Object, JsValue> {
+        let encoding = self.inner.encoding.clone();
+        let splats = match PackedSplatsData::new_from_tsplat_array_lod(&self.inner, encoding) {
+            Err(err) => { return Err(JsValue::from(err.to_string())); },
+            Ok(splats) => splats,
+        };
+        Ok(splats.into_splat_object())
+    }
+
+    pub fn to_extsplats(&self) -> Result<Object, JsValue> {
+        let splats = match ExtSplatsData::new_from_tsplat_array(&self.inner) {
+            Err(err) => { return Err(JsValue::from(err.to_string())); },
+            Ok(splats) => splats,
+        };
+        Ok(splats.into_splat_object())
+    }
+
+    pub fn to_extsplats_lod(&self) -> Result<Object, JsValue> {
+        let splats = match ExtSplatsData::new_from_tsplat_array_lod(&self.inner) {
+            Err(err) => { return Err(JsValue::from(err.to_string())); },
+            Ok(splats) => splats,
+        };
+        Ok(splats.into_splat_object())
+    }
+
+    pub fn inject_rgba8(&mut self, rgba: Uint8Array) {
+        self.inner.inject_rgba8(&rgba.to_vec());
+    }
+}
+
+#[wasm_bindgen]
+pub fn decode_to_csplatarray(file_type: Option<String>, path_name: Option<String>, encoding: JsValue) -> Result<ChunkDecoder, JsValue> {
+    let file_type = if let Some(file_type) = file_type {
+        match SplatFileType::from_enum_str(&file_type) {
+            Ok(file_type) => Some(file_type),
+            Err(err) => { return Err(JsValue::from(err.to_string())); },
+        }
+    } else {
+        None
+    };
+
+    let encoding = if encoding.is_falsy() {
+        None
+    } else {
+        Some(serde_wasm_bindgen::from_value(encoding)?)
+    };
+    let splats = CsplatArrayInner::new_encoding(encoding);
+    let decoder = MultiDecoder::new(splats, file_type, path_name.as_deref());
+    let on_finish = |receiver: Box<dyn ChunkReceiver>| {
+        let decoder: Box<MultiDecoder<CsplatArrayInner>> = receiver.into_any().downcast().unwrap();
+        let gsplats = CsplatArray::new(decoder.into_splats());
+        Ok(JsValue::from(gsplats))
+    };
+
+    let decoder = ChunkDecoder::new(Box::new(decoder), Box::new(on_finish));
+    Ok(decoder)
+}
+
+#[wasm_bindgen]
+pub fn packedsplats_to_csplatarray(num_splats: u32, packed: Uint32Array, extra: Option<Object>, encoding: JsValue) -> Result<CsplatArray, JsValue> {
+    let encoding = serde_wasm_bindgen::from_value(encoding)?;
+    let mut receiver = match PackedSplatsData::from_js_arrays(packed, num_splats as usize, extra.as_ref(), encoding) {
+        Ok(receiver) => receiver,
+        Err(err) => { return Err(JsValue::from(err.to_string())); }
+    };
+    let splats = match receiver.to_csplat_array() {
+        Ok(inner) => inner,
+        Err(err) => { return Err(JsValue::from(err.to_string())); }
+    };
+    Ok(CsplatArray::new(splats))
+}
+
+// #[wasm_bindgen]
+// pub fn quick_lod_packedsplats(num_splats: u32, packed: Uint32Array, extra: Option<Object>, lod_base: f32, merge_filter: bool, rgba: Option<Uint8Array>) -> Result<Object, JsValue> {
+//     let mut gs = packedsplats_to_gsplatarray(num_splats, packed, extra)?;
+//     if let Some(rgba) = rgba {
+//         gs.inject_rgba8(rgba);
+//     }
+//     gs.quick_lod(lod_base, merge_filter);
+//     gs.to_packedsplats_lod()
+// }
+
+#[wasm_bindgen]
+pub fn tiny_lod_packedsplats(num_splats: u32, packed: Uint32Array, extra: Option<Object>, lod_base: f32, merge_filter: bool, rgba: Option<Uint8Array>, encoding: JsValue) -> Result<Object, JsValue> {
+    let mut gs = packedsplats_to_csplatarray(num_splats, packed, extra, encoding)?;
     if let Some(rgba) = rgba {
         gs.inject_rgba8(rgba);
     }
-    gs.quick_lod(lod_base, merge_filter);
+    gs.tiny_lod(lod_base, merge_filter);
+    gs.to_packedsplats_lod()
+}
+
+#[wasm_bindgen]
+pub fn bhatt_lod_packedsplats(num_splats: u32, packed: Uint32Array, extra: Option<Object>, lod_base: f32, rgba: Option<Uint8Array>, encoding: JsValue) -> Result<Object, JsValue> {
+    let mut gs = packedsplats_to_csplatarray(num_splats, packed, extra, encoding)?;
+    if let Some(rgba) = rgba {
+        gs.inject_rgba8(rgba);
+    }
+    gs.bhatt_lod(lod_base);
     gs.to_packedsplats_lod()
 }

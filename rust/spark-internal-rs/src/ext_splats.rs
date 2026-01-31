@@ -4,6 +4,7 @@ use js_sys::{Object, Reflect, Uint32Array};
 use spark_lib::{
     decoder::{SetSplatEncoding, SplatEncoding, SplatGetter, SplatInit, SplatProps, SplatPropsMut, SplatReceiver, copy_getter_to_receiver},
     gsplat::GsplatArray,
+    csplat::CsplatArray,
     tsplat::{TsplatArray, Tsplat},
     splat_encode::{
         decode_ext_rgb, decode_ext_splat_center, decode_ext_splat_opacity, decode_ext_splat_quat, decode_ext_splat_rgb, decode_ext_splat_scale, encode_ext_rgb, encode_ext_splat, encode_ext_splat_center, encode_ext_splat_opacity, encode_ext_splat_quat, encode_ext_splat_rgb, encode_ext_splat_rgba, encode_ext_splat_scale, encode_lod_tree, get_splat_tex_size
@@ -25,6 +26,9 @@ pub struct ExtSplatsData {
     child_starts: Option<Vec<u32>>,
     buffer_a: Vec<u32>,
     buffer_b: Vec<u32>,
+    buffer_base: usize,
+    buffer_count: usize,
+    buffer_dirty: bool,
 }
 
 impl ExtSplatsData {
@@ -43,6 +47,9 @@ impl ExtSplatsData {
             child_starts: None,
             buffer_a: Vec::new(),
             buffer_b: Vec::new(),
+            buffer_base: 0,
+            buffer_count: 0,
+            buffer_dirty: false,
         }
     }
 
@@ -112,7 +119,7 @@ impl ExtSplatsData {
         Ok(data)
     }
 
-    fn ensure_buffer(&mut self, count: usize) {
+    fn ensure_buffers(&mut self, count: usize) {
         self.buffer_a.resize(count * 4, 0);
         self.buffer_b.resize(count * 4, 0);
     }
@@ -125,45 +132,53 @@ impl ExtSplatsData {
         self.buffer_b.resize(count * 4, 0);
     }
 
-    fn prepare_subarray(&mut self, base: usize, count: usize) -> [Uint32Array; 2] {
-        self.ensure_buffer(count);
-        [
-            self.ext_arrays[0].subarray((base * 4) as u32, ((base + count) * 4) as u32),
-            self.ext_arrays[1].subarray((base * 4) as u32, ((base + count) * 4) as u32),
-        ]
+    fn flush_buffers(&mut self) {
+        if self.buffer_dirty {
+            let base = self.buffer_base;
+            let count = self.buffer_count;
+            self.ext_arrays[0].subarray((base * 4) as u32, ((base + count) * 4) as u32).copy_from(&self.buffer_a);
+            self.ext_arrays[1].subarray((base * 4) as u32, ((base + count) * 4) as u32).copy_from(&self.buffer_b);
+            self.buffer_dirty = false;
+        }
     }
 
-    fn prepare_subarray_a(&mut self, base: usize, count: usize) -> Uint32Array {
-        self.ensure_buffer_a(count);
-        self.ext_arrays[0].subarray((base * 4) as u32, ((base + count) * 4) as u32)
+    fn invalidate_buffers(&mut self) {
+        self.flush_buffers();
+        self.buffer_base = 0;
+        self.buffer_count = 0;
+        self.buffer_dirty = false;
     }
 
-    fn prepare_subarray_b(&mut self, base: usize, count: usize) -> Uint32Array {
-        self.ensure_buffer_b(count);
-        self.ext_arrays[1].subarray((base * 4) as u32, ((base + count) * 4) as u32)
+    fn prepare_buffers(&mut self, base: usize, count: usize) {
+        if self.buffer_base != base || self.buffer_count != count {
+            self.flush_buffers();
+            self.ensure_buffers(count);
+            let subarray = self.ext_arrays[0].subarray((base * 4) as u32, ((base + count) * 4) as u32);
+            subarray.copy_to(&mut self.buffer_a[0..count * 4]);
+            let subarray = self.ext_arrays[1].subarray((base * 4) as u32, ((base + count) * 4) as u32);
+            subarray.copy_to(&mut self.buffer_b[0..count * 4]);
+            self.buffer_base = base;
+            self.buffer_count = count;
+            self.buffer_dirty = false;
+        }
     }
 
-    pub fn to_gsplat_array(&mut self) -> anyhow::Result<GsplatArray> {
-        let mut out = GsplatArray::new();
-        copy_getter_to_receiver(self, &mut out)?;
-        Ok(out)
+    pub fn new_from_tsplat_array<TA: TsplatArray>(splats: &TA) -> anyhow::Result<Self> {
+        Self::new_from_tsplat_array_with_lod(splats, false)
     }
 
-    pub fn new_from_gsplat_array(splats: &GsplatArray) -> anyhow::Result<Self> {
-        Self::new_from_gsplat_array_with_lod(splats, false)
+    pub fn new_from_tsplat_array_lod<TA: TsplatArray>(splats: &TA) -> anyhow::Result<Self> {
+        Self::new_from_tsplat_array_with_lod(splats, true)
     }
 
-    pub fn new_from_gsplat_array_lod(splats: &GsplatArray) -> anyhow::Result<Self> {
-        Self::new_from_gsplat_array_with_lod(splats, true)
-    }
-
-    fn new_from_gsplat_array_with_lod(splats: &GsplatArray, lod_tree: bool) -> anyhow::Result<Self> {
+    fn new_from_tsplat_array_with_lod<TA: TsplatArray>(splats: &TA, lod_tree: bool) -> anyhow::Result<Self> {
         const MAX_SPLAT_CHUNK: usize = 65536;
 
         let mut receiver = Self::new();
+        let max_sh_degree = splats.max_sh_degree();
         receiver.init_splats(&SplatInit {
             num_splats: splats.len(),
-            max_sh_degree: splats.max_sh_degree,
+            max_sh_degree,
             lod_tree,
         })?;
 
@@ -180,13 +195,14 @@ impl ExtSplatsData {
                 let count = (splats.len() - base).min(MAX_SPLAT_CHUNK);
                 for i in 0..count {
                     let [i3, i4] = [i * 3, i * 4];
-                    let splat = &splats.splats[base + i];
+                    let splat = &splats.get(base + i);
+                    let center = splat.center();
                     let rgb = splat.rgb();
                     let scales = splat.scales();
                     let quat = splat.quaternion().to_array();
 
                     for d in 0..3 {
-                        batch_center[i3 + d] = splat.center[d];
+                        batch_center[i3 + d] = center[d];
                         batch_rgb[i3 + d] = rgb[d];
                         batch_scale[i3 + d] = scales[d];
                     }
@@ -196,14 +212,14 @@ impl ExtSplatsData {
 
                     batch_opacity[i] = splat.opacity();
 
-                    if lod_tree && (base + i) < splats.extras.len() {
-                        let children = &splats.extras[base + i].children;
-                        if children.is_empty() {
+                    if lod_tree {
+                        let (count, start) = splats.get_child_count_start(base + i);
+                        if count == 0 {
                             batch_child_count[i] = 0;
                             batch_child_start[i] = 0;
                         } else {
-                            batch_child_count[i] = children.len() as u16;
-                            batch_child_start[i] = children[0];
+                            batch_child_count[i] = count as u16;
+                            batch_child_start[i] = start;
                         }
                     }
                 }
@@ -213,22 +229,22 @@ impl ExtSplatsData {
                     rgb: &batch_rgb,
                     scale: &batch_scale,
                     quat: &batch_quat,
-                    child_count: if lod_tree && (base + count) <= splats.extras.len() { &batch_child_count } else { &[] },
-                    child_start: if lod_tree && (base + count) <= splats.extras.len() { &batch_child_start } else { &[] },
+                    child_count: if lod_tree { &batch_child_count } else { &[] },
+                    child_start: if lod_tree { &batch_child_start } else { &[] },
                     ..Default::default()
                 });
                 base += count;
             }
         }
 
-        if splats.max_sh_degree >= 1 {
+        if max_sh_degree >= 1 {
             let mut batch = vec![0.0; 9 * MAX_SPLAT_CHUNK];
             let mut base = 0;
             while base < splats.len() {
                 let count = (splats.len() - base).min(MAX_SPLAT_CHUNK);
                 for i in 0..count {
                     let i9 = i * 9;
-                    let values = splats.sh1[base + i].to_array();
+                    let values = splats.get_sh1(base + i);
                     for d in 0..9 {
                         batch[i9 + d] = values[d];
                     }
@@ -238,14 +254,14 @@ impl ExtSplatsData {
             }
         }
 
-        if splats.max_sh_degree >= 2 {
+        if max_sh_degree >= 2 {
             let mut batch = vec![0.0; 15 * MAX_SPLAT_CHUNK];
             let mut base = 0;
             while base < splats.len() {
                 let count = (splats.len() - base).min(MAX_SPLAT_CHUNK);
                 for i in 0..count {
                     let i15 = i * 15;
-                    let values = splats.sh2[base + i].to_array();
+                    let values = splats.get_sh2(base + i);
                     for d in 0..15 {
                         batch[i15 + d] = values[d];
                     }
@@ -255,14 +271,14 @@ impl ExtSplatsData {
             }
         }
 
-        if splats.max_sh_degree >= 3 {
+        if max_sh_degree >= 3 {
             let mut batch = vec![0.0; 21 * MAX_SPLAT_CHUNK];
             let mut base = 0;
             while base < splats.len() {
                 let count = (splats.len() - base).min(MAX_SPLAT_CHUNK);
                 for i in 0..count {
                     let i21 = i * 21;
-                    let values = splats.sh3[base + i].to_array();
+                    let values = splats.get_sh3(base + i);
                     for d in 0..21 {
                         batch[i21 + d] = values[d];
                     }
@@ -272,7 +288,20 @@ impl ExtSplatsData {
             }
         }
 
+        receiver.finish()?;
         Ok(receiver)
+    }
+
+    pub fn to_gsplat_array(&mut self) -> anyhow::Result<GsplatArray> {
+        let mut out = GsplatArray::new();
+        copy_getter_to_receiver(self, &mut out)?;
+        Ok(out)
+    }
+
+    pub fn to_csplat_array(&mut self) -> anyhow::Result<CsplatArray> {
+        let mut out = CsplatArray::new();
+        copy_getter_to_receiver(self, &mut out)?;
+        Ok(out)
     }
 
     pub fn get_ext_arrays(&self, base: usize, count: usize, out: [&mut [u32]; 2]) {
@@ -319,17 +348,23 @@ impl SplatReceiver for ExtSplatsData {
             None
         };
 
+        self.buffer_base = 0;
+        self.buffer_count = 0;
+        self.buffer_dirty = false;
+
         Ok(())
     }
 
     fn finish(&mut self) -> anyhow::Result<()> {
+        self.invalidate_buffers();
+
         if self.child_counts.is_some() || self.child_starts.is_some() {
             if self.child_counts.is_none() || self.child_starts.is_none() {
                 return Err(anyhow::anyhow!("Missing child_counts or child_starts"));
             }
 
             const MAX_SPLAT_CHUNK: usize = 65536;
-            self.ensure_buffer(MAX_SPLAT_CHUNK);
+            self.ensure_buffers(MAX_SPLAT_CHUNK);
             self.lod_tree = Some(Uint32Array::new_with_length((self.num_splats * 4) as u32));
             let Self { buffer_a, buffer_b, ext_arrays, lod_tree, child_counts, child_starts, .. } = self;
             let lod_tree = lod_tree.as_mut().unwrap();
@@ -375,102 +410,101 @@ impl SplatReceiver for ExtSplatsData {
     }
 
     fn set_batch(&mut self, base: usize, count: usize, batch: &SplatProps) {
-        let [ext_a, ext_b] = self.prepare_subarray(base, count);
-        for i in 0..count {
-            let [i3, i4] = [i * 3, i * 4];
-            encode_ext_splat(
-                &mut self.buffer_a[i4..i4 + 4],
-                &mut self.buffer_b[i4..i4 + 4],
-                array::from_fn(|d| batch.center[i3 + d]),
-                batch.opacity[i],
-                array::from_fn(|d| batch.rgb[i3 + d]),
-                array::from_fn(|d| batch.scale[i3 + d]),
-                array::from_fn(|d| batch.quat[i4 + d]),
-            );
+        self.prepare_buffers(base, count);
+        if !batch.center.is_empty() && !batch.opacity.is_empty() && !batch.rgb.is_empty() && !batch.scale.is_empty() && !batch.quat.is_empty() {
+            for i in 0..count {
+                let [i3, i4] = [i * 3, i * 4];
+                encode_ext_splat(
+                    &mut self.buffer_a[i4..i4 + 4],
+                    &mut self.buffer_b[i4..i4 + 4],
+                    array::from_fn(|d| batch.center[i3 + d]),
+                    batch.opacity[i],
+                    array::from_fn(|d| batch.rgb[i3 + d]),
+                    array::from_fn(|d| batch.scale[i3 + d]),
+                    array::from_fn(|d| batch.quat[i4 + d]),
+                );
+            }
+        } else {
+            if !batch.center.is_empty() {
+                self.set_center(base, count, batch.center);
+            }
+            if !batch.opacity.is_empty() {
+                self.set_opacity(base, count, batch.opacity);
+            }
+            if !batch.rgb.is_empty() {
+                self.set_rgb(base, count, batch.rgb);
+            }
+            if !batch.scale.is_empty() {
+                self.set_scale(base, count, batch.scale);
+            }
+            if !batch.quat.is_empty() {
+                self.set_quat(base, count, batch.quat);
+            }
         }
-        ext_a.copy_from(&self.buffer_a);
-        ext_b.copy_from(&self.buffer_b);
+        self.buffer_dirty = true;
 
         self.set_sh(base, count, batch.sh1, batch.sh2, batch.sh3);
 
-        if !batch.child_count.is_empty() && !batch.child_start.is_empty() {
-            if let Some(lod_tree) = self.lod_tree.as_ref() {
-                for i in 0..count {
-                    let [i3, i4] = [i * 3, i * 4];
-                    encode_lod_tree(
-                        &mut self.buffer_a[i4..i4 + 4],
-                        &batch.center[i3..i3 + 3],
-                        batch.opacity[i],
-                        &batch.scale[i3..i3 + 3],
-                        batch.child_count[i] as u16,
-                        batch.child_start[i] as u32,
-                    );
-                }
-                lod_tree.subarray((base * 4) as u32, ((base + count) * 4) as u32).copy_from(&self.buffer_a);
-            }
+        if !batch.child_count.is_empty() {
+            self.set_child_count(base, count, batch.child_count);
+        }
+        if !batch.child_start.is_empty() {
+            self.set_child_start(base, count, batch.child_start);
         }
     }
 
     fn set_center(&mut self, base: usize, count: usize, center: &[f32]) {
-        let ext_a = self.prepare_subarray_a(base, count);
-        ext_a.copy_to(&mut self.buffer_a);
+        self.prepare_buffers(base, count);
         for i in 0..count {
             let [i3, i4] = [i * 3, i * 4];
             encode_ext_splat_center(&mut self.buffer_a[i4..i4 + 4], array::from_fn(|d| center[i3 + d]));
         }
-        ext_a.copy_from(&self.buffer_a);
+        self.buffer_dirty = true;
     }
 
     fn set_opacity(&mut self, base: usize, count: usize, opacity: &[f32]) {
-        let ext_a = self.prepare_subarray_a(base, count);
-        ext_a.copy_to(&mut self.buffer_a);
+        self.prepare_buffers(base, count);
         for i in 0..count {
             let i4 = i * 4;
             encode_ext_splat_opacity(&mut self.buffer_a[i4..i4 + 4], opacity[i]);
         }
-        ext_a.copy_from(&self.buffer_a);
+        self.buffer_dirty = true;
     }
 
     fn set_rgb(&mut self, base: usize, count: usize, rgb: &[f32]) {
-        let ext_b = self.prepare_subarray_b(base, count);
-        ext_b.copy_to(&mut self.buffer_b);
+        self.prepare_buffers(base, count);
         for i in 0..count {
             let [i3, i4] = [i * 3, i * 4];
             encode_ext_splat_rgb(&mut self.buffer_b[i4..i4 + 4], array::from_fn(|d| rgb[i3 + d]));
         }
-        ext_b.copy_from(&self.buffer_b);
+        self.buffer_dirty = true;
     }
 
     fn set_rgba(&mut self, base: usize, count: usize, rgba: &[f32]) {
-        let [ext_a, ext_b] = self.prepare_subarray(base, count);
-        ext_a.copy_to(&mut self.buffer_a);
-        ext_b.copy_to(&mut self.buffer_b);
+        self.prepare_buffers(base, count);
         for i in 0..count {
             let i4 = i * 4;
             encode_ext_splat_rgba(&mut self.buffer_a[i4..i4 + 4], &mut self.buffer_b[i4..i4 + 4], array::from_fn(|d| rgba[i4 + d]));
         }
-        ext_a.copy_from(&self.buffer_a);
-        ext_b.copy_from(&self.buffer_b);
+        self.buffer_dirty = true;
     }
 
     fn set_scale(&mut self, base: usize, count: usize, scale: &[f32]) {
-        let ext_b = self.prepare_subarray_b(base, count);
-        ext_b.copy_to(&mut self.buffer_b);
+        self.prepare_buffers(base, count);
         for i in 0..count {
             let [i3, i4] = [i * 3, i * 4];
             encode_ext_splat_scale(&mut self.buffer_b[i4..i4 + 4], array::from_fn(|d| scale[i3 + d]));
         }
-        ext_b.copy_from(&self.buffer_b);
+        self.buffer_dirty = true;
     }
 
     fn set_quat(&mut self, base: usize, count: usize, quat: &[f32]) {
-        let ext_b = self.prepare_subarray_b(base, count);
-        ext_b.copy_to(&mut self.buffer_b);
+        self.prepare_buffers(base, count);
         for i in 0..count {
             let i4 = i * 4;
             encode_ext_splat_quat(&mut self.buffer_b[i4..i4 + 4], array::from_fn(|d| quat[i4 + d]));
         }
-        ext_b.copy_from(&self.buffer_b);
+        self.buffer_dirty = true;
     }
 
     fn set_sh(&mut self, base: usize, count: usize, sh1: &[f32], sh2: &[f32], sh3: &[f32]) {
@@ -486,6 +520,7 @@ impl SplatReceiver for ExtSplatsData {
     }
 
     fn set_sh1(&mut self, base: usize, count: usize, sh1: &[f32]) {
+        self.invalidate_buffers();
         self.ensure_buffer_a(count);
         if let Some(packed_sh1) = self.sh1.as_ref() {
             let buffer = &mut self.buffer_a[0..count * 4];
@@ -501,7 +536,8 @@ impl SplatReceiver for ExtSplatsData {
     }
 
     fn set_sh2(&mut self, base: usize, count: usize, sh2: &[f32]) {
-        self.ensure_buffer(count);
+        self.invalidate_buffers();
+        self.ensure_buffers(count);
         if let Some(packed_sh1) = self.sh1.as_ref() {
             if let Some(packed_sh2) = self.sh2.as_ref() {
                 let buffer_a = &mut self.buffer_a[0..count * 4];
@@ -523,7 +559,8 @@ impl SplatReceiver for ExtSplatsData {
     }
 
     fn set_sh3(&mut self, base: usize, count: usize, sh3: &[f32]) {
-        self.ensure_buffer(count);
+        self.invalidate_buffers();
+        self.ensure_buffers(count);
         if let Some(packed_sh3a) = self.sh3a.as_ref() {
             if let Some(packed_sh3b) = self.sh3b.as_ref() {
                 let buffer_a = &mut self.buffer_a[0..count * 4];
@@ -570,14 +607,12 @@ impl SplatGetter for ExtSplatsData {
     fn num_splats(&self) -> usize { self.num_splats }
     fn max_sh_degree(&self) -> usize { self.max_sh_degree }
     fn has_lod_tree(&self) -> bool { self.lod_tree.is_some() }
-    fn get_encoding(&mut self) -> SplatEncoding { SplatEncoding::default() }
+    fn get_encoding(&mut self) -> Option<SplatEncoding> { None }
 
     fn get_batch(&mut self, base: usize, count: usize, out: &mut SplatPropsMut) {
         if count == 0 { return; }
 
-        let [ext_a, ext_b] = self.prepare_subarray(base, count);
-        ext_a.copy_to(&mut self.buffer_a);
-        ext_b.copy_to(&mut self.buffer_b);
+        self.prepare_buffers(base, count);
 
         for i in 0..count {
             let [i3, i4] = [i * 3, i * 4];
@@ -624,6 +659,7 @@ impl SplatGetter for ExtSplatsData {
         }
 
         if !out.child_count.is_empty() || !out.child_start.is_empty() {
+            self.invalidate_buffers();
             if let Some(lod) = self.lod_tree.as_ref() {
                 let sub = lod.subarray((base * 4) as u32, ((base + count) * 4) as u32);
                 sub.copy_to(&mut self.buffer_a[0..count * 4]);
@@ -642,8 +678,7 @@ impl SplatGetter for ExtSplatsData {
 
     fn get_center(&mut self, base: usize, count: usize, out: &mut [f32]) {
         if count == 0 { return; }
-        let ext_a = self.prepare_subarray_a(base, count);
-        ext_a.copy_to(&mut self.buffer_a);
+        self.prepare_buffers(base, count);
         for i in 0..count {
             let [i3, i4] = [i * 3, i * 4];
             let center = decode_ext_splat_center(&self.buffer_a[i4..i4 + 4]);
@@ -655,8 +690,7 @@ impl SplatGetter for ExtSplatsData {
 
     fn get_opacity(&mut self, base: usize, count: usize, out: &mut [f32]) {
         if count == 0 { return; }
-        let ext_a = self.prepare_subarray_a(base, count);
-        ext_a.copy_to(&mut self.buffer_a);
+        self.prepare_buffers(base, count);
         for i in 0..count {
             let i4 = i * 4;
             out[i] = decode_ext_splat_opacity(&self.buffer_a[i4..i4 + 4]);
@@ -665,8 +699,7 @@ impl SplatGetter for ExtSplatsData {
 
     fn get_rgb(&mut self, base: usize, count: usize, out: &mut [f32]) {
         if count == 0 { return; }
-        let ext_b = self.prepare_subarray_b(base, count);
-        ext_b.copy_to(&mut self.buffer_b);
+        self.prepare_buffers(base, count);
         for i in 0..count {
             let [i3, i4] = [i * 3, i * 4];
             let rgb = decode_ext_splat_rgb(&self.buffer_b[i4..i4 + 4]);
@@ -678,8 +711,7 @@ impl SplatGetter for ExtSplatsData {
 
     fn get_scale(&mut self, base: usize, count: usize, out: &mut [f32]) {
         if count == 0 { return; }
-        let ext_b = self.prepare_subarray_b(base, count);
-        ext_b.copy_to(&mut self.buffer_b);
+        self.prepare_buffers(base, count);
         for i in 0..count {
             let [i3, i4] = [i * 3, i * 4];
             let scale = decode_ext_splat_scale(&self.buffer_b[i4..i4 + 4]);
@@ -691,8 +723,7 @@ impl SplatGetter for ExtSplatsData {
 
     fn get_quat(&mut self, base: usize, count: usize, out: &mut [f32]) {
         if count == 0 { return; }
-        let ext_b = self.prepare_subarray_b(base, count);
-        ext_b.copy_to(&mut self.buffer_b);
+        self.prepare_buffers(base, count);
         for i in 0..count {
             let i4 = i * 4;
             let quat = decode_ext_splat_quat(&self.buffer_b[i4..i4 + 4]);
@@ -705,6 +736,7 @@ impl SplatGetter for ExtSplatsData {
 
     fn get_sh1(&mut self, base: usize, count: usize, out: &mut [f32]) {
         if count == 0 { return; }
+        self.invalidate_buffers();
         let sub = match self.sh1.as_ref() {
             Some(packed) => packed.subarray((base * 4) as u32, ((base + count) * 4) as u32),
             None => return,
@@ -725,6 +757,7 @@ impl SplatGetter for ExtSplatsData {
 
     fn get_sh2(&mut self, base: usize, count: usize, out: &mut [f32]) {
         if count == 0 { return; }
+        self.invalidate_buffers();
         let sub1 = match self.sh1.as_ref() {
             Some(packed) => packed.subarray((base * 4) as u32, ((base + count) * 4) as u32),
             None => return,
@@ -733,7 +766,7 @@ impl SplatGetter for ExtSplatsData {
             Some(packed) => packed.subarray((base * 4) as u32, ((base + count) * 4) as u32),
             None => return,
         };
-        self.ensure_buffer(count);
+        self.ensure_buffers(count);
         sub1.copy_to(&mut self.buffer_a[0..count * 4]);
         sub2.copy_to(&mut self.buffer_b[0..count * 4]);
         for i in 0..count {
@@ -755,6 +788,7 @@ impl SplatGetter for ExtSplatsData {
 
     fn get_sh3(&mut self, base: usize, count: usize, out: &mut [f32]) {
         if count == 0 { return; }
+        self.invalidate_buffers();
         let sub1 = match self.sh3a.as_ref() {
             Some(packed) => packed.subarray((base * 4) as u32, ((base + count) * 4) as u32),
             None => return,
@@ -763,7 +797,7 @@ impl SplatGetter for ExtSplatsData {
             Some(packed) => packed.subarray((base * 4) as u32, ((base + count) * 4) as u32),
             None => return,
         };
-        self.ensure_buffer(count);
+        self.ensure_buffers(count);
         sub1.copy_to(&mut self.buffer_a[0..count * 4]);
         sub2.copy_to(&mut self.buffer_b[0..count * 4]);
         for i in 0..count {
@@ -787,6 +821,7 @@ impl SplatGetter for ExtSplatsData {
 
     fn get_child_count(&mut self, base: usize, count: usize, out: &mut [u16]) {
         if count == 0 { return; }
+        self.invalidate_buffers();
         let sub = match self.lod_tree.as_ref() {
             Some(lod) => lod.subarray((base * 4) as u32, ((base + count) * 4) as u32),
             None => return,
@@ -800,6 +835,7 @@ impl SplatGetter for ExtSplatsData {
 
     fn get_child_start(&mut self, base: usize, count: usize, out: &mut [usize]) {
         if count == 0 { return; }
+        self.invalidate_buffers();
         let sub = match self.lod_tree.as_ref() {
             Some(lod) => lod.subarray((base * 4) as u32, ((base + count) * 4) as u32),
             None => return,

@@ -1,14 +1,15 @@
 use std::any::Any;
 
 use miniz_oxide::inflate::{core::{decompress, inflate_flags::{TINFL_FLAG_HAS_MORE_INPUT, TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF}, DecompressorOxide}, TINFLStatus};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     antisplat::AntiSplatDecoder,
     ksplat::KsplatDecoder,
     ply::{PLY_MAGIC, PlyDecoder},
+    rad::{RAD_CHUNK_MAGIC, RAD_MAGIC, RadDecoder},
     sogs::SogsDecoder,
-    spz::{SPZ_MAGIC, SpzDecoder},
+    spz::{SPZ_MAGIC, SpzDecoder}
 };
 
 pub trait ChunkReceiver: Any {
@@ -37,7 +38,7 @@ impl Default for SplatInit {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SplatEncoding {
     #[serde(rename = "rgbMin")]
     pub rgb_min: f32,
@@ -81,18 +82,29 @@ impl Default for SplatEncoding {
     }
 }
 
-#[derive(Default,Debug, Clone)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct SetSplatEncoding {
+    #[serde(rename = "rgbMin")]
     pub rgb_min: Option<f32>,
+    #[serde(rename = "rgbMax")]
     pub rgb_max: Option<f32>,
+    #[serde(rename = "lnScaleMin")]
     pub ln_scale_min: Option<f32>,
+    #[serde(rename = "lnScaleMax")]
     pub ln_scale_max: Option<f32>,
+    #[serde(rename = "sh1Min")]
     pub sh1_min: Option<f32>,
+    #[serde(rename = "sh1Max")]
     pub sh1_max: Option<f32>,
+    #[serde(rename = "sh2Min")]
     pub sh2_min: Option<f32>,
+    #[serde(rename = "sh2Max")]
     pub sh2_max: Option<f32>,
+    #[serde(rename = "sh3Min")]
     pub sh3_min: Option<f32>,
+    #[serde(rename = "sh3Max")]
     pub sh3_max: Option<f32>,
+    #[serde(rename = "lodOpacity")]
     pub lod_opacity: Option<bool>,
 }
 
@@ -260,19 +272,39 @@ pub trait SplatGetter: 'static {
     fn max_sh_degree(&self) -> usize;
     fn flag_antialias(&self) -> bool { false }
     fn has_lod_tree(&self) -> bool { false }
-    fn get_encoding(&mut self) -> SplatEncoding { SplatEncoding::default() }
+    fn get_encoding(&mut self) -> Option<SplatEncoding> { None }
 
     fn get_batch(&mut self, base: usize, count: usize, out: &mut SplatPropsMut) {
-        self.get_center(base, count, out.center);
-        self.get_opacity(base, count, out.opacity);
-        self.get_rgb(base, count, out.rgb);
-        self.get_scale(base, count, out.scale);
-        self.get_quat(base, count, out.quat);
-        self.get_sh1(base, count, out.sh1);
-        self.get_sh2(base, count, out.sh2);
-        self.get_sh3(base, count, out.sh3);
-        self.get_child_count(base, count, out.child_count);
-        self.get_child_start(base, count, out.child_start);
+        if !out.center.is_empty() {
+            self.get_center(base, count, out.center);
+        }
+        if !out.opacity.is_empty() {
+            self.get_opacity(base, count, out.opacity);
+        }
+        if !out.rgb.is_empty() {
+            self.get_rgb(base, count, out.rgb);
+        }
+        if !out.scale.is_empty() {
+            self.get_scale(base, count, out.scale);
+        }
+        if !out.quat.is_empty() {
+            self.get_quat(base, count, out.quat);
+        }
+        if !out.sh1.is_empty() {
+            self.get_sh1(base, count, out.sh1);
+        }
+        if !out.sh2.is_empty() {
+            self.get_sh2(base, count, out.sh2);
+        }
+        if !out.sh3.is_empty() {
+            self.get_sh3(base, count, out.sh3);
+        }
+        if !out.child_count.is_empty() {
+            self.get_child_count(base, count, out.child_count);
+        }
+        if !out.child_start.is_empty() {
+            self.get_child_start(base, count, out.child_start);
+        }
     }
 
     // Batched property fetchers
@@ -297,6 +329,7 @@ pub enum SplatFileType {
     ANTISPLAT,
     KSPLAT,
     SOGS,
+    RAD,
 }
 
 impl SplatFileType {
@@ -307,6 +340,7 @@ impl SplatFileType {
             Self::ANTISPLAT => "antisplat",
             Self::KSPLAT => "ksplat",
             Self::SOGS => "sogs",
+            Self::RAD => "rad",
         }
     }
 
@@ -317,6 +351,7 @@ impl SplatFileType {
             "antisplat" => Ok(Self::ANTISPLAT),
             "ksplat" => Ok(Self::KSPLAT),
             "sogs" => Ok(Self::SOGS),
+            "rad" => Ok(Self::RAD),
             _ => Err(anyhow::anyhow!("Invalid file type: {}", enum_str)),
         }
     }
@@ -327,8 +362,9 @@ impl SplatFileType {
             "spz" => Some(Self::SPZ),
             "splat" => Some(Self::ANTISPLAT),
             "ksplat" => Some(Self::KSPLAT),
-            "sogs" => Some(Self::SOGS),
+            "sog" => Some(Self::SOGS),
             "zip" => Some(Self::SOGS),
+            "rad" => Some(Self::RAD),
             _ => None,
         }
     }
@@ -390,6 +426,10 @@ impl<T: SplatReceiver> MultiDecoder<T> {
             Ok(sogs) => { return sogs.into_splats(); },
             Err(inner_any) => inner_any,
         };
+        let inner_any = match inner_any.downcast::<RadDecoder<T>>() {
+            Ok(rad) => { return rad.into_splats(); },
+            Err(inner_any) => inner_any,
+        };
         let _ = inner_any;
         panic!("Invalid decoder type");
     }
@@ -443,6 +483,8 @@ impl<T: SplatReceiver> ChunkReceiver for MultiDecoder<T> {
                         return self.init_file_type(SplatFileType::SOGS);
                     }
                 }
+            } else if magic == RAD_MAGIC || magic == RAD_CHUNK_MAGIC {
+                return self.init_file_type(SplatFileType::RAD);
             } else {
                 detection_complete = true;
             }
@@ -479,6 +521,7 @@ fn new_decoder<T: SplatReceiver>(file_type: SplatFileType, splats: T) -> Box<dyn
         SplatFileType::ANTISPLAT => Box::new(AntiSplatDecoder::new(splats)),
         SplatFileType::KSPLAT => Box::new(KsplatDecoder::new(splats)),
         SplatFileType::SOGS => Box::new(SogsDecoder::new(splats, None)),
+        SplatFileType::RAD => Box::new(RadDecoder::new(splats)),
     }
 }
 
@@ -584,20 +627,21 @@ pub fn copy_getter_to_receiver<G: SplatGetter, R: SplatReceiver>(getter: &mut G,
     receiver.init_splats(&SplatInit { num_splats, max_sh_degree, lod_tree })?;
 
     // Propagate encoding from getter if available
-    let enc = getter.get_encoding();
-    receiver.set_encoding(&SetSplatEncoding {
-        rgb_min: Some(enc.rgb_min),
-        rgb_max: Some(enc.rgb_max),
-        ln_scale_min: Some(enc.ln_scale_min),
-        ln_scale_max: Some(enc.ln_scale_max),
-        sh1_min: Some(enc.sh1_min),
-        sh1_max: Some(enc.sh1_max),
-        sh2_min: Some(enc.sh2_min),
-        sh2_max: Some(enc.sh2_max),
-        sh3_min: Some(enc.sh3_min),
-        sh3_max: Some(enc.sh3_max),
-        lod_opacity: Some(enc.lod_opacity),
-    })?;
+    if let Some(encoding) = getter.get_encoding() {
+        receiver.set_encoding(&SetSplatEncoding {
+            rgb_min: Some(encoding.rgb_min),
+            rgb_max: Some(encoding.rgb_max),
+            ln_scale_min: Some(encoding.ln_scale_min),
+            ln_scale_max: Some(encoding.ln_scale_max),
+            sh1_min: Some(encoding.sh1_min),
+            sh1_max: Some(encoding.sh1_max),
+            sh2_min: Some(encoding.sh2_min),
+            sh2_max: Some(encoding.sh2_max),
+            sh3_min: Some(encoding.sh3_min),
+            sh3_max: Some(encoding.sh3_max),
+            lod_opacity: Some(encoding.lod_opacity),
+        })?;
+    }
 
     // Reusable buffers
     let mut center: Vec<f32> = Vec::new();

@@ -234,7 +234,7 @@ export class ExtSplats implements SplatSource {
       const viewDir = normalize(sub(splatCenter, viewOrigin));
       const { sh1Texture, sh2Texture, sh3TextureA, sh3TextureB } =
         this.ensureShTextures();
-      let { rgb } = evaluateSH({
+      let { rgb } = evaluateExtSH({
         index,
         viewDir,
         numSh: this.dynoNumSh,
@@ -252,7 +252,7 @@ export class ExtSplats implements SplatSource {
   private ensureShTextures(): {
     sh1Texture?: DynoUsampler2DArray<"sh1", THREE.DataArrayTexture>;
     sh2Texture?: DynoUsampler2DArray<"sh2", THREE.DataArrayTexture>;
-    sh3TextureA?: DynoUsampler2DArray<"sh3a", THREE.DataArrayTexture>;
+    sh3TextureA?: DynoUsampler2DArray<"sh3", THREE.DataArrayTexture>;
     sh3TextureB?: DynoUsampler2DArray<"sh3b", THREE.DataArrayTexture>;
   } {
     // Ensure we have textures for SH1..SH3 if we have data
@@ -330,7 +330,7 @@ export class ExtSplats implements SplatSource {
     }
 
     let sh3TextureA = this.extra.sh3TextureA as
-      | DynoUsampler2DArray<"sh3a", THREE.DataArrayTexture>
+      | DynoUsampler2DArray<"sh3", THREE.DataArrayTexture>
       | undefined;
     if (!sh3TextureA) {
       let sh3a = this.extra.sh3a as Uint32Array<ArrayBuffer>;
@@ -355,7 +355,7 @@ export class ExtSplats implements SplatSource {
       );
       sh3TextureA = new DynoUsampler2DArray({
         value: texture,
-        key: "sh3a",
+        key: "sh3",
       });
       this.extra.sh3TextureA = sh3TextureA;
     }
@@ -768,7 +768,7 @@ export const defineEvaluateExtSH3 = unindent(`
   }
 `);
 
-function evaluateSH({
+export function evaluateExtSH({
   index,
   viewDir,
   numSh,
@@ -782,7 +782,7 @@ function evaluateSH({
   numSh: DynoVal<"int">;
   sh1Texture?: DynoUsampler2DArray<"sh1", THREE.DataArrayTexture>;
   sh2Texture?: DynoUsampler2DArray<"sh2", THREE.DataArrayTexture>;
-  sh3TextureA?: DynoUsampler2DArray<"sh3a", THREE.DataArrayTexture>;
+  sh3TextureA?: DynoUsampler2DArray<"sh3", THREE.DataArrayTexture>;
   sh3TextureB?: DynoUsampler2DArray<"sh3b", THREE.DataArrayTexture>;
 }) {
   return new Dyno({

@@ -112,9 +112,9 @@ export class SplatLoader extends Loader {
         if (splatsNonLod !== undefined) {
           nonLod = splatsNonLod;
         }
-        const maxBoneSplats = packedSplats?.maxBoneSplats;
-        const computeBoneWeights = packedSplats?.computeBoneWeights;
-        const minBoneOpacity = packedSplats?.minBoneOpacity;
+        // const maxBoneSplats = packedSplats?.maxBoneSplats;
+        // const computeBoneWeights = packedSplats?.computeBoneWeights;
+        // const minBoneOpacity = packedSplats?.minBoneOpacity;
 
         let init: {
           numSplats: number;
@@ -188,12 +188,13 @@ export class SplatLoader extends Loader {
             fileBytes: fileBytes?.slice(),
             fileType,
             pathName: resolvedURL ?? fileName,
+            encoding: packedSplats?.splatEncoding,
             lod,
             lodBase,
             nonLod,
-            maxBoneSplats,
-            computeBoneWeights,
-            minBoneOpacity,
+            // maxBoneSplats,
+            // computeBoneWeights,
+            // minBoneOpacity,
           },
           { onStatus },
         )) as {
@@ -214,16 +215,16 @@ export class SplatLoader extends Loader {
               }
             | PackedSplats
             | ExtSplats;
-          boneSplats?:
-            | {
-                numSplats: number;
-                packedArray: Uint32Array;
-                extra: Record<string, unknown>;
-                splatEncoding: SplatEncoding;
-                childCounts: Uint32Array;
-                childStarts: Uint32Array;
-              }
-            | PackedSplats;
+          // boneSplats?:
+          //   | {
+          //       numSplats: number;
+          //       packedArray: Uint32Array;
+          //       extra: Record<string, unknown>;
+          //       splatEncoding: SplatEncoding;
+          //       childCounts: Uint32Array;
+          //       childStarts: Uint32Array;
+          //     }
+          //   | PackedSplats;
         };
 
         if (decoded.lodSplats) {
@@ -248,24 +249,24 @@ export class SplatLoader extends Loader {
           }
         }
 
-        if (decoded.boneSplats) {
-          const { childCounts, childStarts } = decoded.boneSplats as {
-            childCounts: Uint32Array;
-            childStarts: Uint32Array;
-          };
-          decoded.boneSplats = new PackedSplats({
-            ...(decoded.boneSplats as {
-              numSplats: number;
-              packedArray: Uint32Array;
-              extra: Record<string, unknown>;
-              splatEncoding: SplatEncoding;
-            }),
-            extra: {
-              childCounts: childCounts,
-              childStarts: childStarts,
-            },
-          });
-        }
+        // if (decoded.boneSplats) {
+        //   const { childCounts, childStarts } = decoded.boneSplats as {
+        //     childCounts: Uint32Array;
+        //     childStarts: Uint32Array;
+        //   };
+        //   decoded.boneSplats = new PackedSplats({
+        //     ...(decoded.boneSplats as {
+        //       numSplats: number;
+        //       packedArray: Uint32Array;
+        //       extra: Record<string, unknown>;
+        //       splatEncoding: SplatEncoding;
+        //     }),
+        //     extra: {
+        //       childCounts: childCounts,
+        //       childStarts: childStarts,
+        //     },
+        //   });
+        // }
 
         if (extSplats) {
           const initExtSplats = {
