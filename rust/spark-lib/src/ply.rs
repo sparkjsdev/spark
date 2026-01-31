@@ -96,7 +96,9 @@ impl<T: SplatReceiver> PlyDecoder<T> {
         let Some(PlyState::Standard(state)) = self.state.as_mut() else { unreachable!() };
         let mut offset = 0;
         loop {
-            let count = ((self.buffer.len() - offset) / state.record_size).min(MAX_SPLAT_CHUNK);
+            let available = (self.buffer.len() - offset) / state.record_size;
+            let remaining = state.num_splats.saturating_sub(state.next_splat);
+            let count = remaining.min(available).min(MAX_SPLAT_CHUNK);
             if count == 0 {
                 break;
             }
@@ -250,9 +252,10 @@ impl<T: SplatReceiver> ChunkReceiver for PlyDecoder<T> {
         let Some(state) = self.state.as_ref() else {
             return Err(anyhow!("Invalid PLY file"));
         };
-        if !self.buffer.is_empty() {
-            return Err(anyhow!("Unexpected data after PLY file"));
-        }
+
+        // Note: We don't check if buffer is empty here because PLY files can have
+        // trailing data (padding, comments, etc.) after the declared number of elements.
+        // As long as we've read the correct number of splats, we're good.
 
         match state {
             PlyState::Standard(state) => {
