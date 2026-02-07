@@ -1,0 +1,19 @@
+[package]
+name = "spark-rs"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+half.workspace = true
+js-sys.workspace = true
+wasm-bindgen.workspace = true
+spark-lib = { path = "../spark-lib" }
+serde-wasm-bindgen.workspace = true
+console_error_panic_hook = "0.1"

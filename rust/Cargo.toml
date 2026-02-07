@@ -2,6 +2,7 @@
 members = [
     "build-lod",
     "spark-internal-rs",
+    "spark-rs",
     "spark-lib",
 ]
 resolver = "2"

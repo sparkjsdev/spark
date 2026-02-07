@@ -3,8 +3,8 @@ use std::io::Write;
 
 use half::f16;
 
-use serde_json::json;
-
+use ordered_float::OrderedFloat;
+use serde::{Deserialize, Serialize};
 use miniz_oxide::deflate::compress_to_vec;
 use miniz_oxide::inflate::decompress_to_vec;
 
@@ -38,48 +38,188 @@ pub struct RadEncoder<T: SplatGetter> {
     pub sh_encoding: RadShEncoding,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum RadCenterEncoding {
+    #[default]
+    Auto,
     F32,
     F32LeBytes,
     F16,
     F16LeBytes,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum RadAlphaEncoding {
+    #[default]
+    Auto,
     F32,
     F16,
     R8,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum RadRgbEncoding {
+    #[default]
+    Auto,
     F32,
     F16,
     R8,
     R8Delta,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum RadScalesEncoding {
+    #[default]
+    Auto,
     F32,
     Ln0R8,
     LnF16,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum RadOrientationEncoding {
+    #[default]
+    Auto,
     F32,
     F16,
     Oct88R8,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum RadShEncoding {
+    #[default]
+    Auto,
     F32,
     F16,
+    S8,
+    S8Delta,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct RadChunkRange {
+    offset: u64,
+    bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    base: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    count: Option<usize>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RadMeta {
+    version: u32,
+    #[serde(rename = "type")]
+    ty: RadType,
+    count: u64,
+    #[serde(rename = "maxSh", skip_serializing_if = "Option::is_none")]
+    max_sh: Option<usize>,
+    #[serde(rename = "lodTree", skip_serializing_if = "Option::is_none")]
+    lod_tree: Option<bool>,
+    #[serde(rename = "chunkSize", skip_serializing_if = "Option::is_none")]
+    chunk_size: Option<usize>,
+    #[serde(rename = "allChunkBytes")]
+    all_chunk_bytes: u64,
+    chunks: Vec<RadChunkRange>,
+    #[serde(rename = "splatEncoding", skip_serializing_if = "Option::is_none")]
+    splat_encoding: Option<SetSplatEncoding>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RadType {
+    #[serde(rename = "gsplat")]
+    Gsplat,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RadChunkMeta {
+    version: u32,
+    base: u64,
+    count: u64,
+    #[serde(rename = "payloadBytes")]
+    payload_bytes: u64,
+    #[serde(rename = "maxSh", skip_serializing_if = "Option::is_none")]
+    max_sh: Option<usize>,
+    #[serde(rename = "lodTree", skip_serializing_if = "Option::is_none")]
+    lod_tree: Option<bool>,
+    #[serde(rename = "splatEncoding", skip_serializing_if = "Option::is_none")]
+    splat_encoding: Option<SetSplatEncoding>,
+    properties: Vec<RadChunkProperty>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct RadChunkProperty {
+    offset: u64,
+    bytes: u64,
+    property: RadChunkPropertyName,
+    encoding: RadChunkPropertyEncoding,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    compression: Option<RadChunkPropertyCompression>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    min: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max: Option<f32>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RadChunkPropertyName {
+    #[default]
+    #[serde(rename = "center")]
+    Center,
+    #[serde(rename = "alpha")]
+    Alpha,
+    #[serde(rename = "rgb")]
+    Rgb,
+    #[serde(rename = "scales")]
+    Scales,
+    #[serde(rename = "orientation")]
+    Orientation,
+    #[serde(rename = "sh1")]
+    Sh1,
+    #[serde(rename = "sh2")]
+    Sh2,
+    #[serde(rename = "sh3")]
+    Sh3,
+    #[serde(rename = "child_count")]
+    ChildCount,
+    #[serde(rename = "child_start")]
+    ChildStart,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RadChunkPropertyEncoding {
+    #[default]
+    #[serde(rename = "f32")]
+    F32,
+    #[serde(rename = "f16")]
+    F16,
+    #[serde(rename = "f32_lebytes")]
+    F32LeBytes,
+    #[serde(rename = "f16_lebytes")]
+    F16LeBytes,
+    #[serde(rename = "r8")]
     R8,
+    #[serde(rename = "r8_delta")]
+    R8Delta,
+    #[serde(rename = "s8")]
+    S8,
+    #[serde(rename = "s8_delta")]
+    S8Delta,
+    #[serde(rename = "ln_0r8")]
+    Ln0R8,
+    #[serde(rename = "ln_f16")]
+    LnF16,
+    #[serde(rename = "oct88r8")]
+    Oct88R8,
+    #[serde(rename = "u16")]
+    U16,
+    #[serde(rename = "u32")]
+    U32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RadChunkPropertyCompression {
+    Gz,
 }
 
 impl<T: SplatGetter> RadEncoder<T> {
@@ -88,12 +228,12 @@ impl<T: SplatGetter> RadEncoder<T> {
             getter,
             encoding: None,
             max_sh: 3,
-            center_encoding: RadCenterEncoding::F32LeBytes,
-            alpha_encoding: RadAlphaEncoding::F16,
-            rgb_encoding: RadRgbEncoding::R8Delta,
-            scales_encoding: RadScalesEncoding::Ln0R8,
-            orientation_encoding: RadOrientationEncoding::Oct88R8,
-            sh_encoding: RadShEncoding::R8,
+            center_encoding: RadCenterEncoding::default(),
+            alpha_encoding: RadAlphaEncoding::default(),
+            rgb_encoding: RadRgbEncoding::default(),
+            scales_encoding: RadScalesEncoding::default(),
+            orientation_encoding: RadOrientationEncoding::default(),
+            sh_encoding: RadShEncoding::default(),
         }
     }
 
@@ -137,6 +277,185 @@ impl<T: SplatGetter> RadEncoder<T> {
         self
     }
 
+    fn with_chunks<F: FnMut(&mut T, usize, usize)>(&mut self, chunk_size: usize, mut f: F) {
+        let num_splats = self.getter.num_splats();
+        let mut base = 0;
+        while base < num_splats {
+            let count = (num_splats - base).min(chunk_size);
+            f(&mut self.getter, base, count);
+            base += count;
+        }
+    }
+
+    pub fn resolve_center_encoding(&mut self) {
+        if self.center_encoding != RadCenterEncoding::Auto {
+            return;
+        }
+        // The best property center encoding depends on the ratio of the
+        // center coordinates to the splat scales. Use F32 for now to be safe.
+        self.center_encoding = RadCenterEncoding::F32LeBytes;
+
+        // let mut buffer = vec![0.0; 65536 * 3];
+        // let mut max_coord = f32::NEG_INFINITY;
+        // self.with_chunks(65536, |getter, base, count| {
+        //     getter.get_center(base, count, &mut buffer[..count * 3]);
+        //     for i in 0..count * 3 {
+        //         max_coord = max_coord.max(buffer[i].abs());
+        //     }
+        // });
+        // if max_coord > 60000.0 {
+        //     self.center_encoding = RadCenterEncoding::F32LeBytes;
+        // } else {
+        //     self.center_encoding = RadCenterEncoding::F16LeBytes;
+        // }
+    }
+
+    pub fn resolve_alpha_encoding(&mut self) {
+        if self.alpha_encoding != RadAlphaEncoding::Auto {
+            return;
+        }
+        let mut buffer = vec![0.0; 65536];
+        let mut max_alpha = f32::NEG_INFINITY;
+        self.with_chunks(65536, |getter, base, count| {
+            getter.get_opacity(base, count, &mut buffer[..count]);
+            for i in 0..count {
+                max_alpha = max_alpha.max(buffer[i]);
+            }
+        });
+        if max_alpha > 1.0 {
+            self.alpha_encoding = RadAlphaEncoding::F16;
+        } else {
+            self.alpha_encoding = RadAlphaEncoding::R8;
+        }
+    }
+
+    pub fn resolve_rgb_encoding(&mut self) {
+        if self.rgb_encoding != RadRgbEncoding::Auto {
+            return;
+        }
+
+        let mut all_rgb = vec![0.0; self.getter.num_splats() * 3];
+        self.getter.get_rgb(0, self.getter.num_splats(), &mut all_rgb);
+
+        let n1 = ((all_rgb.len() as f32 * 0.01).round() as usize).min(all_rgb.len() - 1);
+        let n99 = ((all_rgb.len() as f32 * 0.99).round() as usize).min(all_rgb.len() - 1);
+        let rgb1 = *all_rgb.select_nth_unstable_by_key(n1, |&x| OrderedFloat(x)).1;
+        let rgb99 = *all_rgb.select_nth_unstable_by_key(n99, |&x| OrderedFloat(x)).1;
+        let rgb_min = rgb1.min(0.0);
+        let rgb_max = rgb99.max(1.0);
+
+        if rgb_min < -1.0 || rgb_max > 2.0 {
+            self.rgb_encoding = RadRgbEncoding::F16;
+        } else {
+            self.rgb_encoding = RadRgbEncoding::R8Delta;
+            if self.encoding.is_none() {
+                self.encoding = Some(SplatEncoding::default());
+            }
+            self.encoding.as_mut().unwrap().rgb_min = rgb_min;
+            self.encoding.as_mut().unwrap().rgb_max = rgb_max;
+        }
+    }
+
+    pub fn resolve_scales_encoding(&mut self) {
+        if self.scales_encoding != RadScalesEncoding::Auto {
+            return;
+        }
+
+        let mut scales: Vec<f32> = Vec::with_capacity(self.getter.num_splats() * 2);
+        let mut buffer = vec![0.0; 65536 * 3];
+        self.with_chunks(65536, |getter, base, count| {
+            getter.get_scale(base, count, &mut buffer[..count * 3]);
+            for i in 0..count {
+                let mut splat_scales = [buffer[i * 3], buffer[i * 3 + 1], buffer[i * 3 + 2]];
+                splat_scales.sort_by_key(|&x| OrderedFloat(x));
+                // Skip the smallest scale since it may be flat and its value isn't meaningful
+                scales.extend([splat_scales[1], splat_scales[2]]);
+            }
+        });
+
+        let n1 = ((scales.len() as f32 * 0.01).round() as usize).min(scales.len() - 1);
+        let n99 = ((scales.len() as f32 * 0.99).round() as usize).min(scales.len() - 1);
+        let scale1 = *scales.select_nth_unstable_by_key(n1, |&x| OrderedFloat(x)).1;
+        let scale99 = *scales.select_nth_unstable_by_key(n99, |&x| OrderedFloat(x)).1;
+        let ln_scale_min = scale1.max(1.0e-30).ln().min(-12.0);
+        let ln_scale_max = scale99.max(1.0e-30).ln().max(9.0);
+
+        if (ln_scale_max - ln_scale_min) > 25.0 {
+            self.scales_encoding = RadScalesEncoding::LnF16
+        } else {
+            self.scales_encoding = RadScalesEncoding::Ln0R8;
+            if self.encoding.is_none() {
+                self.encoding = Some(SplatEncoding::default());
+            }
+            self.encoding.as_mut().unwrap().ln_scale_min = ln_scale_min;
+            self.encoding.as_mut().unwrap().ln_scale_max = ln_scale_max;
+        }
+    }
+
+    pub fn resolve_orientation_encoding(&mut self) {
+        if self.orientation_encoding != RadOrientationEncoding::Auto {
+            return;
+        }
+        self.orientation_encoding = RadOrientationEncoding::Oct88R8;
+    }
+
+    pub fn resolve_sh_encoding(&mut self) {
+        if self.sh_encoding != RadShEncoding::Auto {
+            return;
+        }
+
+        let num_sh = self.max_sh.min(self.getter.max_sh_degree());
+        if num_sh == 0 {
+            self.sh_encoding = RadShEncoding::S8;
+            return;
+        }
+
+        if self.encoding.is_none() {
+            self.encoding = Some(SplatEncoding::default());
+        }
+
+        let mut all_rgb = Vec::with_capacity(self.getter.num_splats() * 21);
+
+        all_rgb.resize(self.getter.num_splats() * 9, 0.0);
+        self.getter.get_sh1(0, self.getter.num_splats(), &mut all_rgb);
+        let n5 = ((all_rgb.len() as f32 * 0.05).round() as usize).min(all_rgb.len() - 1);
+        let n95 = ((all_rgb.len() as f32 * 0.95).round() as usize).min(all_rgb.len() - 1);
+        let sh1_5 = *all_rgb.select_nth_unstable_by_key(n5, |&x| OrderedFloat(x)).1;
+        let sh1_95 = *all_rgb.select_nth_unstable_by_key(n95, |&x| OrderedFloat(x)).1;
+        self.encoding.as_mut().unwrap().sh1_max = sh1_5.abs().max(sh1_95.abs()).max(1.0);
+
+        if num_sh >= 2 {
+            all_rgb.resize(self.getter.num_splats() * 15, 0.0);
+            self.getter.get_sh2(0, self.getter.num_splats(), &mut all_rgb);
+            let n5 = ((all_rgb.len() as f32 * 0.05).round() as usize).min(all_rgb.len() - 1);
+            let n95 = ((all_rgb.len() as f32 * 0.95).round() as usize).min(all_rgb.len() - 1);
+            let sh2_5 = *all_rgb.select_nth_unstable_by_key(n5, |&x| OrderedFloat(x)).1;
+            let sh2_95 = *all_rgb.select_nth_unstable_by_key(n95, |&x| OrderedFloat(x)).1;            
+            self.encoding.as_mut().unwrap().sh2_max = sh2_5.abs().max(sh2_95.abs()).max(1.0);
+        }
+
+        if num_sh >= 3 {
+            all_rgb.resize(self.getter.num_splats() * 21, 0.0);
+            self.getter.get_sh3(0, self.getter.num_splats(), &mut all_rgb);
+            let n5 = ((all_rgb.len() as f32 * 0.05).round() as usize).min(all_rgb.len() - 1);
+            let n95 = ((all_rgb.len() as f32 * 0.95).round() as usize).min(all_rgb.len() - 1);
+            let sh3_5 = *all_rgb.select_nth_unstable_by_key(n5, |&x| OrderedFloat(x)).1;
+            let sh3_95 = *all_rgb.select_nth_unstable_by_key(n95, |&x| OrderedFloat(x)).1;
+            self.encoding.as_mut().unwrap().sh3_max = sh3_5.abs().max(sh3_95.abs()).max(1.0);
+        }
+
+        self.sh_encoding = RadShEncoding::S8;
+    }
+
+    pub fn resolve_encoding(&mut self) {
+        self.resolve_center_encoding();
+        self.resolve_alpha_encoding();
+        self.resolve_rgb_encoding();
+        self.resolve_scales_encoding();
+        self.resolve_orientation_encoding();
+        self.resolve_sh_encoding();
+    }
+
     pub fn encode<W: Write>(&mut self, writer: &mut W) -> anyhow::Result<()> {
         const PRETTY: bool = true;
         const CHUNK_SIZE: usize = 65536;
@@ -144,77 +463,6 @@ impl<T: SplatGetter> RadEncoder<T> {
         let num_splats = self.getter.num_splats();
         let max_sh = self.getter.max_sh_degree().min(self.max_sh);
         let encoding = self.encoding.clone().or_else(|| self.getter.get_encoding()).unwrap_or(SplatEncoding::default());
-
-        // // let check_center = self.center_encoding.is_none();
-        // let check_rgb = encoding.is_none() && self.rgb_encoding.map(|e| e == RadRgbEncoding::R8 || e == RadRgbEncoding::R8Delta).unwrap_or(true);
-        // let check_scales = encoding.is_none() && self.scales_encoding.map(|e| e == RadScalesEncoding::Ln0R8).unwrap_or(true);
-        // let check_sh = (max_sh > 0) && encoding.is_none() && self.sh_encoding.map(|e| e == RadShEncoding::R8).unwrap_or(true);
-
-        // if check_center || check_rgb || check_scales || check_sh {
-        //     // We need to do a pass over the data to determine the minimal encoding
-        //     let mut batch = SplatPropsMut {
-        //         center: &mut if check_center { vec![0.0; CHUNK_SIZE * 3] } else { vec![] },
-        //         opacity: &mut [],
-        //         rgb: &mut if check_rgb { vec![0.0; CHUNK_SIZE * 3] } else { vec![] },
-        //         scale: &mut if check_scales { vec![0.0; CHUNK_SIZE * 3] } else { vec![] },
-        //         quat: &mut [],
-        //         sh1: &mut if check_sh { vec![0.0; CHUNK_SIZE * 9] } else { vec![] },
-        //         sh2: &mut if check_sh { vec![0.0; CHUNK_SIZE * 15] } else { vec![] },
-        //         sh3: &mut if check_sh { vec![0.0; CHUNK_SIZE * 21] } else { vec![] },
-        //         child_count: &mut [],
-        //         child_start: &mut [],
-        //     };
-
-        //     let mut base = 0;
-        //     // let mut max_coord = f32::NEG_INFINITY;
-        //     let mut min_rgb = f32::INFINITY;
-        //     let mut max_rgb = f32::NEG_INFINITY;
-        //     let mut min_scale = f32::INFINITY;
-        //     let mut max_scale = f32::NEG_INFINITY;
-        //     let mut max_sh1 = f32::NEG_INFINITY;
-        //     let mut max_sh2 = f32::NEG_INFINITY;
-        //     let mut max_sh3 = f32::NEG_INFINITY;
-
-        //     while base < num_splats {
-        //         let count = CHUNK_SIZE.min(num_splats - base);
-        //         self.getter.get_batch(base, count, &mut batch);
-
-        //         for i in 0..count {
-        //             for d in 0..3 {
-        //                 // if check_center {
-        //                 //     let coord = batch.center[i * 3 + d];
-        //                 //     max_coord = max_coord.max(coord.abs());
-        //                 // }
-        //                 if check_rgb {
-        //                     let value = batch.rgb[i * 3 + d];
-        //                     min_rgb = min_rgb.min(value);
-        //                     max_rgb = max_rgb.max(value);
-        //                 }
-        //                 if check_scales {
-        //                     let scale = batch.scale[i * 3 + d].max()
-        //                     min_scale = min_scale.min(scale);
-        //                     max_scale = max_scale.max(scale);
-        //                 }
-        //             }
-        //             if check_sh {
-        //                 for d in 0..9 {
-        //                     let value = batch.sh1[i * 9 + d];
-        //                     max_sh1 = max_sh1.max(value.abs());
-        //                 }
-        //                 for d in 0..15 {
-        //                     let value = batch.sh2[i * 15 + d];
-        //                     max_sh2 = max_sh2.max(value.abs());
-        //                 }
-        //                 for d in 0..21 {
-        //                     let value = batch.sh3[i * 21 + d];
-        //                     max_sh3 = max_sh3.max(value.abs());
-        //                 }
-        //             }
-        //         }
-
-        //         base += count;
-        //     }
-        // }
 
         let mut buffer = Vec::new();
         let buffer_dim = if max_sh == 0 { 4 } else if max_sh == 1 { 9 } else if max_sh == 2 { 15 } else { 21 };
@@ -228,39 +476,42 @@ impl<T: SplatGetter> RadEncoder<T> {
         }
 
         let num_chunks = num_splats.div_ceil(CHUNK_SIZE);
-        let chunks: anyhow::Result<Vec<_>> = (0..num_chunks).map(|chunk_index| {
+        let mut chunks = Vec::with_capacity(num_chunks);
+        let mut chunk_ranges = Vec::with_capacity(num_chunks);
+        let mut offset: u64 = 0;
+
+        for chunk_index in 0..num_chunks {
             let base = chunk_index * CHUNK_SIZE;
             let count = (num_splats - base).min(CHUNK_SIZE);
-            self.encode_chunk(base, count, &encoding, &mut buffer, &mut buffer_u16, &mut buffer_usize)
-        }).collect();
-        let chunks = chunks?;
+            let chunk = self.encode_chunk(base, count, &encoding, &mut buffer, &mut buffer_u16, &mut buffer_usize)?;
 
-        let mut offset = 0;
-        let chunk_ranges: Vec<_> = chunks.iter().map(|chunk| {
-            let chunk_range = json!({
-                "offset": offset,
-                "bytes": chunk.len(),
+            chunk_ranges.push(RadChunkRange {
+                offset,
+                bytes: chunk.len() as u64,
+                // base: Some(base),
+                // count: Some(count),
+                ..Default::default()
             });
-            offset += chunk.len();
-            chunk_range
-        }).collect();
+            offset += chunk.len() as u64;
+            chunks.push(chunk);
+        }
         let all_chunk_bytes = offset;
 
-        let mut meta = serde_json::json!({
-            "version": 1,
-            "type": "gsplat",
-            "count": num_splats,
-            "maxSh": max_sh,
-            "lodTree": self.getter.has_lod_tree(),
-            "chunkSize": CHUNK_SIZE,
-            "allChunkBytes": all_chunk_bytes,
-            "chunks": chunk_ranges,
-        });
+        let mut meta = RadMeta {
+            version: 1,
+            ty: RadType::Gsplat,
+            count: num_splats as u64,
+            max_sh: Some(max_sh),
+            lod_tree: if self.getter.has_lod_tree() { Some(true) } else { None },
+            chunk_size: Some(CHUNK_SIZE),
+            all_chunk_bytes: all_chunk_bytes,
+            chunks: chunk_ranges,
+            splat_encoding: None,
+        };
         if let Some(mut encoding) = self.encoding.clone().or_else(|| self.getter.get_encoding()) {
             encoding.lod_opacity = self.getter.has_lod_tree();
-            meta["splatEncoding"] = json!(encoding);
+            meta.splat_encoding = Some(SetSplatEncoding::from(encoding));
         }
-        // println!("meta: {:?}", meta);
         let meta_bytes = if PRETTY {
             let mut meta_bytes = serde_json::to_vec_pretty(&meta)?;
             meta_bytes.push(b'\n');
@@ -269,7 +520,6 @@ impl<T: SplatGetter> RadEncoder<T> {
             serde_json::to_vec(&meta)?
         };
         let meta_bytes_size = meta_bytes.len();
-        // println!("meta_bytes_len: {}", meta_bytes_size);
 
         writer.write_all(&RAD_MAGIC.to_le_bytes())?;
         writer.write_all(&(meta_bytes_size as u32).to_le_bytes())?;
@@ -284,87 +534,113 @@ impl<T: SplatGetter> RadEncoder<T> {
         Ok(())
     }
 
-    fn encode_chunk_center(&mut self, base: usize, count: usize, buffer: &mut Vec<f32>) -> (serde_json::Value, Vec<u8>) {
+    fn encode_chunk_center(&mut self, base: usize, count: usize, buffer: &mut Vec<f32>) -> (RadChunkProperty, Vec<u8>) {
         if buffer.len() < count * 3 {
             buffer.resize(count * 3, 0.0);
         }
         self.getter.get_center(base, count, &mut buffer[..count * 3]);
 
         let (enc, bytes) = match self.center_encoding {
-            RadCenterEncoding::F32 => ("f32", encode_f32(&buffer, 3, count)),
-            RadCenterEncoding::F16 => ("f16", encode_f16(&buffer, 3, count)),
-            RadCenterEncoding::F32LeBytes => ("f32_lebytes", encode_f32_lebytes(&buffer, 3, count)),
-            RadCenterEncoding::F16LeBytes => ("f16_lebytes", encode_f16_lebytes(&buffer, 3, count)),
+            RadCenterEncoding::F32 => (RadChunkPropertyEncoding::F32, encode_f32(&buffer, 3, count)),
+            RadCenterEncoding::F16 => (RadChunkPropertyEncoding::F16, encode_f16(&buffer, 3, count)),
+            RadCenterEncoding::Auto |
+            RadCenterEncoding::F32LeBytes => (RadChunkPropertyEncoding::F32LeBytes, encode_f32_lebytes(&buffer, 3, count)),
+            RadCenterEncoding::F16LeBytes => (RadChunkPropertyEncoding::F16LeBytes, encode_f16_lebytes(&buffer, 3, count)),
         };
-        let meta = json!({ "property": "center", "encoding": enc, "compression": "gz" });
+        let meta = RadChunkProperty {
+            property: RadChunkPropertyName::Center,
+            encoding: enc,
+            compression: Some(RadChunkPropertyCompression::Gz),
+            ..Default::default()
+        };
         (meta, compress_to_vec(&bytes, GZ_LEVEL))
     }
 
-    fn encode_chunk_alpha(&mut self, base: usize, count: usize, buffer: &mut Vec<f32>) -> (serde_json::Value, Vec<u8>) {
+    fn encode_chunk_alpha(&mut self, base: usize, count: usize, buffer: &mut Vec<f32>) -> (RadChunkProperty, Vec<u8>) {
         if buffer.len() < count {
             buffer.resize(count, 0.0);
         }
         self.getter.get_opacity(base, count, &mut buffer[..count]);
 
         let max_alpha = if self.getter.has_lod_tree() { 2.0 } else { 1.0 };
-        let (enc, bytes) = match self.alpha_encoding {
-            RadAlphaEncoding::F32 => ("f32", encode_f32(&buffer, 1, count)),
-            RadAlphaEncoding::F16 => ("f16", encode_f16(&buffer, 1, count)),
-            RadAlphaEncoding::R8 => ("r8", encode_r8(&buffer, 1, count, 0.0, max_alpha)),
+        let (enc, bytes, min, max) = match self.alpha_encoding {
+            RadAlphaEncoding::F32 => (RadChunkPropertyEncoding::F32, encode_f32(&buffer, 1, count), None, None),
+            RadAlphaEncoding::Auto |
+            RadAlphaEncoding::F16 => (RadChunkPropertyEncoding::F16, encode_f16(&buffer, 1, count), None, None),
+            RadAlphaEncoding::R8 => (RadChunkPropertyEncoding::R8, encode_r8(&buffer, 1, count, 0.0, max_alpha), Some(0.0), Some(max_alpha)),
         };
-        let meta = match self.alpha_encoding {
-            RadAlphaEncoding::F32 | RadAlphaEncoding::F16 => json!({ "property": "alpha", "encoding": enc, "compression": "gz" }),
-            RadAlphaEncoding::R8 => json!({ "property": "alpha", "encoding": enc, "compression": "gz", "min": 0.0, "max": max_alpha }),
+        let meta = RadChunkProperty {
+            property: RadChunkPropertyName::Alpha,
+            encoding: enc,
+            compression: Some(RadChunkPropertyCompression::Gz),
+            min,
+            max,
+            ..Default::default()
         };
         (meta, compress_to_vec(&bytes, GZ_LEVEL))
     }
 
-    fn encode_chunk_rgb(&mut self, base: usize, count: usize, buffer: &mut Vec<f32>, encoding: &SplatEncoding) -> (serde_json::Value, Vec<u8>) {
+    fn encode_chunk_rgb(&mut self, base: usize, count: usize, buffer: &mut Vec<f32>, encoding: &SplatEncoding) -> (RadChunkProperty, Vec<u8>) {
         if buffer.len() < count * 3 {
             buffer.resize(count * 3, 0.0);
         }
         self.getter.get_rgb(base, count, &mut buffer[..count * 3]);
 
-        let (enc, bytes) = match self.rgb_encoding {
-            RadRgbEncoding::F32 => ("f32", encode_f32(&buffer, 3, count)),
-            RadRgbEncoding::F16 => ("f16", encode_f16(&buffer, 3, count)),
-            RadRgbEncoding::R8 => ("r8", encode_r8(&buffer, 3, count, encoding.rgb_min, encoding.rgb_max)),
-            RadRgbEncoding::R8Delta => ("r8_delta", encode_r8_delta(&buffer, 3, count, encoding.rgb_min, encoding.rgb_max)),
+        let (enc, bytes, min, max) = match self.rgb_encoding {
+            RadRgbEncoding::F32 => (RadChunkPropertyEncoding::F32, encode_f32(&buffer, 3, count), None, None),
+            RadRgbEncoding::F16 => (RadChunkPropertyEncoding::F16, encode_f16(&buffer, 3, count), None, None),
+            RadRgbEncoding::R8 => (RadChunkPropertyEncoding::R8, encode_r8(&buffer, 3, count, encoding.rgb_min, encoding.rgb_max), Some(encoding.rgb_min), Some(encoding.rgb_max)),
+            RadRgbEncoding::Auto |
+            RadRgbEncoding::R8Delta => (RadChunkPropertyEncoding::R8Delta, encode_r8_delta(&buffer, 3, count, encoding.rgb_min, encoding.rgb_max), Some(encoding.rgb_min), Some(encoding.rgb_max)),
         };
-        let meta = match self.rgb_encoding {
-            RadRgbEncoding::F32 | RadRgbEncoding::F16 => json!({ "property": "rgb", "encoding": enc, "compression": "gz" }),
-            RadRgbEncoding::R8 | RadRgbEncoding::R8Delta => json!({ "property": "rgb", "encoding": enc, "compression": "gz", "min": encoding.rgb_min, "max": encoding.rgb_max }),
+        let meta = RadChunkProperty {
+            property: RadChunkPropertyName::Rgb,
+            encoding: enc,
+            compression: Some(RadChunkPropertyCompression::Gz),
+            min,
+            max,
+            ..Default::default()
         };
         (meta, compress_to_vec(&bytes, GZ_LEVEL))
     }
 
-    fn encode_chunk_scales(&mut self, base: usize, count: usize, buffer: &mut Vec<f32>, encoding: &SplatEncoding) -> (serde_json::Value, Vec<u8>) {
+    fn encode_chunk_scales(&mut self, base: usize, count: usize, buffer: &mut Vec<f32>, encoding: &SplatEncoding) -> (RadChunkProperty, Vec<u8>) {
         if buffer.len() < count * 3 {
             buffer.resize(count * 3, 0.0);
         }
         self.getter.get_scale(base, count, &mut buffer[..count * 3]);
 
-        let (enc, bytes) = match self.scales_encoding {
-            RadScalesEncoding::F32 => ("f32", encode_f32(&buffer, 3, count)),
-            RadScalesEncoding::Ln0R8 => ("ln_0r8", encode_ln_0r8(&buffer, 3, count, -30.0, encoding.ln_scale_min, encoding.ln_scale_max)),
-            RadScalesEncoding::LnF16 => ("ln_f16", encode_ln_f16(&buffer, 3, count)),
+        let (enc, bytes, min, max) = match self.scales_encoding {
+            RadScalesEncoding::F32 => (RadChunkPropertyEncoding::F32, encode_f32(&buffer, 3, count), None, None),
+            RadScalesEncoding::Auto |
+            RadScalesEncoding::Ln0R8 => (RadChunkPropertyEncoding::Ln0R8, encode_ln_0r8(&buffer, 3, count, -30.0, encoding.ln_scale_min, encoding.ln_scale_max), Some(encoding.ln_scale_min), Some(encoding.ln_scale_max)),
+            RadScalesEncoding::LnF16 => (RadChunkPropertyEncoding::LnF16, encode_ln_f16(&buffer, 3, count), None, None),
         };
-        let meta = match self.scales_encoding {
-            RadScalesEncoding::F32 | RadScalesEncoding::LnF16 => json!({ "property": "scales", "encoding": enc, "compression": "gz" }),
-            RadScalesEncoding::Ln0R8 => json!({ "property": "scales", "encoding": enc, "compression": "gz", "min": encoding.ln_scale_min, "max": encoding.ln_scale_max }),
+        let meta = RadChunkProperty {
+            property: RadChunkPropertyName::Scales,
+            encoding: enc,
+            compression: Some(RadChunkPropertyCompression::Gz),
+            min,
+            max,
+            ..Default::default()
         };
         (meta, compress_to_vec(&bytes, GZ_LEVEL))
     }
 
-    fn encode_chunk_orientation(&mut self, base: usize, count: usize, buffer: &mut Vec<f32>) -> (serde_json::Value, Vec<u8>) {
+    fn encode_chunk_orientation(&mut self, base: usize, count: usize, buffer: &mut Vec<f32>) -> (RadChunkProperty, Vec<u8>) {
         if buffer.len() < count * 4 {
             buffer.resize(count * 4, 0.0);
         }
         self.getter.get_quat(base, count, &mut buffer[..count * 4]);
 
-        if self.orientation_encoding == RadOrientationEncoding::Oct88R8 {
+        if self.orientation_encoding == RadOrientationEncoding::Oct88R8 || self.orientation_encoding == RadOrientationEncoding::Auto {
             let bytes = encode_quat_oct88r8(&buffer, count);
-            let meta = json!({ "property": "orientation", "encoding": "oct88r8", "compression": "gz" });
+            let meta = RadChunkProperty {
+                property: RadChunkPropertyName::Orientation,
+                encoding: RadChunkPropertyEncoding::Oct88R8,
+                compression: Some(RadChunkPropertyCompression::Gz),
+                ..Default::default()
+            };
             (meta, compress_to_vec(&bytes, GZ_LEVEL))
         } else {
             for i in 0..count {
@@ -373,79 +649,84 @@ impl<T: SplatGetter> RadEncoder<T> {
                 }
             }
             let (enc, bytes) = match self.orientation_encoding {
-                RadOrientationEncoding::F32 => ("f32", encode_f32(&buffer, 3, count)),
-                RadOrientationEncoding::F16 => ("f16", encode_f16(&buffer, 3, count)),
+                RadOrientationEncoding::F32 => (RadChunkPropertyEncoding::F32, encode_f32(&buffer, 3, count)),
+                RadOrientationEncoding::F16 => (RadChunkPropertyEncoding::F16, encode_f16(&buffer, 3, count)),
                 _ => unreachable!(),
             };
-            let meta = json!({ "property": "orientation", "encoding": enc, "compression": "gz" });
+            let meta = RadChunkProperty {
+                property: RadChunkPropertyName::Orientation,
+                encoding: enc,
+                compression: Some(RadChunkPropertyCompression::Gz),
+                ..Default::default()
+            };
             (meta, compress_to_vec(&bytes, GZ_LEVEL))
         }
     }
 
-    fn encode_chunk_sh1(&mut self, base: usize, count: usize, buffer: &mut Vec<f32>, encoding: &SplatEncoding) -> (serde_json::Value, Vec<u8>) {
-        if buffer.len() < count * 9 {
-            buffer.resize(count * 9, 0.0);
-        }
-        self.getter.get_sh1(base, count, &mut buffer[..count * 9]);
-
-        let (enc, bytes) = match self.sh_encoding {
-            RadShEncoding::F32 => ("f32", encode_f32(&buffer, 9, count)),
-            RadShEncoding::F16 => ("f16", encode_f16(&buffer, 9, count)),
-            RadShEncoding::R8 => ("r8", encode_r8(&buffer, 9, count, encoding.sh1_min, encoding.sh1_max)),
+    fn encode_chunk_sh(&mut self, base: usize, count: usize, buffer: &mut Vec<f32>, encoding: &SplatEncoding, property: RadChunkPropertyName) -> (RadChunkProperty, Vec<u8>) {
+        let (elements, sh_max) = match property {
+            RadChunkPropertyName::Sh1 => (9, encoding.sh1_max),
+            RadChunkPropertyName::Sh2 => (15, encoding.sh2_max),
+            RadChunkPropertyName::Sh3 => (21, encoding.sh3_max),
+            _ => unreachable!(),
         };
-        let meta = json!({ "property": "sh1", "encoding": enc, "compression": "gz", "min": encoding.sh1_min, "max": encoding.sh1_max });
+        if buffer.len() < count * elements {
+            buffer.resize(count * elements, 0.0);
+        }
+        match property {
+            RadChunkPropertyName::Sh1 => self.getter.get_sh1(base, count, &mut buffer[..count * elements]),
+            RadChunkPropertyName::Sh2 => self.getter.get_sh2(base, count, &mut buffer[..count * elements]),
+            RadChunkPropertyName::Sh3 => self.getter.get_sh3(base, count, &mut buffer[..count * elements]),
+            _ => unreachable!(),
+        };
+
+        let (encoding, bytes, min, max) = match self.sh_encoding {
+            RadShEncoding::F32 => (RadChunkPropertyEncoding::F32, encode_f32(&buffer, elements, count), None, None),
+            RadShEncoding::F16 => (RadChunkPropertyEncoding::F16, encode_f16(&buffer, elements, count), None, None),
+            RadShEncoding::Auto |
+            RadShEncoding::S8 => (RadChunkPropertyEncoding::S8, encode_s8(&buffer, elements, count, sh_max), Some(-sh_max), Some(sh_max)),
+            RadShEncoding::S8Delta => (RadChunkPropertyEncoding::S8Delta, encode_s8_delta(&buffer, elements, count, sh_max), Some(-sh_max), Some(sh_max)),
+        };
+        let meta = RadChunkProperty {
+            property,
+            encoding,
+            compression: Some(RadChunkPropertyCompression::Gz),
+            min,
+            max,
+            ..Default::default()
+        };
         (meta, compress_to_vec(&bytes, GZ_LEVEL))
     }
 
-    fn encode_chunk_sh2(&mut self, base: usize, count: usize, buffer: &mut Vec<f32>, encoding: &SplatEncoding) -> (serde_json::Value, Vec<u8>) {
-        if buffer.len() < count * 15 {
-            buffer.resize(count * 15, 0.0);
-        }
-        self.getter.get_sh2(base, count, &mut buffer[..count * 15]);
-        
-        let (enc, bytes) = match self.sh_encoding {
-            RadShEncoding::F32 => ("f32", encode_f32(&buffer, 15, count)),
-            RadShEncoding::F16 => ("f16", encode_f16(&buffer, 15, count)),
-            RadShEncoding::R8 => ("r8", encode_r8(&buffer, 15, count, encoding.sh2_min, encoding.sh2_max)),
-        };
-        let meta = json!({ "property": "sh2", "encoding": enc, "compression": "gz", "min": encoding.sh2_min, "max": encoding.sh2_max });
-        (meta, compress_to_vec(&bytes, GZ_LEVEL))
-    }
-
-    fn encode_chunk_sh3(&mut self, base: usize, count: usize, buffer: &mut Vec<f32>, encoding: &SplatEncoding) -> (serde_json::Value, Vec<u8>) {
-        if buffer.len() < count * 21 {
-            buffer.resize(count * 21, 0.0);
-        }
-        self.getter.get_sh3(base, count, &mut buffer[..count * 21]);
-        
-        let (enc, bytes) = match self.sh_encoding {
-            RadShEncoding::F32 => ("f32", encode_f32(&buffer, 21, count)),
-            RadShEncoding::F16 => ("f16", encode_f16(&buffer, 21, count)),
-            RadShEncoding::R8 => ("r8", encode_r8(&buffer, 21, count, encoding.sh3_min, encoding.sh3_max)),
-        };
-        let meta = json!({ "property": "sh3", "encoding": enc, "compression": "gz", "min": encoding.sh3_min, "max": encoding.sh3_max });
-        (meta, compress_to_vec(&bytes, GZ_LEVEL))
-    }
-
-    fn encode_chunk_child_count(&mut self, base: usize, count: usize, buffer: &mut Vec<u16>) -> (serde_json::Value, Vec<u8>) {
+    fn encode_chunk_child_count(&mut self, base: usize, count: usize, buffer: &mut Vec<u16>) -> (RadChunkProperty, Vec<u8>) {
         if buffer.len() < count {
             buffer.resize(count, 0);
         }
         self.getter.get_child_count(base, count, &mut buffer[..count]);
 
         let bytes = encode_u16(&buffer, 1, count);
-        let meta = json!({ "property": "child_count", "encoding": "u16", "compression": "gz" });
+        let meta = RadChunkProperty {
+            property: RadChunkPropertyName::ChildCount,
+            encoding: RadChunkPropertyEncoding::U16,
+            compression: Some(RadChunkPropertyCompression::Gz),
+            ..Default::default()
+        };
         (meta, compress_to_vec(&bytes, GZ_LEVEL))
     }
 
-    fn encode_chunk_child_start(&mut self, base: usize, count: usize, buffer: &mut Vec<usize>) -> (serde_json::Value, Vec<u8>) {
+    fn encode_chunk_child_start(&mut self, base: usize, count: usize, buffer: &mut Vec<usize>) -> (RadChunkProperty, Vec<u8>) {
         if buffer.len() < count {
             buffer.resize(count, 0);
         }
         self.getter.get_child_start(base, count, &mut buffer[..count]);
 
         let bytes = encode_usize_as_u32(&buffer, 1, count);
-        let meta = json!({ "property": "child_start", "encoding": "u32", "compression": "gz" });
+        let meta = RadChunkProperty {
+            property: RadChunkPropertyName::ChildStart,
+            encoding: RadChunkPropertyEncoding::U32,
+            compression: Some(RadChunkPropertyCompression::Gz),
+            ..Default::default()
+        };
         (meta, compress_to_vec(&bytes, GZ_LEVEL))
     }
 
@@ -464,15 +745,15 @@ impl<T: SplatGetter> RadEncoder<T> {
         ];
 
         if max_sh >= 1 {
-            props.push(self.encode_chunk_sh1(base, count, buffer, encoding));
+            props.push(self.encode_chunk_sh(base, count, buffer, encoding, RadChunkPropertyName::Sh1));
         };
 
         if max_sh >= 2 {
-            props.push(self.encode_chunk_sh2(base, count, buffer, encoding));
+            props.push(self.encode_chunk_sh(base, count, buffer, encoding, RadChunkPropertyName::Sh2));
         }
 
         if max_sh >= 3 {
-            props.push(self.encode_chunk_sh3(base, count, buffer, encoding));
+            props.push(self.encode_chunk_sh(base, count, buffer, encoding, RadChunkPropertyName::Sh3));
         }
 
         if self.getter.has_lod_tree() {
@@ -480,33 +761,39 @@ impl<T: SplatGetter> RadEncoder<T> {
             props.push(self.encode_chunk_child_start(base, count, buffer_usize));
         }
 
-        let mut offset = 0;
+        let mut offset = 0u64;
         for (prop, data) in props.iter_mut() {
-            let prop = prop.as_object_mut().unwrap();
-            prop.insert("offset".to_string(), json!(offset));
-            prop.insert("bytes".to_string(), json!(data.len()));
-            offset += roundup8(data.len());
+            prop.offset = offset;
+            prop.bytes = data.len() as u64;
+            offset += roundup8(data.len()) as u64;
         }
         let payload_bytes = offset;
 
-        let meta = serde_json::json!({
-            "version": 1,
-            "base": base,
-            "count": count,
-            "payloadBytes": payload_bytes,
-            "properties": props.iter().map(|(prop, _)| prop).collect::<Vec<_>>(),
-        });
-        // println!("chunk meta: {:?}", meta);
+        let mut meta = RadChunkMeta {
+            version: 1,
+            base: base as u64,
+            count: count as u64,
+            payload_bytes,
+            max_sh: Some(self.getter.max_sh_degree().min(self.max_sh)),
+            lod_tree: if self.getter.has_lod_tree() { Some(true) } else { None },
+            splat_encoding: None,
+            properties: props.iter().map(|(prop, _)| prop.clone()).collect::<Vec<_>>(),
+        };
+        if let Some(mut encoding) = self.encoding.clone().or_else(|| self.getter.get_encoding()) {
+            encoding.lod_opacity = self.getter.has_lod_tree();
+            meta.splat_encoding = Some(SetSplatEncoding::from(encoding));
+        }
+
         let meta_bytes = serde_json::to_vec(&meta)?;
 
-        let mut encoded = Vec::with_capacity(8 + roundup8(meta_bytes.len()) + 8 + payload_bytes);
+        let mut encoded = Vec::with_capacity(8 + roundup8(meta_bytes.len()) + 8 + payload_bytes as usize);
         encoded.extend(&RAD_CHUNK_MAGIC.to_le_bytes());
 
         encoded.extend((meta_bytes.len() as u32).to_le_bytes());
         encoded.extend(&meta_bytes);
         encoded.extend(&[0u8; 8][..pad8(meta_bytes.len())]);
 
-        encoded.extend((payload_bytes as u64).to_le_bytes());
+        encoded.extend(payload_bytes.to_le_bytes());
 
         for (_prop, data) in props.iter() {
             encoded.extend(data);
@@ -647,12 +934,12 @@ fn encode_r8(data: &[f32], dims: usize, count: usize, min: f32, max: f32) -> Vec
     result
 }
 
-fn encode_r8_bits(data: &[f32], dims: usize, count: usize, min: f32, max: f32, bits: u8) -> Vec<u8> {
+fn _encode_r8_bits(data: &[f32], dims: usize, count: usize, min: f32, max: f32, bits: u8) -> Vec<u8> {
     let mut result = Vec::with_capacity(dims * count);
     for d in 0..dims {
         let mut index = d;
         for _ in 0..count {
-            let value = quantize_sh_byte((data[index] - min) / (max - min) * 255.0, bits);
+            let value = _quantize_sh_byte((data[index] - min) / (max - min) * 255.0, bits);
             result.push(value);
             index += dims;
         }
@@ -672,6 +959,31 @@ fn decode_r8(data: &[u8], dims: usize, count: usize, min: f32, max: f32) -> Vec<
     result
 }
 
+fn encode_s8(data: &[f32], dims: usize, count: usize, max: f32) -> Vec<u8> {
+    let mut result = Vec::with_capacity(dims * count);
+    for d in 0..dims {
+        let mut index = d;
+        for _ in 0..count {
+            let value = data[index] / max * 127.0;
+            result.push(value.clamp(-127.0, 127.0).round() as i8 as u8);
+            index += dims;
+        }
+    }
+    result
+}
+
+fn decode_s8(data: &[u8], dims: usize, count: usize, max: f32) -> Vec<f32> {
+    let mut result = Vec::with_capacity(dims * count);
+    for i in 0..count {
+        let mut index = i;
+        for _ in 0..dims {
+            result.push(((data[index] as i8) as f32 / 127.0) * max);
+            index += count;
+        }
+    }
+    result
+}
+
 fn encode_r8_delta(data: &[f32], dims: usize, count: usize, min: f32, max: f32) -> Vec<u8> {
     let mut result = Vec::with_capacity(dims * count);
     for d in 0..dims {
@@ -679,7 +991,7 @@ fn encode_r8_delta(data: &[f32], dims: usize, count: usize, min: f32, max: f32) 
         let mut last = 0;
         for _ in 0..count {
             let value = ((data[index] - min) / (max - min) * 255.0).clamp(0.0, 255.0).round() as u8;
-            result.push(value - last);
+            result.push(value.wrapping_sub(last));
             last = value;
             index += dims;
         }
@@ -689,13 +1001,43 @@ fn encode_r8_delta(data: &[f32], dims: usize, count: usize, min: f32, max: f32) 
 
 fn decode_r8_delta(data: &[u8], dims: usize, count: usize, min: f32, max: f32) -> Vec<f32> {
     let mut result = Vec::with_capacity(dims * count);
-    let mut last = vec![0; dims];
+    let mut last = vec![0u8; dims];
     for i in 0..count {
         let mut index = i;
         for d in 0..dims {
-            let value = last[d] + data[index];
+            let value = last[d].wrapping_add(data[index]);
             last[d] = value;
             result.push((value as f32 / 255.0) * (max - min) + min);
+            index += count;
+        }
+    }
+    result
+}
+
+fn encode_s8_delta(data: &[f32], dims: usize, count: usize, max: f32) -> Vec<u8> {
+    let mut result = Vec::with_capacity(dims * count);
+    for d in 0..dims {
+        let mut index = d;
+        let mut last = 0;
+        for _ in 0..count {
+            let value = (data[index] / max * 127.0).clamp(-127.0, 127.0).round() as i8 as u8;
+            result.push(value.wrapping_sub(last));
+            last = value;
+            index += dims;
+        }
+    }
+    result
+}
+
+fn decode_s8_delta(data: &[u8], dims: usize, count: usize, max: f32) -> Vec<f32> {
+    let mut result = Vec::with_capacity(dims * count);
+    let mut last = vec![0u8; dims];
+    for i in 0..count {
+        let mut index = i;
+        for d in 0..dims {
+            let value = last[d].wrapping_add(data[index]);
+            last[d] = value;
+            result.push(((value as i8) as f32 / 127.0) * max);
             index += count;
         }
     }
@@ -808,23 +1150,43 @@ fn decode_u32_as_usize(data: &[u8], dims: usize, count: usize) -> Vec<usize> {
     result
 }
 
-fn quantize_sh_byte(mut value: f32, bits: u8) -> u8 {
+fn _quantize_sh_byte(mut value: f32, bits: u8) -> u8 {
     let bucket = 1u32 << (8 - bits);
     value = ((value + (bucket as f32) / 2.0) / bucket as f32).floor() * bucket as f32;
     value.round().clamp(0.0, 255.0) as u8
 }
 
+pub fn decode_rad_header(bytes: &[u8]) -> anyhow::Result<Option<(RadMeta, u64)>> {
+    if bytes.len() < 8 {
+        return Ok(None);
+    }
+
+    let magic = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
+    if magic != RAD_MAGIC {
+        return Err(anyhow::anyhow!("Invalid RAD magic: 0x{:08x}", magic));
+    }
+
+    let length = u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize;
+    if bytes.len() < 8 + length {
+        return Ok(None);
+    }
+
+    let meta: RadMeta = serde_json::from_slice(&bytes[8..8 + length])?;
+    let chunks_start = (8 + roundup8(length)) as u64;
+    Ok(Some((meta, chunks_start)))
+}
 
 pub struct RadDecoder<T: SplatReceiver> {
     splats: T,
     offset: u64,
     buffer: Vec<u8>,
     done: bool,
-    meta: serde_json::Value,
+    meta: Option<RadMeta>,
+    chunks_start: u64,
     chunk_index: usize,
     chunk_count: usize,
     chunk_size: usize,
-    chunk_meta: serde_json::Value,
+    chunk_meta: Option<RadChunkMeta>,
     payload_start: u64,
     chunk_end: u64,
     prop_index: usize,
@@ -839,11 +1201,12 @@ impl<T: SplatReceiver> RadDecoder<T> {
             offset: 0,
             buffer: Vec::new(),
             done: false,
-            meta: serde_json::Value::Null,
+            meta: None,
+            chunks_start: 0,
             chunk_index: 0,
             chunk_count: 0,
             chunk_size: 0,
-            chunk_meta: serde_json::Value::Null,
+            chunk_meta: None,
             payload_start: 0,
             chunk_end: 0,
             prop_index: 0,
@@ -861,16 +1224,16 @@ impl<T: SplatReceiver> RadDecoder<T> {
             return self.skip_remaining();
         }
 
-        if self.meta.is_null() && self.chunk_meta.is_null() {
+        if self.meta.is_none() && self.chunk_meta.is_none() {
             if !self.poll_header()? {
                 return Ok(());
             }
         }
 
-        if self.meta.is_object() {
+        if self.meta.is_some() {
             // Stream is a RAD file with multiple chunks
             while self.chunk_index < self.chunk_count {
-                if self.chunk_meta.is_null() {
+                if self.chunk_meta.is_none() {
                     if !self.poll_chunk_header()? {
                         return Ok(());
                     }
@@ -883,7 +1246,7 @@ impl<T: SplatReceiver> RadDecoder<T> {
                 if !self.skip_to_chunk_end()? {
                     return Ok(());
                 }
-                self.chunk_meta = serde_json::Value::Null;
+                self.chunk_meta = None;
                 self.chunk_index += 1;
             }
 
@@ -927,37 +1290,30 @@ impl<T: SplatReceiver> RadDecoder<T> {
             return Ok(false);
         }
 
-        let meta = serde_json::from_slice(&self.buffer[8..8 + length])?;
+        let meta: RadMeta = serde_json::from_slice(&self.buffer[8..8 + length])?;
 
         self.buffer.drain(..meta_end);
         self.offset += meta_end as u64;
+        self.chunks_start = self.offset;
 
         self.parse_meta(meta)?;
         Ok(true)
     }
 
-    fn parse_meta(&mut self, meta: serde_json::Value) -> anyhow::Result<()> {
-        if !meta.is_object() {
-            return Err(anyhow::anyhow!("Invalid RAD meta: {:?}", self.meta));
-        }
-        self.meta = meta;
-
-        let version = self.meta.get("version").and_then(|v| v.as_u64()).unwrap_or(0);
-        if version != 1 {
-            return Err(anyhow::anyhow!("Unsupported RAD version: {}", version));
+    fn parse_meta(&mut self, meta: RadMeta) -> anyhow::Result<()> {
+        if meta.version != 1 {
+            return Err(anyhow::anyhow!("Unsupported RAD version: {}", meta.version));
         }
 
-        let ty = self.meta.get("type").and_then(|v| v.as_str()).ok_or(anyhow::anyhow!("Missing RAD type"))?;
-        if ty != "gsplat" {
-            return Err(anyhow::anyhow!("Unsupported RAD type: {}", ty));
+        if meta.ty != RadType::Gsplat {
+            return Err(anyhow::anyhow!("Unsupported RAD type: {:?}", meta.ty));
         }
 
-        let num_splats = self.meta.get("count").and_then(|v| v.as_u64()).ok_or(anyhow::anyhow!("Missing count"))? as usize;
-        let max_sh_degree = self.meta.get("maxSh").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-        let lod_tree = self.meta.get("lodTree").and_then(|v| v.as_bool()).unwrap_or(false);
-        self.chunk_size = self.meta.get("chunkSize").and_then(|v| v.as_u64()).unwrap_or(num_splats as u64) as usize;
-
-        self.chunk_count = self.meta.get("chunks").and_then(|v| v.as_array()).ok_or(anyhow::anyhow!("Missing chunks"))?.len();
+        let num_splats = meta.count as usize;
+        let max_sh_degree = meta.max_sh.unwrap_or(0);
+        let lod_tree = meta.lod_tree.unwrap_or(false);
+        self.chunk_size = meta.chunk_size.unwrap_or(num_splats);
+        self.chunk_count = meta.chunks.len();
         if self.chunk_count != num_splats.div_ceil(self.chunk_size) {
             return Err(anyhow::anyhow!("Invalid chunk count: expected {}, got {}", num_splats.div_ceil(self.chunk_size), self.chunk_count));
         }
@@ -968,9 +1324,8 @@ impl<T: SplatReceiver> RadDecoder<T> {
             lod_tree,
         })?;
 
-        if let Some(splat_encoding_value) = self.meta.get("splatEncoding") {
-            let set_splat_encoding: SetSplatEncoding = serde_json::from_value(splat_encoding_value.clone())?;
-            self.splats.set_encoding(&set_splat_encoding)?;
+        if let Some(set_splat_encoding) = meta.splat_encoding.as_ref() {
+            self.splats.set_encoding(set_splat_encoding)?;
         }
 
         if lod_tree {
@@ -980,36 +1335,34 @@ impl<T: SplatReceiver> RadDecoder<T> {
             })?;
         }
 
+        self.meta = Some(meta);
         Ok(())
     }
 
-    fn parse_chunk_meta(&mut self, chunk_meta: serde_json::Value, payload_start: u64, chunk_end: u64) -> anyhow::Result<()> {
-        if !chunk_meta.is_object() {
-            return Err(anyhow::anyhow!("Invalid RAD chunk meta: {:?}", self.chunk_meta));
-        }
-        self.chunk_meta = chunk_meta;
+    fn parse_chunk_meta(&mut self, chunk_meta: RadChunkMeta, payload_start: u64, chunk_end: u64) -> anyhow::Result<()> {
         self.payload_start = payload_start;
         self.chunk_end = chunk_end;
 
-        let version = self.chunk_meta.get("version").and_then(|v| v.as_u64()).unwrap_or(0);
-        if version != 1 {
-            return Err(anyhow::anyhow!("Unsupported RAD chunk version: {}", version));
+        if chunk_meta.version != 1 {
+            return Err(anyhow::anyhow!("Unsupported RAD chunk version: {}", chunk_meta.version));
         }
 
-        self.base = self.chunk_meta.get("base").and_then(|v| v.as_u64()).ok_or(anyhow::anyhow!("Missing base"))? as usize;
-        self.count = self.chunk_meta.get("count").and_then(|v| v.as_u64()).ok_or(anyhow::anyhow!("Missing count"))? as usize;
+        self.base = chunk_meta.base as usize;
+        self.count = chunk_meta.count as usize;
 
-        if self.meta.is_null() {
+        if self.meta.is_none() {
             // Reading a chunk in isolation, rebase so first splat is at index 0
             self.base = 0;
+
+            self.splats.init_splats(&SplatInit {
+                num_splats: self.count,
+                max_sh_degree: chunk_meta.max_sh.unwrap_or(0),
+                lod_tree: chunk_meta.lod_tree.unwrap_or(false),
+            })?;
         }
 
-        let props = self.chunk_meta.get("properties").ok_or(anyhow::anyhow!("Missing properties"))?;
-        if !props.is_array() {
-            return Err(anyhow::anyhow!("Invalid properties: {:?}", props));
-        }
         self.prop_index = 0;
-
+        self.chunk_meta = Some(chunk_meta);
         Ok(())
     }
 
@@ -1033,7 +1386,7 @@ impl<T: SplatReceiver> RadDecoder<T> {
             return Ok(false);
         }
 
-        let meta = serde_json::from_slice(&self.buffer[8..8 + length])?;
+        let meta: RadChunkMeta = serde_json::from_slice(&self.buffer[8..8 + length])?;
         let payload_bytes = u64::from_le_bytes(self.buffer[meta_end..meta_end + 8].try_into().unwrap());
 
         self.buffer.drain(..meta_end + 8);
@@ -1046,97 +1399,105 @@ impl<T: SplatReceiver> RadDecoder<T> {
     }
 
     fn poll_chunk_props(&mut self) -> anyhow::Result<bool> {
-        let props = self.chunk_meta["properties"].as_array().unwrap();
+        let props = &self.chunk_meta.as_ref().unwrap().properties;
         loop {
             if self.prop_index >= props.len() {
                 return Ok(true);
             }
-            let prop = props[self.prop_index].as_object().ok_or(anyhow::anyhow!("Invalid property: {:?}", props[self.prop_index]))?;
+            let prop = &props[self.prop_index];
 
-            let offset = prop.get("offset").and_then(|v| v.as_u64()).ok_or(anyhow::anyhow!("Property missing offset"))?;
-            if (self.payload_start + offset) != self.offset {
-                return Err(anyhow::anyhow!("Property offset mismatch: expected {}, got {}", self.offset, offset));
+            if (self.payload_start + prop.offset) != self.offset {
+                return Err(anyhow::anyhow!("Property offset mismatch: expected {}, got {}", self.offset, self.payload_start + prop.offset));
             }
 
-            let bytes = prop.get("bytes").and_then(|v| v.as_u64()).ok_or(anyhow::anyhow!("Property missing bytes"))? as usize;
-            if self.buffer.len() < roundup8(bytes) {
+            if self.buffer.len() < roundup8(prop.bytes as usize) {
                 return Ok(false);
             }
 
-            let data = &self.buffer[0..bytes];
-            let data = if let Some(compression) = prop.get("compression").and_then(|v| v.as_str()) {
+            let data = &self.buffer[0..prop.bytes as usize];
+            let data = if let Some(compression) = prop.compression.as_ref() {
                 match compression {
-                    "gz" => &decompress_to_vec(data).map_err(|_e| anyhow::anyhow!("Failed to decompress gz data"))?,
-                    _ => return Err(anyhow::anyhow!("Unsupported compression: {}", compression)),
+                    RadChunkPropertyCompression::Gz => &decompress_to_vec(data).map_err(|_e| anyhow::anyhow!("Failed to decompress gz data"))?,
+                    // _ => return Err(anyhow::anyhow!("Unsupported compression: {:?}", compression)),
                 }
             } else {
                 data
             };
 
-            let prop_type = prop.get("property").and_then(|v| v.as_str()).ok_or(anyhow::anyhow!("Property missing type"))?;
-            let prop_encoding = prop.get("encoding").and_then(|v| v.as_str()).ok_or(anyhow::anyhow!("Property missing encoding"))?;
-            match prop_type {
-                "center" => {
-                    let centers = match prop_encoding {
-                        "f32" => decode_f32(data, 3, self.count),
-                        "f16" => decode_f16(data, 3, self.count),
-                        "f32_lebytes" => decode_f32_lebytes(data, 3, self.count),
-                        "f16_lebytes" => decode_f16_lebytes(data, 3, self.count),
-                        _ => return Err(anyhow::anyhow!("Unsupported center encoding: {}", prop_encoding)),
+            match prop.property {
+                RadChunkPropertyName::Center => {
+                    let centers = match prop.encoding {
+                        RadChunkPropertyEncoding::F32 => decode_f32(data, 3, self.count),
+                        RadChunkPropertyEncoding::F16 => decode_f16(data, 3, self.count),
+                        RadChunkPropertyEncoding::F32LeBytes => decode_f32_lebytes(data, 3, self.count),
+                        RadChunkPropertyEncoding::F16LeBytes => decode_f16_lebytes(data, 3, self.count),
+                        _ => return Err(anyhow::anyhow!("Unsupported center encoding: {:?}", prop.encoding)),
                     };
                     self.splats.set_center(self.base, self.count, &centers);
                 },
-                "alpha" => {
-                    let alphas = match prop_encoding {
-                        "f32" => decode_f32(data, 1, self.count),
-                        "f16" => decode_f16(data, 1, self.count),
-                        "r8" => {
-                            let min = prop.get("min").and_then(|v| v.as_f64()).ok_or(anyhow::anyhow!("Property missing min"))? as f32;
-                            let max = prop.get("max").and_then(|v| v.as_f64()).ok_or(anyhow::anyhow!("Property missing max"))? as f32;
+                RadChunkPropertyName::Alpha => {
+                    let alphas = match prop.encoding {
+                        RadChunkPropertyEncoding::F32 => decode_f32(data, 1, self.count),
+                        RadChunkPropertyEncoding::F16 => decode_f16(data, 1, self.count),
+                        RadChunkPropertyEncoding::R8 => {
+                            let Some(min) = prop.min else {
+                                return Err(anyhow::anyhow!("Property missing min"));
+                            };
+                            let Some(max) = prop.max else {
+                                return Err(anyhow::anyhow!("Property missing max"));
+                            };
                             decode_r8(data, 1, self.count, min, max)
                         },
-                        _ => return Err(anyhow::anyhow!("Unsupported alpha encoding: {}", prop_encoding)),
+                        _ => return Err(anyhow::anyhow!("Unsupported alpha encoding: {:?}", prop.encoding)),
                     };
                     self.splats.set_opacity(self.base, self.count, &alphas);
                 },
-                "rgb" => {
-                    let rgbs = match prop_encoding {
-                        "f32" => decode_f32(data, 3, self.count),
-                        "f16" => decode_f16(data, 3, self.count),
-                        "r8" | "r8_delta" => {
-                            let min = prop.get("min").and_then(|v| v.as_f64()).ok_or(anyhow::anyhow!("Property missing min"))? as f32;
-                            let max = prop.get("max").and_then(|v| v.as_f64()).ok_or(anyhow::anyhow!("Property missing max"))? as f32;
-                            if prop_encoding == "r8" {
+                RadChunkPropertyName::Rgb => {
+                    let rgbs = match prop.encoding {
+                        RadChunkPropertyEncoding::F32 => decode_f32(data, 3, self.count),
+                        RadChunkPropertyEncoding::F16 => decode_f16(data, 3, self.count),
+                        RadChunkPropertyEncoding::R8 | RadChunkPropertyEncoding::R8Delta => {
+                            let Some(min) = prop.min else {
+                                return Err(anyhow::anyhow!("Property missing min"));
+                            };
+                            let Some(max) = prop.max else {
+                                return Err(anyhow::anyhow!("Property missing max"));
+                            };
+                            if prop.encoding == RadChunkPropertyEncoding::R8 {
                                 decode_r8(data, 3, self.count, min, max)
                             } else {
                                 decode_r8_delta(data, 3, self.count, min, max)
                             }
                         },
-                        _ => return Err(anyhow::anyhow!("Unsupported rgb encoding: {}", prop_encoding)),
+                        _ => return Err(anyhow::anyhow!("Unsupported rgb encoding: {:?}", prop.encoding)),
                     };
                     self.splats.set_rgb(self.base, self.count, &rgbs);
                 },
-                "scales" => {
-                    let scales = match prop_encoding {
-                        "f32" => decode_f32(data, 3, self.count),
-                        "ln_f16" => decode_ln_f16(data, 3, self.count),
-                        "ln_0r8" => {
-                            let min = prop.get("min").and_then(|v| v.as_f64()).ok_or(anyhow::anyhow!("Property missing min"))? as f32;
-                            let max = prop.get("max").and_then(|v| v.as_f64()).ok_or(anyhow::anyhow!("Property missing max"))? as f32;
+                RadChunkPropertyName::Scales => {
+                    let scales = match prop.encoding {
+                        RadChunkPropertyEncoding::F32 => decode_f32(data, 3, self.count),
+                        RadChunkPropertyEncoding::LnF16 => decode_ln_f16(data, 3, self.count),
+                        RadChunkPropertyEncoding::Ln0R8 => {
+                            let Some(min) = prop.min else {
+                                return Err(anyhow::anyhow!("Property missing min"));
+                            };
+                            let Some(max) = prop.max else {
+                                return Err(anyhow::anyhow!("Property missing max"));
+                            };
                             decode_ln_0r8(data, 3, self.count, min, max)
                         },
-                        _ => return Err(anyhow::anyhow!("Unsupported scales encoding: {}", prop_encoding)),
+                        _ => return Err(anyhow::anyhow!("Unsupported scales encoding: {:?}", prop.encoding)),
                     };
                     self.splats.set_scale(self.base, self.count, &scales);
                 },
-                "orientation" => {
-                    let quaternions = if prop_encoding == "oct88r8" {
+                RadChunkPropertyName::Orientation => {
+                    let quaternions = if prop.encoding == RadChunkPropertyEncoding::Oct88R8 {
                         decode_quat_oct88r8(data, self.count)
                     } else {
-                        let xyzs = match prop_encoding {
-                            "f32" => decode_f32(data, 3, self.count),
-                            "f16" => decode_f16(data, 3, self.count),
-                            _ => return Err(anyhow::anyhow!("Unsupported orientation encoding: {}", prop_encoding)),
+                        let xyzs = match prop.encoding {
+                            RadChunkPropertyEncoding::F32 => decode_f32(data, 3, self.count),
+                            RadChunkPropertyEncoding::F16 => decode_f16(data, 3, self.count),
+                            _ => return Err(anyhow::anyhow!("Unsupported orientation encoding: {:?}", prop.encoding)),
                         };
                         let mut quaternions = Vec::with_capacity(4 * self.count);
                         for i in 0..self.count {
@@ -1148,49 +1509,67 @@ impl<T: SplatReceiver> RadDecoder<T> {
                     };
                     self.splats.set_quat(self.base, self.count, &quaternions);
                 },
-                "sh1" | "sh2" | "sh3" => {
-                    let elements = match prop_type {
-                        "sh1" => 9,
-                        "sh2" => 15,
-                        "sh3" => 21,
+                RadChunkPropertyName::Sh1 | RadChunkPropertyName::Sh2 | RadChunkPropertyName::Sh3 => {
+                    let elements = match prop.property {
+                        RadChunkPropertyName::Sh1 => 9,
+                        RadChunkPropertyName::Sh2 => 15,
+                        RadChunkPropertyName::Sh3 => 21,
                         _ => unreachable!()
                     };
-                    let shs = match prop_encoding {
-                        "f32" => decode_f32(data, elements, self.count),
-                        "f16" => decode_f16(data, elements, self.count),
-                        "r8" => {
-                            let min = prop.get("min").and_then(|v| v.as_f64()).ok_or(anyhow::anyhow!("Property missing min"))? as f32;
-                            let max = prop.get("max").and_then(|v| v.as_f64()).ok_or(anyhow::anyhow!("Property missing max"))? as f32;
-                            decode_r8(data, elements, self.count, min, max)
+                    let shs = match prop.encoding {
+                        RadChunkPropertyEncoding::F32 => decode_f32(data, elements, self.count),
+                        RadChunkPropertyEncoding::F16 => decode_f16(data, elements, self.count),
+                        RadChunkPropertyEncoding::R8 | RadChunkPropertyEncoding::R8Delta => {
+                            let Some(min) = prop.min else {
+                                return Err(anyhow::anyhow!("Property missing min"));
+                            };
+                            let Some(max) = prop.max else {
+                                return Err(anyhow::anyhow!("Property missing max"));
+                            };
+                            if prop.encoding == RadChunkPropertyEncoding::R8 {
+                                decode_r8(data, elements, self.count, min, max)
+                            } else {
+                                decode_r8_delta(data, elements, self.count, min, max)
+                            }
                         },
-                        _ => return Err(anyhow::anyhow!("Unsupported sh encoding: {}", prop_encoding)),
+                        RadChunkPropertyEncoding::S8 | RadChunkPropertyEncoding::S8Delta => {
+                            let Some(max) = prop.max else {
+                                return Err(anyhow::anyhow!("Property missing max"));
+                            };
+                            if prop.encoding == RadChunkPropertyEncoding::S8 {
+                                decode_s8(data, elements, self.count, max)
+                            } else {
+                                decode_s8_delta(data, elements, self.count, max)
+                            }
+                        },
+                        _ => return Err(anyhow::anyhow!("Unsupported sh encoding: {:?}", prop.encoding)),
                     };
-                    match prop_type {
-                        "sh1" => self.splats.set_sh1(self.base, self.count, &shs),
-                        "sh2" => self.splats.set_sh2(self.base, self.count, &shs),
-                        "sh3" => self.splats.set_sh3(self.base, self.count, &shs),
+                    match prop.property {
+                        RadChunkPropertyName::Sh1 => self.splats.set_sh1(self.base, self.count, &shs),
+                        RadChunkPropertyName::Sh2 => self.splats.set_sh2(self.base, self.count, &shs),
+                        RadChunkPropertyName::Sh3 => self.splats.set_sh3(self.base, self.count, &shs),
                         _ => unreachable!()
                     }
                 },
-                "child_count" => {
-                    if prop_encoding != "u16" {
-                        return Err(anyhow::anyhow!("Unsupported child count encoding: {}", prop_encoding));
+                RadChunkPropertyName::ChildCount => {
+                    if prop.encoding != RadChunkPropertyEncoding::U16 {
+                        return Err(anyhow::anyhow!("Unsupported child count encoding: {:?}", prop.encoding));
                     }
                     let child_counts = decode_u16(data, 1, self.count);
                     self.splats.set_child_count(self.base, self.count, &child_counts);
                 },
-                "child_start" => {
-                    if prop_encoding != "u32" {
-                        return Err(anyhow::anyhow!("Unsupported child start encoding: {}", prop_encoding));
+                RadChunkPropertyName::ChildStart => {
+                    if prop.encoding != RadChunkPropertyEncoding::U32 {
+                        return Err(anyhow::anyhow!("Unsupported child start encoding: {:?}", prop.encoding));
                     }
                     let child_starts = decode_u32_as_usize(data, 1, self.count);
                     self.splats.set_child_start(self.base, self.count, &child_starts);
                 },
-                _ => return Err(anyhow::anyhow!("Unknown property type: {}", prop_type)),
+                // _ => return Err(anyhow::anyhow!("Unknown property type: {:?}", prop.property)),
             }
 
-            self.buffer.drain(..roundup8(bytes));
-            self.offset += roundup8(bytes) as u64;
+            self.buffer.drain(..roundup8(prop.bytes as usize));
+            self.offset += roundup8(prop.bytes as usize) as u64;
             self.prop_index += 1;
         }
     }

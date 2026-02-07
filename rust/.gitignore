@@ -1,2 +1,3 @@
 target/
 spark-internal-rs/pkg/
+spark-rs/pkg/

@@ -1,12 +1,8 @@
 import * as THREE from "three";
 
-import init_wasm, { raycast_splats } from "spark-internal-rs";
+import init_wasm, { raycast_splats } from "spark-rs";
 import { ExtSplats } from "./ExtSplats";
-import {
-  DEFAULT_SPLAT_ENCODING,
-  PackedSplats,
-  type SplatEncoding,
-} from "./PackedSplats";
+import { PackedSplats } from "./PackedSplats";
 import { type RgbaArray, TRgbaArray } from "./RgbaArray";
 import { SparkRenderer } from "./SparkRenderer";
 import { SplatEdit, SplatEditSdf, SplatEdits } from "./SplatEdit";
@@ -18,10 +14,15 @@ import {
   SplatGenerator,
   SplatTransformer,
 } from "./SplatGenerator";
-import type { SplatFileType } from "./SplatLoader";
 import { PagedSplats, SplatPager } from "./SplatPager";
 import type { SplatSkinning } from "./SplatSkinning";
-import { LN_SCALE_MAX, LN_SCALE_MIN } from "./defines";
+import {
+  DEFAULT_SPLAT_ENCODING,
+  LN_SCALE_MAX,
+  LN_SCALE_MIN,
+  type SplatEncoding,
+  type SplatFileType,
+} from "./defines";
 import {
   CovSplat,
   Dyno,
@@ -43,8 +44,6 @@ import {
   splitGsplat,
   unindentLines,
 } from "./dyno";
-// import { SplatWorker } from "./splatWorker";
-import { getTextureSize } from "./utils";
 
 export type SplatMeshOptions = {
   // URL to fetch a Gaussian splat file from(supports .ply, .splat, .ksplat,

@@ -15,10 +15,15 @@
       "rust/target",
       "rust/javascript",
       "rust/spark-internal-rs/pkg",
+      "rust/spark-rs/pkg",
       "src/vrButton.ts",
       "site",
       "site-repo",
-      "docs"
+      "docs",
+      "*.backup*",
+      "examples/**/spark.module.js",
+      "examples/**/*.json",
+      "examples/**/pkg"
     ]
   },
   "formatter": {

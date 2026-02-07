@@ -126,6 +126,12 @@ export const transformGsplat = (
   return new TransformGsplat({ gsplat, scale, rotate, translate, recolor });
 };
 
+export const splatTexCoord = (index: DynoVal<"int">): DynoVal<"ivec3"> =>
+  new SplatTexCoord({ index });
+
+export const pagedSplatTexCoord = (index: DynoVal<"int">): DynoVal<"ivec3"> =>
+  new PagedSplatTexCoord({ index });
+
 export const defineGsplat = unindent(`
   struct Gsplat {
     vec3 center;
@@ -1077,5 +1083,55 @@ export class CombineCovSplat
 
   dynoOut(): DynoValue<typeof CovSplat> {
     return new DynoOutput(this, "covsplat");
+  }
+}
+
+export class SplatTexCoord
+  extends Dyno<{ index: "int" }, { coord: "ivec3" }>
+  implements HasDynoOut<"ivec3">
+{
+  constructor({ index }: { index?: DynoVal<"int"> }) {
+    super({
+      inTypes: { index: "int" },
+      outTypes: { coord: "ivec3" },
+      inputs: { index },
+      statements: ({ inputs, outputs }) => {
+        const { index } = inputs;
+        const { coord } = outputs;
+        if (!index || !coord) {
+          return [];
+        }
+        return [`${coord} = splatTexCoord(${index});`];
+      },
+    });
+  }
+
+  dynoOut(): DynoValue<"ivec3"> {
+    return new DynoOutput(this, "coord");
+  }
+}
+
+export class PagedSplatTexCoord
+  extends Dyno<{ index: "int" }, { coord: "ivec3" }>
+  implements HasDynoOut<"ivec3">
+{
+  constructor({ index }: { index?: DynoVal<"int"> }) {
+    super({
+      inTypes: { index: "int" },
+      outTypes: { coord: "ivec3" },
+      inputs: { index },
+      statements: ({ inputs, outputs }) => {
+        const { index } = inputs;
+        const { coord } = outputs;
+        if (!index || !coord) {
+          return [];
+        }
+        return [`${coord} = pagedSplatTexCoord(${index});`];
+      },
+    });
+  }
+
+  dynoOut(): DynoValue<"ivec3"> {
+    return new DynoOutput(this, "coord");
   }
 }

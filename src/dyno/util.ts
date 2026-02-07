@@ -78,6 +78,10 @@ export const normalizedDepth = (
   return new NormalizedDepth({ z, zNear, zFar }).outputs.depth;
 };
 
+export const debugColorHue = (index: DynoVal<"int">): DynoVal<"vec3"> => {
+  return new DebugColorHue({ index });
+};
+
 export class DynoRemapIndex
   extends Dyno<{ from: "int"; to: "int"; index: "int" }, { index: "int" }>
   implements HasDynoOut<"int">
@@ -437,5 +441,25 @@ export class NormalizedDepth
 
   dynoOut(): DynoValue<"float"> {
     return new DynoOutput(this, "depth");
+  }
+}
+
+export class DebugColorHue
+  extends Dyno<{ index: "int" }, { color: "vec3" }>
+  implements HasDynoOut<"vec3">
+{
+  constructor({ index }: { index: DynoVal<"int"> }) {
+    super({
+      inTypes: { index: "int" },
+      outTypes: { color: "vec3" },
+      inputs: { index },
+      statements: ({ inputs, outputs }) => [
+        `${outputs.color} = debugColorHue(uint(${inputs.index}));`,
+      ],
+    });
+  }
+
+  dynoOut(): DynoValue<"vec3"> {
+    return new DynoOutput(this, "color");
   }
 }

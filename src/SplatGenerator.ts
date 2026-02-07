@@ -12,7 +12,6 @@ import {
   add,
   dynoBlock,
   mul,
-  projectH,
   transformDir,
   transformGsplat,
   transformPos,

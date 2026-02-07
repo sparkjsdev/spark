@@ -32,6 +32,16 @@ export const not = <T extends BoolTypes | AllIntTypes>(
   a: DynoVal<T>,
 ): DynoVal<T> => new Not({ a });
 
+export const shr = <T extends IntTypes>(
+  a: DynoVal<T>,
+  b: DynoVal<T>,
+): DynoVal<T> => new Shr({ a, b });
+
+export const shl = <T extends IntTypes>(
+  a: DynoVal<T>,
+  b: DynoVal<T>,
+): DynoVal<T> => new Shl({ a, b });
+
 export const lessThan = <T extends ValueTypes>(
   a: DynoVal<T>,
   b: DynoVal<T>,
@@ -429,6 +439,24 @@ export class CompXor<T extends BoolTypes | AllIntTypes> extends UnaryOp<
       const operands = components.map((c) => `${inputs.a}.${c}`);
       const operator = isBoolType(outType) ? "^^" : "^";
       return [`${outputs.compXor} = ${operands.join(` ${operator} `)};`];
+    };
+  }
+}
+
+export class Shr<T extends IntTypes> extends BinaryOp<T, T, T, "shr"> {
+  constructor({ a, b }: { a: DynoVal<T>; b: DynoVal<T> }) {
+    super({ a, b, outTypeFunc: (aType: T, bType: T) => aType, outKey: "shr" });
+    this.statements = ({ inputs, outputs }) => {
+      return [`${outputs.shr} = ${inputs.a} >> ${inputs.b};`];
+    };
+  }
+}
+
+export class Shl<T extends IntTypes> extends BinaryOp<T, T, T, "shl"> {
+  constructor({ a, b }: { a: DynoVal<T>; b: DynoVal<T> }) {
+    super({ a, b, outTypeFunc: (aType: T, bType: T) => aType, outKey: "shl" });
+    this.statements = ({ inputs, outputs }) => {
+      return [`${outputs.shl} = ${inputs.a} << ${inputs.b};`];
     };
   }
 }

@@ -1,8 +1,7 @@
 import init_wasm, { sort_splats, sort32_splats } from "spark-internal-rs";
-import type { SplatEncoding } from "./PackedSplats";
 import type { PcSogsJson, TranscodeSpzInput } from "./SplatLoader";
 import { unpackAntiSplat } from "./antisplat";
-import { LN_SCALE_MAX, LN_SCALE_MIN, WASM_SPLAT_SORT } from "./defines";
+import { type SplatEncoding, WASM_SPLAT_SORT } from "./defines";
 import { unpackKsplat } from "./ksplat";
 import { unpackPcSogs, unpackPcSogsZip } from "./pcsogs";
 import { PlyReader } from "./ply";

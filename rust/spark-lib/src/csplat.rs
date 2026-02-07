@@ -238,10 +238,12 @@ impl TsplatArray for CsplatArray {
         let (vals, vecs) = total_cov.positive_eigens();
         let scales = Vec3A::from_array(vals.map(|v| v.max(0.0).sqrt()));
         assert!(scales.x.is_finite() && scales.y.is_finite() && scales.z.is_finite());
+        let scales = scales.max(Vec3A::splat(1.0e-30));
 
         let basis = Mat3A::from_cols(vecs[0], vecs[1], vecs[2]);
         let quaternion = Quat::from_mat3a(&basis);
-        let opacity = (total_weight / ellipsoid_area(scales)).min(1000.0);
+        let opacity = (total_weight / ellipsoid_area(scales)).clamp(0.000001, 1000.0);
+        
         self.splats.push(Csplat::new(center, opacity, rgb, scales, quaternion, &self.encoding));
         self.children.push(indices.iter().map(|&i| i as u32).collect());
 

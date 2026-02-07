@@ -506,6 +506,10 @@ ivec3 splatTexCoord(int index) {
     return ivec3(x, y, z);
 }
 
+ivec3 pagedSplatTexCoord(int index) {
+    return ivec3(index & 255, (index >> 8) & 255, index >> 16);
+}
+
 vec4 uintToVec4(uint u32) {
     uvec4 bytes = uvec4(
         u32 & 0xFFu,
@@ -519,4 +523,12 @@ vec4 uintToVec4(uint u32) {
 vec4 floatToVec4(float f) {
     uint u32 = floatBitsToUint(f);
     return uintToVec4(u32);
+}
+
+vec3 debugColorHue(uint i) {
+    // Golden ratio conjugate; spreads hues evenly
+    float hue = fract(float(i) * 0.61803398875);
+    // HSV to RGB with fixed S/V
+    vec3 rgb = clamp(abs(mod(hue*6.0 + vec3(0.0,4.0,2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+    return mix(vec3(1.0), rgb, 0.85); // saturation ~0.85, value ~1.0
 }

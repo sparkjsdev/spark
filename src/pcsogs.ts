@@ -1,10 +1,10 @@
 import { unzip } from "fflate";
-import type { SplatEncoding } from "./PackedSplats";
 import {
   type PcSogsJson,
   type PcSogsV2Json,
   tryPcSogsZip,
 } from "./SplatLoader";
+import type { SplatEncoding } from "./defines";
 import {
   computeMaxSplats,
   encodeSh1Rgb,

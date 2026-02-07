@@ -1,14 +1,14 @@
 import * as THREE from "three";
 import {
   SplatData,
-  SplatFileType,
   type TranscodeSpzInput,
   getSplatFileType,
   getSplatFileTypeFromPath,
 } from "./SplatLoader";
-import { GunzipReader, fromHalf, normalize, unpackSplat } from "./utils";
+import { GunzipReader, fromHalf, normalize } from "./utils";
 
 import { decodeAntiSplat } from "./antisplat";
+import { SplatFileType } from "./defines";
 import { decodeKsplat } from "./ksplat";
 import { PlyReader } from "./ply";
 

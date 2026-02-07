@@ -1,96 +1,11 @@
 use std::collections::BinaryHeap;
 
 use ahash::AHashMap;
-use glam::{Vec3A, Mat3A, IVec3};
+use glam::IVec3;
 use ordered_float::OrderedFloat;
 use smallvec::{SmallVec, smallvec};
 
 use crate::tsplat::{Tsplat, TsplatMut, TsplatArray};
-
-#[derive(Clone, Copy, Debug)]
-pub struct Aabb {
-    pub min: Vec3A,
-    pub max: Vec3A,
-}
-
-impl Aabb {
-    #[inline]
-    pub fn empty() -> Self {
-        Self {
-            min: Vec3A::splat(f32::INFINITY),
-            max: Vec3A::splat(f32::NEG_INFINITY),
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.min.x > self.max.x || self.min.y > self.max.y || self.min.z > self.max.z
-    }
-
-    pub fn all() -> Self {
-        Self {
-            min: Vec3A::splat(f32::NEG_INFINITY),
-            max: Vec3A::splat(f32::INFINITY),
-        }
-    }
-
-    #[inline]
-    pub fn extend(&self, other: &Aabb) -> Self {
-        Self {
-            min: self.min.min(other.min),
-            max: self.max.max(other.max),
-        }
-    }
-
-    #[inline]
-    pub fn intersect(&self, o: &Aabb) -> Self {
-        Self {
-            min: self.min.max(o.min),
-            max: self.max.min(o.max),
-        }
-    }
-
-    pub fn volume(&self) -> f32 {
-        let extent = self.extent();
-        extent.x * extent.y * extent.z
-    }
-
-    #[inline]
-    pub fn overlaps(&self, o: &Aabb) -> bool {
-        // inclusive overlap
-        self.min.x <= o.max.x && self.max.x >= o.min.x &&
-        self.min.y <= o.max.y && self.max.y >= o.min.y &&
-        self.min.z <= o.max.z && self.max.z >= o.min.z
-    }
-
-    #[inline]
-    pub fn center(&self) -> Vec3A {
-        (self.min + self.max) * 0.5
-    }
-
-    #[inline]
-    pub fn extent(&self) -> Vec3A {
-        self.max - self.min
-    }
-}
-
-#[inline]
-pub fn splat_aabb<TS: Tsplat>(s: &TS, std_devs: f32) -> Aabb {
-    let clamped_scales = s.scales().max(Vec3A::splat(1.0e-3));
-    // k-sigma radii in local frame
-    let r = clamped_scales * std_devs;
-
-    // Tight AABB half-extents for rotated ellipsoid:
-    // half = |R| * r
-    let rmat = Mat3A::from_quat(s.quaternion());
-    let half = rmat.abs() * r;
-
-    let center = s.center();
-    Aabb {
-        min: center - half,
-        max: center + half,
-    }
-}
-
 
 pub fn compute_lod_tree<TA: TsplatArray>(splats: &mut TA, lod_base: f32, logger: impl Fn(&str)) {
     let merge_base = 2.0;

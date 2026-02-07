@@ -41,3 +41,81 @@ export const WASM_SPLAT_SORT = true;
 // in the plyReader.
 
 export const USE_COMPILED_PARSER_FUNCTION = true;
+
+export enum SplatFileType {
+  PLY = "ply",
+  SPZ = "spz",
+  SPLAT = "splat",
+  KSPLAT = "ksplat",
+  PCSOGS = "pcsogs",
+  PCSOGSZIP = "pcsogszip",
+  RAD = "rad",
+}
+
+export type SplatEncoding = {
+  rgbMin?: number;
+  rgbMax?: number;
+  lnScaleMin?: number;
+  lnScaleMax?: number;
+  sh1Max?: number;
+  sh2Max?: number;
+  sh3Max?: number;
+  lodOpacity?: boolean;
+};
+
+export const DEFAULT_SPLAT_ENCODING: SplatEncoding = {
+  rgbMin: 0,
+  rgbMax: 1,
+  lnScaleMin: LN_SCALE_MIN,
+  lnScaleMax: LN_SCALE_MAX,
+  sh1Max: 1,
+  sh2Max: 1,
+  sh3Max: 1,
+  lodOpacity: false,
+};
+
+export type RadMeta = {
+  version: number;
+  type: string;
+  count: number;
+  maxSh?: number;
+  lodTree?: boolean;
+  chunkSize?: number;
+  chunks: {
+    offset: number;
+    bytes: number;
+    base?: number;
+    count?: number;
+  }[];
+  splatEncoding?: SplatEncoding;
+};
+
+export type PackedExtra = {
+  sh1?: Uint32Array;
+  sh2?: Uint32Array;
+  sh3?: Uint32Array;
+  lodTree?: Uint32Array;
+  radMeta?: RadMeta;
+};
+
+export type PackedResult = {
+  numSplats: number;
+  packedArray: Uint32Array;
+  extra: PackedExtra;
+  splatEncoding: SplatEncoding;
+};
+
+export type ExtExtra = {
+  sh1?: Uint32Array;
+  sh2?: Uint32Array;
+  sh3a?: Uint32Array;
+  sh3b?: Uint32Array;
+  lodTree?: Uint32Array;
+  radMeta?: RadMeta;
+};
+
+export type ExtResult = {
+  numSplats: number;
+  extArrays: [Uint32Array, Uint32Array];
+  extra: ExtExtra;
+};

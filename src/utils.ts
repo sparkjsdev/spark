@@ -1391,19 +1391,16 @@ export function encodeSh1Rgb(
   index: number,
   sh1Rgb: Float32Array,
   encoding?: {
-    sh1Min?: number;
     sh1Max?: number;
   },
 ) {
-  const sh1Min = encoding?.sh1Min ?? -1;
   const sh1Max = encoding?.sh1Max ?? 1;
-  const sh1Mid = 0.5 * (sh1Min + sh1Max);
-  const sh1Scale = 126 / (sh1Max - sh1Min);
+  const sh1Scale = 63 / sh1Max;
 
   // Pack sint7 values into 2 x uint32
   const base = index * 2;
   for (let i = 0; i < 9; ++i) {
-    const s = (sh1Rgb[i] - sh1Mid) * sh1Scale;
+    const s = sh1Rgb[i] * sh1Scale;
     const value = Math.round(Math.max(-63, Math.min(63, s))) & 0x7f;
     const bitStart = i * 7;
     const bitEnd = bitStart + 7;
@@ -1427,38 +1424,35 @@ export function encodeSh2Rgb(
   index: number,
   sh2Rgb: Float32Array,
   encoding?: {
-    sh2Min?: number;
     sh2Max?: number;
   },
 ) {
-  const sh2Min = encoding?.sh2Min ?? -1;
   const sh2Max = encoding?.sh2Max ?? 1;
-  const sh2Mid = 0.5 * (sh2Min + sh2Max);
-  const sh2Scale = 2 / (sh2Max - sh2Min);
+  const sh2Scale = 1 / sh2Max;
 
   // Pack sint8 values into 4 x uint32
   sh2Array[index * 4 + 0] = packSint8Bytes(
-    (sh2Rgb[0] - sh2Mid) * sh2Scale,
-    (sh2Rgb[1] - sh2Mid) * sh2Scale,
-    (sh2Rgb[2] - sh2Mid) * sh2Scale,
-    (sh2Rgb[3] - sh2Mid) * sh2Scale,
+    sh2Rgb[0] * sh2Scale,
+    sh2Rgb[1] * sh2Scale,
+    sh2Rgb[2] * sh2Scale,
+    sh2Rgb[3] * sh2Scale,
   );
   sh2Array[index * 4 + 1] = packSint8Bytes(
-    (sh2Rgb[4] - sh2Mid) * sh2Scale,
-    (sh2Rgb[5] - sh2Mid) * sh2Scale,
-    (sh2Rgb[6] - sh2Mid) * sh2Scale,
-    (sh2Rgb[7] - sh2Mid) * sh2Scale,
+    sh2Rgb[4] * sh2Scale,
+    sh2Rgb[5] * sh2Scale,
+    sh2Rgb[6] * sh2Scale,
+    sh2Rgb[7] * sh2Scale,
   );
   sh2Array[index * 4 + 2] = packSint8Bytes(
-    (sh2Rgb[8] - sh2Mid) * sh2Scale,
-    (sh2Rgb[9] - sh2Mid) * sh2Scale,
-    (sh2Rgb[10] - sh2Mid) * sh2Scale,
-    (sh2Rgb[11] - sh2Mid) * sh2Scale,
+    sh2Rgb[8] * sh2Scale,
+    sh2Rgb[9] * sh2Scale,
+    sh2Rgb[10] * sh2Scale,
+    sh2Rgb[11] * sh2Scale,
   );
   sh2Array[index * 4 + 3] = packSint8Bytes(
-    (sh2Rgb[12] - sh2Mid) * sh2Scale,
-    (sh2Rgb[13] - sh2Mid) * sh2Scale,
-    (sh2Rgb[14] - sh2Mid) * sh2Scale,
+    sh2Rgb[12] * sh2Scale,
+    sh2Rgb[13] * sh2Scale,
+    sh2Rgb[14] * sh2Scale,
     0,
   );
 }
@@ -1470,19 +1464,16 @@ export function encodeSh3Rgb(
   index: number,
   sh3Rgb: Float32Array,
   encoding?: {
-    sh3Min?: number;
     sh3Max?: number;
   },
 ) {
-  const sh3Min = encoding?.sh3Min ?? -1;
   const sh3Max = encoding?.sh3Max ?? 1;
-  const sh3Mid = 0.5 * (sh3Min + sh3Max);
-  const sh3Scale = 62 / (sh3Max - sh3Min);
+  const sh3Scale = 31 / sh3Max;
 
   // Pack sint6 values into 4 x uint32
   const base = index * 4;
   for (let i = 0; i < 21; ++i) {
-    const s = (sh3Rgb[i] - sh3Mid) * sh3Scale;
+    const s = sh3Rgb[i] * sh3Scale;
     const value = Math.round(Math.max(-31, Math.min(31, s))) & 0x3f;
     const bitStart = i * 6;
     const bitEnd = bitStart + 6;

@@ -552,7 +552,7 @@ impl SplatReceiver for ExtSplatsData {
                         buffer_b[i4 + (k - 1)] = encode_ext_rgb([sh2[k3], sh2[k3 + 1], sh2[k3 + 2]]);
                     }
                 }
-                packed_sh2.subarray((base * 4) as u32, ((base + count) * 4) as u32).copy_from(&self.buffer_a);
+                packed_sh1.subarray((base * 4) as u32, ((base + count) * 4) as u32).copy_from(&self.buffer_a);
                 packed_sh2.subarray((base * 4) as u32, ((base + count) * 4) as u32).copy_from(&self.buffer_b);
             }
         }

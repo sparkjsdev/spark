@@ -48,16 +48,10 @@ pub struct SplatEncoding {
     pub ln_scale_min: f32,
     #[serde(rename = "lnScaleMax")]
     pub ln_scale_max: f32,
-    #[serde(rename = "sh1Min")]
-    pub sh1_min: f32,
     #[serde(rename = "sh1Max")]
     pub sh1_max: f32,
-    #[serde(rename = "sh2Min")]
-    pub sh2_min: f32,
     #[serde(rename = "sh2Max")]
     pub sh2_max: f32,
-    #[serde(rename = "sh3Min")]
-    pub sh3_min: f32,
     #[serde(rename = "sh3Max")]
     pub sh3_max: f32,
     #[serde(rename = "lodOpacity")]
@@ -71,11 +65,8 @@ impl Default for SplatEncoding {
             rgb_max: 1.0,
             ln_scale_min: -12.0,
             ln_scale_max: 9.0,
-            sh1_min: -1.0,
             sh1_max: 1.0,
-            sh2_min: -1.0,
             sh2_max: 1.0,
-            sh3_min: -1.0,
             sh3_max: 1.0,
             lod_opacity: false,
         }
@@ -92,20 +83,29 @@ pub struct SetSplatEncoding {
     pub ln_scale_min: Option<f32>,
     #[serde(rename = "lnScaleMax")]
     pub ln_scale_max: Option<f32>,
-    #[serde(rename = "sh1Min")]
-    pub sh1_min: Option<f32>,
     #[serde(rename = "sh1Max")]
     pub sh1_max: Option<f32>,
-    #[serde(rename = "sh2Min")]
-    pub sh2_min: Option<f32>,
     #[serde(rename = "sh2Max")]
     pub sh2_max: Option<f32>,
-    #[serde(rename = "sh3Min")]
-    pub sh3_min: Option<f32>,
     #[serde(rename = "sh3Max")]
     pub sh3_max: Option<f32>,
     #[serde(rename = "lodOpacity")]
     pub lod_opacity: Option<bool>,
+}
+
+impl From<SplatEncoding> for SetSplatEncoding {
+    fn from(encoding: SplatEncoding) -> Self {
+        Self {
+            rgb_min: Some(encoding.rgb_min),
+            rgb_max: Some(encoding.rgb_max),
+            ln_scale_min: Some(encoding.ln_scale_min),
+            ln_scale_max: Some(encoding.ln_scale_max),
+            sh1_max: Some(encoding.sh1_max),
+            sh2_max: Some(encoding.sh2_max),
+            sh3_max: Some(encoding.sh3_max),
+            lod_opacity: Some(encoding.lod_opacity),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -628,19 +628,7 @@ pub fn copy_getter_to_receiver<G: SplatGetter, R: SplatReceiver>(getter: &mut G,
 
     // Propagate encoding from getter if available
     if let Some(encoding) = getter.get_encoding() {
-        receiver.set_encoding(&SetSplatEncoding {
-            rgb_min: Some(encoding.rgb_min),
-            rgb_max: Some(encoding.rgb_max),
-            ln_scale_min: Some(encoding.ln_scale_min),
-            ln_scale_max: Some(encoding.ln_scale_max),
-            sh1_min: Some(encoding.sh1_min),
-            sh1_max: Some(encoding.sh1_max),
-            sh2_min: Some(encoding.sh2_min),
-            sh2_max: Some(encoding.sh2_max),
-            sh3_min: Some(encoding.sh3_min),
-            sh3_max: Some(encoding.sh3_max),
-            lod_opacity: Some(encoding.lod_opacity),
-        })?;
+        receiver.set_encoding(&SetSplatEncoding::from(encoding))?;
     }
 
     // Reusable buffers

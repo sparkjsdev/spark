@@ -322,27 +322,25 @@ pub fn decode_ext_rgb(encoded: u32) -> [f32; 3] {
     ]
 }
 
-pub fn encode_sh1(sh1: &[f32], sh1_min: f32, sh1_max: f32) -> [u32; 2] {
-    let sh1_mid = 0.5 * (sh1_min + sh1_max);
-    let sh1_scale = 126.0 / (sh1_max - sh1_min);
-    encode_sh1_internal(sh1, sh1_mid, sh1_scale)
+pub fn encode_sh1(sh1: &[f32], sh1_max: f32) -> [u32; 2] {
+    let sh1_scale = 63.0 / sh1_max;
+    encode_sh1_internal(sh1, sh1_scale)
 }
 
-pub fn encode_sh1_array(buffer: &mut [u32], sh1: &[f32], count: usize, sh1_min: f32, sh1_max: f32) {
-    let sh1_mid = 0.5 * (sh1_min + sh1_max);
-    let sh1_scale = 126.0 / (sh1_max - sh1_min);
+pub fn encode_sh1_array(buffer: &mut [u32], sh1: &[f32], count: usize, sh1_max: f32) {
+    let sh1_scale = 63.0 / sh1_max;
     for i in 0..count {
         let [i2, i9] = [i * 2, i * 9];
-        let encoded = encode_sh1_internal(&sh1[i9..i9 + 9], sh1_mid, sh1_scale);
+        let encoded = encode_sh1_internal(&sh1[i9..i9 + 9], sh1_scale);
         buffer[i2] = encoded[0];
         buffer[i2 + 1] = encoded[1];
     }
 }
 
-pub fn encode_sh1_internal(sh1: &[f32], sh1_mid: f32, sh1_scale: f32) -> [u32; 2] {
+pub fn encode_sh1_internal(sh1: &[f32], sh1_scale: f32) -> [u32; 2] {
     let mut words = [0, 0];
     for i in 0..9 {
-        let value = ((sh1[i] - sh1_mid) * sh1_scale).clamp(-63.0, 63.0).round() as i8 & 0x7f;
+        let value = (sh1[i] * sh1_scale).clamp(-63.0, 63.0).round() as i8 & 0x7f;
         let bit_start = i * 7;
         let word_start = bit_start / 32;
         let word_bit_start = word_start * 32;
@@ -356,18 +354,16 @@ pub fn encode_sh1_internal(sh1: &[f32], sh1_mid: f32, sh1_scale: f32) -> [u32; 2
     words
 }
 
-pub fn encode_sh2(sh2: &[f32], sh2_min: f32, sh2_max: f32) -> [u32; 4] {
-    let sh2_mid = 0.5 * (sh2_min + sh2_max);
-    let sh2_scale = 254.0 / (sh2_max - sh2_min);
-    encode_sh2_internal(sh2, sh2_mid, sh2_scale)
+pub fn encode_sh2(sh2: &[f32], sh2_max: f32) -> [u32; 4] {
+    let sh2_scale = 127.0 / sh2_max;
+    encode_sh2_internal(sh2, sh2_scale)
 }
 
-pub fn encode_sh2_array(buffer: &mut [u32], sh2: &[f32], count: usize, sh2_min: f32, sh2_max: f32) {
-    let sh2_mid = 0.5 * (sh2_min + sh2_max);
-    let sh2_scale = 254.0 / (sh2_max - sh2_min);
+pub fn encode_sh2_array(buffer: &mut [u32], sh2: &[f32], count: usize, sh2_max: f32) {
+    let sh2_scale = 127.0 / sh2_max;
     for i in 0..count {
         let [i4, i15] = [i * 4, i * 15];
-        let encoded = encode_sh2_internal(&sh2[i15..i15 + 15], sh2_mid, sh2_scale);
+        let encoded = encode_sh2_internal(&sh2[i15..i15 + 15], sh2_scale);
         buffer[i4] = encoded[0];
         buffer[i4 + 1] = encoded[1];
         buffer[i4 + 2] = encoded[2];
@@ -375,9 +371,9 @@ pub fn encode_sh2_array(buffer: &mut [u32], sh2: &[f32], count: usize, sh2_min: 
     }
 }
 
-pub fn encode_sh2_internal(sh2: &[f32], sh2_mid: f32, sh2_scale: f32) -> [u32; 4] {
+pub fn encode_sh2_internal(sh2: &[f32], sh2_scale: f32) -> [u32; 4] {
     let bytes: [u8; 15] = array::from_fn(|i| 
-        ((sh2[i] - sh2_mid) * sh2_scale).clamp(-127.0, 127.0).round() as i8 as u8
+        (sh2[i] * sh2_scale).clamp(-127.0, 127.0).round() as i8 as u8
     );
     [
         (bytes[0] as u32) | ((bytes[1] as u32) << 8) | ((bytes[2] as u32) << 16) | ((bytes[3] as u32) << 24),
@@ -387,18 +383,16 @@ pub fn encode_sh2_internal(sh2: &[f32], sh2_mid: f32, sh2_scale: f32) -> [u32; 4
     ]
 }
 
-pub fn encode_sh3(sh3: &[f32], sh3_min: f32, sh3_max: f32) -> [u32; 4] {
-    let sh3_mid = 0.5 * (sh3_min + sh3_max);
-    let sh3_scale = 62.0 / (sh3_max - sh3_min);
-    encode_sh3_internal(sh3, sh3_mid, sh3_scale)
+pub fn encode_sh3(sh3: &[f32], sh3_max: f32) -> [u32; 4] {
+    let sh3_scale = 31.0 / sh3_max;
+    encode_sh3_internal(sh3, sh3_scale)
 }
 
-pub fn encode_sh3_array(buffer: &mut [u32], sh3: &[f32], count: usize, sh3_min: f32, sh3_max: f32) {
-    let sh3_mid = 0.5 * (sh3_min + sh3_max);
-    let sh3_scale = 62.0 / (sh3_max - sh3_min);
+pub fn encode_sh3_array(buffer: &mut [u32], sh3: &[f32], count: usize, sh3_max: f32) {
+    let sh3_scale = 31.0 / sh3_max;
     for i in 0..count {
         let [i4, i21] = [i * 4, i * 21];
-        let encoded = encode_sh3_internal(&sh3[i21..i21 + 21], sh3_mid, sh3_scale);
+        let encoded = encode_sh3_internal(&sh3[i21..i21 + 21], sh3_scale);
         buffer[i4] = encoded[0];
         buffer[i4 + 1] = encoded[1];
         buffer[i4 + 2] = encoded[2];
@@ -406,10 +400,10 @@ pub fn encode_sh3_array(buffer: &mut [u32], sh3: &[f32], count: usize, sh3_min: 
     }
 }
 
-pub fn encode_sh3_internal(sh3: &[f32], sh3_mid: f32, sh3_scale: f32) -> [u32; 4] {
+pub fn encode_sh3_internal(sh3: &[f32], sh3_scale: f32) -> [u32; 4] {
     let mut words = [0, 0, 0, 0];
     for i in 0..21 {
-        let value = ((sh3[i] - sh3_mid) * sh3_scale).clamp(-31.0, 31.0).round() as i8 & 0x3f;
+        let value = (sh3[i] * sh3_scale).clamp(-31.0, 31.0).round() as i8 & 0x3f;
         let bit_start = i * 6;
         let word_start = bit_start / 32;
         let word_bit_start = word_start * 32;
@@ -421,6 +415,66 @@ pub fn encode_sh3_internal(sh3: &[f32], sh3_mid: f32, sh3_scale: f32) -> [u32; 4
         }
     }
     words
+}
+
+pub fn get_decode_sh1_scale(sh1_max: f32) -> f32 {
+    63.0 / sh1_max
+}
+
+pub fn decode_sh1_internal_words(words: [u32; 2], sh1_scale: f32) -> [f32; 9] {
+    let mut out = [0.0f32; 9];
+    for i in 0..9 {
+        let bit_start = i * 7;
+        let word_start = bit_start / 32;
+        let word_bit_start = word_start * 32;
+        let bit_offset = bit_start - word_bit_start;
+        let mut val: u32 = (words[word_start] >> bit_offset) & 0x7f;
+        if bit_start + 7 > word_bit_start + 32 {
+            val |= (words[word_start + 1] << (32 - bit_offset)) & 0x7f;
+        }
+        let signed = (val as i32 - 64) as f32;
+        out[i] = signed / sh1_scale;
+    }
+    out
+}
+
+pub fn get_decode_sh2_scale(sh2_max: f32) -> f32 {
+    127.0 / sh2_max
+}
+
+pub fn decode_sh2_internal_words(words: [u32; 4], sh2_scale: f32) -> [f32; 15] {
+    let mut bytes = [0u8; 16];
+    bytes[0..4].copy_from_slice(&words[0].to_le_bytes());
+    bytes[4..8].copy_from_slice(&words[1].to_le_bytes());
+    bytes[8..12].copy_from_slice(&words[2].to_le_bytes());
+    bytes[12..16].copy_from_slice(&words[3].to_le_bytes());
+    let mut out = [0.0f32; 15];
+    for i in 0..15 {
+        let v = bytes[i] as i8 as f32;
+        out[i] = v / sh2_scale;
+    }
+    out
+}
+
+pub fn get_decode_sh3_scale(sh3_max: f32) -> f32 {
+    31.0 / sh3_max
+}
+
+pub fn decode_sh3_internal_words(words: [u32; 4], sh3_scale: f32) -> [f32; 21] {
+    let mut out = [0.0f32; 21];
+    for i in 0..21 {
+        let bit_start = i * 6;
+        let word_start = bit_start / 32;
+        let word_bit_start = word_start * 32;
+        let bit_offset = bit_start - word_bit_start;
+        let mut val: u32 = (words[word_start] >> bit_offset) & 0x3f;
+        if bit_start + 6 > word_bit_start + 32 {
+            val |= (words[word_start + 1] << (32 - bit_offset)) & 0x3f;
+        }
+        let signed = (val as i32 - 32) as f32;
+        out[i] = signed / sh3_scale;
+    }
+    out
 }
 
 pub fn encode_lod_tree(buffer: &mut [u32], center: &[f32], opacity: f32, scale: &[f32], child_count: u16, child_start: u32) {

@@ -14,7 +14,6 @@ export { RgbaArray, readRgbaArray } from "./RgbaArray";
 export {
   SplatLoader,
   unpackSplats,
-  SplatFileType,
   getSplatFileType,
   isPcSogs,
 } from "./SplatLoader";
@@ -106,7 +105,8 @@ export {
 } from "./utils";
 export * as utils from "./utils";
 
-export { LN_SCALE_MIN, LN_SCALE_MAX } from "./defines";
+export { LN_SCALE_MIN, LN_SCALE_MAX, SplatFileType } from "./defines";
+
 export * as defines from "./defines";
 
 export {

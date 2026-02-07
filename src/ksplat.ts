@@ -1,4 +1,4 @@
-import type { SplatEncoding } from "./PackedSplats";
+import type { SplatEncoding } from "./defines";
 import {
   computeMaxSplats,
   encodeSh1Rgb,

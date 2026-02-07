@@ -2,12 +2,9 @@ import { unzipSync } from "fflate";
 import { FileLoader, Loader, type LoadingManager } from "three";
 import { ExtSplats, type ExtSplatsOptions } from "./ExtSplats";
 import { workerPool } from "./NewSplatWorker";
-import {
-  PackedSplats,
-  type PackedSplatsOptions,
-  type SplatEncoding,
-} from "./PackedSplats";
+import { PackedSplats, type PackedSplatsOptions } from "./PackedSplats";
 import { SplatMesh } from "./SplatMesh";
+import { type SplatEncoding, SplatFileType } from "./defines";
 import { PlyReader } from "./ply";
 import { withWorker } from "./splatWorker";
 import { decompressPartialGzip, getTextureSize } from "./utils";
@@ -112,9 +109,6 @@ export class SplatLoader extends Loader {
         if (splatsNonLod !== undefined) {
           nonLod = splatsNonLod;
         }
-        // const maxBoneSplats = packedSplats?.maxBoneSplats;
-        // const computeBoneWeights = packedSplats?.computeBoneWeights;
-        // const minBoneOpacity = packedSplats?.minBoneOpacity;
 
         let init: {
           numSplats: number;
@@ -192,9 +186,6 @@ export class SplatLoader extends Loader {
             lod,
             lodBase,
             nonLod,
-            // maxBoneSplats,
-            // computeBoneWeights,
-            // minBoneOpacity,
           },
           { onStatus },
         )) as {
@@ -215,16 +206,6 @@ export class SplatLoader extends Loader {
               }
             | PackedSplats
             | ExtSplats;
-          // boneSplats?:
-          //   | {
-          //       numSplats: number;
-          //       packedArray: Uint32Array;
-          //       extra: Record<string, unknown>;
-          //       splatEncoding: SplatEncoding;
-          //       childCounts: Uint32Array;
-          //       childStarts: Uint32Array;
-          //     }
-          //   | PackedSplats;
         };
 
         if (decoded.lodSplats) {
@@ -248,25 +229,6 @@ export class SplatLoader extends Loader {
             });
           }
         }
-
-        // if (decoded.boneSplats) {
-        //   const { childCounts, childStarts } = decoded.boneSplats as {
-        //     childCounts: Uint32Array;
-        //     childStarts: Uint32Array;
-        //   };
-        //   decoded.boneSplats = new PackedSplats({
-        //     ...(decoded.boneSplats as {
-        //       numSplats: number;
-        //       packedArray: Uint32Array;
-        //       extra: Record<string, unknown>;
-        //       splatEncoding: SplatEncoding;
-        //     }),
-        //     extra: {
-        //       childCounts: childCounts,
-        //       childStarts: childStarts,
-        //     },
-        //   });
-        // }
 
         if (extSplats) {
           const initExtSplats = {
@@ -401,23 +363,15 @@ async function fetchWithProgress(
   return bytes.buffer;
 }
 
-export enum SplatFileType {
-  PLY = "ply",
-  SPZ = "spz",
-  SPLAT = "splat",
-  KSPLAT = "ksplat",
-  PCSOGS = "pcsogs",
-  PCSOGSZIP = "pcsogszip",
-}
-
 export function getSplatFileType(
   fileBytes: Uint8Array,
 ): SplatFileType | undefined {
   const view = new DataView(fileBytes.buffer);
-  if ((view.getUint32(0, true) & 0x00ffffff) === 0x00796c70) {
+  const magic = view.getUint32(0, true);
+  if ((magic & 0x00ffffff) === 0x00796c70) {
     return SplatFileType.PLY;
   }
-  if ((view.getUint32(0, true) & 0x00ffffff) === 0x00088b1f) {
+  if ((magic & 0x00ffffff) === 0x00088b1f) {
     // Gzipped file, unpack beginning to check magic number
     const header = decompressPartialGzip(fileBytes, 4);
     const gView = new DataView(header.buffer);
@@ -427,13 +381,16 @@ export function getSplatFileType(
     // Unknown Gzipped file type
     return undefined;
   }
-  if (view.getUint32(0, true) === 0x04034b50) {
+  if (magic === 0x04034b50) {
     // PKZip file
     if (tryPcSogsZip(fileBytes)) {
       return SplatFileType.PCSOGSZIP;
     }
     // Unknown PKZip file type
     return undefined;
+  }
+  if (magic === 0x30444152) {
+    return SplatFileType.RAD;
   }
   // Unknown file type
   return undefined;
@@ -472,6 +429,9 @@ export function getSplatFileTypeFromPath(
   }
   if (extension === "sog") {
     return SplatFileType.PCSOGSZIP;
+  }
+  if (extension === "rad") {
+    return SplatFileType.RAD;
   }
   return undefined;
 }

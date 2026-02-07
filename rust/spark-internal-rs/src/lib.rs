@@ -1,6 +1,6 @@
 
 use std::cell::RefCell;
-use js_sys::{Float32Array, Object, Reflect, Uint8Array, Uint16Array, Uint32Array};
+use js_sys::{Object, Reflect, Uint8Array, Uint16Array, Uint32Array};
 use spark_lib::decoder::{ChunkReceiver, MultiDecoder, SplatEncoding, SplatFileType, SplatGetter};
 use spark_lib::gsplat::GsplatArray as GsplatArrayInner;
 use spark_lib::csplat::CsplatArray as CsplatArrayInner;
@@ -12,9 +12,6 @@ use crate::{decoder::ChunkDecoder, packed_splats::PackedSplatsData};
 
 mod sort;
 use sort::{sort_internal, SortBuffers, sort32_internal, Sort32Buffers};
-
-mod raycast;
-use raycast::{raycast_ellipsoids, raycast_spheres};
 
 mod decoder;
 mod packed_splats;
@@ -32,12 +29,9 @@ pub fn simd_enabled() -> bool {
     cfg!(target_feature = "simd128")
 }
 
-const RAYCAST_BUFFER_COUNT: u32 = 65536;
-
 thread_local! {
     static SORT_BUFFERS: RefCell<SortBuffers> = RefCell::new(SortBuffers::default());
     static SORT32_BUFFERS: RefCell<Sort32Buffers> = RefCell::new(Sort32Buffers::default());
-    static RAYCAST_BUFFER: RefCell<Vec<u32>> = RefCell::new(vec![0; RAYCAST_BUFFER_COUNT as usize * 4]);
 }
 
 #[wasm_bindgen]
@@ -96,40 +90,6 @@ pub fn sort32_splats(
     });
 
     active_splats
-}
-
-#[wasm_bindgen]
-pub fn raycast_splats(
-    origin_x: f32, origin_y: f32, origin_z: f32,
-    dir_x: f32, dir_y: f32, dir_z: f32,
-    near: f32, far: f32,
-    num_splats: u32, packed_splats: Uint32Array,
-    raycast_ellipsoid: bool,
-    ln_scale_min: f32, ln_scale_max: f32,
-) -> Float32Array {
-    let mut distances = Vec::<f32>::new();
-
-    _ = RAYCAST_BUFFER.with_borrow_mut(|buffer| {
-        let mut base = 0;
-        while base < num_splats {
-            let chunk_size = RAYCAST_BUFFER_COUNT.min(num_splats - base);
-            let subarray = packed_splats.subarray(4 * base, 4 * (base + chunk_size));
-            let subbuffer = &mut buffer[0..(4 * chunk_size as usize)];
-            subarray.copy_to(subbuffer);
-
-            if raycast_ellipsoid {
-                raycast_ellipsoids(subbuffer, &mut distances, [origin_x, origin_y, origin_z], [dir_x, dir_y, dir_z], near, far, ln_scale_min, ln_scale_max);
-            } else {
-                raycast_spheres(subbuffer, &mut distances, [origin_x, origin_y, origin_z], [dir_x, dir_y, dir_z], near, far, ln_scale_min, ln_scale_max);
-            }
-
-            base += chunk_size;
-        }
-    });
-
-    let output = Float32Array::new_with_length(distances.len() as u32);
-    output.copy_from(&distances);
-    output
 }
 
 #[wasm_bindgen]
@@ -430,15 +390,18 @@ pub fn packedsplats_to_csplatarray(num_splats: u32, packed: Uint32Array, extra: 
     Ok(CsplatArray::new(splats))
 }
 
-// #[wasm_bindgen]
-// pub fn quick_lod_packedsplats(num_splats: u32, packed: Uint32Array, extra: Option<Object>, lod_base: f32, merge_filter: bool, rgba: Option<Uint8Array>) -> Result<Object, JsValue> {
-//     let mut gs = packedsplats_to_gsplatarray(num_splats, packed, extra)?;
-//     if let Some(rgba) = rgba {
-//         gs.inject_rgba8(rgba);
-//     }
-//     gs.quick_lod(lod_base, merge_filter);
-//     gs.to_packedsplats_lod()
-// }
+#[wasm_bindgen]
+pub fn extsplats_to_gsplatarray(num_splats: u32, ext1: Uint32Array, ext2: Uint32Array, extra: Option<Object>) -> Result<GsplatArray, JsValue> {
+    let mut receiver = match ExtSplatsData::from_js_arrays([ext1, ext2], num_splats as usize, extra.as_ref()) {
+        Ok(receiver) => receiver,
+        Err(err) => { return Err(JsValue::from(err.to_string())); }
+    };
+    let splats = match receiver.to_gsplat_array() {
+        Ok(inner) => inner,
+        Err(err) => { return Err(JsValue::from(err.to_string())); }
+    };
+    Ok(GsplatArray::new(splats))
+}
 
 #[wasm_bindgen]
 pub fn tiny_lod_packedsplats(num_splats: u32, packed: Uint32Array, extra: Option<Object>, lod_base: f32, merge_filter: bool, rgba: Option<Uint8Array>, encoding: JsValue) -> Result<Object, JsValue> {
@@ -458,4 +421,24 @@ pub fn bhatt_lod_packedsplats(num_splats: u32, packed: Uint32Array, extra: Optio
     }
     gs.bhatt_lod(lod_base);
     gs.to_packedsplats_lod()
+}
+
+#[wasm_bindgen]
+pub fn tiny_lod_extsplats(num_splats: u32, ext1: Uint32Array, ext2: Uint32Array, extra: Option<Object>, lod_base: f32, merge_filter: bool, rgba: Option<Uint8Array>) -> Result<Object, JsValue> {
+    let mut gs = extsplats_to_gsplatarray(num_splats, ext1, ext2, extra)?;
+    if let Some(rgba) = rgba {
+        gs.inject_rgba8(rgba);
+    }
+    gs.tiny_lod(lod_base, merge_filter);
+    gs.to_extsplats_lod()
+}
+
+#[wasm_bindgen]
+pub fn bhatt_lod_extsplats(num_splats: u32, ext1: Uint32Array, ext2: Uint32Array, extra: Option<Object>, lod_base: f32, rgba: Option<Uint8Array>) -> Result<Object, JsValue> {
+    let mut gs = extsplats_to_gsplatarray(num_splats, ext1, ext2, extra)?;
+    if let Some(rgba) = rgba {
+        gs.inject_rgba8(rgba);
+    }
+    gs.bhatt_lod(lod_base);
+    gs.to_extsplats_lod()
 }

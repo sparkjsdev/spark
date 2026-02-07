@@ -2,13 +2,9 @@ use std::array;
 
 use js_sys::{Object, Reflect, Uint32Array};
 use spark_lib::{
-    decoder::{SetSplatEncoding, SplatEncoding, SplatGetter, SplatInit, SplatProps, SplatPropsMut, SplatReceiver, copy_getter_to_receiver},
-    gsplat::GsplatArray,
-    csplat::CsplatArray,
-    tsplat::{TsplatArray, Tsplat},
-    splat_encode::{
-        decode_packed_splat_center, decode_packed_splat_opacity, decode_packed_splat_quat, decode_packed_splat_rgb, decode_packed_splat_scale, encode_lod_tree, encode_packed_splat, encode_packed_splat_center, encode_packed_splat_opacity, encode_packed_splat_quat, encode_packed_splat_rgb, encode_packed_splat_rgba, encode_packed_splat_scale, encode_sh1_array, encode_sh2_array, encode_sh3_array, get_splat_tex_size
-    },
+    csplat::CsplatArray, decoder::{SetSplatEncoding, SplatEncoding, SplatGetter, SplatInit, SplatProps, SplatPropsMut, SplatReceiver, copy_getter_to_receiver}, gsplat::GsplatArray, splat_encode::{
+        decode_packed_splat_center, decode_packed_splat_opacity, decode_packed_splat_quat, decode_packed_splat_rgb, decode_packed_splat_scale, decode_sh1_internal_words, decode_sh2_internal_words, decode_sh3_internal_words, encode_lod_tree, encode_packed_splat, encode_packed_splat_center, encode_packed_splat_opacity, encode_packed_splat_quat, encode_packed_splat_rgb, encode_packed_splat_rgba, encode_packed_splat_scale, encode_sh1_array, encode_sh2_array, encode_sh3_array, get_decode_sh1_scale, get_decode_sh2_scale, get_decode_sh3_scale, get_splat_tex_size
+    }, tsplat::{Tsplat, TsplatArray}
 };
 use wasm_bindgen::JsValue;
 
@@ -394,20 +390,11 @@ impl SplatReceiver for PackedSplatsData {
         if let Some(ln_scale_max) = encoding.ln_scale_max {
             self.encoding.ln_scale_max = ln_scale_max;
         }
-        if let Some(sh1_min) = encoding.sh1_min {
-            self.encoding.sh1_min = sh1_min;
-        }
         if let Some(sh1_max) = encoding.sh1_max {
             self.encoding.sh1_max = sh1_max;
         }
-        if let Some(sh2_min) = encoding.sh2_min {
-            self.encoding.sh2_min = sh2_min;
-        }
         if let Some(sh2_max) = encoding.sh2_max {
             self.encoding.sh2_max = sh2_max;
-        }
-        if let Some(sh3_min) = encoding.sh3_min {
-            self.encoding.sh3_min = sh3_min;
         }
         if let Some(sh3_max) = encoding.sh3_max {
             self.encoding.sh3_max = sh3_max;
@@ -537,8 +524,8 @@ impl SplatReceiver for PackedSplatsData {
         self.ensure_buffer(count);
         if let Some(packed_sh1) = self.sh1.as_ref() {
             let buffer = &mut self.buffer[0..count * 2];
-            let SplatEncoding { sh1_min, sh1_max, .. } = self.encoding;
-            encode_sh1_array(buffer, sh1, count, sh1_min, sh1_max);
+            let SplatEncoding { sh1_max, .. } = self.encoding;
+            encode_sh1_array(buffer, sh1, count, sh1_max);
             packed_sh1.subarray((base * 2) as u32, ((base + count) * 2) as u32).copy_from(buffer);
         }
     }
@@ -547,8 +534,8 @@ impl SplatReceiver for PackedSplatsData {
         self.invalidate_buffer();
         self.ensure_buffer(count);
         if let Some(packed_sh2) = self.sh2.as_ref() {
-            let SplatEncoding { sh2_min, sh2_max, .. } = self.encoding;
-            encode_sh2_array(&mut self.buffer, sh2, count, sh2_min, sh2_max);
+            let SplatEncoding { sh2_max, .. } = self.encoding;
+            encode_sh2_array(&mut self.buffer, sh2, count, sh2_max);
             packed_sh2.subarray((base * 4) as u32, ((base + count) * 4) as u32).copy_from(&self.buffer);
         }
     }
@@ -557,8 +544,8 @@ impl SplatReceiver for PackedSplatsData {
         self.invalidate_buffer();
         self.ensure_buffer(count);
         if let Some(packed_sh3) = self.sh3.as_ref() {
-            let SplatEncoding { sh3_min, sh3_max, .. } = self.encoding;
-            encode_sh3_array(&mut self.buffer, sh3, count, sh3_min, sh3_max);
+            let SplatEncoding { sh3_max, .. } = self.encoding;
+            encode_sh3_array(&mut self.buffer, sh3, count, sh3_max);
             packed_sh3.subarray((base * 4) as u32, ((base + count) * 4) as u32).copy_from(&self.buffer);
         }
     }
@@ -723,12 +710,11 @@ impl SplatGetter for PackedSplatsData {
         };
         self.ensure_buffer(count);
         sub.copy_to(&mut self.buffer[0..count * 2]);
-        let sh1_mid = 0.5 * (self.encoding.sh1_min + self.encoding.sh1_max);
-        let sh1_scale = 126.0 / (self.encoding.sh1_max - self.encoding.sh1_min);
+        let sh1_scale = get_decode_sh1_scale(self.encoding.sh1_max);
         for i in 0..count {
             let [i2, i9] = [i * 2, i * 9];
             let words = [self.buffer[i2], self.buffer[i2 + 1]];
-            let decoded = decode_sh1_internal_words(words, sh1_mid, sh1_scale);
+            let decoded = decode_sh1_internal_words(words, sh1_scale);
             for k in 0..9 { out[i9 + k] = decoded[k]; }
         }
     }
@@ -742,12 +728,11 @@ impl SplatGetter for PackedSplatsData {
         };
         self.ensure_buffer(count);
         sub.copy_to(&mut self.buffer[0..count * 4]);
-        let sh2_mid = 0.5 * (self.encoding.sh2_min + self.encoding.sh2_max);
-        let sh2_scale = 254.0 / (self.encoding.sh2_max - self.encoding.sh2_min);
+        let sh2_scale = get_decode_sh2_scale(self.encoding.sh2_max);
         for i in 0..count {
             let [i4, i15] = [i * 4, i * 15];
             let words = [self.buffer[i4], self.buffer[i4 + 1], self.buffer[i4 + 2], self.buffer[i4 + 3]];
-            let decoded = decode_sh2_internal_words(words, sh2_mid, sh2_scale);
+            let decoded = decode_sh2_internal_words(words, sh2_scale);
             for k in 0..15 { out[i15 + k] = decoded[k]; }
         }
     }
@@ -761,12 +746,11 @@ impl SplatGetter for PackedSplatsData {
         };
         self.ensure_buffer(count);
         sub.copy_to(&mut self.buffer[0..count * 4]);
-        let sh3_mid = 0.5 * (self.encoding.sh3_min + self.encoding.sh3_max);
-        let sh3_scale = 62.0 / (self.encoding.sh3_max - self.encoding.sh3_min);
+        let sh3_scale = get_decode_sh3_scale(self.encoding.sh3_max);
         for i in 0..count {
             let [i4, i21] = [i * 4, i * 21];
             let words = [self.buffer[i4], self.buffer[i4 + 1], self.buffer[i4 + 2], self.buffer[i4 + 3]];
-            let decoded = decode_sh3_internal_words(words, sh3_mid, sh3_scale);
+            let decoded = decode_sh3_internal_words(words, sh3_scale);
             for k in 0..21 { out[i21 + k] = decoded[k]; }
         }
     }
@@ -798,53 +782,4 @@ impl SplatGetter for PackedSplatsData {
             out[i] = self.buffer[i * 4 + 3] as usize;
         }
     }
-}
-
-// Local SH decoders matching encode_* in spark_lib::splat_encode
-fn decode_sh1_internal_words(words: [u32; 2], sh1_mid: f32, sh1_scale: f32) -> [f32; 9] {
-    let mut out = [0.0f32; 9];
-    for i in 0..9 {
-        let bit_start = i * 7;
-        let word_start = bit_start / 32;
-        let word_bit_start = word_start * 32;
-        let bit_offset = bit_start - word_bit_start;
-        let mut val: u32 = (words[word_start] >> bit_offset) & 0x7f;
-        if bit_start + 7 > word_bit_start + 32 {
-            val |= (words[word_start + 1] << (32 - bit_offset)) & 0x7f;
-        }
-        let signed = if val >= 64 { (val as i32) - 128 } else { val as i32 } as f32;
-        out[i] = signed / sh1_scale + sh1_mid;
-    }
-    out
-}
-
-fn decode_sh2_internal_words(words: [u32; 4], sh2_mid: f32, sh2_scale: f32) -> [f32; 15] {
-    let mut bytes = [0u8; 16];
-    bytes[0..4].copy_from_slice(&words[0].to_le_bytes());
-    bytes[4..8].copy_from_slice(&words[1].to_le_bytes());
-    bytes[8..12].copy_from_slice(&words[2].to_le_bytes());
-    bytes[12..16].copy_from_slice(&words[3].to_le_bytes());
-    let mut out = [0.0f32; 15];
-    for i in 0..15 {
-        let v = bytes[i] as i8 as f32;
-        out[i] = v / sh2_scale + sh2_mid;
-    }
-    out
-}
-
-fn decode_sh3_internal_words(words: [u32; 4], sh3_mid: f32, sh3_scale: f32) -> [f32; 21] {
-    let mut out = [0.0f32; 21];
-    for i in 0..21 {
-        let bit_start = i * 6;
-        let word_start = bit_start / 32;
-        let word_bit_start = word_start * 32;
-        let bit_offset = bit_start - word_bit_start;
-        let mut val: u32 = (words[word_start] >> bit_offset) & 0x3f;
-        if bit_start + 6 > word_bit_start + 32 {
-            val |= (words[word_start + 1] << (32 - bit_offset)) & 0x3f;
-        }
-        let signed = if val >= 32 { (val as i32) - 64 } else { val as i32 } as f32;
-        out[i] = signed / sh3_scale + sh3_mid;
-    }
-    out
 }

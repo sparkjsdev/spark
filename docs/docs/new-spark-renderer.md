@@ -86,7 +86,7 @@ Spark addresses this by approximating both plots using another function: for `D 
 
 ![Plot C: Spark opacity for D=1, 1.75, 2.41, 3.16, 3.85, 4.66](images/lod-opacity-plot-C.png)
 
-We match our function against the Kerbl et al. function via experimentation, finding this interesting family of functions: `D := sqrt(1 + e ln(A))`, which has as similar opacity profile but no "corner" - the transitions from maximum are smooth. We note that A=1000 corresponds to D=4.45, and so the range `D=0..5` seems to encode most of the reasonable range. Because we don't need as much resolution when `D > 1.0` we further map the range `D=1..5` to `1..2` via simple linear scaling. As a "hack" to be able to encode our new opacity D in 8 bytes, we finally map `D=0..1` to `0..0.5` and `D=1..2` to `0.5..1.0`, losing 1 bit of precision when `alpha < 1.0`. To summarize it all, to decode `D` from `stored_u8`:
+We match our function against the Kerbl et al. function via experimentation, finding this interesting family of functions: `D := sqrt(1 + e ln(A))` (inverse: `A := exp((D^2 - 1)/e)`), which has as similar opacity profile but no "corner" - the transitions from maximum are smooth. We note that A=1000 corresponds to D=4.45, and so the range `D=0..5` seems to encode most of the reasonable range. Because we don't need as much resolution when `D > 1.0` we further map the range `D=1..5` to `1..2` via simple linear scaling. As a "hack" to be able to encode our new opacity D in 8 bytes, we finally map `D=0..1` to `0..0.5` and `D=1..2` to `0.5..1.0`, losing 1 bit of precision when `alpha < 1.0`. To summarize it all, to decode `D` from `stored_u8`:
 ```
 // Map 0..255 to 0..1
 float D = stored_u8 / 255

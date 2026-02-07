@@ -1,10 +1,6 @@
 import * as THREE from "three";
 
-import {
-  DEFAULT_SPLAT_ENCODING,
-  PackedSplats,
-  type SplatEncoding,
-} from "./PackedSplats";
+import { PackedSplats } from "./PackedSplats";
 import { RgbaArray } from "./RgbaArray";
 import { SparkViewpoint, type SparkViewpointOptions } from "./SparkViewpoint";
 import { type GeneratorMapping, SplatAccumulator } from "./SplatAccumulator";
@@ -12,7 +8,12 @@ import { SplatEdit } from "./SplatEdit";
 import { SplatGenerator, SplatModifier } from "./SplatGenerator";
 import { SplatGeometry } from "./SplatGeometry";
 import { SplatMesh } from "./SplatMesh";
-import { LN_SCALE_MAX, LN_SCALE_MIN } from "./defines";
+import {
+  DEFAULT_SPLAT_ENCODING,
+  LN_SCALE_MAX,
+  LN_SCALE_MIN,
+  type SplatEncoding,
+} from "./defines";
 import {
   DynoVec3,
   DynoVec4,

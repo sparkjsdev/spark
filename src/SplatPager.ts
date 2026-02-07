@@ -1,20 +1,30 @@
 import * as THREE from "three";
+
+import init_wasm, { decode_rad_header } from "spark-rs";
 import { LN_SCALE_MAX, LN_SCALE_MIN, dyno } from ".";
 import { evaluateExtSH } from "./ExtSplats";
 import { workerPool } from "./NewSplatWorker";
+import { evaluatePackedSH } from "./PackedSplats";
+import { getSplatFileType, getSplatFileTypeFromPath } from "./SplatLoader";
+import type { SplatSource } from "./SplatMesh";
 import {
   DEFAULT_SPLAT_ENCODING,
+  type ExtResult,
+  type PackedResult,
+  type RadMeta,
   type SplatEncoding,
-  evaluatePackedSH,
-} from "./PackedSplats";
-import type { SplatSource } from "./SplatMesh";
+  SplatFileType,
+} from "./defines";
+import { pagedSplatTexCoord } from "./dyno";
 import { getTextureSize } from "./utils";
 
 export interface PagedSplatsOptions {
   pager?: SplatPager;
-  rootUrl: string;
+  rootUrl?: string;
   requestHeader?: Record<string, string>;
   withCredentials?: boolean;
+  fileBytes?: Uint8Array;
+  fileType?: SplatFileType;
   maxSh?: number;
 }
 
@@ -23,11 +33,14 @@ export class PagedSplats implements SplatSource {
   rootUrl: string;
   requestHeader?: Record<string, string>;
   withCredentials?: boolean;
+  fileBytes?: Uint8Array;
+  fileType?: SplatFileType;
   numSh: number;
   maxSh: number;
 
   numSplats: number;
   splatEncoding?: SplatEncoding;
+  radMetaPromise?: Promise<{ meta: RadMeta; chunksStart: number }>;
 
   dynoNumSplats: dyno.DynoInt<"numSplats">;
   dynoIndices: dyno.DynoUsampler2D<"indices", THREE.DataTexture>;
@@ -37,13 +50,11 @@ export class PagedSplats implements SplatSource {
   >;
   lodOpacity: dyno.DynoBool<"lodOpacity">;
   dynoNumSh: dyno.DynoInt<"numSh">;
-  sh1MidScale: dyno.DynoUniform<"vec2", "sh1MidScale", THREE.Vector2>;
-  sh2MidScale: dyno.DynoUniform<"vec2", "sh2MidScale", THREE.Vector2>;
-  sh3MidScale: dyno.DynoUniform<"vec2", "sh3MidScale", THREE.Vector2>;
+  shMax: dyno.DynoVec3<THREE.Vector3, "shMax">;
 
   constructor(options: PagedSplatsOptions) {
     this.pager = options.pager;
-    this.rootUrl = options.rootUrl;
+    this.rootUrl = options.rootUrl ?? "";
     this.requestHeader = options.requestHeader;
     this.withCredentials = options.withCredentials;
     this.numSh = 0;
@@ -64,15 +75,22 @@ export class PagedSplats implements SplatSource {
     });
 
     this.dynoNumSh = new dyno.DynoInt({ value: 0 });
-    this.sh1MidScale = new dyno.DynoVec2({
-      value: new THREE.Vector2(0, 1),
-    });
-    this.sh2MidScale = new dyno.DynoVec2({
-      value: new THREE.Vector2(0, 1),
-    });
-    this.sh3MidScale = new dyno.DynoVec2({
-      value: new THREE.Vector2(0, 1),
-    });
+    this.shMax = new dyno.DynoVec3({ value: new THREE.Vector3() });
+
+    this.fileBytes = options.fileBytes;
+    this.fileType = options.fileType;
+    if (!this.fileType && this.fileBytes) {
+      this.fileType = getSplatFileType(this.fileBytes);
+    }
+    if (!this.fileType && this.rootUrl) {
+      this.fileType = getSplatFileTypeFromPath(this.rootUrl);
+    }
+    if (!this.fileType) {
+      throw new Error("Unable to determine file type");
+    }
+    if (this.fileType === SplatFileType.RAD) {
+      this.radMetaPromise = this.getRadMeta();
+    }
   }
 
   dispose() {
@@ -84,23 +102,111 @@ export class PagedSplats implements SplatSource {
     this.maxSh = maxSh;
   }
 
+  getRadMeta(): Promise<{ meta: RadMeta; chunksStart: number }> {
+    if (this.radMetaPromise) {
+      return this.radMetaPromise;
+    }
+
+    this.radMetaPromise = (async () => {
+      await wasmInitialized;
+
+      if (this.fileBytes) {
+        // Shouldn't be more than 1 MB, so don't send more data than that.
+        const metaStart = decode_rad_header(this.fileBytes.slice(0, 1048576));
+        if (metaStart) {
+          return metaStart;
+        }
+        throw new Error("Failed to decode RAD header");
+      }
+      if (!this.rootUrl) {
+        throw new Error("No url or fileBytes provided");
+      }
+
+      // We don't know how big the header will be. Most likely 64KB will be enough,
+      // but try larger blocks in backoff if it wasn't enough.
+      for (const tryBytes of [65536, 256 * 1024, 1024 * 1024]) {
+        const bytes = await fetchRange({
+          url: this.rootUrl,
+          requestHeader: this.requestHeader,
+          withCredentials: this.withCredentials,
+          offset: 0,
+          bytes: tryBytes,
+        });
+        const metaStart = decode_rad_header(bytes);
+        if (metaStart) {
+          return metaStart;
+        }
+      }
+      throw new Error("Failed to decode RAD header");
+    })().then((metaStart) => {
+      console.log("RAD meta: ", metaStart);
+      return metaStart;
+    });
+
+    this.radMetaPromise.catch((error) => {
+      console.error(error);
+      // Allow it to be tried again
+      // this.radMetaPromise = undefined;
+    });
+
+    return this.radMetaPromise;
+  }
+
   chunkUrl(chunk: number): string {
     return this.rootUrl.replace(/-lod-0\./, `-lod-${chunk}.`);
   }
 
   async fetchDecodeChunk(chunk: number) {
-    const url = this.chunkUrl(chunk);
-    const request = new Request(url, {
-      headers: this.requestHeader ? new Headers(this.requestHeader) : undefined,
-      credentials: this.withCredentials ? "include" : "same-origin",
-    });
-    const response = await fetch(request);
-    if (!response.ok || !response.body) {
-      throw new Error(
-        `Failed to fetch "${url}": ${response.status} ${response.statusText}`,
-      );
+    let decodeBytes = undefined;
+
+    if (this.fileType === SplatFileType.RAD) {
+      const { meta, chunksStart } = await this.getRadMeta();
+      if (chunk < 0 || chunk >= meta.chunks.length) {
+        throw new Error(
+          `Chunk index out of range: ${chunk} (max: ${meta.chunks.length - 1})`,
+        );
+      }
+      let { offset, bytes } = meta.chunks[chunk];
+      offset += chunksStart;
+      // console.log(`Fetching chunk ${chunk} at offset ${offset} with bytes ${bytes}`);
+      if (this.fileBytes) {
+        if (offset < 0 || offset + bytes > this.fileBytes.length) {
+          throw new Error(
+            `Invalid chunk offset or bytes: ${offset} + ${bytes} > ${this.fileBytes.length}`,
+          );
+        }
+        decodeBytes = this.fileBytes.slice(offset, offset + bytes);
+      } else if (this.rootUrl) {
+        decodeBytes = await fetchRange({
+          url: this.rootUrl,
+          requestHeader: this.requestHeader,
+          withCredentials: this.withCredentials,
+          offset,
+          bytes,
+        });
+      } else {
+        throw new Error("No url or fileBytes provided");
+      }
+    } else if (this.fileBytes) {
+      // Fall through
+    } else if (this.rootUrl) {
+      const url = this.chunkUrl(chunk);
+      const request = new Request(url, {
+        headers: this.requestHeader
+          ? new Headers(this.requestHeader)
+          : undefined,
+        credentials: this.withCredentials ? "include" : "same-origin",
+      });
+      const response = await fetch(request);
+      if (!response.ok || !response.body) {
+        throw new Error(
+          `Failed to fetch "${url}": ${response.status} ${response.statusText}`,
+        );
+      }
+      decodeBytes = new Uint8Array(await response.arrayBuffer());
+    } else {
+      throw new Error("No url or fileBytes provided");
     }
-    const fileBytes = new Uint8Array(await response.arrayBuffer());
 
     return await workerPool.withWorker(async (worker) => {
       if (!this.pager) {
@@ -108,8 +214,10 @@ export class PagedSplats implements SplatSource {
       }
       if (!this.pager.extSplats) {
         const result = (await worker.call("loadPackedSplats", {
-          fileBytes,
-          pathName: url,
+          fileBytes: decodeBytes,
+          pathName: this.chunkUrl(chunk),
+          // radMeta: this.radMetaPromise,
+          // chunk,
         })) as { lodSplats: PackedResult };
         const lodSplats = result.lodSplats;
         if (!this.splatEncoding) {
@@ -132,37 +240,20 @@ export class PagedSplats implements SplatSource {
 
           this.lodOpacity.value = this.splatEncoding.lodOpacity ?? false;
 
-          this.sh1MidScale.value.set(
-            0.5 *
-              ((this.splatEncoding.sh1Max ?? 1.0) +
-                (this.splatEncoding.sh1Min ?? -1.0)),
-            0.5 *
-              ((this.splatEncoding.sh1Max ?? 1.0) -
-                (this.splatEncoding.sh1Min ?? -1.0)),
-          );
-          this.sh2MidScale.value.set(
-            0.5 *
-              ((this.splatEncoding.sh2Max ?? 1.0) +
-                (this.splatEncoding.sh2Min ?? -1.0)),
-            0.5 *
-              ((this.splatEncoding.sh2Max ?? 1.0) -
-                (this.splatEncoding.sh2Min ?? -1.0)),
-          );
-          this.sh3MidScale.value.set(
-            0.5 *
-              ((this.splatEncoding.sh3Max ?? 1.0) +
-                (this.splatEncoding.sh3Min ?? -1.0)),
-            0.5 *
-              ((this.splatEncoding.sh3Max ?? 1.0) -
-                (this.splatEncoding.sh3Min ?? -1.0)),
+          this.shMax.value.set(
+            this.splatEncoding.sh1Max ?? 1.0,
+            this.splatEncoding.sh2Max ?? 1.0,
+            this.splatEncoding.sh3Max ?? 1.0,
           );
         }
         return lodSplats;
       }
 
       const result = (await worker.call("loadExtSplats", {
-        fileBytes,
-        pathName: url,
+        fileBytes: decodeBytes,
+        pathName: this.chunkUrl(chunk),
+        // radMeta: this.radMetaPromise,
+        // chunk,
       })) as { lodSplats: ExtResult };
       const lodSplats = result.lodSplats;
       if (!this.splatEncoding) {
@@ -283,9 +374,7 @@ export class PagedSplats implements SplatSource {
           lodOpacity: this.lodOpacity,
           viewOrigin,
           numSh: this.dynoNumSh,
-          sh1MidScale: this.sh1MidScale,
-          sh2MidScale: this.sh2MidScale,
-          sh3MidScale: this.sh3MidScale,
+          shMax: this.shMax,
         }).gsplat;
       }
       return this.pager.readSplat.apply({
@@ -306,19 +395,6 @@ export class PagedSplats implements SplatSource {
     return this.pager.readSplatExt.apply({ index: splatIndex }).gsplat;
   }
 }
-
-export type PackedResult = {
-  numSplats: number;
-  packedArray: Uint32Array;
-  extra: Record<string, unknown>;
-  splatEncoding: SplatEncoding;
-};
-
-export type ExtResult = {
-  numSplats: number;
-  extArrays: [Uint32Array, Uint32Array];
-  extra: Record<string, unknown>;
-};
 
 export interface SplatPagerOptions {
   /**
@@ -435,9 +511,7 @@ export class SplatPager {
       lodOpacity: "bool";
       viewOrigin: "vec3";
       numSh: "int";
-      sh1MidScale: "vec2";
-      sh2MidScale: "vec2";
-      sh3MidScale: "vec2";
+      shMax: "vec3";
     },
     { gsplat: typeof dyno.Gsplat }
   >;
@@ -569,7 +643,7 @@ export class SplatPager {
           statements: ({ inputs, outputs }) =>
             dyno.unindentLines(`
             int index = ${inputs.index};
-            ivec3 splatCoord = ivec3(index & 255, (index >> 8) & 255, index >> 16);
+            ivec3 splatCoord = pagedSplatTexCoord(index);
             uvec4 packed = texelFetch(${inputs.packedTexture}, splatCoord, 0);
 
             unpackSplatEncoding(packed, ${outputs.gsplat}.center, ${outputs.gsplat}.scales, ${outputs.gsplat}.quaternion, ${outputs.gsplat}.rgba, ${inputs.rgbMinMaxLnScaleMinMax});
@@ -577,6 +651,7 @@ export class SplatPager {
               return;
             }
             
+            ${outputs.gsplat}.index = index;
             ${outputs.gsplat}.flags = GSPLAT_FLAG_ACTIVE;
             if (${inputs.lodOpacity}) {
               ${outputs.gsplat}.rgba.a *= 2.0;
@@ -593,9 +668,7 @@ export class SplatPager {
         lodOpacity: "bool",
         viewOrigin: "vec3",
         numSh: "int",
-        sh1MidScale: "vec2",
-        sh2MidScale: "vec2",
-        sh3MidScale: "vec2",
+        shMax: "vec3",
       },
       { gsplat: dyno.Gsplat },
       ({
@@ -604,9 +677,7 @@ export class SplatPager {
         lodOpacity,
         viewOrigin,
         numSh,
-        sh1MidScale,
-        sh2MidScale,
-        sh3MidScale,
+        shMax,
       }) => {
         if (
           !index ||
@@ -614,9 +685,7 @@ export class SplatPager {
           !lodOpacity ||
           !viewOrigin ||
           !numSh ||
-          !sh1MidScale ||
-          !sh2MidScale ||
-          !sh3MidScale
+          !shMax
         ) {
           throw new Error("index and viewOrigin are required");
         }
@@ -629,15 +698,13 @@ export class SplatPager {
         const splatCenter = dyno.splitGsplat(gsplat).outputs.center;
         const viewDir = dyno.normalize(dyno.sub(splatCenter, viewOrigin));
         let rgb = evaluatePackedSH({
-          index,
+          coord: pagedSplatTexCoord(index),
           viewDir,
           numSh,
           sh1Texture: this.sh1Texture,
           sh2Texture: this.sh2Texture,
           sh3Texture: this.sh3Texture,
-          sh1MidScale,
-          sh2MidScale,
-          sh3MidScale,
+          shMax,
         }).rgb;
         rgb = dyno.add(rgb, dyno.splitGsplat(gsplat).outputs.rgb);
         gsplat = dyno.combineGsplat({ gsplat, rgb });
@@ -677,7 +744,8 @@ export class SplatPager {
             if (all(equal(${outputs.gsplat}.scales, vec3(0.0, 0.0, 0.0)))) {
               return;
             }
-            
+
+            ${outputs.gsplat}.index = index;
             ${outputs.gsplat}.flags = GSPLAT_FLAG_ACTIVE;
           `),
         }).outputs;
@@ -700,7 +768,7 @@ export class SplatPager {
         const splatCenter = dyno.splitGsplat(gsplat).outputs.center;
         const viewDir = dyno.normalize(dyno.sub(splatCenter, viewOrigin));
         let rgb = evaluateExtSH({
-          index,
+          coord: pagedSplatTexCoord(index),
           viewDir,
           numSh,
           sh1Texture: this.sh1Texture,
@@ -964,7 +1032,21 @@ export class SplatPager {
       this.extTexture.value.needsUpdate = true;
     }
 
-    const numSh = extra.sh3 ? 3 : extra.sh2 ? 2 : extra.sh1 ? 1 : 0;
+    const numSh = this.extSplats
+      ? extra.sh3a && extra.sh3b
+        ? 3
+        : extra.sh2
+          ? 2
+          : extra.sh1
+            ? 1
+            : 0
+      : extra.sh3
+        ? 3
+        : extra.sh2
+          ? 2
+          : extra.sh1
+            ? 1
+            : 0;
     this.ensureShTextures(numSh);
 
     if (!this.extSplats) {
@@ -1054,7 +1136,6 @@ export class SplatPager {
         array.subarray(pageBase * 4, pageBase * 4 + sh3.length).set(sh3);
         this.sh3Texture.value.addLayerUpdate(page);
         this.sh3Texture.value.needsUpdate = true;
-        // console.log("*** uploaded sh3Texture", sh3.length, pageBase);
       }
     } else {
       if (
@@ -1326,4 +1407,35 @@ function getGlTexture(
     throw new Error("texture not found");
   }
   return glTexture;
+}
+
+const wasmInitialized = init_wasm();
+
+async function fetchRange({
+  url,
+  requestHeader,
+  withCredentials,
+  offset,
+  bytes,
+}: {
+  url: string;
+  requestHeader?: Record<string, string>;
+  withCredentials?: boolean;
+  offset?: number;
+  bytes?: number;
+}): Promise<Uint8Array> {
+  const request = new Request(url, {
+    headers: requestHeader ? new Headers(requestHeader) : undefined,
+    credentials: withCredentials ? "include" : "same-origin",
+  });
+  if (offset !== undefined && bytes !== undefined) {
+    request.headers.set("Range", `bytes=${offset}-${offset + bytes - 1}`);
+  }
+  const response = await fetch(request);
+  if (!response.ok || !response.body) {
+    throw new Error(
+      `Failed to fetch "${url}": ${response.status} ${response.statusText}`,
+    );
+  }
+  return new Uint8Array(await response.arrayBuffer());
 }

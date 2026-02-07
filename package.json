@@ -23,7 +23,8 @@
     "build:production": "vite build --mode production",
     "build:wasm": "node rust/build_wasm.js",
     "build:watch": "onchange 'src/**/*.{ts,glsl}' -- npm run build:dev",
-    "clean": "rm -rf dist/ && rm -rf node_modules/ && rm -rf rust/target/ && rm -rf rust/spark-internal-rs/pkg/ && npm run assets:clean",
+    "build-lod": "cd rust/build-lod && cargo run --release --",
+    "clean": "rm -rf dist/ && rm -rf node_modules/ && rm -rf rust/target/ && rm -rf rust/spark-internal-rs/pkg/ && rust/spark-rs/pkg/ && npm run assets:clean",
     "dev": "npm run build:dev && (vite --host & npm run build:watch)",
     "docs": "node scripts/clean-site-files.js && node scripts/copy-site-files.js && mkdocs serve",
     "format": "biome format .",
@@ -56,7 +57,8 @@
     "vite": "^6.0.11",
     "vite-plugin-dts": "^4.5.4",
     "vite-plugin-glsl": "^1.3.1",
-    "spark-internal-rs": "file:rust/spark-internal-rs/pkg"
+    "spark-internal-rs": "file:rust/spark-internal-rs/pkg",
+    "spark-rs": "file:rust/spark-rs/pkg"
   },
   "dependencies": {
     "fflate": "^0.8.2"

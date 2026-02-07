@@ -624,7 +624,7 @@ export class SparkPortals {
     // No portals - just render normally
     if (!primary) {
       if (this.prefetchActive) {
-        this.portalRenderer.setPrefetchCameras();
+        // this.portalRenderer.setPrefetchCameras();
         this.prefetchActive = false;
       }
       this.renderer.autoClear = true;
@@ -633,7 +633,7 @@ export class SparkPortals {
     }
 
     if (!this.prefetchActive) {
-      this.portalRenderer.setPrefetchCameras([this.camera2]);
+      // this.portalRenderer.setPrefetchCameras([this.camera2]);
       this.prefetchActive = true;
     }
 

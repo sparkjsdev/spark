@@ -27,3 +27,6 @@ cd spark-internal-rs
 
 # Build the project with SIMD enabled
 RUSTFLAGS="-C target-feature=+simd128,+bulk-memory" wasm-pack build --target web --release
+
+cd ../spark-rs
+RUSTFLAGS="-C target-feature=+simd128,+bulk-memory" wasm-pack build --target web --release

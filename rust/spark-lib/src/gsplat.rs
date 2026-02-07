@@ -296,21 +296,21 @@ impl TsplatArray for GsplatArray {
         let total_weight = weights.iter().sum::<f32>().max(1.0e-30);
         weights.iter_mut().for_each(|w| *w /= total_weight);
 
-        for &weight in weights.iter() {
-            if !weight.is_finite() {
-                println!("--- Weight is not finite: {}", weight);
-                println!("Weights: {:?}", weights);
-                println!("Total weight: {}", total_weight);
-                println!("0 / total_weight: {}", 0.0 / total_weight);
-                println!("Areas: {:?}", indices.iter().map(|&index| self.get(index).area()).collect::<Vec<f32>>());
-                println!("Opacities: {:?}", indices.iter().map(|&index| self.get(index).opacity()).collect::<Vec<f32>>());
-                for &index in indices.iter() {
-                    let splat = self.get(index);
-                    println!("Splat {}: {:?}", index, splat);
-                }
-                panic!("Weight is not finite");
-            }
-        }
+        // for &weight in weights.iter() {
+        //     if !weight.is_finite() {
+        //         println!("--- Weight is not finite: {}", weight);
+        //         println!("Weights: {:?}", weights);
+        //         println!("Total weight: {}", total_weight);
+        //         println!("0 / total_weight: {}", 0.0 / total_weight);
+        //         println!("Areas: {:?}", indices.iter().map(|&index| self.get(index).area()).collect::<Vec<f32>>());
+        //         println!("Opacities: {:?}", indices.iter().map(|&index| self.get(index).opacity()).collect::<Vec<f32>>());
+        //         for &index in indices.iter() {
+        //             let splat = self.get(index);
+        //             println!("Splat {}: {:?}", index, splat);
+        //         }
+        //         panic!("Weight is not finite");
+        //     }
+        // }
 
         let mut center = Vec3A::ZERO;
         let mut rgb = Vec3A::ZERO;
@@ -342,42 +342,42 @@ impl TsplatArray for GsplatArray {
         let (vals, vecs) = total_cov.positive_eigens();
         let scales = Vec3A::from_array(vals.map(|v| v.max(0.0).sqrt()));
         assert!(scales.x.is_finite() && scales.y.is_finite() && scales.z.is_finite());
-        if scales.x == 0.0 || scales.y == 0.0 || scales.z == 0.0 {
-            println!("--- Scales are zero: {:?}", scales);
-            println!("Weights: {:?}", weights);
-            println!("Areas: {:?}", indices.iter().map(|&index| self.get(index).area()).collect::<Vec<f32>>());
-            println!("Opacities: {:?}", indices.iter().map(|&index| self.get(index).opacity()).collect::<Vec<f32>>());
-            for &index in indices.iter() {
-                let splat = self.get(index);
-                println!("Splat {}: {:?}", index, splat);
-                println!("Splat {} cov: {:?}", index, SymMat3::new_scale_quaternion(splat.scales(), splat.quaternion()))
-            }
+        // if scales.x == 0.0 || scales.y == 0.0 || scales.z == 0.0 {
+        //     println!("--- Scale is zero: {:?}", scales);
+        //     println!("Weights: {:?}", weights);
+        //     println!("Areas: {:?}", indices.iter().map(|&index| self.get(index).area()).collect::<Vec<f32>>());
+        //     println!("Opacities: {:?}", indices.iter().map(|&index| self.get(index).opacity()).collect::<Vec<f32>>());
+        //     for &index in indices.iter() {
+        //         let splat = self.get(index);
+        //         println!("Splat {}: {:?}", index, splat);
+        //         println!("Splat {} cov: {:?}", index, SymMat3::new_scale_quaternion(splat.scales(), splat.quaternion()))
+        //     }
 
-            println!("Total cov: {:?}", total_cov);
-            println!("vals: {:?}", vals);
-            println!("vecs: {:?}", vecs);
-        }
+        //     println!("Total cov: {:?}", total_cov);
+        //     println!("vals: {:?}", vals);
+        //     println!("vecs: {:?}", vecs);
+        // }
         let scales = scales.max(Vec3A::splat(1.0e-30));
 
         let basis = Mat3A::from_cols(vecs[0], vecs[1], vecs[2]);
         let quaternion = Quat::from_mat3a(&basis);
-        // let opacity = (total_weight / ellipsoid_area(scales)).min(1000.0);
-        let opacity = (total_weight / ellipsoid_area(scales)).clamp(0.0001, 1000.0);
-        if opacity < 0.00006103515625 {
-            println!("--- Opacity is zero: {}", opacity);
-            println!("Total weight: {}", total_weight);
-            println!("Area: {}", ellipsoid_area(scales));
-            println!("Scales: {:?}", scales);
-            println!("Quaternion: {:?}", quaternion);
-            println!("Center: {:?}", center);
-            println!("RGB: {:?}", rgb);
-            for &index in indices.iter() {
-                let splat = self.get(index);
-                println!("Splat {}: {:?}", index, splat);
-                println!("Splat {} cov: {:?}", index, SymMat3::new_scale_quaternion(splat.scales(), splat.quaternion()))
-            }
-            // panic!("Opacity is zero!");
-        }
+        let opacity = (total_weight / ellipsoid_area(scales)).clamp(0.000001, 1000.0);
+        // if opacity <= 0.000001 {
+        //     println!("--- Opacity is zero: {}", opacity);
+        //     println!("Total weight: {}", total_weight);
+        //     println!("Area: {}", ellipsoid_area(scales));
+        //     println!("Scales: {:?}", scales);
+        //     println!("Quaternion: {:?}", quaternion);
+        //     println!("Center: {:?}", center);
+        //     println!("RGB: {:?}", rgb);
+        //     for &index in indices.iter() {
+        //         let splat = self.get(index);
+        //         println!("Splat {}: {:?}", index, splat);
+        //         println!("Splat {} cov: {:?}", index, SymMat3::new_scale_quaternion(splat.scales(), splat.quaternion()))
+        //     }
+        //     // panic!("Opacity is zero!");
+        // }
+
         self.splats.push(Gsplat::new(center, opacity, rgb, scales, quaternion));
         self.children.push(indices.iter().copied().collect());
 
@@ -645,11 +645,11 @@ impl GsplatArray {
         let (_, _, _, max_splats) = get_splat_tex_size(self.splats.len());
         let mut sh1 = Vec::new();
         sh1.resize(max_splats * 2, 0);
-        let SplatEncoding { sh1_min, sh1_max, .. } = encoding;
+        let SplatEncoding { sh1_max, .. } = encoding;
 
         for i in 0..self.splats.len() {
             let i2 = i * 2;
-            let encoded = encode_sh1(&self.sh1[i].to_array(), *sh1_min, *sh1_max);
+            let encoded = encode_sh1(&self.sh1[i].to_array(), *sh1_max);
             for w in 0..2 {
                 sh1[i2 + w] = encoded[w];
             }
@@ -664,11 +664,11 @@ impl GsplatArray {
         let (_, _, _, max_splats) = get_splat_tex_size(self.splats.len());
         let mut sh2 = Vec::new();
         sh2.resize(max_splats * 4, 0);
-        let SplatEncoding { sh2_min, sh2_max, .. } = encoding;
+        let SplatEncoding { sh2_max, .. } = encoding;
         
         for i in 0..self.splats.len() {
             let i4 = i * 4;
-            let encoded = encode_sh2(&self.sh2[i].to_array(), *sh2_min, *sh2_max);
+            let encoded = encode_sh2(&self.sh2[i].to_array(), *sh2_max);
             for w in 0..4 {
                 sh2[i4 + w] = encoded[w];
             }
@@ -683,11 +683,11 @@ impl GsplatArray {
         let (_, _, _, max_splats) = get_splat_tex_size(self.splats.len());
         let mut sh3 = Vec::new();
         sh3.resize(max_splats * 4, 0);
-        let SplatEncoding { sh3_min, sh3_max, .. } = encoding;
+        let SplatEncoding { sh3_max, .. } = encoding;
 
         for i in 0..self.splats.len() {
             let i4 = i * 4;
-            let encoded = encode_sh3(&self.sh3[i].to_array(), *sh3_min, *sh3_max);
+            let encoded = encode_sh3(&self.sh3[i].to_array(), *sh3_max);
             for w in 0..4 {
                 sh3[i4 + w] = encoded[w];
             }
