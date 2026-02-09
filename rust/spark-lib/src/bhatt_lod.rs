@@ -27,7 +27,9 @@ pub fn compute_lod_tree<TA: TsplatArray>(splats: &mut TA, lod_base: f32, logger:
     let mut is_active = Vec::with_capacity(splats.len() * 2 - 1);
     is_active.resize(splats.len(), true);
 
-    let level_min = splats.get(0).feature_size().log(merge_base).ceil() as i16;
+    // Clamp minimum feature size to 10^-6
+    let min_feature_size = splats.get(0).feature_size().max(0.000001);
+    let level_min = min_feature_size.log(merge_base).ceil() as i16;
     logger(&format!("level_min: {}, feature_size[0]: {}", level_min, splats.get(0).feature_size()));
 
     let mut level = level_min;

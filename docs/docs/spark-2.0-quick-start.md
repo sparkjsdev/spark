@@ -14,7 +14,7 @@ const splats = new SplatMesh({ url: "./my-splats.spz", lod: true });
 scene.add(splats);
 ```
 
-However, it is recommended that you pre-build the LoD tree and load that instead, by running `npm run build-lod my-splats.ply more-splats.spz` (alternatively you can `cd rust/build_lod && cargo run --release -- my-splats.ply...`). To see the list of options, run `npm run build-lod` by itself. One option you may want to use is `--quality` to enable higher-quality LoD tree generation at the expense of slower creation time.
+However, it is recommended that you pre-build the LoD tree and load that instead, by running `npm run build-lod -- my-splats.ply more-splats.spz` (the extra `--` tells it to pass any additional parameters to build--lod, alternatively you can `cd rust/build_lod && cargo run --release -- my-splats.ply...`). To see the list of options, run `npm run build-lod` by itself. One option you may want to use is `--quality` to enable higher-quality LoD tree generation at the expense of slower creation time.
 
 The output will be a new .RAD file that can be loaded in Spark and optionally streamed in. Simply create a new SplatMesh pointing to the .RAD file (no `lod: true` necessary because the file encodes that information). To enable paged streaming, set `paged: true`, i.e. `new SplatMesh({ url: "./my-splats-lod.rad", paged: true })`.
 

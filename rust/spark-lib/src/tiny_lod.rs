@@ -4,6 +4,8 @@ use smallvec::{smallvec, SmallVec};
 
 use crate::{ordering, tsplat::{Tsplat, TsplatMut, TsplatArray}};
 
+const INFLATE_SCALE: bool = false;
+
 const CHUNK_SIZE: usize = 65536;
 // const CHUNK_LEVELS: i16 = 2;
 
@@ -34,7 +36,9 @@ pub fn compute_lod_tree<SA: TsplatArray>(splats: &mut SA, lod_base: f32, merge_f
 
     splats.prepare_children();
 
-    let level_min = splats.get(0).feature_size().log(lod_base).ceil() as i16;
+    // Clamp minimum feature size to 10^-6
+    let min_feature_size = splats.get(0).feature_size().max(0.000001);
+    let level_min = min_feature_size.log(lod_base).ceil() as i16;
     logger(&format!("level_min: {}, feature_size[0]: {}", level_min, splats.get(0).feature_size()));
     let mut level = level_min;
     let initial_splats = splats.len();
@@ -178,10 +182,17 @@ pub fn compute_lod_tree<SA: TsplatArray>(splats: &mut SA, lod_base: f32, merge_f
 
     for i in 0..splats.len() {
         let mut splat = splats.get_mut(i);
+        
         if splat.opacity() > 1.0 {
-            let d = splat.lod_opacity();
-            // // Map 1..5 LOD-encoded opacity to 1..2 opacity
-            splat.set_opacity((0.25 * (d - 1.0) + 1.0).clamp(1.0, 2.0));
+            if !INFLATE_SCALE {
+                let d = splat.lod_opacity();
+                // // Map 1..5 LOD-encoded opacity to 1..2 opacity
+                splat.set_opacity((0.25 * (d - 1.0) + 1.0).clamp(1.0, 2.0));
+            } else {
+                let rescale = splat.opacity().powf(1.0 / 3.0);
+                splat.set_scales(splat.scales() * rescale);
+                splat.set_opacity(1.0);
+            }
         }
     }
 

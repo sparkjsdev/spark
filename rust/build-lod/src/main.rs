@@ -1,13 +1,14 @@
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 
+use spark_lib::chunk_tree;
 use spark_lib::decoder::{SplatEncoding, SplatGetter, SplatReceiver};
 use spark_lib::rad::RadEncoder;
 use spark_lib::{
     decoder::{ChunkReceiver, MultiDecoder},
     gsplat::GsplatArray,
     csplat::CsplatArray,
-    tsplat::TsplatArray,
+    tsplat::{Tsplat, TsplatArray},
     tiny_lod,
     bhatt_lod,
     spz::SpzEncoder,
@@ -45,6 +46,9 @@ struct BuildLodOptions {
     max_sh: Option<usize>,
     output: BuildLodOutput,
     splat_encoding: Option<SplatEncoding>,
+    min_box: Option<[f32; 3]>,
+    max_box: Option<[f32; 3]>,
+    within_dist: Option<([f32; 3], f32)>,
 }
 
 fn read_file_chunks(filename: &str, decoder: &mut impl ChunkReceiver) -> anyhow::Result<()> {
@@ -91,6 +95,26 @@ fn process_file_lod_tsplat<TS: SplatReceiver + TsplatArray + SplatGetter>(filena
 
     if let Some(max_sh) = options.max_sh {
         splats.set_max_sh_degree(max_sh);
+    }
+
+    if let Some(min_box) = options.min_box {
+        splats.retain(|splat| {
+            splat.center().x >= min_box[0] && splat.center().y >= min_box[1] && splat.center().z >= min_box[2]
+        });
+    }
+
+    if let Some(max_box) = options.max_box {
+        splats.retain(|splat| {
+            splat.center().x <= max_box[0] && splat.center().y <= max_box[1] && splat.center().z <= max_box[2]
+        });
+    }
+
+    if let Some((origin, dist)) = options.within_dist {
+        splats.retain(|splat| {
+            let center = splat.center();
+            let dist2 = (center.x - origin[0]).powi(2) + (center.y - origin[1]).powi(2) + (center.z - origin[2]).powi(2);
+            dist2 <= dist * dist
+        });
     }
 
     // {
@@ -212,10 +236,12 @@ fn process_file_lod_tsplat<TS: SplatReceiver + TsplatArray + SplatGetter>(filena
         _ => unreachable!()
     }
 
+    chunk_tree::chunk_tree(&mut splats, 0, |s| println!("{}", s));
+
     match options.output {
         BuildLodOutput::Rad => {
             let mut encoder = RadEncoder::new(splats);
-            // encoder.resolve_encoding();
+            encoder.resolve_encoding();
             println!("Encoding RAD file with center={:?}, alpha={:?}, rgb={:?}, scales={:?}, orientation={:?}, sh={:?}", encoder.center_encoding, encoder.alpha_encoding, encoder.rgb_encoding, encoder.scales_encoding, encoder.orientation_encoding, encoder.sh_encoding);
             if let Some(encoding) = encoder.encoding.as_ref() {
                 println!("Splat Encoding: {:?}", encoding);
@@ -262,6 +288,9 @@ fn show_usage_exit() {
     eprintln!("  [--tiny-lod[=<base>]] [--bhatt-lod[=<base>]] // Use tiny-lod (default base 1.5) or bhatt-lod (default base 1.75) LoD method");
     eprintln!("  [--max-sh=<max-sh>]                          // Set maximum SH degree (default 3)");
     eprintln!("  [--rad] [--spz] [--spz-chunked]              // Output RAD, SPZ, or chunked SPZ files");
+    eprintln!("  [--min-box=<x>,<y>,<z>]                      // Crop input file to minimum bounding coord");
+    eprintln!("  [--max-box=<x>,<y>,<z>]                      // Crop input file to maximum bounding coord");
+    eprintln!("  [--within-dist=<x>,<y>,<z>,<radius>]         // Crop input file to within radius of a point");
     eprintln!("  <file.ply|file.spz|file.compressed.ply|file.splat|file.ksplat|file.sog|file.rad> [...] // Multiple input files and wildcards allowed");
     std::process::exit(1);
 }
@@ -362,6 +391,36 @@ fn main() {
         if arg == "--spz-chunked" {
             options.output = BuildLodOutput::SpzChunked;
             println!("Using --spz-chunked: Chunk SPZ file output");
+            continue;
+        }
+        if let Some(rest) = arg.strip_prefix("--min-box=") {
+            let values = rest.split(",").map(|v| v.parse::<f32>().unwrap()).collect::<Vec<f32>>();
+            if values.len() != 3 {
+                eprintln!("Invalid --min-box value: {}", rest);
+                show_usage_exit();
+            }
+            options.min_box = Some([values[0], values[1], values[2]]);
+            println!("Using --min-box={:?}", options.min_box);
+            continue;
+        }
+        if let Some(rest) = arg.strip_prefix("--max-box=") {
+            let values = rest.split(",").map(|v| v.parse::<f32>().unwrap()).collect::<Vec<f32>>();
+            if values.len() != 3 {
+                eprintln!("Invalid --max-box value: {}", rest);
+                show_usage_exit();
+            }
+            options.max_box = Some([values[0], values[1], values[2]]);
+            println!("Using --max-box={:?}", options.max_box);
+            continue;
+        }
+        if let Some(rest) = arg.strip_prefix("--within-dist=") {
+            let values = rest.split(",").map(|v| v.parse::<f32>().unwrap()).collect::<Vec<f32>>();
+            if values.len() != 4 {
+                eprintln!("Invalid --within-dist value: {}", rest);
+                show_usage_exit();
+            }
+            options.within_dist = Some(([values[0], values[1], values[2]], values[3]));
+            println!("Using --within-dist={:?}", options.within_dist);
             continue;
         }
         if arg.starts_with("--") {

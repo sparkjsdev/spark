@@ -10,6 +10,8 @@ use crate::splat_encode::{encode_packed_splat, encode_sh1, encode_sh2, encode_sh
 use crate::symmat3::SymMat3;
 use crate::tsplat::{Tsplat, TsplatArray, TsplatMut, apply_swaps, compute_swaps, similarity_metric};
 
+const INFLATE_SCALE: bool = false;
+
 #[derive(Clone, Default)]
 pub struct Gsplat {
     pub center: Vec3,
@@ -378,9 +380,15 @@ impl TsplatArray for GsplatArray {
         //     // panic!("Opacity is zero!");
         // }
 
+        let (scales, opacity) = if INFLATE_SCALE && opacity > 1.0 {
+            let rescale = opacity.powf(1.0 / 3.0);
+            (scales * rescale, 1.0)
+        } else {
+            (scales, opacity)
+        };
+
         self.splats.push(Gsplat::new(center, opacity, rgb, scales, quaternion));
         self.children.push(indices.iter().copied().collect());
-
 
         if self.max_sh_degree >= 1 {
             let mut total = [Vec3A::ZERO; 3];
