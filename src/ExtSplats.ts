@@ -822,14 +822,18 @@ export function evaluateExtSH({
       if (inputs.sh1Texture) {
         if (!inputs.sh2Texture) {
           lines.push(
-            `rgb = evaluateExtSH1(texelFetch(${inputs.sh1Texture}, ${inputs.coord}, 0), ${inputs.viewDir});`,
+            ...unindentLines(`
+            if (${inputs.numSh} >= 1) {
+              rgb = evaluateExtSH1(texelFetch(${inputs.sh1Texture}, ${inputs.coord}, 0), ${inputs.viewDir});
+            }
+            `),
           );
         } else {
           lines.push(
             ...unindentLines(`
             if (${inputs.numSh} == 1) {
               rgb = evaluateExtSH1(texelFetch(${inputs.sh1Texture}, ${inputs.coord}, 0), ${inputs.viewDir});
-            } else {
+            } else if (${inputs.numSh} >= 2) {
               rgb = evaluateExtSH12(texelFetch(${inputs.sh1Texture}, ${inputs.coord}, 0), texelFetch(${inputs.sh2Texture}, ${inputs.coord}, 0), ${inputs.viewDir});
             `),
           );
