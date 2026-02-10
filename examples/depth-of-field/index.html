@@ -27,7 +27,7 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { NewSparkRenderer, SplatMesh, SparkControls } from "@sparkjsdev/spark";
+    import { SparkRenderer, SplatMesh, SparkControls } from "@sparkjsdev/spark";
     import GUI from "lil-gui";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
@@ -44,7 +44,7 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    const spark = new NewSparkRenderer({
+    const spark = new SparkRenderer({
       renderer,
       apertureAngle: 0.02,
       focalDistance: 5.0,

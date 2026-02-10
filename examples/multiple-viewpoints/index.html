@@ -25,7 +25,7 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { NewSparkRenderer, SplatMesh } from "@sparkjsdev/spark";
+    import { SparkRenderer, SparkViewpoint, SplatMesh } from "@sparkjsdev/spark";
 
     import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
@@ -45,8 +45,8 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    // Explicitly create a NewSparkRenderer in the scene to spawn new viewpoints
-    const spark = new NewSparkRenderer({ renderer });
+    // Explicitly create a SparkRenderer in the scene to spawn new viewpoints
+    const spark = new SparkRenderer({ renderer });
     scene.add(spark);
 
     const splatURL = await getAssetFileURL("butterfly.spz");
@@ -59,10 +59,9 @@
       // Create a textured rectangle at the near plane to show the viewpoint
       const width = 320;
       const height = 240;
-      const screenMaterial = new THREE.MeshBasicMaterial({ map: null });
       const screen = new THREE.Mesh(
         new THREE.PlaneGeometry(0.5 * camera.near, 0.5 * camera.near * height / width),
-        screenMaterial,
+        new THREE.MeshBasicMaterial({ map: SparkViewpoint.EMPTY_TEXTURE }),
       );
       screen.position.set(screenPos.x, screenPos.y, -1).multiplyScalar(camera.near);
       scene.add(screen);
@@ -96,19 +95,19 @@
         };
       });
 
-      // Create an independent NewSparkRenderer viewpoint with a double-buffered
-      // offscreen target in case the texture is used recursively in the scene.
-      const viewpoint = new NewSparkRenderer({
-        renderer,
+      // Spawn a new viewpoint that auto-updates its sort order, double
+      // buffered in case the texture is used recursively in the scene
+      const viewpoint = spark.newViewpoint({
         autoUpdate: true,
+        camera: viewCamera,
         target: { width, height, doubleBuffer: true },
+        onTextureUpdated: (texture) => {
+          // Update the view screen with the rendered viewpoint
+          screen.material.map = texture;
+        },
       });
 
-      // Initialize the screen texture from the target.
-      if (viewpoint.target) {
-        screenMaterial.map = viewpoint.target.texture;
-      }
-      return { renderer: viewpoint, camera: viewCamera, screenMaterial };
+      return viewpoint;
     }
 
     const viewpoints = [
@@ -127,7 +126,7 @@
       // Render each viewpoint (with a different background each)
       for (let i = 0; i < viewpoints.length; i++) {
         scene.background.set([0x202040, 0x302020][i]);
-        viewpoints[i].renderer.renderTarget({ scene, camera: viewpoints[i].camera });
+        viewpoints[i].renderTarget({ scene, camera: viewpoints[i].camera });
       }
     });
   </script>
