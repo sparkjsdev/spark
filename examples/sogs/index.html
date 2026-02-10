@@ -26,7 +26,7 @@
     import * as THREE from "three";
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { Sky } from 'three/addons/objects/Sky.js';
-    import { SplatMesh } from "@sparkjsdev/spark";
+    import { NewSparkRenderer, SplatMesh } from "@sparkjsdev/spark";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
     const scene = new THREE.Scene();
@@ -36,6 +36,10 @@
     const renderer = new THREE.WebGLRenderer();
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(window.innerWidth, window.innerHeight);
+
+    const spark = new NewSparkRenderer({ renderer });
+    scene.add(spark);
+
     document.body.appendChild(renderer.domElement);
 
     window.addEventListener('resize', onWindowResize, false);

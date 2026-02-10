@@ -26,7 +26,7 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { SparkControls, SplatMesh, constructGrid, constructAxes, textSplats, imageSplats } from "@sparkjsdev/spark";
+    import { NewSparkRenderer, SparkControls, SplatMesh, constructGrid, constructAxes, textSplats, imageSplats } from "@sparkjsdev/spark";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
     const scene = new THREE.Scene();
@@ -34,6 +34,9 @@
     const renderer = new THREE.WebGLRenderer();
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
+
+    const spark = new NewSparkRenderer({ renderer });
+    scene.add(spark);
 
     window.addEventListener('resize', onWindowResize, false);
     function onWindowResize() {

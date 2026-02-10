@@ -1,4 +1,4 @@
-import { SparkRenderer } from "@sparkjsdev/spark";
+import { NewSparkRenderer } from "@sparkjsdev/spark";
 import { GUI } from "lil-gui";
 import * as THREE from "three";
 
@@ -10,7 +10,7 @@ renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
 renderer.setClearColor(0x000000, 1);
 
 const scene = new THREE.Scene();
-const spark = new SparkRenderer({ renderer });
+const spark = new NewSparkRenderer({ renderer });
 scene.add(spark);
 
 const camera = new THREE.PerspectiveCamera(

@@ -27,7 +27,7 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { SparkControls, SplatMesh, dyno } from "@sparkjsdev/spark";
+    import { NewSparkRenderer, SparkControls, SplatMesh, dyno } from "@sparkjsdev/spark";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
     import GUI from "lil-gui";
 
@@ -40,6 +40,10 @@
     
     const renderer = new THREE.WebGLRenderer();
     renderer.setSize(window.innerWidth, window.innerHeight);
+
+    const spark = new NewSparkRenderer({ renderer });
+    scene.add(spark);
+
     document.body.appendChild(renderer.domElement);
 
     window.addEventListener('resize', onWindowResize, false);
