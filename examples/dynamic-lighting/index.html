@@ -78,7 +78,7 @@
     import {
       SplatMesh,
       SplatEdit,
-      SparkRenderer,
+      NewSparkRenderer,
       SplatEditSdf,
       SplatEditSdfType,
       SplatEditRgbaBlendMode,
@@ -104,8 +104,8 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    // Create a SparkRenderer and add it to the scene to render all the Gsplats.
-    const spark = new SparkRenderer({ renderer });
+    // Create a NewSparkRenderer and add it to the scene to render all the Gsplats.
+    const spark = new NewSparkRenderer({ renderer });
     scene.add(spark);
 
     const splatURL = await getAssetFileURL("fireplace.spz");

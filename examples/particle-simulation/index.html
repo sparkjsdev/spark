@@ -28,7 +28,7 @@
   <script type="module">
     import * as THREE from "three";
     import {
-      SparkRenderer,
+      NewSparkRenderer,
       PointerControls,
       SplatMesh,
       generators,
@@ -56,7 +56,7 @@
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
 
-    const spark = new SparkRenderer({ renderer });
+    const spark = new NewSparkRenderer({ renderer });
     scene.add(spark);
 
     function handleResize() {
