@@ -1,11 +1,11 @@
 import * as THREE from "three";
 import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 
-import { workerPool } from "./NewSplatWorker";
 import type { RgbaArray } from "./RgbaArray";
 import type { GsplatGenerator } from "./SplatGenerator";
 import { SplatLoader } from "./SplatLoader";
 import type { SplatSource } from "./SplatMesh";
+import { workerPool } from "./SplatWorker";
 import {
   LN_SCALE_MAX,
   LN_SCALE_MIN,
@@ -893,6 +893,32 @@ export class PackedSplats implements SplatSource {
     if (!this.lod) {
       this.lod = lodBase;
     }
+  }
+
+  extractSplats(indices: Uint32Array, pageColoring: boolean) {
+    const maxSplats = getTextureSize(indices.length).maxSplats;
+    const newSplats = new PackedSplats({ maxSplats });
+    for (let i = 0; i < indices.length; i++) {
+      const splat = this.getSplat(indices[i]);
+      if (pageColoring) {
+        let hue = (indices[i] >>> 16) * 0.61803398875;
+        hue = hue - Math.floor(hue);
+        const r = Math.max(0, Math.min(1, Math.abs(hue * 6.0 - 3.0) - 1.0));
+        const g = Math.max(0, Math.min(1, Math.abs(hue * 6.0 + 1.0) - 1.0));
+        const b = Math.max(0, Math.min(1, Math.abs(hue * 6.0 - 1.0) - 1.0));
+        splat.color.r *= r;
+        splat.color.g *= g;
+        splat.color.b *= b;
+      }
+      newSplats.pushSplat(
+        splat.center,
+        splat.scales,
+        splat.quaternion,
+        splat.opacity,
+        splat.color,
+      );
+    }
+    return newSplats;
   }
 
   static programTemplate: DynoProgramTemplate | null = null;

@@ -279,6 +279,9 @@ export class SplatMesh extends SplatGenerator {
   coneFov?: number;
   coneFoveate?: number;
 
+  showLodPage?: number;
+  showLodPageDyno = new DynoInt({ value: 0 });
+
   constructor(options: SplatMeshOptions = {}) {
     super({
       update: (context) => this.update(context),
@@ -306,11 +309,13 @@ export class SplatMesh extends SplatGenerator {
           : new ExtSplats();
       options.extSplats = this.extSplats;
       this.numSplats = this.extSplats.numSplats;
+      this.splats = this.extSplats;
     } else if (options.packedSplats) {
       this.packedSplats = options.packedSplats;
       this.packedSplats.splatEncoding = options.splatEncoding ?? {
         ...DEFAULT_SPLAT_ENCODING,
       };
+      this.splats = this.packedSplats;
     } else {
       this.packedSplats = new PackedSplats();
     }
@@ -631,6 +636,7 @@ export class SplatMesh extends SplatGenerator {
           index,
           context.numSplats,
           context.enableLod,
+          this.showLodPageDyno,
         );
 
         // Read a Gsplat from the SplatSource
@@ -706,6 +712,7 @@ export class SplatMesh extends SplatGenerator {
           index,
           context.numSplats,
           context.enableLod,
+          this.showLodPageDyno,
         );
 
         // Read a Gsplat from the SplatSource
@@ -807,6 +814,7 @@ export class SplatMesh extends SplatGenerator {
     this.context.time.value = time;
     this.context.deltaTime.value = deltaTime;
     SplatMesh.dynoTime.value = time;
+    this.showLodPageDyno.value = this.showLodPage ?? -1;
 
     const splats = this.splats ?? this.packedSplats ?? this.extSplats;
     if (splats) {
@@ -1019,6 +1027,7 @@ export function maybeLookupIndex(
   index: DynoVal<"int">,
   numSplats: DynoVal<"int">,
   enableLod: DynoVal<"bool">,
+  showLodPage: DynoVal<"int">,
 ) {
   return dyno({
     inTypes: {
@@ -1026,6 +1035,7 @@ export function maybeLookupIndex(
       index: "int",
       numSplats: "int",
       enableLod: "bool",
+      showLodPage: "int",
     },
     outTypes: {
       index: "int",
@@ -1035,18 +1045,28 @@ export function maybeLookupIndex(
       index,
       numSplats,
       enableLod,
+      showLodPage,
     },
     statements: ({ inputs, outputs }) =>
       unindentLines(`
-        if (${inputs.index} >= ${inputs.numSplats}) {
-          return;
-        }
-        if (${inputs.enableLod}) {
-          ivec2 lodIndexCoord = ivec2((${inputs.index} >> 2) & 4095, ${inputs.index} >> 14);
-          uint splatIndex = texelFetch(${inputs.lodIndices}, lodIndexCoord, 0)[${inputs.index} & 3];
-          ${outputs.index} = int(splatIndex);
+        int index = ${inputs.index};
+        if (${inputs.showLodPage} < 0) {
+          if (index >= ${inputs.numSplats}) {
+            return;
+          }
+          if (${inputs.enableLod}) {
+            ivec2 lodIndexCoord = ivec2((index >> 2) & 4095, index >> 14);
+            uint splatIndex = texelFetch(${inputs.lodIndices}, lodIndexCoord, 0)[index & 3];
+            ${outputs.index} = int(splatIndex);
+          } else {
+            ${outputs.index} = index;
+          }
         } else {
-          ${outputs.index} = ${inputs.index};
+          int start = ${inputs.showLodPage} << 16;
+          if (index >= 65536) {
+            return;
+          }
+          ${outputs.index} = start + index;
         }
       `),
   }).outputs.index;

@@ -479,8 +479,9 @@ pub fn decode_sh3_internal_words(words: [u32; 4], sh3_scale: f32) -> [f32; 21] {
 
 pub fn encode_lod_tree(buffer: &mut [u32], center: &[f32], opacity: f32, scale: &[f32], child_count: u16, child_start: u32) {
     let center: [f16; 3] = array::from_fn(|d| f16::from_f32(center[d]));
-    let max_scale = scale[0].max(scale[1]).max(scale[2]);
-    let size = f16::from_f32(2.0 * opacity.max(1.0) * max_scale);
+    let avg_scale = (scale[0] + scale[1] + scale[2]) / 3.0;
+    let opacity = opacity.max(1.0) * 4.0 - 3.0;
+    let size = f16::from_f32(2.0 * opacity * avg_scale);
     buffer[0] = (center[0].to_bits() as u32) | ((center[1].to_bits() as u32) << 16);
     buffer[1] = (center[2].to_bits() as u32) | ((size.to_bits() as u32) << 16);
     buffer[2] = child_count as u32;

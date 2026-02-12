@@ -28,7 +28,7 @@
   <script src="https://cdn.jsdelivr.net/npm/stats.js@0.17.0/build/stats.min.js"></script>
   <script type="module">
     import * as THREE from "three";
-    import { NewSparkRenderer, PackedSplats, ExtSplats, SplatMesh, SplatEdit, SplatEditRgbaBlendMode, SplatEditSdf, SplatEditSdfType, SparkControls, SparkXr, textSplats, SplatSkinning } from "@sparkjsdev/spark";
+    import { SparkRenderer, PackedSplats, ExtSplats, SplatMesh, SplatEdit, SplatEditRgbaBlendMode, SplatEditSdf, SplatEditSdfType, SparkControls, SparkXr, textSplats, SplatSkinning } from "@sparkjsdev/spark";
     import GUI from "lil-gui";
 
     const RENDER_TIMEOUT_MS = 30 * 1000;
@@ -54,7 +54,7 @@
     }
 
     // Lower the splat rendering width to sqrt(4) std devs for more performance
-    const spark = new NewSparkRenderer({
+    const spark = new SparkRenderer({
       renderer,
       extSplats: false,
       maxStdDev: Math.sqrt(4),

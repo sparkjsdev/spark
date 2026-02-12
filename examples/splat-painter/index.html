@@ -57,7 +57,7 @@
   <script type="module">
     import {
       dyno,
-      SparkRenderer,
+      OldSparkRenderer,
       SplatMesh,
       SplatTransformer,
       SparkControls,
@@ -149,7 +149,7 @@
     renderer.setClearColor(new THREE.Color(0xaaffff), 1);
 
     const scene = new THREE.Scene();
-    const spark = new SparkRenderer({
+    const spark = new OldSparkRenderer({
       renderer,
     });
     scene.add(spark);

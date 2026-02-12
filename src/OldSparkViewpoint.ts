@@ -1,10 +1,11 @@
 import * as THREE from "three";
 
+import type { OldSparkRenderer } from "./OldSparkRenderer";
+import type { OldSplatAccumulator } from "./OldSplatAccumulator";
+import { OldSplatGeometry } from "./OldSplatGeometry";
+import { withWorker } from "./OldSplatWorker";
 import { DynoPackedSplats } from "./PackedSplats";
 import { Readback } from "./Readback";
-import type { SparkRenderer } from "./SparkRenderer";
-import type { SplatAccumulator } from "./SplatAccumulator";
-import { SplatGeometry } from "./SplatGeometry";
 import {
   type DynoBlock,
   DynoBool,
@@ -26,10 +27,9 @@ import {
   unindent,
   unindentLines,
 } from "./dyno";
-import { withWorker } from "./splatWorker";
 import { FreeList, withinCoorientDist } from "./utils";
 
-export type SparkViewpointOptions = {
+export type OldSparkViewpointOptions = {
   /**
    * Controls whether to auto-update its sort order whenever the SparkRenderer
    * updates the Gsplats. If you expect to render/display from this viewpoint
@@ -140,8 +140,8 @@ export type SparkViewpointOptions = {
 // and is automatically updated whenever the camera moves. Additional viewpoints
 // can be created and configured separately.
 
-export class SparkViewpoint {
-  spark: SparkRenderer;
+export class OldSparkViewpoint {
+  spark: OldSparkRenderer;
   autoUpdate: boolean;
   camera?: THREE.Camera;
   viewToWorld: THREE.Matrix4;
@@ -164,14 +164,14 @@ export class SparkViewpoint {
   stochastic: boolean;
 
   display: {
-    accumulator: SplatAccumulator;
+    accumulator: OldSplatAccumulator;
     viewToWorld: THREE.Matrix4;
-    geometry: SplatGeometry;
+    geometry: OldSplatGeometry;
   } | null = null;
 
   private sorting: { viewToWorld: THREE.Matrix4 } | null = null;
   private pending: {
-    accumulator?: SplatAccumulator;
+    accumulator?: OldSplatAccumulator;
     viewToWorld: THREE.Matrix4;
     displayed: boolean;
   } | null = null;
@@ -181,7 +181,7 @@ export class SparkViewpoint {
   private readback32: Uint32Array = new Uint32Array(0);
   private orderingFreelist: FreeList<Uint32Array, number>;
 
-  constructor(options: SparkViewpointOptions & { spark: SparkRenderer }) {
+  constructor(options: OldSparkViewpointOptions & { spark: OldSparkRenderer }) {
     this.spark = options.spark;
     this.camera = options.camera;
     this.viewToWorld = options.viewToWorld ?? new THREE.Matrix4();
@@ -227,7 +227,8 @@ export class SparkViewpoint {
     this.stochastic = options.stochastic ?? false;
 
     this.orderingFreelist = new FreeList({
-      allocate: (maxSplats) => new Uint32Array(maxSplats),
+      allocate: (maxSplats) =>
+        new Uint32Array(maxSplats) as Uint32Array<ArrayBufferLike>,
       valid: (ordering, maxSplats) => ordering.length === maxSplats,
     });
 
@@ -461,7 +462,7 @@ export class SparkViewpoint {
   // This is called automatically by SparkRenderer, there is no need to call it!
   // The method cannot be private because then SparkRenderer would
   // not be able to call it.
-  autoPoll({ accumulator }: { accumulator?: SplatAccumulator }) {
+  autoPoll({ accumulator }: { accumulator?: OldSplatAccumulator }) {
     if (this.camera) {
       this.camera.updateMatrixWorld();
       this.viewToWorld = this.camera.matrixWorld.clone();
@@ -556,7 +557,7 @@ export class SparkViewpoint {
     viewToWorld,
     displayed = false,
   }: {
-    accumulator?: SplatAccumulator;
+    accumulator?: OldSplatAccumulator;
     viewToWorld: THREE.Matrix4;
     displayed?: boolean;
   }) {
@@ -588,7 +589,7 @@ export class SparkViewpoint {
         dynoDepthBias,
         dynoSort360,
         dynoSplats,
-      } = SparkViewpoint.makeSorter();
+      } = OldSparkViewpoint.makeSorter();
       const sort32 = this.sort32 ?? false;
       let readback: Uint16Array | Uint32Array;
       if (sort32) {
@@ -662,7 +663,7 @@ export class SparkViewpoint {
     activeSplats,
     displayed = false,
   }: {
-    accumulator: SplatAccumulator;
+    accumulator: OldSplatAccumulator;
     viewToWorld: THREE.Matrix4;
     ordering: Uint32Array;
     activeSplats: number;
@@ -672,7 +673,7 @@ export class SparkViewpoint {
       this.display = {
         accumulator,
         viewToWorld,
-        geometry: new SplatGeometry(ordering, activeSplats),
+        geometry: new OldSplatGeometry(ordering, activeSplats),
       };
     } else {
       if (!displayed && accumulator !== this.display.accumulator) {
@@ -688,7 +689,7 @@ export class SparkViewpoint {
       } else {
         this.display.geometry.dispose();
         // console.log("*** alloc SplatGeometry", ordering.length);
-        this.display.geometry = new SplatGeometry(ordering, activeSplats);
+        this.display.geometry = new OldSplatGeometry(ordering, activeSplats);
       }
       this.orderingFreelist.free(oldOrdering);
     }
@@ -714,7 +715,7 @@ export class SparkViewpoint {
   } | null = null;
 
   private static makeSorter() {
-    if (!SparkViewpoint.dynos) {
+    if (!OldSparkViewpoint.dynos) {
       const dynoSortRadial = new DynoBool({ value: true });
       const dynoOrigin = new DynoVec3({ value: new THREE.Vector3() });
       const dynoDirection = new DynoVec3({ value: new THREE.Vector3() });
@@ -780,7 +781,7 @@ export class SparkViewpoint {
         },
       );
 
-      SparkViewpoint.dynos = {
+      OldSparkViewpoint.dynos = {
         dynoSortRadial,
         dynoOrigin,
         dynoDirection,
@@ -792,7 +793,7 @@ export class SparkViewpoint {
         sort32Reader,
       };
     }
-    return SparkViewpoint.dynos;
+    return OldSparkViewpoint.dynos;
   }
 }
 

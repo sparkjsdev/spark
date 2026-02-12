@@ -1,11 +1,17 @@
-export { SparkRenderer, type SparkRendererOptions } from "./SparkRenderer";
-export { SparkViewpoint, type SparkViewpointOptions } from "./SparkViewpoint";
+export {
+  OldSparkRenderer,
+  type OldSparkRendererOptions,
+} from "./OldSparkRenderer";
+export {
+  OldSparkViewpoint,
+  type OldSparkViewpointOptions,
+} from "./OldSparkViewpoint";
 
 export {
-  NewSparkRenderer,
-  type NewSparkRendererOptions,
-} from "./NewSparkRenderer";
-export { NewSplatAccumulator } from "./NewSplatAccumulator";
+  SparkRenderer,
+  type SparkRendererOptions,
+} from "./SparkRenderer";
+export { SplatAccumulator, type GeneratorMapping } from "./SplatAccumulator";
 
 export * as dyno from "./dyno";
 
@@ -30,7 +36,7 @@ export {
   type GsplatModifier,
   SplatTransformer,
 } from "./SplatGenerator";
-export { SplatAccumulator, type GeneratorMapping } from "./SplatAccumulator";
+export { OldSplatAccumulator } from "./OldSplatAccumulator";
 export { Readback, type Rgba8Readback, type ReadbackBuffer } from "./Readback";
 
 export {

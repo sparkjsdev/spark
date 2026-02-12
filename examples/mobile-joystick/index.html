@@ -44,7 +44,7 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { NewSparkRenderer, SplatMesh, SparkControls } from "@sparkjsdev/spark";
+    import { SparkRenderer, SplatMesh, SparkControls } from "@sparkjsdev/spark";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
     import { initMobileControls, getMobileInput, isMobileDevice } from "./mobile-joystick.js";
 
@@ -69,7 +69,7 @@
     scene.add(cameraRig);
 
     // Create Spark renderer (required for splats to render)
-    const spark = new NewSparkRenderer({ renderer });
+    const spark = new SparkRenderer({ renderer });
     scene.add(spark);
 
     // Load the valley environment

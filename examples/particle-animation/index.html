@@ -33,7 +33,7 @@
   <script type="module">
     import * as THREE from "three";
     import {
-      NewSparkRenderer,
+      SparkRenderer,
       PointerControls,
       SplatMesh,
       VRButton,
@@ -273,7 +273,7 @@
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
 
-    const spark = new NewSparkRenderer({ renderer });
+    const spark = new SparkRenderer({ renderer });
     scene.add(spark);
 
     function handleResize() {

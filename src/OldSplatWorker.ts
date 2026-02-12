@@ -1,5 +1,5 @@
+import BundledWorker from "./oldWorker?worker&inline";
 import { getArrayBuffers } from "./utils.js";
-import BundledWorker from "./worker?worker&inline";
 
 // SplatWorker is an internal class that manages a WebWorker for executing
 // longer running CPU tasks such as Gsplat file decoding and sorting.
@@ -7,7 +7,7 @@ import BundledWorker from "./worker?worker&inline";
 // function withWorker() is recommended to allocate from a managed
 // pool of SplatWorkers.
 
-export class SplatWorker {
+export class OldSplatWorker {
   worker: Worker;
   messages: Record<
     number,
@@ -69,8 +69,8 @@ export class SplatWorker {
 let maxWorkers = 4;
 
 let numWorkers = 0;
-const freeWorkers: SplatWorker[] = [];
-const workerQueue: ((worker: SplatWorker) => void)[] = [];
+const freeWorkers: OldSplatWorker[] = [];
+const workerQueue: ((worker: OldSplatWorker) => void)[] = [];
 
 // Set the maximum number of workers to allocate for the pool. (default: 4)
 export function setWorkerPool(count = 4) {
@@ -80,14 +80,14 @@ export function setWorkerPool(count = 4) {
 // Allocate a worker from the pool. If none are available and we are below the
 // maximum, create a new one. Otherwise, add the request to a queue and wait
 // for it to be fulfilled.
-export async function allocWorker(): Promise<SplatWorker> {
+export async function allocWorker(): Promise<OldSplatWorker> {
   const worker = freeWorkers.shift();
   if (worker) {
     return worker;
   }
 
   if (numWorkers < maxWorkers) {
-    const worker = new SplatWorker();
+    const worker = new OldSplatWorker();
     numWorkers += 1;
     return worker;
   }
@@ -98,7 +98,7 @@ export async function allocWorker(): Promise<SplatWorker> {
 }
 
 // Return a worker to the pool. Pass the worker to any pending waiter.
-export function freeWorker(worker: SplatWorker) {
+export function freeWorker(worker: OldSplatWorker) {
   if (numWorkers > maxWorkers) {
     // Worker no longer needed
     numWorkers -= 1;
@@ -117,7 +117,7 @@ export function freeWorker(worker: SplatWorker) {
 // Allocate a worker from the pool and invoke the callback with the worker.
 // When the callback completes, the worker will be returned to the pool.
 export async function withWorker<T>(
-  callback: (worker: SplatWorker) => Promise<T>,
+  callback: (worker: OldSplatWorker) => Promise<T>,
 ): Promise<T> {
   const worker = await allocWorker();
   try {

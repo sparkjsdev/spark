@@ -23,7 +23,7 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { SplatMesh, NewSparkRenderer } from "@sparkjsdev/spark";
+    import { SplatMesh, SparkRenderer } from "@sparkjsdev/spark";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
     const scene = new THREE.Scene();
@@ -32,7 +32,7 @@
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
 
-    const spark = new NewSparkRenderer({ renderer });
+    const spark = new SparkRenderer({ renderer });
     scene.add(spark);
 
     window.addEventListener('resize', onWindowResize, false);

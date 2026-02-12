@@ -1,8 +1,5 @@
 import * as THREE from "three";
-import {
-  NewSparkRenderer,
-  type NewSparkRendererOptions,
-} from "./NewSparkRenderer";
+import { SparkRenderer, type SparkRendererOptions } from "./SparkRenderer";
 
 /**
  * Fragment shader for portal disk clipping.
@@ -155,8 +152,8 @@ export interface SparkPortalsOptions {
   camera: THREE.PerspectiveCamera;
   /** The local frame (parent of camera, used for teleportation) */
   localFrame: THREE.Group;
-  /** Options passed to both NewSparkRenderer instances */
-  sparkOptions?: Partial<NewSparkRendererOptions>;
+  /** Options passed to both SparkRenderer instances */
+  sparkOptions?: Partial<SparkRendererOptions>;
   /** Default portal disk radius for new pairs (default: 1.0) */
   defaultPortalRadius?: number;
   /** Epsilon for portal crossing detection (default: 1e-6) */
@@ -169,7 +166,7 @@ export interface SparkPortalsOptions {
  * Portal implementation to connect two non-contiguous areas of a scene.
  * Supports multiple portal pairs - each pair connects two locations.
  *
- * The rough approach is to use two NewSparkRenderers: one for the "front"/portal
+ * The rough approach is to use two SparkRenderers: one for the "front"/portal
  * view (portalRenderer), and one for the "behind portal" pass (behindRenderer).
  *
  * Example:
@@ -201,9 +198,9 @@ export class SparkPortals {
   localFrame: THREE.Group;
 
   /** Primary renderer with portal shader (added to scene) */
-  portalRenderer: NewSparkRenderer;
+  portalRenderer: SparkRenderer;
   /** Secondary renderer for behind-portal pass (not in scene) */
-  behindRenderer: NewSparkRenderer;
+  behindRenderer: SparkRenderer;
   /** Secondary camera for behind-portal view */
   camera2: THREE.PerspectiveCamera;
 
@@ -254,7 +251,7 @@ export class SparkPortals {
     const sparkOpts = options.sparkOptions ?? {};
 
     // Primary renderer with portal shader
-    this.portalRenderer = new NewSparkRenderer({
+    this.portalRenderer = new SparkRenderer({
       renderer: this.renderer,
       extraUniforms: {
         diskCenter: { value: new THREE.Vector3() },
@@ -270,7 +267,7 @@ export class SparkPortals {
     // Secondary renderer for behind-portal pass
     // enableDriveLod: false prevents this renderer from driving LOD updates,
     // avoiding race conditions with portalRenderer's pager operations
-    this.behindRenderer = new NewSparkRenderer({
+    this.behindRenderer = new SparkRenderer({
       renderer: this.renderer,
       enableDriveLod: false,
       ...sparkOpts,

@@ -1,5 +1,5 @@
-import BundledWorker from "./newWorker?worker&inline";
 import { getArrayBuffers } from "./utils";
+import BundledWorker from "./worker?worker&inline";
 
 type PromiseRecord = {
   resolve: (value: unknown) => void;
@@ -7,7 +7,7 @@ type PromiseRecord = {
   onStatus?: (data: unknown) => void;
 };
 
-export class NewSplatWorker {
+export class SplatWorker {
   worker: Worker;
   queue: (() => void)[] | null = null;
   messages: Record<number, PromiseRecord> = {};
@@ -34,12 +34,12 @@ export class NewSplatWorker {
     }
   }
 
-  tryExclusive<T>(callback: (worker: NewSplatWorker) => Promise<T>) {
+  tryExclusive<T>(callback: (worker: SplatWorker) => Promise<T>) {
     return this.queue == null ? this.exclusive(callback) : null;
   }
 
   async exclusive<T>(
-    callback: (worker: NewSplatWorker) => Promise<T>,
+    callback: (worker: SplatWorker) => Promise<T>,
   ): Promise<T> {
     const queue = this.queue;
     if (queue != null) {
@@ -69,7 +69,7 @@ export class NewSplatWorker {
     args: unknown,
     options: { onStatus?: (data: unknown) => void } = {},
   ): Promise<unknown> {
-    const id = ++NewSplatWorker.currentId;
+    const id = ++SplatWorker.currentId;
     const promise = new Promise((resolve, reject) => {
       this.messages[id] = { resolve, reject, onStatus: options.onStatus };
     });
@@ -94,15 +94,15 @@ export class NewSplatWorker {
 export class NewSplatWorkerPool {
   maxWorkers;
   numWorkers = 0;
-  freelist: NewSplatWorker[] = [];
-  queue: ((worker: NewSplatWorker) => void)[] = [];
+  freelist: SplatWorker[] = [];
+  queue: ((worker: SplatWorker) => void)[] = [];
 
   constructor(maxWorkers = 4) {
     this.maxWorkers = maxWorkers;
   }
 
   async withWorker<T>(
-    callback: (worker: NewSplatWorker) => Promise<T>,
+    callback: (worker: SplatWorker) => Promise<T>,
   ): Promise<T> {
     const worker = await this.allocWorker();
     try {
@@ -112,14 +112,14 @@ export class NewSplatWorkerPool {
     }
   }
 
-  async allocWorker(): Promise<NewSplatWorker> {
+  async allocWorker(): Promise<SplatWorker> {
     const worker = this.freelist.pop();
     if (worker) {
       return worker;
     }
 
     if (this.numWorkers < this.maxWorkers) {
-      const worker = new NewSplatWorker();
+      const worker = new SplatWorker();
       this.numWorkers += 1;
       return worker;
     }
@@ -129,7 +129,7 @@ export class NewSplatWorkerPool {
     });
   }
 
-  freeWorker(worker: NewSplatWorker) {
+  freeWorker(worker: SplatWorker) {
     if (this.numWorkers > this.maxWorkers) {
       // Worker no longer needed
       this.numWorkers -= 1;

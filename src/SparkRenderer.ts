@@ -1,47 +1,21 @@
 import * as THREE from "three";
-
-import { PackedSplats } from "./PackedSplats";
-import { RgbaArray } from "./RgbaArray";
-import { SparkViewpoint, type SparkViewpointOptions } from "./SparkViewpoint";
-import { type GeneratorMapping, SplatAccumulator } from "./SplatAccumulator";
-import { SplatEdit } from "./SplatEdit";
-import { SplatGenerator, SplatModifier } from "./SplatGenerator";
+import {
+  ExtSplats,
+  PackedSplats,
+  PagedSplats,
+  Readback,
+  type SplatGenerator,
+  SplatMesh,
+  SplatPager,
+} from ".";
+import { SplatAccumulator } from "./SplatAccumulator";
 import { SplatGeometry } from "./SplatGeometry";
-import { SplatMesh } from "./SplatMesh";
-import {
-  DEFAULT_SPLAT_ENCODING,
-  LN_SCALE_MAX,
-  LN_SCALE_MIN,
-  type SplatEncoding,
-} from "./defines";
-import {
-  DynoVec3,
-  DynoVec4,
-  Gsplat,
-  TPackedSplats,
-  dynoBlock,
-  readPackedSplat,
-  transformGsplat,
-} from "./dyno";
+import { SplatWorker } from "./SplatWorker";
+import { SPLAT_TEX_HEIGHT, SPLAT_TEX_WIDTH } from "./defines";
 import { getShaders } from "./shaders";
-import {
-  averagePositions,
-  averageQuaternions,
-  cloneClock,
-  withinCoorientDist,
-} from "./utils";
+import { cloneClock, isAndroid, isIos, isOculus, isVisionPro } from "./utils";
 
-// SparkRenderer aggregates splats from multiple generators into a single
-// accumulated collection per frame. In normal operation we only need a
-// maximum of 3 accumulators: One currently being viewed, one currently
-// being sorted, and one more for generating the next frame. Accumulators
-// must be "released" by each viewpoint using it, so in unusual cases
-// such as slow render-outs, we may want to allow more than 3 so the
-// pipeline can continue generating new frames, but we limit to a maximum
-// of 5 to avoid excessive memory usage.
-const MAX_ACCUMULATORS = 5;
-
-export type SparkRendererOptions = {
+export interface SparkRendererOptions {
   /**
    * Pass in your THREE.WebGLRenderer instance so Spark can perform work
    * outside the usual render loop. Should be created with antialias: false
@@ -55,9 +29,14 @@ export type SparkRendererOptions = {
    */
   premultipliedAlpha?: boolean;
   /**
+   * Whether to encode Gsplat with linear RGB (for environment mapping)
+   * @default false
+   */
+  encodeLinear?: boolean;
+  /**
    * Pass in a THREE.Clock to synchronize time-based effects across different
-   * systems. Alternatively, you can set the SparkRenderer properties time and
-   * deltaTime directly. (default: new THREE.Clock)
+   * systems. Alternatively, you can set the property time directly.
+   * (default: new THREE.Clock)
    */
   clock?: THREE.Clock;
   /**
@@ -69,15 +48,9 @@ export type SparkRendererOptions = {
   /**
    * Controls whether to update the Gsplats before or after rendering. For WebXR
    * this must be false in order to complete rendering as soon as possible.
-   * @default false
+   * @default true
    */
   preUpdate?: boolean;
-  /**
-   * Distance threshold for SparkRenderer movement triggering a Gsplat update at
-   * the new origin.
-   * @default 1.0
-   */
-  originDistance?: number;
   /**
    * Maximum standard deviations from the center to render Gaussians. Values
    * Math.sqrt(5)..Math.sqrt(8) produce good results and can be tweaked for
@@ -85,7 +58,8 @@ export type SparkRendererOptions = {
    * @default Math.sqrt(8)
    */
   maxStdDev?: number;
-  /**
+  /*
+   **
    * Minimum pixel radius for splat rendering.
    * @default 0.0
    */
@@ -95,6 +69,16 @@ export type SparkRendererOptions = {
    * @default 512.0
    */
   maxPixelRadius?: number;
+  /**
+   * Whether to use extended Gsplat encoding for intermediary accumulator splats.
+   * @default false
+   */
+  accumExtSplats?: boolean;
+  /**
+   * Whether to use covariance Gsplat encoding for intermediary splats.
+   * @default false
+   */
+  covSplats?: boolean;
   /**
    * Minimum alpha value for splat rendering.
    * @default 0.5 * (1.0 / 255.0)
@@ -153,17 +137,120 @@ export type SparkRendererOptions = {
    */
   focalAdjustment?: number;
   /**
-   * Configures the SparkViewpointOptions for the default SparkViewpoint
-   * associated with this SparkRenderer. Notable option: sortRadial (sort by
-   * radial distance or Z-depth)
+   * Whether to sort splats radially (geometric distance) from the viewpoint (true)
+   * or by Z-depth (false). Most scenes are trained with the Z-depth `sort `metric
+   * and will render more accurately at certain viewpoints. However, radial sorting
+   * is more stable under viewpoint rotations.
+   * @default true
    */
-  view?: SparkViewpointOptions;
+  sortRadial?: boolean;
   /**
-   * Override the default splat encoding ranges for the PackedSplats.
-   * (default: undefined)
+   * Minimum interval between sort calls in milliseconds.
+   * @default 1
    */
-  splatEncoding?: SplatEncoding;
-};
+  minSortIntervalMs?: number;
+  /**
+   * Minimum interval between LOD calls in milliseconds.
+   * @default 1
+   */
+  minLodIntervalMs?: number;
+  /*
+   * Flag to control whether LoD is enabled. @default true
+   */
+  enableLod?: boolean;
+  /**
+   * Whether to drive LOD updates (compute lodInstances, update pager, etc.).
+   * Set to false to use LOD instances from another renderer without driving updates.
+   * Only has effect if enableLod is true.
+   * @default true (if enableLod is true)
+   */
+  enableDriveLod?: boolean;
+  /**
+   * Set the target # splats for LoD. Recommended # splats is 500K for mobile and 1.5M for desktop,
+   * which is set automatically if this isn't set.
+   */
+  lodSplatCount?: number;
+  /**
+   * Scale factor for target # splats for LoD. 2.0 means 2x the recommended # splats.
+   * Recommended # splats is 500K for mobile and 1.5M for desktop.
+   * @default 1.0
+   */
+  lodSplatScale?: number;
+  /**
+   * Scale factor for render size. 2.0 means 2x the render size.
+   * @default 1.0
+   */
+  lodRenderScale?: number;
+  /* Global LoD scale to apply @default 1.0
+   */
+  globalLodScale?: number;
+  /**
+   * Whether to use extended Gsplat encoding for paged splats.
+   * @default false
+   */
+  pagedExtSplats?: boolean;
+  /**
+   * Allocation size of paged splats
+   * @default 16777216
+   */
+  maxPagedSplats?: number;
+  /**
+   * Number of parallel chunk fetchers for LoD.
+   * @default 3
+   */
+  numLodFetchers?: number;
+  /* Foveation scale to apply outside the view frustum (but not behind viewer)
+   * @default 1.0
+   */
+  outsideFoveate?: number;
+  /* Foveation scale to apply behind viewer
+   * @default 1.0
+   */
+  behindFoveate?: number;
+  /* Full-width angle in degrees of fixed foveation cone along the view direction
+   * with perfection foveation=1.0
+   * @default 0.0 (disables perfect foveation zone)
+   */
+  coneFov0?: number;
+  /* Full-width angle in degrees of fixed foveation cone along the view direction
+   * @default 0.0 (disables cone foveation)
+   */
+  coneFov?: number;
+  /* Foveation scale to apply at the edge of the cone
+   * @default 1.0
+   */
+  coneFoveate?: number;
+  target?: {
+    /**
+     * Width of the render target in pixels.
+     */
+    width: number;
+    /**
+     * Height of the render target in pixels.
+     */
+    height: number;
+    /**
+     * If you want to be able to render a scene that depends on this target's
+     * output (for example, a recursive viewport), set this to true to enable
+     * double buffering.
+     * @default false
+     */
+    doubleBuffer?: boolean;
+    /**
+     * Super-sampling factor for the render target. Values 1-4 are supported.
+     * Note that re-sampling back down to .width x .height is done on the CPU
+     * with simple averaging only when calling readTarget().
+     * @default 1
+     */
+    superXY?: number;
+  };
+  extraUniforms?: Record<string, unknown>;
+  vertexShader?: string;
+  fragmentShader?: string;
+  transparent?: boolean;
+  depthTest?: boolean;
+  depthWrite?: boolean;
+}
 
 export class SparkRenderer extends THREE.Mesh {
   renderer: THREE.WebGLRenderer;
@@ -173,11 +260,14 @@ export class SparkRenderer extends THREE.Mesh {
 
   autoUpdate: boolean;
   preUpdate: boolean;
-  needsUpdate: boolean;
-  originDistance: number;
+  static sparkOverride?: SparkRenderer;
+
+  renderSize = new THREE.Vector2();
   maxStdDev: number;
   minPixelRadius: number;
   maxPixelRadius: number;
+  accumExtSplats: boolean;
+  covSplats: boolean;
   minAlpha: number;
   enable2DGS: boolean;
   preBlurAmount: number;
@@ -187,122 +277,138 @@ export class SparkRenderer extends THREE.Mesh {
   falloff: number;
   clipXY: number;
   focalAdjustment: number;
-  splatEncoding: SplatEncoding;
+  encodeLinear: boolean;
 
-  splatTexture: null | {
-    enable?: boolean;
-    texture?: THREE.Data3DTexture;
-    multiply?: THREE.Matrix2;
-    add?: THREE.Vector2;
-    near?: number;
-    far?: number;
-    mid?: number;
-  } = null;
+  sortRadial: boolean;
 
-  time?: number;
-  deltaTime?: number;
   clock: THREE.Clock;
+  time?: number;
+  lastFrame = -1;
+  updateTimeoutId = -1;
 
-  // Latest Gsplat collection being displayed
-  active: SplatAccumulator;
-  // Free list of accumulators for reuse
-  private freeAccumulators: SplatAccumulator[];
-  // Total number of accumulators currently allocated
-  private accumulatorCount: number;
-  // Default SparkViewpoint used for rendering to the canvas
-  defaultView: SparkViewpoint;
-  // List of SparkViewpoints with autoUpdate enabled
-  autoViewpoints: SparkViewpoint[] = [];
+  orderingTexture: THREE.DataTexture | null = null;
+  maxSplats = 0;
+  activeSplats = 0;
 
-  // Dynos used to transform Gsplats to the accumulator coordinate system
-  private rotateToAccumulator = new DynoVec4({ value: new THREE.Quaternion() });
-  private translateToAccumulator = new DynoVec3({ value: new THREE.Vector3() });
-  private modifier: SplatModifier;
+  display: SplatAccumulator;
+  current: SplatAccumulator;
+  accumulators: SplatAccumulator[] = [];
 
-  // Last rendered frame number so we know when we're rendering a new frame
-  private lastFrame = -1;
-  // Last update timestamp to compute deltaTime
-  private lastUpdateTime: number | null = null;
-  // List of cameras used for the current viewpoint (for WebXR)
-  private defaultCameras: THREE.Matrix4[] = [];
-  private lastStochastic: boolean | null = null;
+  sorting = false;
+  sortDirty = false;
+  lastSortTime = 0;
+  sortWorker: SplatWorker | null = null;
+  sortTimeoutId = -1;
+  sortedCenter = new THREE.Vector3().setScalar(Number.NEGATIVE_INFINITY);
+  sortedDir = new THREE.Vector3().setScalar(0);
+  readback32 = new Uint32Array(0);
 
-  // Should be set to the defaultView, but can be temporarily changed to another
-  // viewpoint using prepareViewpoint() for rendering from a different viewpoint.
-  viewpoint: SparkViewpoint;
+  minSortIntervalMs: number;
+  minLodIntervalMs: number;
 
-  // Holds data needed to perform a scheduled Gsplat update.
-  private pendingUpdate = {
-    scene: null as THREE.Scene | null,
-    originToWorld: new THREE.Matrix4(),
-    timeoutId: -1,
-  };
+  enableLod: boolean;
+  enableDriveLod: boolean;
+  lodSplatCount?: number;
+  lodSplatScale: number;
+  lodRenderScale: number;
+  globalLodScale: number;
+  pagedExtSplats: boolean;
+  maxPagedSplats: number;
+  numLodFetchers: number;
+  outsideFoveate: number;
+  behindFoveate: number;
+  coneFov0: number;
+  coneFov: number;
+  coneFoveate: number;
 
-  // Internal SparkViewpoint used for environment map rendering.
-  private envViewpoint: SparkViewpoint | null = null;
+  lodWorker: SplatWorker | null = null;
+  lodMeshes: { mesh: SplatMesh; version: number }[] = [];
+  lodDirty = false;
+  lodIds: Map<
+    PackedSplats | ExtSplats | PagedSplats,
+    { lodId: number; lastTouched: number; rootPage?: number }
+  > = new Map();
+  lodIdToSplats: Map<number, PackedSplats | ExtSplats | PagedSplats> =
+    new Map();
+  lodInitQueue: (PackedSplats | ExtSplats | PagedSplats)[] = [];
+  lodPos = new THREE.Vector3().setScalar(Number.NEGATIVE_INFINITY);
+  lodQuat = new THREE.Quaternion().set(0, 0, 0, 0);
+  lodTimestamp = 0;
+  lodInstances: Map<
+    SplatMesh,
+    {
+      lodId: number;
+      numSplats: number;
+      indices: Uint32Array;
+      texture: THREE.DataTexture;
+    }
+  > = new Map();
+  lodUpdates: {
+    lodId: number;
+    pageBase: number;
+    chunkBase: number;
+    count: number;
+    lodTreeData?: Uint32Array;
+  }[] = [];
+  lastTraverseTime = 0;
 
-  // Data and buffers used for environment map rendering
-  private static cubeRender: {
-    target: THREE.WebGLCubeRenderTarget;
-    camera: THREE.CubeCamera;
-    near: number;
-    far: number;
-  } | null = null;
-  private static pmrem: THREE.PMREMGenerator | null = null;
+  pager?: SplatPager;
+  pagerId = 0;
+  // prefetchCameras: THREE.Camera[] = [];
+  // prefetchLodScale = 1.0;
+  // prefetchMeshesCache: SplatMesh[] = [];
+  // prefetchMeshesCacheScene?: THREE.Scene;
 
-  static EMPTY_SPLAT_TEXTURE = new THREE.Data3DTexture();
+  target?: THREE.WebGLRenderTarget;
+  backTarget?: THREE.WebGLRenderTarget;
+  superPixels?: Uint8Array;
+  targetPixels?: Uint8Array;
+  superXY = 1;
+
+  flushAfterGenerate = false;
+  flushAfterRead = false;
+  readPause = 1;
+  sortPause = 0;
+  sortDelay = 0;
 
   constructor(options: SparkRendererOptions) {
     const uniforms = SparkRenderer.makeUniforms();
+    Object.assign(uniforms, options.extraUniforms ?? {});
+
     const shaders = getShaders();
     const premultipliedAlpha = options.premultipliedAlpha ?? true;
+    const geometry = new SplatGeometry();
     const material = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
-      vertexShader: shaders.splatVertex,
-      fragmentShader: shaders.splatFragment,
+      vertexShader: options.vertexShader ?? shaders.newSplatVertex,
+      fragmentShader: options.fragmentShader ?? shaders.newSplatFragment,
       uniforms,
       premultipliedAlpha,
-      transparent: true,
-      depthTest: true,
-      depthWrite: false,
+      transparent: options.transparent ?? true,
+      depthTest: options.depthTest ?? true,
+      depthWrite: options.depthWrite ?? false,
       side: THREE.DoubleSide,
+      allowOverride: false,
     });
 
-    super(EMPTY_GEOMETRY, material);
+    super(geometry, material);
+    this.material = material;
+    this.uniforms = uniforms;
     // Disable frustum culling because we want to always draw them all
     // and cull Gsplats individually in the shader
     this.frustumCulled = false;
 
+    // sparkRendererInstance = this;
     this.renderer = options.renderer;
-    this.material = material;
-    this.uniforms = uniforms;
-
-    // Create a Gsplat modifier that takes the output of any SplatGenerator
-    // and transforms them into the accumulator's coordinate system
-    const modifier = dynoBlock(
-      { gsplat: Gsplat },
-      { gsplat: Gsplat },
-      ({ gsplat }) => {
-        if (!gsplat) {
-          throw new Error("gsplat not defined");
-        }
-        gsplat = transformGsplat(gsplat, {
-          rotate: this.rotateToAccumulator,
-          translate: this.translateToAccumulator,
-        });
-        return { gsplat };
-      },
-    );
-    this.modifier = new SplatModifier(modifier);
-
     this.premultipliedAlpha = premultipliedAlpha;
     this.autoUpdate = options.autoUpdate ?? true;
-    this.preUpdate = options.preUpdate ?? false;
-    this.needsUpdate = false;
-    this.originDistance = options.originDistance ?? 1;
+    this.preUpdate = options.preUpdate ?? true;
+
     this.maxStdDev = options.maxStdDev ?? Math.sqrt(8.0);
-    this.minPixelRadius = options.minPixelRadius ?? 0.0;
+    this.minPixelRadius = options.minPixelRadius ?? 0.0; //1.6;
     this.maxPixelRadius = options.maxPixelRadius ?? 512.0;
+    this.accumExtSplats = options.accumExtSplats ?? false;
+    this.covSplats = options.covSplats ?? false;
     this.minAlpha = options.minAlpha ?? 0.5 * (1.0 / 255.0);
     this.enable2DGS = options.enable2DGS ?? false;
     this.preBlurAmount = options.preBlurAmount ?? 0.0;
@@ -312,44 +418,86 @@ export class SparkRenderer extends THREE.Mesh {
     this.falloff = options.falloff ?? 1.0;
     this.clipXY = options.clipXY ?? 1.4;
     this.focalAdjustment = options.focalAdjustment ?? 1.0;
-    this.splatEncoding = options.splatEncoding ?? { ...DEFAULT_SPLAT_ENCODING };
+    this.encodeLinear = options.encodeLinear ?? false;
 
-    this.active = new SplatAccumulator();
-    this.accumulatorCount = 1;
-    this.freeAccumulators = [];
-    // Start with the minimum of 2 total accumulators
-    for (let count = 0; count < 1; ++count) {
-      this.freeAccumulators.push(new SplatAccumulator());
-      this.accumulatorCount += 1;
-    }
+    this.sortRadial = options.sortRadial ?? true;
+    this.minSortIntervalMs = options.minSortIntervalMs ?? 0;
+    this.minLodIntervalMs = options.minLodIntervalMs ?? 0;
 
-    // Create a default SparkViewpoint that is used when we call render()
-    // on the scene and has the sorted Gsplat collection from that viewpoint.
-    this.defaultView = new SparkViewpoint({
-      ...options.view,
-      autoUpdate: true,
-      spark: this,
-    });
-    this.viewpoint = this.defaultView;
-    this.prepareViewpoint(this.viewpoint);
+    this.enableLod = options.enableLod ?? true;
+    // enableDriveLod defaults to true if enableLod is true, false otherwise
+    this.enableDriveLod = options.enableDriveLod ?? this.enableLod;
+    this.lodSplatCount = options.lodSplatCount;
+    this.lodSplatScale = options.lodSplatScale ?? 1.0;
+    this.lodRenderScale = options.lodRenderScale ?? 1.0;
+    this.globalLodScale = options.globalLodScale ?? 1.0;
+    this.pagedExtSplats = options.pagedExtSplats ?? false;
+    this.maxPagedSplats = options.maxPagedSplats ?? 16777216;
+    this.numLodFetchers = options.numLodFetchers ?? 3;
+    this.outsideFoveate = options.outsideFoveate ?? 1.0;
+    this.behindFoveate = options.behindFoveate ?? 1.0;
+    this.coneFov0 = options.coneFov0 ?? 0.0;
+    this.coneFov = options.coneFov ?? 0.0;
+    this.coneFoveate = options.coneFoveate ?? 1.0;
 
     this.clock = options.clock ? cloneClock(options.clock) : new THREE.Clock();
+
+    const accumulatorOptions = {
+      extSplats: this.accumExtSplats,
+      covSplats: this.covSplats,
+    };
+    this.display = new SplatAccumulator(accumulatorOptions);
+    this.current = this.display;
+    this.accumulators.push(new SplatAccumulator(accumulatorOptions));
+    this.accumulators.push(new SplatAccumulator(accumulatorOptions));
+
+    if (options.target) {
+      const { width, height, doubleBuffer } = options.target;
+      const superXY = Math.max(1, Math.min(4, options.target.superXY ?? 1));
+      if (width * superXY > 8192 || height * superXY > 8192) {
+        throw new Error("Target size too large");
+      }
+      this.superXY = superXY;
+
+      const superWidth = width * superXY;
+      const superHeight = height * superXY;
+      const targetOptions: THREE.RenderTargetOptions = {
+        format: THREE.RGBAFormat,
+        type: THREE.UnsignedByteType,
+        colorSpace: THREE.SRGBColorSpace,
+      };
+
+      this.target = new THREE.WebGLRenderTarget(
+        superWidth,
+        superHeight,
+        targetOptions,
+      );
+      if (doubleBuffer) {
+        this.backTarget = new THREE.WebGLRenderTarget(
+          superWidth,
+          superHeight,
+          targetOptions,
+        );
+      }
+      this.encodeLinear = options.encodeLinear ?? true;
+    }
   }
 
   static makeUniforms() {
-    // Create uniforms used for Gsplat vertex and fragment shaders
     const uniforms = {
+      // // number of active splats to render
+      // numSplats: { value: 0 },
       // Size of render viewport in pixels
       renderSize: { value: new THREE.Vector2() },
       // Near and far plane distances
       near: { value: 0.1 },
       far: { value: 1000.0 },
-      // Total number of Gsplats in packedSplats to render
-      numSplats: { value: 0 },
       // SplatAccumulator to view transformation quaternion
       renderToViewQuat: { value: new THREE.Quaternion() },
       // SplatAccumulator to view transformation translation
       renderToViewPos: { value: new THREE.Vector3() },
+      renderToViewBasis: { value: new THREE.Matrix3() },
+      renderToViewOffset: { value: new THREE.Vector3() },
       // Maximum distance (in stddevs) from Gsplat center to render
       maxStdDev: { value: 1.0 },
       // Minimum pixel radius for splat rendering
@@ -358,8 +506,6 @@ export class SparkRenderer extends THREE.Mesh {
       maxPixelRadius: { value: 512.0 },
       // Minimum alpha value for splat rendering
       minAlpha: { value: 0.5 * (1.0 / 255.0) },
-      // Enable stochastic splat rendering
-      stochastic: { value: false },
       // Enable interpreting 0-thickness Gsplats as 2DGS
       enable2DGS: { value: false },
       // Add to projected 2D splat covariance diagonal (thickens and brightens)
@@ -377,75 +523,67 @@ export class SparkRenderer extends THREE.Mesh {
       clipXY: { value: 1.4 },
       // Debug renderSize scale factor
       focalAdjustment: { value: 1.0 },
-      // Enable splat texture rendering
-      splatTexEnable: { value: false },
-      // Splat texture to render
-      splatTexture: { type: "t", value: SparkRenderer.EMPTY_SPLAT_TEXTURE },
-      // Splat texture UV transform (multiply)
-      splatTexMul: { value: new THREE.Matrix2() },
-      // Splat texture UV transform (add)
-      splatTexAdd: { value: new THREE.Vector2() },
-      // Splat texture near plane distance
-      splatTexNear: { value: 0.1 },
-      // Splat texture far plane distance
-      splatTexFar: { value: 1000.0 },
-      // Splat texture mid plane distance, or 0.0 to disable
-      splatTexMid: { value: 0.0 },
+      // Whether to encode Gsplat with linear RGB (for environment mapping)
+      encodeLinear: { value: false },
+      // Back-to-front sort ordering of splat indices
+      ordering: { type: "t", value: SparkRenderer.emptyOrdering },
+      enableExtSplats: { value: false },
+      enableCovSplats: { value: false },
       // Gsplat collection to render
-      packedSplats: { type: "t", value: PackedSplats.getEmptyArray },
-      // Splat encoding ranges
-      rgbMinMaxLnScaleMinMax: { value: new THREE.Vector4() },
+      extSplats: { type: "t", value: SplatAccumulator.emptyTexture },
+      extSplats2: { type: "t", value: SplatAccumulator.emptyTexture },
       // Time in seconds for time-based effects
       time: { value: 0 },
       // Delta time in seconds since last frame
       deltaTime: { value: 0 },
-      // Whether to encode Gsplat with linear RGB (for environment mapping)
-      encodeLinear: { value: false },
       // Debug flag that alternates each frame
       debugFlag: { value: false },
     };
     return uniforms;
   }
 
-  private canAllocAccumulator(): boolean {
-    // Returns true if can allocate an accumulator immediately
-    return (
-      this.freeAccumulators.length > 0 ||
-      this.accumulatorCount < MAX_ACCUMULATORS
-    );
-  }
-
-  private maybeAllocAccumulator(): SplatAccumulator | null {
-    // Allocate an accumulator immediately if possible, else return null
-    let accumulator = this.freeAccumulators.pop();
-    if (accumulator === undefined) {
-      if (this.accumulatorCount >= MAX_ACCUMULATORS) {
-        return null;
-      }
-      accumulator = new SplatAccumulator();
-      this.accumulatorCount += 1;
+  dispose() {
+    if (this.target) {
+      this.target.dispose();
+      this.target = undefined;
     }
-    accumulator.refCount = 1;
-    return accumulator;
-  }
-
-  releaseAccumulator(accumulator: SplatAccumulator) {
-    // Decrement reference count and recycle if no longer in use
-    accumulator.refCount -= 1;
-    if (accumulator.refCount === 0) {
-      this.freeAccumulators.push(accumulator);
+    if (this.backTarget) {
+      this.backTarget.dispose();
+      this.backTarget = undefined;
     }
-  }
+    if (this.orderingTexture) {
+      this.orderingTexture.dispose();
+      this.orderingTexture = null;
+    }
 
-  newViewpoint(options: SparkViewpointOptions) {
-    // Create a new SparkViewpoint for this SparkRenderer.
-    // Note that every SparkRenderer has an initial spark.defaultView: SparkViewpoint
-    // from construction, which is used for the default canvas render loop.
-    // Calling this method allows you to create additional viewpoints, which can be
-    // updated automatically each frame (performing Gsplat sorting every time there
-    // is an update), or updated on-demand for controlled rendering for video render
-    // or similar applications.
-    return new SparkViewpoint({ ...options, spark: this });
+    const accumulators = new Set<SplatAccumulator>();
+    accumulators.add(this.display);
+    accumulators.add(this.current);
+    for (const accumulator of this.accumulators) {
+      accumulators.add(accumulator);
+    }
+    for (const accumulator of accumulators) {
+      accumulator.dispose();
+    }
+
+    const instances = this.lodInstances.values();
+    this.lodInstances.clear();
+    for (const instance of instances) {
+      instance.texture.dispose();
+    }
+
+    if (this.sortWorker) {
+      this.sortWorker.dispose();
+      this.sortWorker = null;
+    }
+    if (this.lodWorker) {
+      this.lodWorker.dispose();
+      this.lodWorker = null;
+    }
+    if (this.pager) {
+      this.pager.dispose();
+      this.pager = undefined;
+    }
   }
 
   onBeforeRender(
@@ -453,482 +591,1079 @@ export class SparkRenderer extends THREE.Mesh {
     scene: THREE.Scene,
     camera: THREE.Camera,
   ) {
-    // throw new Error("onBeforeRender disabled in SparkRenderer");
-
-    // Called by Three.js before rendering this SparkRenderer.
-    // At this point we can't modify the geometry or material, all these must
-    // be set in the scene already before this is called. Update the uniforms
-    // to render the Gsplats from the current active viewpoint.
-    const time = this.time ?? this.clock.getElapsedTime();
-    const deltaTime = time - (this.viewpoint.lastTime ?? time);
-    this.viewpoint.lastTime = time;
+    const spark = SparkRenderer.sparkOverride ?? this;
 
     const frame = renderer.info.render.frame;
-    const isNewFrame = frame !== this.lastFrame;
-    this.lastFrame = frame;
+    const isNewFrame = frame !== spark.lastFrame;
+    spark.lastFrame = frame;
 
-    const viewpoint = this.viewpoint;
-    if (viewpoint === this.defaultView) {
-      // When rendering is triggered on the default viewpoint,
-      // perform automatic updates.
-      if (isNewFrame) {
-        if (!renderer.xr.isPresenting) {
-          // Non-WebXR mode, just a single camera
-          this.defaultView.viewToWorld = camera.matrixWorld.clone();
-          this.defaultCameras = [this.defaultView.viewToWorld];
-        } else {
-          // In WebXR mode we are called multiple times, once for each eye,
-          // so use their average to compute the sort center.
-          const cameras = renderer.xr.getCamera().cameras;
-          this.defaultCameras = cameras.map((camera) => camera.matrixWorld);
-          this.defaultView.viewToWorld =
-            averageOriginToWorlds(this.defaultCameras) ?? new THREE.Matrix4();
-        }
-      }
-
-      if (this.autoUpdate) {
-        this.update({ scene, viewToWorld: this.defaultView.viewToWorld });
-      }
-    }
-
-    // Update uniforms for rendering
-
-    if (isNewFrame) {
-      // Keep these uniforms the same for both eyes if in WebXR
-      if (this.material.premultipliedAlpha !== this.premultipliedAlpha) {
-        this.material.premultipliedAlpha = this.premultipliedAlpha;
-        this.material.needsUpdate = true;
-      }
-      this.uniforms.time.value = time;
-      this.uniforms.deltaTime.value = deltaTime;
-      // Alternating debug flag that can aid in visual debugging
-      this.uniforms.debugFlag.value = (performance.now() / 1000.0) % 2.0 < 1.0;
-
-      if (viewpoint.display && viewpoint.stochastic) {
-        (this.geometry as SplatGeometry).instanceCount =
-          this.uniforms.numSplats.value;
-      }
-    }
-
-    if (viewpoint.target) {
-      // Rendering to a texture target, so its dimensions
-      this.uniforms.renderSize.value.set(
-        viewpoint.target.width,
-        viewpoint.target.height,
-      );
+    if (spark.target) {
+      spark.renderSize.set(spark.target.width, spark.target.height);
     } else {
-      // Rendering to the canvas or WebXR
-      const renderSize = renderer.getDrawingBufferSize(
-        this.uniforms.renderSize.value,
-      );
-      if (renderSize.x === 1 && renderSize.y === 1) {
-        // WebXR mode on Apple Vision Pro returns 1x1 when presenting.
-        // Use a different means to figure out the render size.
-        const baseLayer = renderer.xr.getSession()?.renderState.baseLayer;
-        if (baseLayer) {
-          renderSize.x = baseLayer.framebufferWidth;
-          renderSize.y = baseLayer.framebufferHeight;
+      const renderSize = renderer.getDrawingBufferSize(spark.renderSize);
+      if (renderer.xr.isPresenting) {
+        if (renderSize.x === 1 && renderSize.y === 1) {
+          // WebXR mode on Apple Vision Pro returns 1x1 when presenting.
+          // Use a different means to figure out the render size.
+          const baseLayer = renderer.xr.getSession()?.renderState.baseLayer;
+          if (baseLayer) {
+            renderSize.x = baseLayer.framebufferWidth;
+            renderSize.y = baseLayer.framebufferHeight;
+          }
         }
       }
     }
+    this.uniforms.renderSize.value.copy(spark.renderSize);
 
-    // Update uniforms from instance properties
     const typedCamera = camera as
       | THREE.PerspectiveCamera
       | THREE.OrthographicCamera;
+
     this.uniforms.near.value = typedCamera.near;
     this.uniforms.far.value = typedCamera.far;
-    this.uniforms.encodeLinear.value = viewpoint.encodeLinear;
-    this.uniforms.maxStdDev.value = this.maxStdDev;
-    this.uniforms.minPixelRadius.value = this.minPixelRadius;
-    this.uniforms.maxPixelRadius.value = this.maxPixelRadius;
-    this.uniforms.minAlpha.value = this.minAlpha;
-    this.uniforms.stochastic.value = viewpoint.stochastic;
-    this.uniforms.enable2DGS.value = this.enable2DGS;
-    this.uniforms.preBlurAmount.value = this.preBlurAmount;
-    this.uniforms.blurAmount.value = this.blurAmount;
-    this.uniforms.focalDistance.value = this.focalDistance;
-    this.uniforms.apertureAngle.value = this.apertureAngle;
-    this.uniforms.falloff.value = this.falloff;
-    this.uniforms.clipXY.value = this.clipXY;
-    this.uniforms.focalAdjustment.value = this.focalAdjustment;
 
-    if (this.lastStochastic !== !viewpoint.stochastic) {
-      this.lastStochastic = !viewpoint.stochastic;
-      this.material.transparent = !viewpoint.stochastic;
-      this.material.depthWrite = viewpoint.stochastic;
-      this.material.needsUpdate = true;
+    const geometry = this.geometry as SplatGeometry;
+    geometry.instanceCount = spark.activeSplats;
+
+    const accumToWorld = new THREE.Matrix4();
+    if (!this.display.extSplats) {
+      accumToWorld.makeTranslation(spark.display.viewOrigin);
     }
-
-    if (this.splatTexture) {
-      const { enable, texture, multiply, add, near, far, mid } =
-        this.splatTexture;
-      if (enable && texture) {
-        this.uniforms.splatTexEnable.value = true;
-        this.uniforms.splatTexture.value = texture;
-        if (multiply) {
-          this.uniforms.splatTexMul.value.fromArray(multiply.elements);
-        } else {
-          this.uniforms.splatTexMul.value.set(
-            0.5 / this.maxStdDev,
-            0,
-            0,
-            0.5 / this.maxStdDev,
-          );
-        }
-        this.uniforms.splatTexAdd.value.set(add?.x ?? 0.5, add?.y ?? 0.5);
-        this.uniforms.splatTexNear.value = near ?? this.uniforms.near.value;
-        this.uniforms.splatTexFar.value = far ?? this.uniforms.far.value;
-        this.uniforms.splatTexMid.value = mid ?? 0.0;
-      } else {
-        this.uniforms.splatTexEnable.value = false;
-        this.uniforms.splatTexture.value = SparkRenderer.EMPTY_SPLAT_TEXTURE;
-      }
-    } else {
-      this.uniforms.splatTexEnable.value = false;
-      this.uniforms.splatTexture.value = SparkRenderer.EMPTY_SPLAT_TEXTURE;
-    }
-
-    // Calculate the transform from the accumulator to the current camera
-    const accumToWorld =
-      viewpoint.display?.accumulator.toWorld ?? new THREE.Matrix4();
-    const worldToCamera = camera.matrixWorld.clone().invert();
-    const originToCamera = accumToWorld.clone().premultiply(worldToCamera);
-    originToCamera.decompose(
+    const cameraToWorld = camera.matrixWorld.clone();
+    const worldToCamera = cameraToWorld.invert();
+    const accumToCamera = worldToCamera.multiply(accumToWorld);
+    accumToCamera.decompose(
       this.uniforms.renderToViewPos.value,
       this.uniforms.renderToViewQuat.value,
       new THREE.Vector3(),
     );
-  }
+    this.uniforms.renderToViewBasis.value.setFromMatrix4(accumToCamera);
 
-  // Update the uniforms for the given viewpoint.
-  // Note that the client expects to be able to call render() at any point
-  // to update the canvas, so we must switch the viewpoint back to
-  // defaultView when we're finished.
-  prepareViewpoint(viewpoint?: SparkViewpoint) {
-    this.viewpoint = viewpoint ?? this.viewpoint;
+    this.uniforms.maxStdDev.value = spark.maxStdDev;
+    this.uniforms.minPixelRadius.value = spark.minPixelRadius;
+    this.uniforms.maxPixelRadius.value = spark.maxPixelRadius;
+    this.uniforms.minAlpha.value = spark.minAlpha;
+    this.uniforms.enable2DGS.value = spark.enable2DGS;
+    this.uniforms.preBlurAmount.value = spark.preBlurAmount;
+    this.uniforms.blurAmount.value = spark.blurAmount;
+    this.uniforms.focalDistance.value = spark.focalDistance;
+    this.uniforms.apertureAngle.value = spark.apertureAngle;
+    this.uniforms.falloff.value = spark.falloff;
+    this.uniforms.clipXY.value = spark.clipXY;
+    this.uniforms.focalAdjustment.value = spark.focalAdjustment;
+    this.uniforms.encodeLinear.value = spark.encodeLinear;
 
-    if (this.viewpoint.display) {
-      const { accumulator, geometry } = this.viewpoint.display;
-      this.uniforms.numSplats.value = accumulator.splats.numSplats;
-      this.uniforms.packedSplats.value = accumulator.splats.getTexture();
-      this.uniforms.rgbMinMaxLnScaleMinMax.value.set(
-        accumulator.splats.splatEncoding?.rgbMin ?? 0.0,
-        accumulator.splats.splatEncoding?.rgbMax ?? 1.0,
-        accumulator.splats.splatEncoding?.lnScaleMin ?? LN_SCALE_MIN,
-        accumulator.splats.splatEncoding?.lnScaleMax ?? LN_SCALE_MAX,
-      );
-      this.geometry = geometry;
-      this.material.transparent = !this.viewpoint.stochastic;
-      this.material.depthWrite = this.viewpoint.stochastic;
-      this.material.needsUpdate = true;
+    this.uniforms.ordering.value =
+      spark.orderingTexture ?? SparkRenderer.emptyOrdering;
+    this.uniforms.enableExtSplats.value = this.display.extSplats;
+    this.uniforms.enableCovSplats.value = this.display.covSplats;
+    if (this.display.extSplats) {
+      const extSplats = spark.display.getTextures();
+      this.uniforms.extSplats.value = extSplats[0];
+      this.uniforms.extSplats2.value = extSplats[1];
     } else {
-      // No Gsplats to display for this viewpoint yet
-      this.uniforms.numSplats.value = 0;
-      this.uniforms.packedSplats.value = PackedSplats.getEmptyArray;
-      this.geometry = EMPTY_GEOMETRY;
+      const packedSplats = spark.display.getTextures();
+      this.uniforms.extSplats.value = packedSplats[0];
+      this.uniforms.extSplats2.value = packedSplats[0];
     }
-  }
 
-  // If spark.autoUpdate is false then you must manually call
-  // spark.update({ scene }) to have the scene Gsplats be re-generated.
-  update({
-    scene,
-    viewToWorld,
-  }: { scene: THREE.Scene; viewToWorld?: THREE.Matrix4 }) {
-    // Compute the transform for the SparkRenderer to use as origin
-    // for Gsplat generation and accumulation.
-    const originToWorld = this.matrixWorld;
+    this.uniforms.time.value = spark.display.time;
+    this.uniforms.deltaTime.value = spark.display.deltaTime;
+    // Alternating debug flag that can aid in visual debugging
+    this.uniforms.debugFlag.value = (performance.now() / 1000.0) % 2.0 < 1.0;
 
-    // Either do the update now, or in the next "tick" depending on preUpdate
-    if (this.preUpdate) {
-      this.updateInternal({
-        scene,
-        originToWorld: originToWorld.clone(),
-        viewToWorld,
-      });
-    } else {
-      // Pass the update parameters to be performed on the next tick
-      this.pendingUpdate.scene = scene;
-      this.pendingUpdate.originToWorld.copy(originToWorld);
-
-      // Schedule a timeout if there isn't one already
-      if (this.pendingUpdate.timeoutId === -1) {
-        this.pendingUpdate.timeoutId = setTimeout(() => {
-          const { scene, originToWorld } = this.pendingUpdate;
-          this.pendingUpdate.scene = null;
-          this.pendingUpdate.timeoutId = -1;
-          const updated = this.updateInternal({
-            scene: scene as THREE.Scene,
-            originToWorld,
-            viewToWorld,
-          });
-
-          if (updated) {
-            // Flush to encourage eager execution
-            const gl = this.renderer.getContext() as WebGL2RenderingContext;
-            gl.flush();
-          }
-        }, 1);
+    if (spark.autoUpdate && isNewFrame) {
+      const preUpdate = spark.preUpdate && !renderer.xr.isPresenting;
+      const useCamera = renderer.xr.isPresenting
+        ? renderer.xr.getCamera()
+        : camera;
+      if (preUpdate) {
+        spark.updateInternal({
+          scene,
+          camera: useCamera,
+          autoUpdate: true,
+        });
+      } else {
+        if (spark.updateTimeoutId === -1) {
+          spark.updateTimeoutId = setTimeout(() => {
+            spark.updateTimeoutId = -1;
+            spark.updateInternal({
+              scene,
+              camera: useCamera,
+              autoUpdate: true,
+            });
+          }, 1);
+        }
       }
     }
   }
 
-  updateInternal({
+  async update({
     scene,
-    originToWorld,
-    viewToWorld,
+    camera,
   }: {
     scene: THREE.Scene;
-    originToWorld?: THREE.Matrix4;
-    viewToWorld?: THREE.Matrix4;
-  }): boolean {
-    if (!this.canAllocAccumulator()) {
-      // We don't have any available accumulators because of sorting
-      // back pressure, so don't update this time but try again next time.
-      // Signal update not attempted.
-      return false;
-    }
-
-    // Figure out the frame of the SparkRenderer and current view
-    if (!originToWorld) {
-      originToWorld = this.active.toWorld;
-    }
-    viewToWorld = viewToWorld ?? originToWorld.clone();
-
-    const time = this.time ?? this.clock.getElapsedTime();
-    const deltaTime = time - (this.lastUpdateTime ?? time);
-    this.lastUpdateTime = time;
-
-    // Create a lookup from last active SplatGenerator to Gsplat mapping record
-    const activeMapping = this.active.mapping.reduce((map, record) => {
-      map.set(record.node, record);
-      return map;
-    }, new Map<SplatGenerator, GeneratorMapping>());
-
-    // Traverse visible scene to find all SplatGenerators and global SplatEdits
-    const { generators, visibleGenerators, globalEdits } =
-      this.compileScene(scene);
-
-    // Let all SplatGenerators run their frameUpdate() method
-    for (const object of generators) {
-      object.frameUpdate?.({
-        renderer: this.renderer,
-        object,
-        time,
-        deltaTime,
-        viewToWorld,
-        globalEdits,
-      });
-    }
-
-    const visibleGenHash = new Set(visibleGenerators.map((g) => g.uuid));
-
-    // Make sure we have new version numbers for any objects with either
-    // generator or numSplats that have changed since the last frame.
-    for (const object of generators) {
-      const current = activeMapping.get(object);
-      const isVisible = object.generator && visibleGenHash.has(object.uuid);
-      const numSplats = isVisible ? object.numSplats : 0;
-      if (
-        this.needsUpdate ||
-        object.generator !== current?.generator ||
-        numSplats !== current?.count
-      ) {
-        object.updateVersion();
-      }
-    }
-
-    // Check if the origin is within the maximum allowed distance before
-    // we trigger an update.
-    const originUpdate = !withinCoorientDist({
-      matrix1: originToWorld,
-      matrix2: this.active.toWorld,
-      maxDistance: this.originDistance,
-    });
-
-    // Check if we need any update at all
-    const needsUpdate =
-      this.needsUpdate ||
-      originUpdate ||
-      generators.length !== activeMapping.size ||
-      generators.some((g) => g.version !== activeMapping.get(g)?.version);
-    this.needsUpdate = false;
-
-    let accumulator: SplatAccumulator | null = null;
-    if (needsUpdate) {
-      // Need to update, so allocate an accumulator
-      accumulator = this.maybeAllocAccumulator();
-      if (!accumulator) {
-        // This should never happen since we checked canAllocAccumulator() above
-        throw new Error("Unreachable");
-      }
-
-      // Compute whether our view frame has changed enough to warrant
-      // doing a Gsplat sort. Check both distance epsilon and
-      // minimum co-orientation (dot product of quaternions)
-      const originChanged = !withinCoorientDist({
-        matrix1: originToWorld,
-        matrix2: this.active.toWorld,
-        maxDistance: 0.00001,
-        minCoorient: 0.99999,
-      });
-
-      // Compute an ordering of the generators with the rough goal
-      // of keeping unchanging generators near the front to minimize
-      // the number of Gsplats that need to be regenerated.
-      const sorted = visibleGenerators
-        .map((g, gIndex): [number, number, SplatGenerator] => {
-          const lastGen = activeMapping.get(g);
-          // If no previous generator, sort by absolute version, which will
-          // tend to push frequently updated generators toward the end
-          return !lastGen
-            ? [Number.POSITIVE_INFINITY, g.version, g]
-            : // Sort by version deltas then by previous ordering in the mapping,
-              // attempting to keep unchanging generators near the front
-              // to improve our chances of avoiding a re-generation.
-              [g.version - lastGen.version, lastGen.base, g];
-        })
-        .sort((a, b) => {
-          // Sort by first then second element of the tuple
-          if (a[0] !== b[0]) {
-            return a[0] - b[0];
-          }
-          return a[1] - b[1];
-        });
-      const genOrder = sorted.map(([_version, _seq, g]) => g);
-
-      // Compute sequential layout of generated splats
-      const splatCounts = genOrder.map((g) => g.numSplats);
-      const { maxSplats, mapping } =
-        accumulator.splats.generateMapping(splatCounts);
-      const newGenerators = genOrder.map((node, gIndex) => {
-        const { base, count } = mapping[gIndex];
-        return {
-          node,
-          generator: node.generator,
-          version: node.version,
-          base,
-          count,
-        };
-      });
-
-      // Compute worldToAccumulator origin transform (no scale)
-      originToWorld
-        .clone()
-        .invert()
-        .decompose(
-          this.translateToAccumulator.value,
-          this.rotateToAccumulator.value,
-          new THREE.Vector3(),
-        );
-
-      // Generate the Gsplats according to the mapping that need updating
-      accumulator.ensureGenerate(maxSplats);
-      accumulator.splats.splatEncoding = { ...this.splatEncoding };
-      const generated = accumulator.generateSplats({
-        renderer: this.renderer,
-        modifier: this.modifier,
-        generators: newGenerators,
-        forceUpdate: originChanged,
-        originToWorld,
-      });
-
-      // Update splat version number
-      accumulator.splatsVersion = this.active.splatsVersion + 1;
-      // Increment the mapping version if the mapping isn't identical to before
-      const hasCorrespondence = accumulator.hasCorrespondence(this.active);
-      accumulator.mappingVersion =
-        this.active.mappingVersion + (hasCorrespondence ? 0 : 1);
-
-      // Release the old accumulator and make the new one active
-      this.releaseAccumulator(this.active);
-      this.active = accumulator;
-      this.prepareViewpoint();
-    }
-
-    // Let the system breath before potentially triggering sorts
-    setTimeout(() => {
-      // Notify all auto-updating viewpoints that we updated the Gsplats
-      for (const view of this.autoViewpoints) {
-        view.autoPoll({ accumulator: accumulator ?? undefined });
-      }
-    }, 1);
-
-    // Signal update was performed
-    return true;
+    camera: THREE.Camera;
+  }) {
+    await this.updateInternal({ scene, camera, autoUpdate: false });
   }
 
-  private compileScene(scene: THREE.Scene): {
-    generators: SplatGenerator[];
+  // /**
+  //  * Provide additional cameras to prefetch paged splat chunks without
+  //  * affecting main LOD selection.
+  //  */
+  // setPrefetchCameras(cameras?: THREE.Camera[], lodScaleMultiplier = 1.0) {
+  //   const next = cameras?.filter(Boolean) ?? [];
+  //   const sameCameras =
+  //     this.prefetchCameras.length === next.length &&
+  //     this.prefetchCameras.every((camera, index) => camera === next[index]);
+  //   if (sameCameras && this.prefetchLodScale === lodScaleMultiplier) {
+  //     return;
+  //   }
+  //   this.prefetchCameras = next;
+  //   this.prefetchLodScale = lodScaleMultiplier;
+  //   this.invalidatePrefetchCache();
+  // }
+
+  // /**
+  //  * Invalidate the prefetch meshes cache. Call this when SplatMeshes are
+  //  * added or removed from the scene.
+  //  */
+  // invalidatePrefetchCache() {
+  //   this.prefetchMeshesCacheScene = undefined;
+  // }
+
+  private async updateInternal({
+    scene,
+    camera,
+    autoUpdate,
+  }: {
+    scene: THREE.Scene;
+    camera: THREE.Camera;
+    autoUpdate: boolean;
+  }) {
+    const renderer = this.renderer;
+    const time = this.time ?? this.clock.getElapsedTime();
+
+    const center = camera.getWorldPosition(new THREE.Vector3());
+    const dir = camera.getWorldDirection(new THREE.Vector3());
+
+    const viewChanged =
+      center.distanceTo(this.sortedCenter) > 0.001 ||
+      dir.dot(this.sortedDir) < 0.999;
+
+    const next = this.accumulators.pop();
+    if (!next) {
+      // Should never happen
+      throw new Error("No next accumulator");
+    }
+    const { version, visibleGenerators, generate, readback } =
+      next.prepareGenerate({
+        renderer,
+        scene,
+        time,
+        camera,
+        sortRadial: this.sortRadial ?? true,
+        renderSize: this.renderSize,
+        previous: this.current,
+        lodInstances: this.enableLod ? this.lodInstances : undefined,
+      });
+
+    if (this.enableDriveLod) {
+      this.driveLod({ visibleGenerators, camera, scene });
+    }
+    this.driveSort();
+
+    const needsUpdate = viewChanged || version !== this.current.version;
+
+    if (autoUpdate && !needsUpdate) {
+      // Triggered by auto-update but no change, so exit early
+      this.accumulators.push(next);
+      return null;
+    }
+
+    if (needsUpdate && this.sorting) {
+      this.accumulators.push(next);
+      return null;
+    }
+
+    generate();
+
+    if (this.flushAfterGenerate) {
+      const gl = renderer.getContext() as WebGL2RenderingContext;
+      gl.flush();
+    }
+
+    if (this.display.mappingVersion === next.mappingVersion) {
+      this.accumulators.push(this.display);
+      this.display = next;
+    } else {
+      if (this.display !== this.current) {
+        this.accumulators.push(this.current);
+      }
+    }
+
+    this.current = next;
+    this.sortDirty = true;
+
+    await this.driveSort();
+  }
+
+  private async driveSort() {
+    if (this.sorting || !this.sortDirty) {
+      return;
+    }
+
+    if (this.sortTimeoutId !== -1) {
+      clearTimeout(this.sortTimeoutId);
+      this.sortTimeoutId = -1;
+    }
+
+    const now = performance.now();
+    const nextSortTime = this.lastSortTime
+      ? this.lastSortTime + this.minSortIntervalMs
+      : now;
+    if (now < nextSortTime) {
+      this.sortTimeoutId = setTimeout(() => {
+        this.sortTimeoutId = -1;
+        this.driveSort();
+      }, nextSortTime - now);
+      return;
+    }
+
+    this.sorting = true;
+    this.sortDirty = false;
+    this.lastSortTime = now;
+
+    if (this.readPause > 0) {
+      await new Promise((resolve) => setTimeout(resolve, this.readPause));
+    }
+
+    const current = this.current;
+
+    this.sortedCenter.copy(current.viewOrigin);
+    this.sortedDir.copy(current.viewDirection);
+
+    const { numSplats, maxSplats } = current;
+    const rows = Math.max(1, Math.ceil(maxSplats / 16384));
+    const orderingMaxSplats = rows * 16384;
+    this.maxSplats = Math.max(this.maxSplats, orderingMaxSplats);
+
+    const ordering = new Uint32Array(this.maxSplats);
+    const readback = Readback.ensureBuffer(maxSplats, this.readback32);
+    this.readback32 = readback;
+
+    await this.readbackDepth({
+      current,
+      renderer: this.renderer,
+      numSplats,
+      readback,
+    });
+
+    if (this.sortPause > 0) {
+      await new Promise((resolve) => setTimeout(resolve, this.sortPause));
+    }
+
+    if (!this.sortWorker) {
+      this.sortWorker = new SplatWorker();
+    }
+    const result = (await this.sortWorker.call("sortSplats32", {
+      numSplats,
+      readback,
+      ordering,
+    })) as {
+      readback: Uint16Array | Uint32Array;
+      ordering: Uint32Array;
+      activeSplats: number;
+    };
+
+    if (this.sortDelay > 0) {
+      await new Promise((resolve) => setTimeout(resolve, this.sortDelay));
+    }
+
+    this.readback32 = result.readback as Uint32Array<ArrayBuffer>;
+
+    this.activeSplats = result.activeSplats;
+
+    if (this.orderingTexture) {
+      if (rows > this.orderingTexture.image.height) {
+        this.orderingTexture.dispose();
+        this.orderingTexture = null;
+      }
+    }
+
+    if (!this.orderingTexture) {
+      // console.log(`Allocating orderingTexture: ${4096}x${rows}`);
+      const orderingTexture = new THREE.DataTexture(
+        result.ordering,
+        4096,
+        rows,
+        THREE.RGBAIntegerFormat,
+        THREE.UnsignedIntType,
+      );
+      orderingTexture.internalFormat = "RGBA32UI";
+      orderingTexture.needsUpdate = true;
+      this.orderingTexture = orderingTexture;
+    } else {
+      const renderer = this.renderer;
+      const gl = renderer.getContext() as WebGL2RenderingContext;
+      if (!renderer.properties.has(this.orderingTexture)) {
+        this.orderingTexture.needsUpdate = true;
+      } else {
+        const props = renderer.properties.get(this.orderingTexture) as {
+          __webglTexture: WebGLTexture;
+        };
+        const glTexture = props.__webglTexture;
+        if (!glTexture) {
+          throw new Error("ordering texture not found");
+        }
+        renderer.state.activeTexture(gl.TEXTURE0);
+        renderer.state.bindTexture(gl.TEXTURE_2D, glTexture);
+        gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+        gl.texSubImage2D(
+          gl.TEXTURE_2D,
+          0,
+          0,
+          0,
+          4096,
+          rows,
+          gl.RGBA_INTEGER,
+          gl.UNSIGNED_INT,
+          // data,
+          result.ordering,
+        );
+        renderer.state.bindTexture(gl.TEXTURE_2D, null);
+      }
+    }
+
+    // console.log(`Sorted (${this.minSortIntervalMs}) ${numSplats} splats in ${(performance.now() - now).toFixed(0)} ms`);
+
+    if (this.display.mappingVersion !== current.mappingVersion) {
+      this.accumulators.push(this.display);
+      this.display = this.current;
+    }
+    this.sorting = false;
+
+    this.driveSort();
+  }
+
+  private ensureLodWorker() {
+    if (!this.lodWorker) {
+      this.lodWorker = new SplatWorker();
+    }
+    return this.lodWorker;
+  }
+
+  private async driveLod({
+    visibleGenerators,
+    camera: inputCamera,
+    scene,
+  }: {
     visibleGenerators: SplatGenerator[];
-    globalEdits: SplatEdit[];
-  } {
-    // Take a snapshot of the SplatGenerators and SplatEdits in the scene
-    // to be used to run an update.
-    const generators: SplatGenerator[] = [];
-    // Collect all SplatGenerators, even if not visible, because we want to
-    // be able to call their update functions every frame.
-    scene.traverse((node) => {
-      if (node instanceof SplatGenerator) {
-        generators.push(node);
-      }
-    });
+    camera: THREE.Camera;
+    scene: THREE.Scene;
+  }) {
+    const lodMeshes = !this.enableLod
+      ? []
+      : (visibleGenerators.filter((generator) => {
+          return (
+            generator instanceof SplatMesh &&
+            (generator.packedSplats?.lodSplats ||
+              generator.extSplats?.lodSplats ||
+              generator.paged) &&
+            generator.enableLod !== false
+          );
+        }) as SplatMesh[]);
+    const hasPaged = lodMeshes.some((mesh) => mesh.paged);
 
-    const visibleGenerators: SplatGenerator[] = [];
-    scene.traverseVisible((node) => {
-      if (node instanceof SplatGenerator) {
-        visibleGenerators.push(node);
-      }
-    });
+    let forceUpdate = this.lodMeshes.length !== lodMeshes.length;
+    if (
+      !forceUpdate &&
+      lodMeshes.some(
+        (m, i) =>
+          m !== this.lodMeshes[i].mesh || m.version > this.lodMeshes[i].version,
+      )
+    ) {
+      forceUpdate = true;
+    }
+    this.lodMeshes = lodMeshes.map((mesh) => ({
+      mesh,
+      version: mesh.version + 1,
+    }));
+    // console.log(`lodMeshes versions: ${JSON.stringify(this.lodMeshes.map(m => m.version))}`);
 
-    const globalEdits = new Set<SplatEdit>();
-    scene.traverseVisible((node) => {
-      if (node instanceof SplatEdit) {
-        let ancestor = node.parent;
-        while (ancestor != null && !(ancestor instanceof SplatMesh)) {
-          ancestor = ancestor.parent;
-        }
-        if (ancestor == null) {
-          // Not part of a SplatMesh so it's a global edit
-          globalEdits.add(node);
+    if (forceUpdate) {
+      this.lodDirty = true;
+    }
+
+    if (!this.lodDirty && lodMeshes.length === 0 && this.lodIds.size === 0) {
+      return;
+    }
+
+    inputCamera.updateMatrixWorld(true);
+    // Make a copy of the camera so it can't change underneath us
+    const camera = inputCamera.clone();
+
+    this.lodInitQueue = [];
+    const now = performance.now();
+
+    for (const mesh of lodMeshes) {
+      const splats =
+        mesh.packedSplats?.lodSplats ?? mesh.extSplats?.lodSplats ?? mesh.paged;
+      if (splats) {
+        const record = this.lodIds.get(splats);
+        if (record) {
+          record.lastTouched = now;
+        } else {
+          this.lodInitQueue.push(splats);
         }
       }
+    }
+
+    this.ensureLodWorker().tryExclusive(async (worker) => {
+      if (hasPaged && !this.pager) {
+        this.pager = new SplatPager({
+          renderer: this.renderer,
+          extSplats: this.pagedExtSplats,
+          maxSplats: this.maxPagedSplats,
+          numFetchers: this.numLodFetchers,
+        });
+
+        const { lodId } = (await worker.call("newLodTree", {
+          capacity: this.pager.maxSplats,
+        })) as { lodId: number };
+        this.pagerId = lodId;
+        // console.log("*** Set pagerId to", lodId);
+      }
+
+      // Assign pager to any new meshes that don't have one yet
+      // (must run every frame, not just when pager is first created)
+      if (this.pager) {
+        for (const { mesh } of this.lodMeshes) {
+          if (mesh.paged && !mesh.paged.pager) {
+            mesh.paged.pager = this.pager;
+          }
+        }
+      }
+
+      if (this.lodInitQueue.length > 0) {
+        const lodInitQueue = this.lodInitQueue;
+        this.lodInitQueue = [];
+        while (lodInitQueue.length > 0) {
+          const splats = lodInitQueue.shift();
+          if (splats) {
+            await this.initLodTree(worker, splats);
+            this.lodDirty = true;
+          }
+        }
+      }
+
+      if (this.pager) {
+        const updates = this.pager.consumeLodTreeUpdates();
+
+        for (const { splats, page, chunk, numSplats, lodTree } of updates) {
+          const record = this.lodIds.get(splats);
+          if (record) {
+            if (lodTree && chunk === 0) {
+              record.rootPage = page;
+            }
+            this.lodUpdates.push({
+              lodId: record.lodId,
+              pageBase: page * this.pager.pageSplats,
+              chunkBase: chunk * this.pager.pageSplats,
+              count: numSplats,
+              lodTreeData: lodTree,
+            });
+          }
+        }
+      }
+
+      if (this.lodUpdates.length > 0) {
+        const lodUpdates = this.lodUpdates;
+        this.lodUpdates = [];
+        // console.log("Calling updateLodTrees", lodUpdates);
+        await worker.call("updateLodTrees", { ranges: lodUpdates });
+        this.lodDirty = true;
+      }
+
+      const viewPos = new THREE.Vector3();
+      const viewQuat = new THREE.Quaternion();
+      this.current.viewToWorld.decompose(
+        viewPos,
+        viewQuat,
+        new THREE.Vector3(),
+      );
+      const viewChanged =
+        viewPos.distanceTo(this.lodPos) > 0.001 ||
+        viewQuat.dot(this.lodQuat) < 0.999;
+
+      if (this.lodDirty || viewChanged) {
+        const now = performance.now();
+        const deltaTime = now - this.lodTimestamp;
+        const deltaPos = viewPos.clone().sub(this.lodPos);
+        const deltaPred = deltaPos.multiplyScalar(
+          this.lastTraverseTime / deltaTime,
+        );
+        this.lodPos.copy(viewPos);
+        this.lodQuat.copy(viewQuat);
+        this.lodTimestamp = now;
+        this.lodDirty = false;
+        await this.updateLodInstances(
+          worker,
+          camera,
+          deltaPred,
+          lodMeshes,
+          scene,
+        );
+      }
+
+      await this.cleanupLodTrees(worker);
     });
+  }
+
+  private async initLodTree(
+    worker: SplatWorker,
+    splats: PackedSplats | ExtSplats | PagedSplats,
+  ) {
+    if (splats instanceof PackedSplats || splats instanceof ExtSplats) {
+      const { lodId } = (await worker.call("initLodTree", {
+        numSplats: splats.numSplats ?? 0,
+        lodTree: (splats.extra.lodTree as Uint32Array).slice(),
+      })) as { lodId: number };
+      this.lodIds.set(splats, { lodId, lastTouched: performance.now() });
+      this.lodIdToSplats.set(lodId, splats);
+      // console.log("*** initLodTree", lodId, splats.extra.lodTree, splats);
+    } else {
+      const { lodId } = (await worker.call("newSharedLodTree", {
+        lodId: this.pagerId,
+      })) as { lodId: number };
+      this.lodIds.set(splats, { lodId, lastTouched: performance.now() });
+      this.lodIdToSplats.set(lodId, splats);
+      // console.log("*** newSharedLodTree", lodId, this.pagerId, splats);
+    }
+  }
+
+  private pageSizeWarning = false;
+
+  private async updateLodInstances(
+    worker: SplatWorker,
+    camera: THREE.Camera,
+    deltaPred: THREE.Vector3,
+    lodMeshes: SplatMesh[],
+    scene: THREE.Scene,
+  ) {
+    const defaultSplatCount = isOculus()
+      ? 500000
+      : isVisionPro()
+        ? 750000
+        : isAndroid()
+          ? 1000000
+          : isIos()
+            ? 1500000
+            : 2500000;
+    const splatCount = this.lodSplatCount ?? defaultSplatCount;
+    const maxSplats = splatCount * this.lodSplatScale;
+
+    let pixelScaleLimit = 0.0;
+    let fovXdegrees = Number.POSITIVE_INFINITY;
+    let fovYdegrees = Number.POSITIVE_INFINITY;
+    if (camera instanceof THREE.PerspectiveCamera) {
+      const tanYfov = Math.tan((0.5 * camera.fov * Math.PI) / 180);
+      pixelScaleLimit = (2.0 * tanYfov) / this.renderSize.y;
+      fovYdegrees = camera.fov;
+      fovXdegrees =
+        ((Math.atan(tanYfov * camera.aspect) * 180) / Math.PI) * 2.0;
+    }
+
+    pixelScaleLimit *= this.lodRenderScale;
+
+    const uuidToMesh: Map<string, SplatMesh> = new Map();
+
+    const instances = lodMeshes.reduce(
+      (instances, mesh) => {
+        uuidToMesh.set(mesh.uuid, mesh);
+        const viewToObject = mesh.matrixWorld
+          .clone()
+          .invert()
+          .multiply(camera.matrixWorld);
+
+        const splats =
+          mesh.packedSplats?.lodSplats ??
+          mesh.extSplats?.lodSplats ??
+          mesh.paged;
+        if (!splats) {
+          return instances;
+        }
+        const record = this.lodIds.get(splats);
+        if (!record) {
+          return instances;
+        }
+
+        if (this.pager && mesh.paged && record.rootPage === undefined) {
+          return instances;
+        }
+
+        instances[mesh.uuid] = {
+          lodId: record.lodId,
+          rootPage: record.rootPage,
+          viewToObjectCols: viewToObject.elements,
+          lodScale: mesh.lodScale * this.globalLodScale,
+          outsideFoveate: mesh.outsideFoveate ?? this.outsideFoveate,
+          behindFoveate: mesh.behindFoveate ?? this.behindFoveate,
+          coneFov0: mesh.coneFov0 ?? this.coneFov0,
+          coneFov: mesh.coneFov ?? this.coneFov,
+          coneFoveate: mesh.coneFoveate ?? this.coneFoveate,
+        };
+        return instances;
+      },
+      {} as Record<
+        string,
+        {
+          lodId: number;
+          rootPage?: number;
+          viewToObjectCols: number[];
+          lodScale: number;
+          outsideFoveate: number;
+          behindFoveate: number;
+          coneFov0: number;
+          coneFov: number;
+          coneFoveate: number;
+        }
+      >,
+    );
+    // console.log("instances", instances);
+
+    const traverseStart = performance.now();
+    const { keyIndices, chunks, pixelRatio } = (await worker.call(
+      "traverseLodTrees",
+      {
+        maxSplats,
+        pixelScaleLimit,
+        fovXdegrees,
+        fovYdegrees,
+        instances,
+      },
+    )) as {
+      keyIndices: Record<
+        string,
+        { lodId: number; numSplats: number; indices: Uint32Array }
+      >;
+      chunks: [number, number][];
+      pixelRatio?: number;
+    };
+    this.lastTraverseTime = performance.now() - traverseStart;
+    // console.log(
+    //   `traverseLodTrees in ${this.lastTraverseTime} ms, pixelRatio=${pixelRatio}`,
+    // );
+
+    this.updateLodIndices(uuidToMesh, keyIndices);
+    // console.log("chunks.length =", chunks.length);
+
+    if (this.pager) {
+      this.pager.processUploads();
+
+      const cameraPosition = camera.getWorldPosition(new THREE.Vector3());
+      const pagedMeshes = lodMeshes
+        .map((mesh) => {
+          if (!mesh.paged || !this.pager) {
+            return null;
+          }
+          const meshPosition = mesh.getWorldPosition(new THREE.Vector3());
+          return {
+            splats: mesh.paged,
+            distance: meshPosition.distanceTo(cameraPosition),
+          };
+        })
+        .filter((result) => result !== null);
+
+      if (!this.pageSizeWarning && pagedMeshes.length > this.pager.maxPages) {
+        this.pageSizeWarning = true;
+        console.warn(
+          `# paged SplatMeshes exceeds maxPages: ${pagedMeshes.length} > ${this.pager.maxPages}`,
+        );
+      }
+
+      // Fetch root chunk of each paged splats in priority of distance to camera
+      pagedMeshes.sort((a, b) => a.distance - b.distance);
+      this.pager.fetchPriority = pagedMeshes.map(({ splats }) => ({
+        splats,
+        chunk: 0,
+      }));
+
+      for (const [lodId, chunk] of chunks) {
+        const splats = this.lodIdToSplats.get(lodId);
+        if (splats instanceof PagedSplats) {
+          if (chunk !== 0) {
+            this.pager.fetchPriority.push({ splats, chunk });
+          }
+        }
+      }
+
+      this.pager.driveFetchers();
+    }
+  }
+
+  private async cleanupLodTrees(worker: SplatWorker) {
+    const DISPOSE_TIMEOUT_MS = 3000;
+    const now = performance.now();
+
+    let oldest = null;
+    for (const [splats, record] of this.lodIds.entries()) {
+      if (oldest == null || record.lastTouched < oldest.lastTouched) {
+        oldest = {
+          splats,
+          lastTouched: record.lastTouched,
+          lodId: record.lodId,
+        };
+      }
+    }
+    if (!oldest || oldest.lastTouched > now - DISPOSE_TIMEOUT_MS) {
+      return;
+    }
+
+    this.lodIds.delete(oldest.splats);
+    this.lodIdToSplats.delete(oldest.lodId);
+
+    for (const [mesh, instance] of this.lodInstances.entries()) {
+      if (instance.lodId === oldest.lodId) {
+        instance.texture.dispose();
+        this.lodInstances.delete(mesh);
+      }
+    }
+
+    await worker.call("disposeLodTree", { lodId: oldest.lodId });
+    // console.log("disposed lodTree", oldest.lodId);
+  }
+
+  private updateLodIndices(
+    uuidToMesh: Map<string, SplatMesh>,
+    keyIndices: Record<
+      string,
+      { lodId: number; numSplats: number; indices: Uint32Array }
+    >,
+  ) {
+    // console.log("updateLodIndices", keyIndices);
+    for (const [uuid, countIndices] of Object.entries(keyIndices)) {
+      const { lodId, numSplats, indices } = countIndices;
+      const mesh = uuidToMesh.get(uuid) as SplatMesh;
+
+      if (mesh.paged) {
+        mesh.paged.update(numSplats, indices);
+        // console.log("*** paged.update", lodId, numSplats, indices.slice(0, 5).join(","));
+      } else {
+        let instance = this.lodInstances.get(mesh);
+        if (instance) {
+          if (indices.length > instance.indices.length) {
+            instance.texture.dispose();
+            instance = undefined;
+          }
+        }
+
+        const rows = Math.ceil(indices.length / 16384);
+        if (!instance) {
+          const capacity = rows * 16384;
+          if (indices.length !== capacity) {
+            throw new Error("Indices length != capacity");
+          }
+          const texture = new THREE.DataTexture(
+            indices,
+            4096,
+            rows,
+            THREE.RGBAIntegerFormat,
+            THREE.UnsignedIntType,
+          );
+          texture.internalFormat = "RGBA32UI";
+          texture.needsUpdate = true;
+          instance = { lodId, numSplats, indices, texture };
+          this.lodInstances.set(mesh, instance);
+        } else {
+          instance.numSplats = numSplats;
+          const renderer = this.renderer;
+          const gl = renderer.getContext() as WebGL2RenderingContext;
+          if (renderer.properties.has(instance.texture)) {
+            const props = renderer.properties.get(instance.texture) as {
+              __webglTexture: WebGLTexture;
+            };
+            const glTexture = props.__webglTexture;
+            if (!glTexture) {
+              throw new Error("lodIndices texture not found");
+            }
+            renderer.state.activeTexture(gl.TEXTURE0);
+            renderer.state.bindTexture(gl.TEXTURE_2D, glTexture);
+            gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
+            gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+            gl.texSubImage2D(
+              gl.TEXTURE_2D,
+              0,
+              0,
+              0,
+              4096,
+              rows,
+              gl.RGBA_INTEGER,
+              gl.UNSIGNED_INT,
+              indices,
+            );
+            renderer.state.bindTexture(gl.TEXTURE_2D, null);
+          }
+        }
+      }
+      mesh.updateMappingVersion();
+    }
+  }
+
+  private async readbackDepth({
+    current,
+    renderer,
+    numSplats,
+    readback,
+  }: {
+    current: SplatAccumulator;
+    renderer: THREE.WebGLRenderer;
+    numSplats: number;
+    readback: Uint32Array;
+  }) {
+    if (!renderer) {
+      throw new Error("No renderer");
+    }
+    if (!current.target) {
+      throw new Error("No target");
+    }
+
+    const roundedCount =
+      Math.ceil(numSplats / SPLAT_TEX_WIDTH) * SPLAT_TEX_WIDTH;
+    if (readback.byteLength < roundedCount * 4) {
+      throw new Error(
+        `Readback buffer too small: ${readback.byteLength} < ${roundedCount * 4}`,
+      );
+    }
+    const readbackUint8 = new Uint8Array(readback.buffer);
+    const renderState = this.saveRenderState(renderer);
+
+    // We can only read back one 2D array layer of pixels at a time,
+    // so loop through them, initiate the readback, and collect the
+    // completion promises.
+    const layerSize = SPLAT_TEX_WIDTH * SPLAT_TEX_HEIGHT;
+    let baseIndex = 0;
+    const promises = [];
+
+    while (baseIndex < numSplats) {
+      const layer = Math.floor(baseIndex / layerSize);
+      const layerBase = layer * layerSize;
+      const layerYEnd = Math.min(
+        SPLAT_TEX_HEIGHT,
+        Math.ceil((numSplats - layerBase) / SPLAT_TEX_WIDTH),
+      );
+
+      // Compute the subarray that this layer of readback corresponds to
+      const readbackSize = SPLAT_TEX_WIDTH * layerYEnd * 4;
+      const subReadback = readbackUint8.subarray(
+        layerBase * 4,
+        layerBase * 4 + readbackSize,
+      );
+      renderer.setRenderTarget(current.target, layer);
+
+      const promise = renderer.readRenderTargetPixelsAsync(
+        current.target,
+        0,
+        0,
+        SPLAT_TEX_WIDTH,
+        layerYEnd,
+        subReadback,
+        undefined,
+        current.extSplats ? 2 : 1,
+      );
+      promises.push(promise);
+
+      if (this.flushAfterRead) {
+        const gl = renderer.getContext() as WebGL2RenderingContext;
+        gl.flush();
+      }
+
+      baseIndex += SPLAT_TEX_WIDTH * layerYEnd;
+    }
+
+    this.resetRenderState(renderer, renderState);
+    return Promise.all(promises).then(() => readback);
+  }
+
+  private saveRenderState(renderer: THREE.WebGLRenderer) {
     return {
-      generators,
-      visibleGenerators,
-      globalEdits: Array.from(globalEdits),
+      target: renderer.getRenderTarget(),
+      xrEnabled: renderer.xr.enabled,
+      autoClear: renderer.autoClear,
     };
   }
 
-  // Renders out the scene to an environment map that can be used for
+  private resetRenderState(
+    renderer: THREE.WebGLRenderer,
+    state: {
+      target: THREE.WebGLRenderTarget | null;
+      xrEnabled: boolean;
+      autoClear: boolean;
+    },
+  ) {
+    renderer.setRenderTarget(state.target);
+    renderer.xr.enabled = state.xrEnabled;
+    renderer.autoClear = state.autoClear;
+  }
+
+  private static emptyOrdering = (() => {
+    const numIndices = 4 * 4096 * 1;
+    const emptyArray = new Uint32Array(numIndices);
+    const texture = new THREE.DataTexture(emptyArray, 4096, 1);
+    texture.format = THREE.RGBAIntegerFormat;
+    texture.type = THREE.UnsignedIntType;
+    texture.internalFormat = "RGBA32UI";
+    texture.needsUpdate = true;
+    return texture;
+  })();
+
+  render(scene: THREE.Scene, camera: THREE.Camera) {
+    try {
+      SparkRenderer.sparkOverride = this;
+      this.renderer.render(scene, camera);
+    } finally {
+      SparkRenderer.sparkOverride = undefined;
+    }
+  }
+
+  renderTarget({
+    scene,
+    camera,
+  }: { scene: THREE.Scene; camera: THREE.Camera }): THREE.WebGLRenderTarget {
+    const target = this.backTarget ?? this.target;
+    if (!target) {
+      throw new Error("No target");
+    }
+
+    const previousTarget = this.renderer.getRenderTarget();
+    try {
+      this.renderer.setRenderTarget(target);
+      SparkRenderer.sparkOverride = this;
+      this.renderer.render(scene, camera);
+    } finally {
+      SparkRenderer.sparkOverride = undefined;
+      this.renderer.setRenderTarget(previousTarget);
+    }
+
+    if (target !== this.target) {
+      // Swap back buffer and target
+      [this.target, this.backTarget] = [this.backTarget, this.target];
+    }
+    return target;
+  }
+
+  // Read back the previously rendered target image as a Uint8Array of packed
+  // RGBA values (in that order). Subsequent calls to this.readTarget()
+  // will reuse the same buffers to minimize memory allocations.
+  async readTarget(): Promise<Uint8Array> {
+    if (!this.target) {
+      throw new Error("Must initialize with target");
+    }
+    const { width, height } = this.target;
+    const byteSize = width * height * 4;
+    if (!this.superPixels || this.superPixels.length < byteSize) {
+      this.superPixels = new Uint8Array(byteSize);
+      // console.log(`Allocated superPixels: ${width}x${height} = ${pixelCount} bytes`);
+    }
+    const superPixels = this.superPixels;
+
+    await this.renderer.readRenderTargetPixelsAsync(
+      this.target,
+      0,
+      0,
+      width,
+      height,
+      superPixels,
+    );
+
+    const { superXY } = this;
+    if (superXY === 1) {
+      return superPixels;
+    }
+
+    const subWidth = width / superXY;
+    const subHeight = height / superXY;
+    const subSize = subWidth * subHeight * 4;
+    if (!this.targetPixels || this.targetPixels.length < subSize) {
+      this.targetPixels = new Uint8Array(subSize);
+      // console.log(`Allocated targetPixels: ${subWidth}x${subHeight} = ${subSize} bytes`);
+    }
+    const targetPixels = this.targetPixels;
+
+    const super2 = superXY * superXY;
+    for (let y = 0; y < subHeight; y++) {
+      const row = y * subWidth;
+      for (let x = 0; x < subWidth; x++) {
+        const superCol = x * superXY;
+        let r = 0;
+        let g = 0;
+        let b = 0;
+        let a = 0;
+        for (let sy = 0; sy < superXY; sy++) {
+          const superRow = (y * superXY + sy) * width;
+          for (let sx = 0; sx < superXY; sx++) {
+            const superIndex = (superRow + superCol + sx) * 4;
+            r += superPixels[superIndex];
+            g += superPixels[superIndex + 1];
+            b += superPixels[superIndex + 2];
+            a += superPixels[superIndex + 3];
+          }
+        }
+        const pixelIndex = (row + x) * 4;
+        targetPixels[pixelIndex] = r / super2;
+        targetPixels[pixelIndex + 1] = g / super2;
+        targetPixels[pixelIndex + 2] = b / super2;
+        targetPixels[pixelIndex + 3] = a / super2;
+      }
+    }
+    return targetPixels;
+  }
+
+  async renderReadTarget({
+    scene,
+    camera,
+  }: {
+    scene: THREE.Scene;
+    camera: THREE.Camera;
+  }): Promise<Uint8Array> {
+    this.renderTarget({ scene, camera });
+    return this.readTarget();
+  }
+
+  // Data and buffers used for environment map rendering
+  private static cubeRender: {
+    target: THREE.WebGLCubeRenderTarget;
+    cubeCamera: THREE.CubeCamera;
+    near: number;
+    far: number;
+  } | null = null;
+  private static pmrem: THREE.PMREMGenerator | null = null;
+
+  // Renders out the scene to a cube map that can be used for
   // Image-based lighting or similar applications. First optionally updates Gsplats,
-  // sorts them with respect to the provided worldCenter, renders 6 cube faces,
-  // then pre-filters them using THREE.PMREMGenerator and returns a THREE.Texture
-  // that can assigned directly to a THREE.MeshStandardMaterial.envMap property.
-  async renderEnvMap({
-    renderer,
+  // sorts them with respect to the provided worldCenter, renders 6 cube faces.
+  async renderCubeMap({
     scene,
     worldCenter,
     size = 256,
     near = 0.1,
     far = 1000,
     hideObjects = [],
-    update = false,
+    update = true,
+    filter = false,
   }: {
-    renderer?: THREE.WebGLRenderer;
     scene: THREE.Scene;
     worldCenter: THREE.Vector3;
     size?: number;
     near?: number;
     far?: number;
-    hideObjects?: THREE.Object3D[];
-    update?: boolean;
-  }): Promise<THREE.Texture> {
-    if (!this.envViewpoint) {
-      this.envViewpoint = this.newViewpoint({ sort360: true });
-    }
+    hideObjects: THREE.Object3D[];
+    update: boolean;
+    filter: boolean;
+  }): Promise<THREE.CubeTexture> {
+    const renderer = this.renderer;
     if (
       !SparkRenderer.cubeRender ||
       SparkRenderer.cubeRender.target.width !== size ||
@@ -940,23 +1675,18 @@ export class SparkRenderer extends THREE.Mesh {
       }
       const target = new THREE.WebGLCubeRenderTarget(size, {
         format: THREE.RGBAFormat,
-        generateMipmaps: true,
-        minFilter: THREE.LinearMipMapLinearFilter,
+        type: THREE.UnsignedByteType,
+        generateMipmaps: filter,
+        minFilter: filter ? THREE.LinearMipMapLinearFilter : THREE.LinearFilter,
+        magFilter: THREE.LinearFilter,
+        colorSpace: filter ? THREE.LinearSRGBColorSpace : THREE.SRGBColorSpace,
       });
-      const camera = new THREE.CubeCamera(near, far, target);
-      SparkRenderer.cubeRender = { target, camera, near, far };
+      const cubeCamera = new THREE.CubeCamera(near, far, target);
+      SparkRenderer.cubeRender = { target, cubeCamera, near, far };
     }
 
-    if (!SparkRenderer.pmrem) {
-      SparkRenderer.pmrem = new THREE.PMREMGenerator(renderer ?? this.renderer);
-    }
-
-    // Prepare the viewpoint, sorting Gsplats for this view origin.
-    const viewToWorld = new THREE.Matrix4().setPosition(worldCenter);
-    await this.envViewpoint?.prepare({ scene, viewToWorld, update });
-
-    const { target, camera } = SparkRenderer.cubeRender;
-    camera.position.copy(worldCenter);
+    const { target, cubeCamera } = SparkRenderer.cubeRender;
+    cubeCamera.position.copy(worldCenter);
 
     // Save the visibility state of objects we want to hide before render
     const objectVisibility = new Map<THREE.Object3D, boolean>();
@@ -965,18 +1695,97 @@ export class SparkRenderer extends THREE.Mesh {
       object.visible = false;
     }
 
-    // Update the CubeCamera, which performs 6 cube face renders
-    this.prepareViewpoint(this.envViewpoint);
-    camera.update(renderer ?? this.renderer, scene);
+    if (update) {
+      const tempCamera = new THREE.Camera();
+      tempCamera.position.copy(worldCenter);
+      await this.update({ scene, camera: tempCamera });
+    }
+
+    try {
+      SparkRenderer.sparkOverride = this;
+      // Update the CubeCamera, which performs 6 cube face renders
+      cubeCamera.update(this.renderer, scene);
+    } finally {
+      SparkRenderer.sparkOverride = undefined;
+    }
 
     // Restore viewpoint to default and object visibility
-    this.prepareViewpoint(this.defaultView);
     for (const [object, visible] of objectVisibility.entries()) {
       object.visible = visible;
     }
 
-    // Pre-filter the cube map using THREE.PMREMGenerator
-    return SparkRenderer.pmrem?.fromCubemap(target.texture).texture;
+    return target.texture;
+  }
+
+  async readCubeTargets(): Promise<Uint8Array[]> {
+    if (!SparkRenderer.cubeRender) {
+      throw new Error("No cube render");
+    }
+
+    const textures = SparkRenderer.cubeRender.target.texture;
+    const promises = [];
+    const buffers = [];
+
+    for (let i = 0; i < textures.images.length; ++i) {
+      const { width, height } = textures.images[i];
+      const byteSize = width * height * 4;
+      const readback = new Uint8Array(byteSize);
+      buffers.push(readback);
+      const promise = this.renderer.readRenderTargetPixelsAsync(
+        SparkRenderer.cubeRender.target,
+        0,
+        0,
+        width,
+        height,
+        readback,
+        i,
+      );
+      promises.push(promise);
+    }
+
+    await Promise.all(promises);
+    return buffers;
+  }
+
+  // Renders out the scene to an environment map that can be used for
+  // Image-based lighting or similar applications. First optionally updates Gsplats,
+  // sorts them with respect to the provided worldCenter, renders 6 cube faces,
+  // then pre-filters them using THREE.PMREMGenerator and returns a THREE.Texture
+  // that can assigned directly to a THREE.MeshStandardMaterial.envMap property.
+  async renderEnvMap({
+    scene,
+    worldCenter,
+    size = 256,
+    near = 0.1,
+    far = 1000,
+    hideObjects = [],
+    update = true,
+  }: {
+    scene: THREE.Scene;
+    worldCenter: THREE.Vector3;
+    size?: number;
+    near?: number;
+    far?: number;
+    hideObjects: THREE.Object3D[];
+    update: boolean;
+  }): Promise<THREE.Texture> {
+    const cubeTexture = await this.renderCubeMap({
+      scene,
+      worldCenter,
+      size,
+      near,
+      far,
+      hideObjects,
+      update,
+      filter: true,
+    });
+    // Pre-filter the cube map using THREE.PMREMGenerator if requested
+    if (!SparkRenderer.pmrem) {
+      SparkRenderer.pmrem = new THREE.PMREMGenerator(this.renderer);
+      console.log("Created PMREMGenerator");
+    }
+
+    return SparkRenderer.pmrem?.fromCubemap(cubeTexture).texture;
   }
 
   // Utility function to recursively set the envMap property for any
@@ -999,78 +1808,39 @@ export class SparkRenderer extends THREE.Mesh {
     });
   }
 
-  // Utility function that helps extract the Gsplat RGBA values from a
-  // SplatGenerator, including the result of any real-time RGBA SDF edits applied
-  // to a SplatMesh. This effectively "bakes" any computed RGBA values, which can
-  // now be used as a pipeline input via SplatMesh.splatRgba to inject these
-  // baked values into the Gsplat data.
-  getRgba({
-    generator,
-    rgba,
-  }: { generator: SplatGenerator; rgba?: RgbaArray }): RgbaArray {
-    const mapping = this.active.mapping.find(({ node }) => node === generator);
-    if (!mapping) {
-      throw new Error("Generator not found");
+  async getLodTreeLevel(
+    splats: SplatMesh,
+    level: number,
+    pageColoring = false,
+  ) {
+    const instance = this.lodInstances.get(splats);
+    if (!instance) {
+      return null;
     }
 
-    rgba = rgba ?? new RgbaArray();
-    rgba.fromPackedSplats({
-      packedSplats: this.active.splats,
-      base: mapping.base,
-      count: mapping.count,
-      renderer: this.renderer,
+    const result = await this.ensureLodWorker().exclusive(async (worker) => {
+      return (await worker.call("getLodTreeLevel", {
+        lodId: instance.lodId,
+        level,
+      })) as { indices: Uint32Array };
     });
-    return rgba;
-  }
 
-  // Utility function that builds on getRgba({ generator }) and additionally
-  // reads back the RGBA values to the CPU in a Uint8Array with packed RGBA
-  // in that byte order.
-  async readRgba({
-    generator,
-    rgba,
-  }: { generator: SplatGenerator; rgba?: RgbaArray }): Promise<Uint8Array> {
-    rgba = this.getRgba({ generator, rgba });
-    return rgba.read();
-  }
-}
-
-const EMPTY_GEOMETRY = new SplatGeometry(new Uint32Array(1), 0);
-
-const reorderSplats = dynoBlock(
-  { packedSplats: TPackedSplats, index: "int" },
-  { gsplat: Gsplat },
-  ({ packedSplats, index }) => {
-    if (!packedSplats || !index) {
-      throw new Error("Invalid input");
+    if (splats.packedSplats?.lodSplats) {
+      const newSplats = splats.packedSplats.lodSplats.extractSplats(
+        result.indices,
+        pageColoring,
+      );
+      return new SplatMesh({ packedSplats: newSplats });
     }
-    const gsplat = readPackedSplat(packedSplats, index);
-    return { gsplat };
-  },
-);
-
-function averageOriginToWorlds(
-  originToWorlds: THREE.Matrix4[],
-): THREE.Matrix4 | null {
-  if (originToWorlds.length === 0) {
-    return null;
+    if (splats.extSplats?.lodSplats) {
+      const newSplats = splats.extSplats.lodSplats.extractSplats(
+        result.indices,
+        pageColoring,
+      );
+      return new SplatMesh({ extSplats: newSplats });
+    }
+    throw new Error(
+      "Only LoD-enabled PackedSplats and ExtSplats are supported",
+    );
   }
-
-  const position = new THREE.Vector3();
-  const quaternion = new THREE.Quaternion();
-  const scale = new THREE.Vector3();
-
-  const positions: THREE.Vector3[] = [];
-  const quaternions: THREE.Quaternion[] = [];
-  for (const matrix of originToWorlds) {
-    matrix.decompose(position, quaternion, scale);
-    positions.push(position);
-    quaternions.push(quaternion);
-  }
-
-  return new THREE.Matrix4().compose(
-    averagePositions(positions),
-    averageQuaternions(quaternions),
-    new THREE.Vector3(1, 1, 1),
-  );
 }

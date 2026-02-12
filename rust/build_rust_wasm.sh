@@ -16,7 +16,7 @@ rustup target add wasm32-unknown-unknown
 # Make sure wasm-pack is installed
 cargo install wasm-pack
 
-cd spark-internal-rs
+cd spark-worker-rs
 
 # Build the project with SIMD enabled
 RUSTFLAGS="-C target-feature=+simd128,+bulk-memory" wasm-pack build --target web --release
