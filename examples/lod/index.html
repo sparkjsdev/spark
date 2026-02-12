@@ -40,7 +40,7 @@
   <!-- "@sparkjsdev/spark": "./spark.module.js" -->
   <script type="module">
     import * as THREE from "three";
-    import { NewSparkRenderer, SparkRenderer, SplatMesh, PackedSplats, SplatLoader, SparkControls, isMobile, SplatEdit, SplatEditSdf, SplatEditSdfType } from "@sparkjsdev/spark";
+    import { SparkRenderer, OldSparkRenderer, SplatMesh, PackedSplats, SplatLoader, SparkControls, isMobile, SplatEdit, SplatEditSdf, SplatEditSdfType } from "@sparkjsdev/spark";
     import GUI from "lil-gui";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
@@ -68,7 +68,7 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
       }
 
-      const spark = new NewSparkRenderer({
+      const spark = new SparkRenderer({
         renderer,
         // sort32: false,
         // sort360: true,

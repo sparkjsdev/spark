@@ -1,18 +1,95 @@
 use std::{array, cell::{Ref, RefCell}, collections::BinaryHeap, rc::Rc};
 
-use ahash::AHashMap;
-use glam::{Quat, Vec3A};
+use ahash::{AHashMap, AHashSet};
+use glam::{Vec3, Vec3A};
 use half::f16;
 use itertools::izip;
 use js_sys::{Array, Object, Reflect, Uint32Array};
 use ordered_float::OrderedFloat;
-use spark_lib::{decoder::SplatEncoding, splat_encode::{decode_lod_tree_children, decode_packed_splat_center, decode_packed_splat_opacity, decode_packed_splat_quat, decode_packed_splat_scale}};
 use wasm_bindgen::prelude::*;
 
-use crate::packed_splats::PackedSplatsData;
-use spark_lib::decoder::SplatGetter;
-
 const MAX_SPLAT_CHUNK: usize = 65536;
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Default)]
+struct FourHeap<T: Ord> {
+    data: Vec<T>,
+}
+
+#[allow(dead_code)]
+impl<T: Ord> FourHeap<T> {
+    fn new() -> Self {
+        Self { data: Vec::new() }
+    }
+
+    fn push(&mut self, value: T) {
+        self.data.push(value);
+        let mut index = self.data.len() - 1;
+        while index > 0 {
+            let parent = (index - 1) / 4;
+            if self.data[parent] >= self.data[index] {
+                break;
+            }
+            self.data.swap(parent, index);
+            index = parent;
+        }
+    }
+
+    fn peek(&self) -> Option<&T> {
+        self.data.first()
+    }
+
+    fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+
+    fn pop(&mut self) -> Option<T> {
+        let last = self.data.pop()?;
+        if self.data.is_empty() {
+            return Some(last);
+        }
+
+        let root = std::mem::replace(&mut self.data[0], last);
+        let len = self.data.len();
+        let mut index = 0usize;
+        loop {
+            let child0 = index * 4 + 1;
+            if child0 >= len {
+                break;
+            }
+
+            let child_end = (child0 + 4).min(len);
+            let mut max_child = child0;
+            for child in (child0 + 1)..child_end {
+                if self.data[child] > self.data[max_child] {
+                    max_child = child;
+                }
+            }
+
+            if self.data[index] >= self.data[max_child] {
+                break;
+            }
+            self.data.swap(index, max_child);
+            index = max_child;
+        }
+
+        Some(root)
+    }
+
+    fn drain(&mut self) -> std::vec::Drain<'_, T> {
+        self.data.drain(..)
+    }
+
+    fn clear(&mut self) {
+        self.data.clear();
+    }
+}
+
+type Frontier<T> = BinaryHeap<T>;
 
 #[derive(Debug, Clone, Default)]
 struct LodSplat {
@@ -21,6 +98,55 @@ struct LodSplat {
     child_start: u32,
     child_count: u16,
 }
+
+impl LodSplat {
+    fn new_f16(center: [f16; 3], size: f16, child_start: u32, child_count: u16) -> Self {
+        Self { center, size, child_start, child_count }
+    }
+
+    #[allow(dead_code)]
+    fn new(center: Vec3, size: f32, child_start: u32, child_count: u16) -> Self {
+        let center = center.to_array().map(|x| f16::from_f32(x));
+        let size = f16::from_f32(size);
+        Self::new_f16(center, size, child_start, child_count)
+    }
+
+    fn center(&self) -> Vec3A {
+        Vec3A::from_array(self.center.map(|x| x.to_f32()))
+    }
+
+    fn size(&self) -> f32 {
+        self.size.to_f32()
+    }
+}
+
+// #[derive(Debug, Clone, Default)]
+// struct LodSplat {
+//     center: Vec3,
+//     size: f32,
+//     child_start: u32,
+//     child_count: u16,
+// }
+
+// impl LodSplat {
+//     fn new_f16(center: [f16; 3], size: f16, child_start: u32, child_count: u16) -> Self {
+//         let center = Vec3::from_array(center.map(|x| x.to_f32()));
+//         let size = size.to_f32();
+//         Self::new(center, size, child_start, child_count)
+//     }
+
+//     fn new(center: Vec3, size: f32, child_start: u32, child_count: u16) -> Self {
+//         Self { center, size, child_start, child_count }
+//     }
+
+//     fn center(&self) -> Vec3A {
+//         self.center.to_vec3a()
+//     }
+
+//     fn size(&self) -> f32 {
+//         self.size
+//     }
+// }
 
 #[derive(Debug, Clone, Default)]
 struct LodTree {
@@ -32,7 +158,10 @@ struct LodTree {
 struct LodState {
     next_id: u32,
     lod_trees: AHashMap<u32, LodTree>,
-    frontier: BinaryHeap<(OrderedFloat<f32>, u32, u32)>,
+    frontier: Frontier<(OrderedFloat<f32>, u32, u32)>,
+    output: Vec<(u32, u32)>,
+    touched: Vec<(u32, u32)>,
+    touched_set: AHashSet<(u32, u32)>,
     buffer: Vec<u32>,
 }
 
@@ -41,7 +170,10 @@ impl LodState {
         Self {
             next_id: 1000,
             lod_trees: AHashMap::new(),
-            frontier: BinaryHeap::new(),
+            frontier: Frontier::new(),
+            output: Vec::new(),
+            touched: Vec::new(),
+            touched_set: AHashSet::new(),
             buffer: Vec::new(),
         }
     }
@@ -82,7 +214,7 @@ fn set_lod_tree_data(state: &mut LodState, lod_id: u32, base: u32, count: u32, l
             let child_count = (words[2] & 0xffff) as u16;
             let child_start = words[3];
 
-            splats[(base + index + i) as usize] = LodSplat { center, size, child_count, child_start };
+            splats[(base + index + i) as usize] = LodSplat::new_f16(center, size, child_start, child_count);
         }
         index += chunk;
     }
@@ -162,19 +294,19 @@ pub fn update_lod_trees(lod_ids: &[u32], page_bases: &[u32], chunk_bases: &[u32]
             let base_page = page_base >> 16;
             let base_chunk = chunk_base >> 16;
 
+            if (base_page + pages) > lod_tree.page_to_chunk.len() as u32 {
+                lod_tree.page_to_chunk.resize((base_page + pages) as usize, 0xFFFFFFFF);
+            }
+            if (base_chunk + pages) > lod_tree.chunk_to_page.len() as u32 {
+                lod_tree.chunk_to_page.resize((base_chunk + pages) as usize, 0xFFFFFFFF);
+            }
+
             if lod_tree_data.is_falsy() {
                 for page in 0..pages {
                     lod_tree.page_to_chunk[(base_page + page) as usize] = 0xFFFFFFFF;
                     lod_tree.chunk_to_page[(base_chunk + page) as usize] = 0xFFFFFFFF;
                 }    
             } else {
-                if (base_page + pages) > lod_tree.page_to_chunk.len() as u32 {
-                    lod_tree.page_to_chunk.resize((base_page + pages) as usize, 0xFFFFFFFF);
-                }
-                if (base_chunk + pages) > lod_tree.chunk_to_page.len() as u32 {
-                    lod_tree.chunk_to_page.resize((base_chunk + pages) as usize, 0xFFFFFFFF);
-                }
-
                 for page in 0..pages {
                     lod_tree.page_to_chunk[(base_page + page) as usize] = base_chunk + page;
                     lod_tree.chunk_to_page[(base_chunk + page) as usize] = base_page + page;
@@ -415,10 +547,10 @@ fn compute_pixel_scale(
     splat: &LodSplat, instance: &LodInstance, 
     x_limit: f32, y_limit: f32,
 ) -> f32 {
-    let center = Vec3A::from_array(splat.center.map(|x| x.to_f32()));
+    let center = splat.center();
     let delta = center - instance.origin;
     let distance = delta.length();
-    let pixel_scale = splat.size.to_f32() / distance.max(1.0e-6);
+    let pixel_scale = splat.size() / distance.max(1.0e-6);
     let pixel_scale = pixel_scale * instance.lod_scale;
     
     let forward = delta.dot(instance.forward);
@@ -450,243 +582,254 @@ fn compute_pixel_scale(
     }
 }
 
-// #[wasm_bindgen]
-// pub fn traverse_bones(
-//     num_lod_splats: u32,
-//     lod_packed: Uint32Array,
-//     extra: Option<Object>,
-//     encoding: JsValue,
-//     max_bone_splats: u32,
-//     num_splats: u32,
-//     packed: Option<Uint32Array>,
-//     compute_weights: bool,
-//     min_bone_opacity: f32,
-// ) -> Result<Object, JsValue> {
-//     let encoding = if encoding.is_falsy() {
-//         SplatEncoding::default()
-//     } else {
-//         serde_wasm_bindgen::from_value(encoding)?
-//     };
-//     let mut lod_packed_data = match PackedSplatsData::from_js_arrays(lod_packed, num_lod_splats as usize, extra.as_ref(), encoding.clone()) {
-//         Ok(lod_packed_data) => lod_packed_data,
-//         Err(err) => { return Err(JsValue::from(err.to_string())); }
-//     };
+#[wasm_bindgen]
+pub fn get_lod_tree_level(lod_id: u32, level: u32) -> anyhow::Result<Object, JsValue> {
+    STATE.with_borrow_mut(|state| {
+        let LodState { lod_trees, .. } = state;
+        let lod_tree = lod_trees.get(&lod_id).unwrap();
+        let splats = lod_tree.splats.borrow();
 
-//     type Chunk = (usize, usize, Vec<u32>, Vec<u32>);
-//     let mut chunks: Vec<Chunk> = Vec::new();
-//     let mut frontier = BinaryHeap::new();
-//     const CHUNK_SIZE: usize = 4096;
+        let root_size = splats[0].size();
+        let level_size = root_size / (1.25f32.powi(level as i32));
 
-//     let get_chunk_index = |chunks: &mut Vec<Chunk>, packed_data: &mut PackedSplatsData, index: usize| {
-//         for (chunk_index, (base, count, _packed, _lod_tree)) in chunks.iter().enumerate().rev() {
-//             if index >= *base && index < *base + *count {
-//                 let i4 = 4 * (index - base);
-//                 return (chunk_index, i4);
-//             }
-//         }
+        let mut nodes = vec![0];
+        let mut output_nodes = Vec::new();
 
-//         let mut packed = vec![0; 4 * CHUNK_SIZE];
-//         let mut lod_tree = vec![0; 4 * CHUNK_SIZE];
-//         packed_data.get_packed_array(index, CHUNK_SIZE, &mut packed);
-//         let got_lod_tree = packed_data.get_lod_tree_array(index, CHUNK_SIZE, &mut lod_tree).is_some();
-//         assert!(got_lod_tree);
+        while !nodes.is_empty() {
+            let mut new_nodes = Vec::new();
+            for node in nodes {
+                let splat = &splats[node as usize];
+                let &LodSplat { child_count, child_start, .. } = splat;
+                if splat.size() <= level_size {
+                    output_nodes.push(node);
+                } else {
+                    for child in child_start..child_start + child_count as u32 {
+                        new_nodes.push(child);
+                    }
+                }
+            }
+            nodes = new_nodes;
+        }
+
+        let output = Uint32Array::new_with_length(output_nodes.len() as u32);
+        for (i, node) in output_nodes.into_iter().enumerate() {
+            output.set_index(i as u32, node);
+        }
+
+        let result = Object::new();
+        Reflect::set(&result, &JsValue::from_str("indices"), &JsValue::from(output)).unwrap();
+        Ok(result)
+    })
+}
+
+#[wasm_bindgen]
+pub fn new_traverse_lod_trees(
+    max_splats: u32, pixel_scale_limit: f32,
+    lod_ids: &[u32], root_pages: &[u32],
+    view_to_objects: &[f32], lod_scales: &[f32],
+    behind_foveates: &[f32], cone_foveates: &[f32],
+    cone_fov0s: &[f32], cone_fovs: &[f32],
+) -> anyhow::Result<Object, JsValue> {
+    let max_splats = max_splats as usize;
+    let num_instances = lod_ids.len();
+    if view_to_objects.len() != num_instances * 16 {
+        return Err(JsValue::from_str("Invalid view_to_objects length"));
+    }
+    if lod_scales.len() != num_instances {
+        return Err(JsValue::from_str("Invalid lod_scales length"));
+    }
+    if behind_foveates.len() != num_instances {
+        return Err(JsValue::from_str("Invalid behind_foveates length"));
+    }
+    if cone_foveates.len() != num_instances {
+        return Err(JsValue::from_str("Invalid cone_foveates length"));
+    }
+    if cone_fov0s.len() != num_instances {
+        return Err(JsValue::from_str("Invalid cone_fov0s length"));
+    }
+    if cone_fovs.len() != num_instances {
+        return Err(JsValue::from_str("Invalid cone_fovs length"));
+    }
+
+    STATE.with_borrow_mut(|state| {
+        let LodState { lod_trees, frontier, output, touched, touched_set, .. } = state;
+        let instances: Vec<_> = lod_ids.iter().enumerate().map(|(index, &lod_id)| {
+            let lod_tree = lod_trees.get(&lod_id).unwrap();
+            let LodTree { splats, page_to_chunk, chunk_to_page } = &lod_tree;
+            let i16 = index * 16;
+            let forward = Vec3A::from_slice(&view_to_objects[(i16 + 8)..(i16 + 11)]).normalize().map(|x| -x);
+            let origin = Vec3A::from_slice(&view_to_objects[(i16 + 12)..(i16 + 15)]);
+            let lod_scale = lod_scales[index];
+            let behind_foveate = behind_foveates[index];
+            let cone_foveate = cone_foveates[index];
+            let cone_dot0 = if cone_fov0s[index] > 0.0 { (0.5 * cone_fov0s[index]).to_radians().cos() } else { 1.0 };
+            let cone_dot = if cone_fovs[index] > 0.0 { (0.5 * cone_fovs[index]).to_radians().cos() } else { 1.0 };
+            (lod_id, splats.borrow(), page_to_chunk, chunk_to_page, origin, forward, lod_scale, behind_foveate, cone_foveate, cone_dot0, cone_dot)
+        }).collect();
+
+        let mut num_splats = 0;
+        frontier.clear();
+        output.clear();
+        output.reserve(max_splats as usize);
+        touched.clear();
+        touched_set.clear();
+
+        for (inst_index, instance) in instances.iter().enumerate() {
+            let (lod_id, splats, ..) = instance;
+            let root_page = root_pages[inst_index];
+            let root_page = if root_page == 0xFFFFFFFF { 0 } else { root_page };
+            let root_index = root_page << 16;
+            let pixel_scale = new_compute_pixel_scale(&splats[root_index as usize], instance);
+            frontier.push((OrderedFloat(pixel_scale), inst_index as u32, root_index));
+            num_splats += 1;
+
+            if touched_set.insert((*lod_id, 0)) {
+                touched.push((*lod_id, 0));
+            }
+        }
         
-//         chunks.push((index, CHUNK_SIZE, packed, lod_tree));
-//         return (chunks.len() - 1, 0);
-//     };
+        let mut last_pixel_scale = 0.0;
 
-//     let get_splat_data = |chunks: &mut Vec<Chunk>, packed_data: &mut PackedSplatsData, index: usize| {
-//         let (chunk_index, i4) = get_chunk_index(chunks, packed_data, index);
-//         let (_, _, packed, lod_tree) = &chunks[chunk_index];
+        while let Some(&(OrderedFloat(pixel_scale), inst_index, paged_index)) = frontier.peek() {
+            last_pixel_scale = pixel_scale;
+            if pixel_scale <= pixel_scale_limit {
+                break;
+            }
 
-//         // let opacity = decode_packed_splat_opacity(&packed[i4..i4+4], &encoding);
-//         let scales = decode_packed_splat_scale(&packed[i4..i4+4], &encoding);
-//         let (child_count, child_start) = decode_lod_tree_children(&lod_tree[i4..i4+4]);
+            let instance = &instances[inst_index as usize];
+            let (lod_id, splats, _page_to_chunk, chunk_to_page, ..) = instance;
+            let LodSplat { child_count, child_start, .. } = splats[paged_index as usize];
 
-//         // let metric = scales[0] * scales[1] * scales[2];
-//         // let metric = scales[0].max(scales[1]).max(scales[2]);
-//         // let metric = scales[0].max(scales[1]).max(scales[2]) * opacity;
-//         let metric = scales[0] + scales[1] + scales[2];
-//         (OrderedFloat(metric), index, child_count as usize, child_start as usize)
-//     };
+            if child_count == 0 {
+                _ = frontier.pop();
+                output.push((inst_index, paged_index));
+                continue;
+            }
 
-//     let mut output = Vec::new();
-//     frontier.push(get_splat_data(&mut chunks, &mut lod_packed_data, 0));
+            let new_num_splats = num_splats - 1 + child_count as usize;
+            if new_num_splats > max_splats {
+                break;
+            }
 
-//     while let Some((OrderedFloat(_volume), index, child_count, child_start)) = frontier.pop() {
-//         if child_count == 0 {
-//             output.push(index as u32)
-//         } else {
-//             // output.push(index as u32);
+            _ = frontier.pop();
 
-//             let new_num_bones = output.len() + frontier.len() + child_count as usize;
-//             if new_num_bones > max_bone_splats as usize {
-//                 output.push(index as u32);
-//                 break;
-//             }
+            let first_chunk = child_start >> 16;
+            if touched_set.insert((*lod_id, first_chunk)) {
+                touched.push((*lod_id, first_chunk));
+            }
 
-//             for child in 0..child_count as usize {
-//                 let child_index = child_start + child;
-//                 frontier.push(get_splat_data(&mut chunks, &mut lod_packed_data, child_index));
-//             }
-//         }
-//     }
+            let last_chunk = (child_start + child_count as u32 - 1) >> 16;
+            if last_chunk != first_chunk && touched_set.insert((*lod_id, last_chunk)) {
+                touched.push((*lod_id, last_chunk));
+            }
 
-//     for (_volume, index, _child_count, _child_start) in frontier.drain() {
-//         output.push(index as u32);
-//     }
+            if last_chunk as usize >= chunk_to_page.len() {
+                output.push((inst_index, paged_index));
+                continue;
+            }
+            let first_page = chunk_to_page[first_chunk as usize];
+            let last_page = chunk_to_page[last_chunk as usize];
 
-//     output.sort_unstable();
+            if first_page == 0xFFFFFFFF || last_page == 0xFFFFFFFF {
+                output.push((inst_index, paged_index));
+                continue;
+            }
 
-//     output.retain(|&index| {
-//         let (chunk_index, i4) = get_chunk_index(&mut chunks, &mut lod_packed_data, index as usize);
-//         let (_, _, packed, _) = &chunks[chunk_index];
-//         let opacity = decode_packed_splat_opacity(&packed[i4..i4+4], &encoding);
-//         opacity >= min_bone_opacity
-//     });
+            for child in child_start..child_start + child_count as u32 {
+                let child_chunk = (child >> 16) as usize;
+                let child_page = chunk_to_page[child_chunk];
+                let paged_index = (child_page << 16) | (child & 0xffff);
+                let pixel_scale = new_compute_pixel_scale(&splats[paged_index as usize], instance);
+                if pixel_scale <= pixel_scale_limit {
+                    output.push((inst_index, paged_index));
+                } else {
+                    frontier.push((OrderedFloat(pixel_scale), inst_index, paged_index));
+                }
+            }
 
-//     let mut index_mapping = AHashMap::new();
-//     for (new_index, &old_index) in output.iter().enumerate() {
-//         index_mapping.insert(old_index, new_index as u32);
-//     }
+            num_splats = new_num_splats;
+        }
 
-//     let num_bones = output.len();
-//     let mut packed_out: Vec<u32> = Vec::with_capacity(num_bones * 4);
-//     let mut child_counts: Vec<u32> = Vec::with_capacity(num_bones);
-//     let mut child_starts: Vec<u32> = Vec::with_capacity(num_bones);
+        for (_, inst_index, paged_index) in frontier.drain() {
+            output.push((inst_index, paged_index));
+        }
 
-//     let mut centers: Vec<glam::Vec3A> = Vec::with_capacity(num_bones);
-//     // let mut opacities: Vec<f32> = Vec::with_capacity(num_bones);
-//     let mut scales: Vec<glam::Vec3A> = Vec::with_capacity(num_bones);
-//     let mut quats: Vec<glam::Quat> = Vec::with_capacity(num_bones);
+        let mut instance_counts = Vec::new();
+        instance_counts.resize(num_instances, 0);
+        for &(inst_index, _) in output.iter() {
+            instance_counts[inst_index as usize] += 1;
+        }
 
-//     for old_index in output {
-//         let (chunk_index, i4) = get_chunk_index(&mut chunks, &mut lod_packed_data, old_index as usize);
-//         let (_, _, packed, lod_tree) = &chunks[chunk_index];
-//         let packed = &packed[i4..i4+4];
-//         let (child_count, child_start) = decode_lod_tree_children(&lod_tree[i4..i4+4]);
-        
-//         packed_out.extend_from_slice(packed);
-//         child_counts.push(child_count as u32);
-//         child_starts.push(*index_mapping.get(&child_start).unwrap_or(&0));
+        let mut instance_outputs = Vec::with_capacity(num_instances);
+        for counts in instance_counts {
+            instance_outputs.push(Vec::with_capacity(counts));
+        }
 
-//         centers.push(Vec3A::from_array(decode_packed_splat_center(packed)));
-//         // opacities.push(decode_packed_splat_opacity(packed, &encoding));
-//         let scale = Vec3A::from_array(decode_packed_splat_scale(packed, &encoding));
-//         scales.push(scale.max(Vec3A::splat(1.0e-4)));
-//         quats.push(Quat::from_array(decode_packed_splat_quat(packed)));
-//     }
+        for &(inst_index, paged_index) in output.iter() {
+            instance_outputs[inst_index as usize].push(paged_index);
+        }
 
-//     drop(chunks);
+        let instance_indices = Array::new();
 
-//     let rows = num_bones.div_ceil(2048);
-//     let capacity = rows * 2048;
-//     packed_out.resize(capacity * 4, 0);
+        for (inst_index, instance_output) in instance_outputs.iter_mut().enumerate() {
+            instance_output.sort_unstable();
+            let rows = instance_output.len().div_ceil(16384);
+            let capacity = rows * 16384;
+            let output = Uint32Array::new_with_length(capacity as u32);
+            output.subarray(0, instance_output.len() as u32).copy_from(&instance_output);
 
-//     let result = Object::new();
-//     Reflect::set(&result, &JsValue::from_str("numSplats"), &JsValue::from(num_bones)).unwrap();
-//     Reflect::set(&result, &JsValue::from_str("packed"), &JsValue::from(packed_out)).unwrap();   
-//     Reflect::set(&result, &JsValue::from_str("childCounts"), &JsValue::from(child_counts)).unwrap();
-//     Reflect::set(&result, &JsValue::from_str("childStarts"), &JsValue::from(child_starts)).unwrap();
-//     Reflect::set(&result, &JsValue::from_str("splatEncoding"), &serde_wasm_bindgen::to_value(&encoding).unwrap()).unwrap();
+            let result = Object::new();
+            let lod_id = instances[inst_index].0;
+            Reflect::set(&result, &JsValue::from_str("lodId"), &JsValue::from(lod_id)).unwrap();
+            Reflect::set(&result, &JsValue::from_str("numSplats"), &JsValue::from(instance_output.len() as u32)).unwrap();
+            Reflect::set(&result, &JsValue::from_str("indices"), &JsValue::from(output)).unwrap();
+            instance_indices.push(&JsValue::from(result));
+        }
 
-//     if compute_weights {
-//         let mut lod_bone_weights: Vec<u16> = Vec::with_capacity(num_lod_splats as usize * 4);
-//         let mut bone_weights: Vec<u16> = Vec::with_capacity(num_splats as usize * 4);
-//         let mut top_bones: Vec<(f32, usize)> = Vec::new();
+        let out_chunks = Array::new();
 
-//         let mut splat_centers = Vec::new();
-//         splat_centers.resize(CHUNK_SIZE * 3, 0.0);
+        for &(inst_index, chunk) in touched.iter() {
+            let pair = Array::new();
+            pair.push(&JsValue::from(inst_index));
+            pair.push(&JsValue::from(chunk));
+            out_chunks.push(&JsValue::from(pair));
+        }
 
-//         let find_top_bones = |num_bones: usize, centers: &[Vec3A], quats: &[Quat], scales: &[Vec3A], top_bones: &mut Vec<(f32, usize)>, splat_center: Vec3A| {
-//             top_bones.clear();
-//             for b in 0..num_bones {
-//                 let bone_splat = splat_center - centers[b];
-//                 let bone_splat = quats[b].inverse() * bone_splat;
-//                 let bone_splat = bone_splat / scales[b];
-//                 let bone_score = (bone_splat.length(), b);
+        let result = Object::new();
+        let pixel_ratio = last_pixel_scale / pixel_scale_limit;
+        Reflect::set(&result, &JsValue::from_str("pixelRatio"), &JsValue::from(pixel_ratio)).unwrap();
+        Reflect::set(&result, &JsValue::from_str("instanceIndices"), &JsValue::from(instance_indices)).unwrap();
+        Reflect::set(&result, &JsValue::from_str("chunks"), &JsValue::from(out_chunks)).unwrap();
+        Ok(result)
+    })
+}
 
-//                 let n = top_bones.len();
-//                 top_bones.push(bone_score); // Temporary, we'll shift as needed
-//                 let mut j = n;
-//                 while j > 0 && bone_score.0 < top_bones[j - 1].0 {
-//                     top_bones[j] = top_bones[j - 1];
-//                     j -= 1;
-//                 }
-//                 top_bones[j] = bone_score;
+fn new_compute_pixel_scale<'a>(
+    splat: &LodSplat,
+    instance: &(u32, Ref<'a, Vec<LodSplat>>, &Vec<u32>, &Vec<u32>, Vec3A, Vec3A, f32, f32, f32, f32, f32),
+) -> f32 {
+    let &(_, _, _, _, origin, forward, lod_scale, behind_foveate, cone_foveate, cone_dot0, cone_dot) = instance;
+    let center = splat.center();
+    let delta = center - origin;
+    let distance = delta.length().max(1.0e-6);
+    let inv_distance = 1.0 / distance;
+    let pixel_scale = splat.size() * inv_distance;
+    let pixel_scale = pixel_scale * lod_scale;
 
-//                 // Drop the last element if we have more than 4
-//                 if top_bones.len() > 4 {
-//                     top_bones.pop();
-//                 }
-//             }
-
-//             // top_bones.truncate(1);
-
-//             let total_score = top_bones.iter().map(|(score, _)| (-score).exp()).sum::<f32>();
-
-//             let bone_weights: [u16; 4] = array::from_fn(|d| {
-//                 let bone_weight = if d < top_bones.len() {
-//                     (top_bones[d].1, (-top_bones[d].0).exp() / total_score)
-//                 } else {
-//                     (0, 0.0)
-//                 };
-
-//                 // if bone_weight.0 > 255 {
-//                 //     panic!("Bone index out of range");
-//                 // }
-//                 let weight_u8 = (bone_weight.1 * 255.0).clamp(0.0, 255.0).round() as u8;
-//                 let bone_index_u8 = bone_weight.0 as u8;
-//                 let bone_weight_u16 = (bone_index_u8 as u16) << 8 | weight_u8 as u16;
-//                 bone_weight_u16
-//             });
-//             bone_weights
-//         };
-
-//         let mut base = 0;
-//         while base < num_lod_splats as usize {
-//             let chunk_size = (num_lod_splats as usize - base).min(CHUNK_SIZE);
-//             lod_packed_data.get_center(base, chunk_size, &mut splat_centers);
-//             for i in 0..chunk_size {
-//                 let i3 = i * 3;
-//                 let splat_center = Vec3A::from_slice(&splat_centers[i3..i3+3]);
-//                 let bone_weights_u16 = find_top_bones(num_bones, &centers, &quats, &scales, &mut top_bones, splat_center);
-//                 lod_bone_weights.extend_from_slice(&bone_weights_u16);
-//             }
-//             base += chunk_size;
-//         }
-
-//         if let Some(packed) = packed {
-//             let mut packed_data = match PackedSplatsData::from_js_arrays(packed, num_splats as usize, None, encoding) {
-//                 Ok(packed_data) => packed_data,
-//                 Err(err) => { return Err(JsValue::from(err.to_string())); }
-//             };
-
-//             let mut base = 0;
-//             while base < num_splats as usize {
-//                 let chunk_size = (num_splats as usize - base).min(CHUNK_SIZE);
-//                 packed_data.get_center(base, chunk_size, &mut splat_centers);
-//                 for i in 0..chunk_size {
-//                     let i3 = i * 3;
-//                     let splat_center = Vec3A::from_slice(&splat_centers[i3..i3+3]);
-//                     let bone_weights_u16 = find_top_bones(num_bones, &centers, &quats, &scales, &mut top_bones, splat_center);
-//                     bone_weights.extend_from_slice(&bone_weights_u16);
-//                 }
-//                 base += chunk_size;
-//             }
-//         }
-
-//         let lod_splat_rows = (num_lod_splats as usize).div_ceil(2048);
-//         let lod_splat_capacity = lod_splat_rows * 2048;
-//         lod_bone_weights.resize(lod_splat_capacity * 4, 0);
-
-//         let splat_rows = (num_splats as usize).div_ceil(2048);
-//         let splat_capacity = splat_rows * 2048;
-//         bone_weights.resize(splat_capacity * 4, 0);
-
-//         Reflect::set(&result, &JsValue::from_str("boneWeights"), &JsValue::from(bone_weights)).unwrap();
-//         Reflect::set(&result, &JsValue::from_str("lodBoneWeights"), &JsValue::from(lod_bone_weights)).unwrap();
-//     }
-    
-//     Ok(result)
-// }
+    let forward_dot = delta.dot(forward);
+    let foveate = if forward_dot <= 0.0 {
+        behind_foveate
+    } else {
+        let dot = forward_dot * inv_distance;
+        if dot >= cone_dot0 {
+            1.0
+        } else if dot >= cone_dot {
+            let t = (dot - cone_dot) / (cone_dot0 - cone_dot);
+            cone_foveate + (1.0 - cone_foveate) * t
+        } else {
+            let t = dot / cone_dot;
+            behind_foveate + (cone_foveate - behind_foveate) * t
+        }
+    };
+    foveate * pixel_scale
+}

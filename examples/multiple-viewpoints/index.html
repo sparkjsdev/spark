@@ -25,7 +25,7 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { SparkRenderer, SparkViewpoint, SplatMesh } from "@sparkjsdev/spark";
+    import { OldSparkRenderer, OldSparkViewpoint, SplatMesh } from "@sparkjsdev/spark";
 
     import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
@@ -46,7 +46,7 @@
     }
 
     // Explicitly create a SparkRenderer in the scene to spawn new viewpoints
-    const spark = new SparkRenderer({ renderer });
+    const spark = new OldSparkRenderer({ renderer });
     scene.add(spark);
 
     const splatURL = await getAssetFileURL("butterfly.spz");
@@ -61,7 +61,7 @@
       const height = 240;
       const screen = new THREE.Mesh(
         new THREE.PlaneGeometry(0.5 * camera.near, 0.5 * camera.near * height / width),
-        new THREE.MeshBasicMaterial({ map: SparkViewpoint.EMPTY_TEXTURE }),
+        new THREE.MeshBasicMaterial({ map: OldSparkViewpoint.EMPTY_TEXTURE }),
       );
       screen.position.set(screenPos.x, screenPos.y, -1).multiplyScalar(camera.near);
       scene.add(screen);

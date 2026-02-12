@@ -1,685 +1,800 @@
-import init_wasm, { sort_splats, sort32_splats } from "spark-internal-rs";
-import type { PcSogsJson, TranscodeSpzInput } from "./SplatLoader";
-import { unpackAntiSplat } from "./antisplat";
-import { type SplatEncoding, WASM_SPLAT_SORT } from "./defines";
-import { unpackKsplat } from "./ksplat";
-import { unpackPcSogs, unpackPcSogsZip } from "./pcsogs";
-import { PlyReader } from "./ply";
-import { SpzReader, transcodeSpz } from "./spz";
-import {
-  computeMaxSplats,
-  encodeSh1Rgb,
-  encodeSh2Rgb,
-  encodeSh3Rgb,
-  getArrayBuffers,
-  setPackedSplat,
-  setPackedSplatCenter,
-  setPackedSplatOpacity,
-  setPackedSplatQuat,
-  setPackedSplatRgb,
-  setPackedSplatScales,
-  toHalf,
-} from "./utils";
+import init_wasm, {
+  sort_splats,
+  sort32_splats,
+  decode_to_gsplatarray,
+  decode_to_csplatarray,
+  decode_to_packedsplats,
+  new_lod_tree,
+  new_shared_lod_tree,
+  init_lod_tree,
+  dispose_lod_tree,
+  traverse_lod_trees,
+  type ChunkDecoder,
+  tiny_lod_packedsplats,
+  bhatt_lod_packedsplats,
+  update_lod_trees,
+  decode_to_extsplats,
+  tiny_lod_extsplats,
+  bhatt_lod_extsplats,
+  get_lod_tree_level,
+  new_traverse_lod_trees,
+} from "spark-worker-rs";
+import type { ExtResult, PackedResult, SplatEncoding } from "./defines";
 
-// WebWorker for Spark's background CPU tasks, such as Gsplat file decoding
-// and sorting.
+const rpcHandlers = {
+  sortSplats16,
+  sortSplats32,
+  loadPackedSplats,
+  loadExtSplats,
+  tinyLodPackedSplats,
+  qualityLodPackedSplats,
+  tinyLodExtSplats,
+  qualityLodExtSplats,
+  newLodTree,
+  newSharedLodTree,
+  initLodTree,
+  disposeLodTree,
+  updateLodTrees,
+  traverseLodTrees,
+  getLodTreeLevel,
+};
 
 async function onMessage(event: MessageEvent) {
-  // Unpack RPC function name, arguments, and ID from the main thread.
-  const { name, args, id }: { name: string; args: unknown; id: number } =
+  const {
+    id,
+    name,
+    args,
+  }: { id: unknown; name: keyof typeof rpcHandlers; args: unknown } =
     event.data;
-  // console.log(`worker.onMessage(${id}, ${name}):`, args);
-
-  // Initialize return result/error, to be filled out below.
-  let result = undefined;
-  let error = undefined;
-
   try {
-    switch (name) {
-      case "unpackPly": {
-        const { packedArray, fileBytes, splatEncoding } = args as {
-          packedArray: Uint32Array;
-          fileBytes: Uint8Array;
-          splatEncoding: SplatEncoding;
-        };
-        const decoded = await unpackPly({
-          packedArray,
-          fileBytes,
-          splatEncoding,
-        });
-        result = {
-          id,
-          numSplats: decoded.numSplats,
-          packedArray: decoded.packedArray,
-          extra: decoded.extra,
-        };
-        break;
-      }
-      case "decodeSpz": {
-        const { fileBytes, splatEncoding } = args as {
-          fileBytes: Uint8Array;
-          splatEncoding: SplatEncoding;
-        };
-        const decoded = await unpackSpz(fileBytes, splatEncoding);
-        result = {
-          id,
-          numSplats: decoded.numSplats,
-          packedArray: decoded.packedArray,
-          extra: decoded.extra,
-        };
-        break;
-      }
-      case "decodeAntiSplat": {
-        const { fileBytes, splatEncoding } = args as {
-          fileBytes: Uint8Array;
-          splatEncoding: SplatEncoding;
-        };
-        const decoded = unpackAntiSplat(fileBytes, splatEncoding);
-        result = {
-          id,
-          numSplats: decoded.numSplats,
-          packedArray: decoded.packedArray,
-        };
-        break;
-      }
-      case "decodeKsplat": {
-        const { fileBytes, splatEncoding } = args as {
-          fileBytes: Uint8Array;
-          splatEncoding: SplatEncoding;
-        };
-        const decoded = unpackKsplat(fileBytes, splatEncoding);
-        result = {
-          id,
-          numSplats: decoded.numSplats,
-          packedArray: decoded.packedArray,
-          extra: decoded.extra,
-        };
-        break;
-      }
-      case "decodePcSogs": {
-        const { fileBytes, extraFiles, splatEncoding } = args as {
-          fileBytes: Uint8Array;
-          extraFiles: Record<string, ArrayBuffer>;
-          splatEncoding: SplatEncoding;
-        };
-        const json = JSON.parse(
-          new TextDecoder().decode(fileBytes),
-        ) as PcSogsJson;
-        const decoded = await unpackPcSogs(json, extraFiles, splatEncoding);
-        result = {
-          id,
-          numSplats: decoded.numSplats,
-          packedArray: decoded.packedArray,
-          extra: decoded.extra,
-        };
-        break;
-      }
-      case "decodePcSogsZip": {
-        const { fileBytes, splatEncoding } = args as {
-          fileBytes: Uint8Array;
-          splatEncoding: SplatEncoding;
-        };
-        const decoded = await unpackPcSogsZip(fileBytes, splatEncoding);
-        result = {
-          id,
-          numSplats: decoded.numSplats,
-          packedArray: decoded.packedArray,
-          extra: decoded.extra,
-        };
-        break;
-      }
-      case "sortSplats": {
-        // Sort maxSplats splats using readback data, which encodes one uint32 per
-        // Gsplats, with the low bytes encoding a float16 distance sort metric.
-        const { maxSplats, totalSplats, readback, ordering } = args as {
-          maxSplats: number;
-          totalSplats: number;
-          readback: Uint8Array[];
-          ordering: Uint32Array;
-        };
-        // Sort totalSplats splats each with 4 bytes of readback, and outputs Uint32Array ordering of splat indices
-        result = {
-          id,
-          readback,
-          ...sortSplats({ totalSplats, readback, ordering }),
-        };
-        break;
-      }
-      case "sortDoubleSplats": {
-        // Sort numSplats splats using the readback distance metric, which encodes
-        // one float16 per splat (no unused high bytes like for sortSplats).
-        const { numSplats, readback, ordering } = args as {
-          numSplats: number;
-          readback: Uint16Array;
-          ordering: Uint32Array;
-        };
-        if (WASM_SPLAT_SORT) {
-          result = {
-            id,
-            readback,
-            ordering,
-            activeSplats: sort_splats(numSplats, readback, ordering),
-          };
-        } else {
-          result = {
-            id,
-            readback,
-            ...sortDoubleSplats({ numSplats, readback, ordering }),
-          };
-        }
-        break;
-      }
-      case "sort32Splats": {
-        const { maxSplats, numSplats, readback, ordering } = args as {
-          maxSplats: number;
-          numSplats: number;
-          readback: Uint32Array;
-          ordering: Uint32Array;
-        };
-        // Benchmark sort
-        // benchmarkSort(numSplats, readback, ordering);
-        if (WASM_SPLAT_SORT) {
-          result = {
-            id,
-            readback,
-            ordering,
-            activeSplats: sort32_splats(numSplats, readback, ordering),
-          };
-        } else {
-          result = {
-            id,
-            readback,
-            ...sort32Splats({ maxSplats, numSplats, readback, ordering }),
-          };
-        }
-        break;
-      }
-      case "transcodeSpz": {
-        const input = args as TranscodeSpzInput;
-        const spzBytes = await transcodeSpz(input);
-        result = {
-          id,
-          fileBytes: spzBytes,
-          input,
-        };
-        break;
-      }
-      default: {
-        throw new Error(`Unknown name: ${name}`);
-      }
-    }
-  } catch (e) {
-    error = e;
-    console.error(error);
-  }
-
-  // Send the result or error back to the main thread, making sure to transfer any ArrayBuffers
-  self.postMessage(
-    { id, result, error },
-    { transfer: getArrayBuffers(result) },
-  );
-}
-
-function benchmarkSort(
-  numSplats: number,
-  readback32: Uint32Array,
-  ordering: Uint32Array,
-) {
-  if (numSplats > 0) {
-    console.log("Running sort benchmark");
-    const readbackF32 = new Float32Array(readback32.buffer);
-    const readback16 = new Uint16Array(readback32.length);
-    for (let i = 0; i < numSplats; ++i) {
-      readback16[i] = toHalf(readbackF32[i]);
+    const handler = rpcHandlers[name] as (
+      args: unknown,
+      options: { sendStatus: (data: unknown) => void },
+    ) => unknown | Promise<unknown>;
+    if (!handler) {
+      throw new Error(`Unknown worker RPC: ${name}`);
     }
 
-    const WARMUP = 10;
-    for (let i = 0; i < WARMUP; ++i) {
-      const activeSplats = sort_splats(numSplats, readback16, ordering);
-      const activeSplats32 = sort32_splats(numSplats, readback32, ordering);
-      const results = sortDoubleSplats({
-        numSplats,
-        readback: readback16,
-        ordering,
-      });
-      const results32 = sort32Splats({
-        maxSplats: numSplats,
-        numSplats,
-        readback: readback32,
-        ordering,
-      });
-    }
-
-    const TIMING_SAMPLES = 1000;
-    let start: number;
-
-    start = performance.now();
-    for (let i = 0; i < TIMING_SAMPLES; ++i) {
-      const activeSplats = sort_splats(numSplats, readback16, ordering);
-    }
-    const wasmTime = (performance.now() - start) / TIMING_SAMPLES;
-
-    start = performance.now();
-    for (let i = 0; i < TIMING_SAMPLES; ++i) {
-      const results = sortDoubleSplats({
-        numSplats,
-        readback: readback16,
-        ordering,
-      });
-    }
-    const jsTime = (performance.now() - start) / TIMING_SAMPLES;
-
-    console.log(
-      `JS: ${jsTime} ms, WASM: ${wasmTime} ms, numSplats: ${numSplats}`,
-    );
-
-    start = performance.now();
-    for (let i = 0; i < TIMING_SAMPLES; ++i) {
-      const activeSplats32 = sort32_splats(numSplats, readback32, ordering);
-    }
-    const wasm32Time = (performance.now() - start) / TIMING_SAMPLES;
-
-    start = performance.now();
-    for (let i = 0; i < TIMING_SAMPLES; ++i) {
-      const results = sort32Splats({
-        maxSplats: numSplats,
-        numSplats,
-        readback: readback32,
-        ordering,
-      });
-    }
-    const js32Time = (performance.now() - start) / TIMING_SAMPLES;
-
-    console.log(
-      `JS32: ${js32Time} ms, WASM32: ${wasm32Time} ms, numSplats: ${numSplats}`,
-    );
-  }
-}
-
-async function unpackPly({
-  packedArray,
-  fileBytes,
-  splatEncoding,
-}: {
-  packedArray: Uint32Array;
-  fileBytes: Uint8Array;
-  splatEncoding: SplatEncoding;
-}): Promise<{
-  packedArray: Uint32Array;
-  numSplats: number;
-  extra: Record<string, unknown>;
-}> {
-  const ply = new PlyReader({ fileBytes });
-  await ply.parseHeader();
-  const numSplats = ply.numSplats;
-
-  const extra: Record<string, unknown> = {};
-
-  ply.parseSplats(
-    (
-      index,
-      x,
-      y,
-      z,
-      scaleX,
-      scaleY,
-      scaleZ,
-      quatX,
-      quatY,
-      quatZ,
-      quatW,
-      opacity,
-      r,
-      g,
-      b,
-    ) => {
-      setPackedSplat(
-        packedArray,
-        index,
-        x,
-        y,
-        z,
-        scaleX,
-        scaleY,
-        scaleZ,
-        quatX,
-        quatY,
-        quatZ,
-        quatW,
-        opacity,
-        r,
-        g,
-        b,
-        splatEncoding,
+    const sendStatus = (data: unknown) => {
+      self.postMessage(
+        { id, status: data },
+        { transfer: getArrayBuffers(data) },
       );
-    },
-    (index, sh1, sh2, sh3) => {
-      if (sh1) {
-        if (!extra.sh1) {
-          extra.sh1 = new Uint32Array(numSplats * 2);
-        }
-        encodeSh1Rgb(extra.sh1 as Uint32Array, index, sh1, splatEncoding);
-      }
-      if (sh2) {
-        if (!extra.sh2) {
-          extra.sh2 = new Uint32Array(numSplats * 4);
-        }
-        encodeSh2Rgb(extra.sh2 as Uint32Array, index, sh2, splatEncoding);
-      }
-      if (sh3) {
-        if (!extra.sh3) {
-          extra.sh3 = new Uint32Array(numSplats * 4);
-        }
-        encodeSh3Rgb(extra.sh3 as Uint32Array, index, sh3, splatEncoding);
-      }
-    },
-  );
-
-  return { packedArray, numSplats, extra };
-}
-
-async function unpackSpz(
-  fileBytes: Uint8Array,
-  splatEncoding: SplatEncoding,
-): Promise<{
-  packedArray: Uint32Array;
-  numSplats: number;
-  extra: Record<string, unknown>;
-}> {
-  const spz = new SpzReader({ fileBytes });
-  await spz.parseHeader();
-  const numSplats = spz.numSplats;
-  const maxSplats = computeMaxSplats(numSplats);
-  const packedArray = new Uint32Array(maxSplats * 4);
-  const extra: Record<string, unknown> = {};
-
-  let extraCallbacks = {};
-  if (spz.flagLod) {
-    const childCounts = new Uint16Array(numSplats);
-    const childStarts = new Uint32Array(numSplats);
-    extra.childCounts = childCounts;
-    extra.childStarts = childStarts;
-    extraCallbacks = {
-      childCounts: (index: number, count: number) => {
-        childCounts[index] = count;
-      },
-      childStarts: (index: number, start: number) => {
-        childStarts[index] = start;
-      },
     };
+    const result = await handler(args, { sendStatus });
+    self.postMessage({ id, result }, { transfer: getArrayBuffers(result) });
+  } catch (error) {
+    console.warn(`Worker error: ${error}`);
+    self.postMessage({ id, error }, { transfer: getArrayBuffers(error) });
   }
-
-  await spz.parseSplats(
-    (index, x, y, z) => {
-      setPackedSplatCenter(packedArray, index, x, y, z);
-    },
-    (index, alpha) => {
-      setPackedSplatOpacity(packedArray, index, alpha);
-    },
-    (index, r, g, b) => {
-      setPackedSplatRgb(packedArray, index, r, g, b, splatEncoding);
-    },
-    (index, scaleX, scaleY, scaleZ) => {
-      setPackedSplatScales(
-        packedArray,
-        index,
-        scaleX,
-        scaleY,
-        scaleZ,
-        splatEncoding,
-      );
-    },
-    (index, quatX, quatY, quatZ, quatW) => {
-      setPackedSplatQuat(packedArray, index, quatX, quatY, quatZ, quatW);
-    },
-    (index, sh1, sh2, sh3) => {
-      if (sh1) {
-        if (!extra.sh1) {
-          extra.sh1 = new Uint32Array(numSplats * 2);
-        }
-        encodeSh1Rgb(extra.sh1 as Uint32Array, index, sh1, splatEncoding);
-      }
-      if (sh2) {
-        if (!extra.sh2) {
-          extra.sh2 = new Uint32Array(numSplats * 4);
-        }
-        encodeSh2Rgb(extra.sh2 as Uint32Array, index, sh2, splatEncoding);
-      }
-      if (sh3) {
-        if (!extra.sh3) {
-          extra.sh3 = new Uint32Array(numSplats * 4);
-        }
-        encodeSh3Rgb(extra.sh3 as Uint32Array, index, sh3, splatEncoding);
-      }
-    },
-    extraCallbacks,
-  );
-  return { packedArray, numSplats, extra };
 }
 
-// Array of buckets for sorting float16 distances with range [0, DEPTH_INFINITY].
-const DEPTH_INFINITY_F16 = 0x7c00;
-const DEPTH_SIZE_16 = DEPTH_INFINITY_F16 + 1;
-let depthArray16: Uint32Array | null = null;
-
-function sortSplats({
-  totalSplats,
-  readback,
-  ordering,
-}: { totalSplats: number; readback: Uint8Array[]; ordering: Uint32Array }): {
-  activeSplats: number;
-  ordering: Uint32Array;
-} {
-  // Sort totalSplats Gsplats, each with 4 bytes of readback, and outputs Uint32Array
-  // of indices from most distant to nearest. Each 4 bytes encode a float16 distance
-  // and unused high bytes.
-  if (!depthArray16) {
-    depthArray16 = new Uint32Array(DEPTH_SIZE_16);
-  }
-  depthArray16.fill(0);
-
-  const readbackUint32 = readback.map((layer) => new Uint32Array(layer.buffer));
-  const layerSize = readbackUint32[0].length;
-  const numLayers = Math.ceil(totalSplats / layerSize);
-
-  let layerBase = 0;
-  for (let layer = 0; layer < numLayers; ++layer) {
-    const readbackLayer = readbackUint32[layer];
-    const layerSplats = Math.min(readbackLayer.length, totalSplats - layerBase);
-    for (let i = 0; i < layerSplats; ++i) {
-      const pri = readbackLayer[i] & 0x7fff;
-      if (pri < DEPTH_INFINITY_F16) {
-        depthArray16[pri] += 1;
-      }
-    }
-    layerBase += layerSplats;
-  }
-
-  let activeSplats = 0;
-  for (let j = 0; j < DEPTH_SIZE_16; ++j) {
-    const nextIndex = activeSplats + depthArray16[j];
-    depthArray16[j] = activeSplats;
-    activeSplats = nextIndex;
-  }
-
-  layerBase = 0;
-  for (let layer = 0; layer < numLayers; ++layer) {
-    const readbackLayer = readbackUint32[layer];
-    const layerSplats = Math.min(readbackLayer.length, totalSplats - layerBase);
-    for (let i = 0; i < layerSplats; ++i) {
-      const pri = readbackLayer[i] & 0x7fff;
-      if (pri < DEPTH_INFINITY_F16) {
-        ordering[depthArray16[pri]] = layerBase + i;
-        depthArray16[pri] += 1;
-      }
-    }
-    layerBase += layerSplats;
-  }
-  if (depthArray16[DEPTH_SIZE_16 - 1] !== activeSplats) {
-    throw new Error(
-      `Expected ${activeSplats} active splats but got ${depthArray16[DEPTH_SIZE_16 - 1]}`,
-    );
-  }
-
-  return { activeSplats, ordering };
-}
-
-// Sort numSplats splats, each with 2 bytes of float16 readback for distance metric,
-// using one bucket sort pass, outputting Uint32Array of indices.
-function sortDoubleSplats({
+function sortSplats16({
   numSplats,
   readback,
   ordering,
-}: { numSplats: number; readback: Uint16Array; ordering: Uint32Array }): {
-  activeSplats: number;
-  ordering: Uint32Array;
-} {
-  // Ensure depthArray is allocated and zeroed out for our buckets.
-  if (!depthArray16) {
-    depthArray16 = new Uint32Array(DEPTH_SIZE_16);
-  }
-  depthArray16.fill(0);
-
-  // Count the number of splats in each bucket (cull Gsplats at infinity).
-  for (let i = 0; i < numSplats; ++i) {
-    const pri = readback[i];
-    if (pri < DEPTH_INFINITY_F16) {
-      depthArray16[pri] += 1;
-    }
-  }
-
-  // Compute the beginning index of each bucket in the output array and the
-  // total number of active (non-infinity) splats, going in reverse order
-  // because we want most distant Gsplats to be first in the output array.
-  let activeSplats = 0;
-  for (let j = DEPTH_INFINITY_F16 - 1; j >= 0; --j) {
-    const nextIndex = activeSplats + depthArray16[j];
-    depthArray16[j] = activeSplats;
-    activeSplats = nextIndex;
-  }
-
-  // Write out the sorted indices into the output array according
-  // bucket order.
-  for (let i = 0; i < numSplats; ++i) {
-    const pri = readback[i];
-    if (pri < DEPTH_INFINITY_F16) {
-      ordering[depthArray16[pri]] = i;
-      depthArray16[pri] += 1;
-    }
-  }
-  // Sanity check that the end of the closest bucket is the same as
-  // our total count of active splats (not at infinity).
-  if (depthArray16[0] !== activeSplats) {
-    throw new Error(
-      `Expected ${activeSplats} active splats but got ${depthArray16[0]}`,
-    );
-  }
-
-  return { activeSplats, ordering };
-}
-
-const DEPTH_INFINITY_F32 = 0x7f800000;
-let bucket16lo: Uint32Array | null = null;
-let bucket16hi: Uint32Array | null = null;
-let scratchSplats: Uint32Array | null = null;
-
-// two-pass radix sort (base 65536) of 32-bit keys in readback,
-// but placing largest values first.
-function sort32Splats({
-  maxSplats,
-  numSplats,
-  readback, // Uint32Array of bit‑patterns
-  ordering, // Uint32Array to fill with sorted indices
 }: {
-  maxSplats: number;
+  numSplats: number;
+  readback: Uint16Array;
+  ordering: Uint32Array;
+}) {
+  const activeSplats = sort_splats(numSplats, readback, ordering);
+  return { activeSplats, readback, ordering };
+}
+
+function sortSplats32({
+  numSplats,
+  readback,
+  ordering,
+}: {
   numSplats: number;
   readback: Uint32Array;
   ordering: Uint32Array;
-}): { activeSplats: number; ordering: Uint32Array } {
-  const BASE = 1 << 16; // 65536
-
-  // allocate once
-  if (!bucket16lo) {
-    bucket16lo = new Uint32Array(BASE);
-  }
-  if (!bucket16hi) {
-    bucket16hi = new Uint32Array(BASE);
-  }
-  if (!scratchSplats || scratchSplats.length < maxSplats) {
-    scratchSplats = new Uint32Array(maxSplats);
-  }
-
-  // tally low and high buckets
-  bucket16lo.fill(0);
-  bucket16hi.fill(0);
-  for (let i = 0; i < numSplats; ++i) {
-    const key = readback[i];
-    if (key < DEPTH_INFINITY_F32) {
-      const inv = ~key >>> 0;
-      bucket16lo[inv & 0xffff] += 1;
-      bucket16hi[inv >>> 16] += 1;
-    }
-  }
-
-  //
-  // ——— Pass #1: bucket by inv(lo 16 bits) ———
-  //
-  // exclusive prefix‑sum → starting offsets
-  let total = 0;
-  for (let b = 0; b < BASE; ++b) {
-    const c = bucket16lo[b];
-    bucket16lo[b] = total;
-    total += c;
-  }
-  const activeSplats = total;
-
-  // scatter into scratch by low bits of inv
-  for (let i = 0; i < numSplats; ++i) {
-    const key = readback[i];
-    if (key < DEPTH_INFINITY_F32) {
-      const inv = ~key >>> 0;
-      scratchSplats[bucket16lo[inv & 0xffff]++] = i;
-    }
-  }
-
-  //
-  // ——— Pass #2: bucket by inv(hi 16 bits) ———
-  //
-  // exclusive prefix‑sum again
-  let sum = 0;
-  for (let b = 0; b < BASE; ++b) {
-    const c = bucket16hi[b];
-    bucket16hi[b] = sum;
-    sum += c;
-  }
-
-  // scatter into final ordering by high bits of inv
-  for (let k = 0; k < activeSplats; ++k) {
-    const idx = scratchSplats[k];
-    const inv = ~readback[idx] >>> 0;
-    ordering[bucket16hi[inv >>> 16]++] = idx;
-  }
-
-  // sanity‑check: the last bucket should have eaten all entries
-  if (bucket16hi[BASE - 1] !== activeSplats) {
-    throw new Error(
-      `Expected ${activeSplats} active splats but got ${bucket16hi[BASE - 1]}`,
-    );
-  }
-
-  return { activeSplats, ordering };
+}) {
+  const activeSplats = sort32_splats(numSplats, readback, ordering);
+  return { activeSplats, readback, ordering };
 }
 
-// Buffer to queue any messages received while initializing, for example
-// early messages to unpack a Gsplat file while still initializing the WASM code.
-const messageBuffer: MessageEvent[] = [];
+async function fetchRange({
+  url,
+  requestHeader,
+  withCredentials,
+  offset,
+  bytes,
+}: {
+  url: string;
+  requestHeader?: Record<string, string>;
+  withCredentials?: string;
+  offset?: number;
+  bytes?: number;
+}): Promise<Uint8Array> {
+  const request = new Request(url, {
+    headers: requestHeader ? new Headers(requestHeader) : undefined,
+    credentials: withCredentials ? "include" : "same-origin",
+  });
+  if (offset !== undefined && bytes !== undefined) {
+    request.headers.set("Range", `bytes=${offset}-${offset + bytes - 1}`);
+  }
+  const response = await fetch(request);
+  if (!response.ok || !response.body) {
+    throw new Error(
+      `Failed to fetch "${url}": ${response.status} ${response.statusText}`,
+    );
+  }
+  return new Uint8Array(await response.arrayBuffer());
+}
 
-function bufferMessage(event: MessageEvent) {
-  messageBuffer.push(event);
+async function decodeBytesUrl({
+  decoder,
+  fileBytes,
+  url,
+  requestHeader,
+  withCredentials,
+  sendStatus,
+}: {
+  decoder: ChunkDecoder;
+  fileBytes?: Uint8Array;
+  url?: string;
+  requestHeader?: Record<string, string>;
+  withCredentials?: boolean;
+  sendStatus: (data: unknown) => void;
+}) {
+  if (fileBytes) {
+    const CHUNK_SIZE = 1048576; // 1 MB
+    for (let i = 0; i < fileBytes.length; i += CHUNK_SIZE) {
+      decoder.push(
+        fileBytes.subarray(i, Math.min(i + CHUNK_SIZE, fileBytes.length)),
+      );
+    }
+  } else if (url) {
+    const request = new Request(url, {
+      headers: requestHeader ? new Headers(requestHeader) : undefined,
+      credentials: withCredentials ? "include" : "same-origin",
+    });
+
+    const response = await fetch(request);
+    if (!response.ok || !response.body) {
+      throw new Error(
+        `Failed to fetch "${url}": ${response.status} ${response.statusText}`,
+      );
+    }
+    const reader = response.body.getReader();
+    const contentLength = Number.parseInt(
+      response.headers.get("Content-Length") || "0",
+    );
+    const total = Number.isNaN(contentLength) ? 0 : contentLength;
+    let loaded = 0;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      loaded += value.length;
+      sendStatus({ loaded, total });
+
+      decoder.push(value);
+    }
+  } else {
+    throw new Error("No url or fileBytes provided");
+  }
+
+  const decoded = decoder.finish();
+  return decoded;
+}
+
+type DecodedPackedResult = {
+  numSplats: number;
+  packed: Uint32Array;
+  sh1?: Uint32Array;
+  sh2?: Uint32Array;
+  sh3?: Uint32Array;
+  lodTree?: Uint32Array;
+  splatEncoding: SplatEncoding;
+};
+
+function toPackedResult(packed: DecodedPackedResult): PackedResult {
+  return {
+    numSplats: packed.numSplats,
+    packedArray: packed.packed,
+    extra: {
+      sh1: packed.sh1,
+      sh2: packed.sh2,
+      sh3: packed.sh3,
+      lodTree: packed.lodTree,
+    },
+    splatEncoding: packed.splatEncoding,
+  };
+}
+
+async function loadPackedSplats(
+  {
+    url,
+    requestHeader,
+    withCredentials,
+    fileBytes,
+    fileType,
+    pathName,
+    encoding,
+    lod,
+    lodBase,
+    nonLod,
+  }: {
+    url?: string;
+    requestHeader?: Record<string, string>;
+    withCredentials?: boolean;
+    fileBytes?: Uint8Array;
+    fileType?: string;
+    pathName?: string;
+    encoding?: SplatEncoding;
+    lod?: boolean | "quality";
+    lodBase?: number;
+    nonLod?: boolean | "wait";
+  },
+  {
+    sendStatus,
+  }: {
+    sendStatus: (data: unknown) => void;
+  },
+) {
+  if (!lod) {
+    const decoder = decode_to_packedsplats(fileType, pathName ?? url, encoding);
+    const decoded = await decodeBytesUrl({
+      decoder,
+      fileBytes,
+      url,
+      requestHeader,
+      withCredentials,
+      sendStatus,
+    });
+    const result = toPackedResult(decoded as DecodedPackedResult);
+    if (result.splatEncoding.lodOpacity) {
+      return { lodSplats: result };
+    }
+    return result;
+  }
+
+  const decoder = decode_to_csplatarray(fileType, pathName ?? url, encoding);
+  const decoded = await decodeBytesUrl({
+    decoder,
+    fileBytes,
+    url,
+    requestHeader,
+    withCredentials,
+    sendStatus,
+  });
+
+  if (decoded.has_lod()) {
+    const result = toPackedResult(
+      decoded.to_packedsplats_lod() as DecodedPackedResult,
+    );
+    return { lodSplats: result };
+  }
+
+  const packed = decoded.to_packedsplats();
+  let result:
+    | (ReturnType<typeof toPackedResult> & {
+        lodSplats?: ReturnType<typeof toPackedResult>;
+      })
+    | { lodSplats?: ReturnType<typeof toPackedResult> } = {};
+
+  if (nonLod === true) {
+    sendStatus({ orig: toPackedResult(packed as DecodedPackedResult) });
+  } else if (nonLod === "wait") {
+    // Wait until LoD computation is complete before resolving full PackedSplats result
+    result = toPackedResult(packed as DecodedPackedResult);
+  }
+
+  const initialSplats = decoded.len();
+
+  const lodStart = performance.now();
+  if (lod === "quality") {
+    const base = Math.max(1.1, Math.min(2.0, lodBase ?? 1.25));
+    decoded.bhatt_lod(base);
+  } else {
+    const base = Math.max(1.1, Math.min(2.0, lodBase ?? 1.5));
+    decoded.tiny_lod(base, false);
+  }
+  const lodDuration = performance.now() - lodStart;
+
+  console.log(
+    `${lod === "quality" ? "Bhatt" : "Tiny"} LoD: ${initialSplats} -> ${decoded.len()} (${lodDuration} ms)`,
+  );
+
+  const lodPacked = decoded.to_packedsplats_lod();
+  result.lodSplats = toPackedResult(lodPacked as DecodedPackedResult);
+  return result;
+}
+
+type DecodedExtResult = {
+  numSplats: number;
+  ext0: Uint32Array;
+  ext1: Uint32Array;
+  sh1?: Uint32Array;
+  sh2?: Uint32Array;
+  sh3a?: Uint32Array;
+  sh3b?: Uint32Array;
+  lodTree?: Uint32Array;
+};
+
+function toExtResult(packed: DecodedExtResult): ExtResult {
+  return {
+    numSplats: packed.numSplats,
+    extArrays: [packed.ext0, packed.ext1],
+    extra: {
+      sh1: packed.sh1,
+      sh2: packed.sh2,
+      sh3a: packed.sh3a,
+      sh3b: packed.sh3b,
+      lodTree: packed.lodTree,
+    },
+  };
+}
+
+async function loadExtSplats(
+  {
+    url,
+    requestHeader,
+    withCredentials,
+    fileBytes,
+    fileType,
+    pathName,
+    lod,
+    lodBase,
+    nonLod,
+  }: {
+    url?: string;
+    requestHeader?: Record<string, string>;
+    withCredentials?: boolean;
+    fileBytes?: Uint8Array;
+    fileType?: string;
+    pathName?: string;
+    lod?: boolean | "quality";
+    lodBase?: number;
+    nonLod?: boolean | "wait";
+  },
+  {
+    sendStatus,
+  }: {
+    sendStatus: (data: unknown) => void;
+  },
+) {
+  if (!lod) {
+    const decoder = decode_to_extsplats(fileType, pathName ?? url);
+    const decoded = await decodeBytesUrl({
+      decoder,
+      fileBytes,
+      url,
+      requestHeader,
+      withCredentials,
+      sendStatus,
+    });
+    const result = toExtResult(decoded as DecodedExtResult);
+    if (result.extra.lodTree) {
+      return { lodSplats: result };
+    }
+    return result;
+  }
+
+  const decoder = decode_to_gsplatarray(fileType, pathName ?? url);
+  const decoded = await decodeBytesUrl({
+    decoder,
+    fileBytes,
+    url,
+    requestHeader,
+    withCredentials,
+    sendStatus,
+  });
+
+  if (decoded.has_lod()) {
+    return {
+      lodSplats: toExtResult(decoded.to_extsplats_lod() as DecodedExtResult),
+    };
+  }
+
+  const packed = decoded.to_extsplats();
+  let result:
+    | (ReturnType<typeof toExtResult> & {
+        lodSplats?: ReturnType<typeof toExtResult>;
+      })
+    | { lodSplats?: ReturnType<typeof toExtResult> } = {};
+
+  if (nonLod === true) {
+    sendStatus({ orig: toExtResult(packed as DecodedExtResult) });
+  } else if (nonLod === "wait") {
+    // Wait until LoD computation is complete before resolving full PackedSplats result
+    result = toExtResult(packed as DecodedExtResult);
+  }
+
+  const initialSplats = decoded.len();
+
+  const lodStart = performance.now();
+  if (lod === "quality") {
+    const base = Math.max(1.1, Math.min(2.0, lodBase ?? 1.75));
+    decoded.bhatt_lod(base);
+  } else {
+    const base = Math.max(1.1, Math.min(2.0, lodBase ?? 1.5));
+    decoded.tiny_lod(base, false);
+  }
+  const lodDuration = performance.now() - lodStart;
+
+  console.log(
+    `${lod === "quality" ? "Bhatt" : "Tiny"} LoD: ${initialSplats} -> ${decoded.len()} (${lodDuration} ms)`,
+  );
+
+  const lodPacked = decoded.to_extsplats_lod();
+  result.lodSplats = toExtResult(lodPacked as DecodedExtResult);
+  return result;
+}
+
+async function tinyLodPackedSplats({
+  numSplats,
+  packedArray,
+  extra,
+  lodBase,
+  rgba,
+  encoding,
+}: {
+  numSplats: number;
+  packedArray: Uint32Array;
+  extra?: Record<string, unknown>;
+  lodBase?: number;
+  rgba?: Uint8Array;
+  encoding: SplatEncoding;
+}) {
+  const base = Math.max(1.1, Math.min(2.0, lodBase ?? 1.5));
+  const lodStart = performance.now();
+  const filter = false;
+  const decoded = tiny_lod_packedsplats(
+    numSplats,
+    packedArray,
+    extra as object,
+    base,
+    filter,
+    rgba,
+    encoding,
+  );
+  const lodDuration = performance.now() - lodStart;
+  const result = toPackedResult(decoded as DecodedPackedResult);
+  console.log(
+    `Tiny LoD: ${numSplats} -> ${result.numSplats} (${lodDuration} ms)`,
+  );
+  return result;
+}
+
+async function qualityLodPackedSplats({
+  numSplats,
+  packedArray,
+  extra,
+  lodBase,
+  rgba,
+  encoding,
+}: {
+  numSplats: number;
+  packedArray: Uint32Array;
+  extra?: Record<string, unknown>;
+  lodBase?: number;
+  rgba?: Uint8Array;
+  encoding: SplatEncoding;
+}) {
+  const base = Math.max(1.1, Math.min(2.0, lodBase ?? 1.75));
+  const lodStart = performance.now();
+  const decoded = bhatt_lod_packedsplats(
+    numSplats,
+    packedArray,
+    extra as object,
+    base,
+    rgba,
+    encoding,
+  );
+  const lodDuration = performance.now() - lodStart;
+  const result = toPackedResult(decoded as DecodedPackedResult);
+  console.log(
+    `Bhatt LoD: ${numSplats} -> ${result.numSplats} (${lodDuration} ms)`,
+  );
+  return result;
+}
+
+async function tinyLodExtSplats({
+  numSplats,
+  extArrays,
+  extra,
+  lodBase,
+  rgba,
+  encoding,
+}: {
+  numSplats: number;
+  extArrays: [Uint32Array, Uint32Array];
+  extra?: Record<string, unknown>;
+  lodBase?: number;
+  rgba?: Uint8Array;
+  encoding: SplatEncoding;
+}) {
+  const base = Math.max(1.1, Math.min(2.0, lodBase ?? 1.5));
+  const lodStart = performance.now();
+  const filter = false;
+  const decoded = tiny_lod_extsplats(
+    numSplats,
+    extArrays[0],
+    extArrays[1],
+    extra as object,
+    base,
+    filter,
+    rgba,
+  );
+  const lodDuration = performance.now() - lodStart;
+  const result = toPackedResult(decoded as DecodedPackedResult);
+  console.log(
+    `Tiny LoD: ${numSplats} -> ${result.numSplats} (${lodDuration} ms)`,
+  );
+  return result;
+}
+
+async function qualityLodExtSplats({
+  numSplats,
+  extArrays,
+  extra,
+  lodBase,
+  rgba,
+  encoding,
+}: {
+  numSplats: number;
+  extArrays: [Uint32Array, Uint32Array];
+  extra?: Record<string, unknown>;
+  lodBase?: number;
+  rgba?: Uint8Array;
+  encoding: SplatEncoding;
+}) {
+  const base = Math.max(1.1, Math.min(2.0, lodBase ?? 1.75));
+  const lodStart = performance.now();
+  const decoded = bhatt_lod_extsplats(
+    numSplats,
+    extArrays[0],
+    extArrays[1],
+    extra as object,
+    base,
+    rgba,
+  );
+  const lodDuration = performance.now() - lodStart;
+  const result = toExtResult(decoded as DecodedExtResult);
+  console.log(
+    `Bhatt LoD: ${numSplats} -> ${result.numSplats} (${lodDuration} ms)`,
+  );
+  return result;
+}
+
+function newLodTree({
+  capacity,
+}: {
+  capacity: number;
+}) {
+  const { lodId } = new_lod_tree(capacity) as { lodId: number };
+  return { lodId };
+}
+
+function newSharedLodTree({
+  lodId,
+}: {
+  lodId: number;
+}) {
+  const { lodId: newLodId } = new_shared_lod_tree(lodId) as { lodId: number };
+  return { lodId: newLodId };
+}
+
+function initLodTree({
+  numSplats,
+  lodTree,
+}: {
+  numSplats: number;
+  lodTree: Uint32Array;
+}) {
+  const { lodId, chunkToPage } = init_lod_tree(numSplats, lodTree) as {
+    lodId: number;
+    chunkToPage: Uint32Array;
+  };
+  return { lodId, chunkToPage };
+}
+
+function disposeLodTree({ lodId }: { lodId: number }) {
+  dispose_lod_tree(lodId);
+}
+
+function updateLodTrees({
+  ranges,
+}: {
+  ranges: {
+    lodId: number;
+    pageBase: number;
+    chunkBase: number;
+    count: number;
+    lodTreeData?: Uint32Array;
+  }[];
+}) {
+  const lodIds = new Uint32Array(ranges.map(({ lodId }) => lodId));
+  const pageBases = new Uint32Array(ranges.map(({ pageBase }) => pageBase));
+  const chunkBases = new Uint32Array(ranges.map(({ chunkBase }) => chunkBase));
+  const counts = new Uint32Array(ranges.map(({ count }) => count));
+  const lodTreeData = ranges.map(({ lodTreeData }) => lodTreeData);
+
+  const result = update_lod_trees(
+    lodIds,
+    pageBases,
+    chunkBases,
+    counts,
+    lodTreeData,
+  );
+  // console.log("updateLodTrees", result);
+}
+
+function traverseLodTrees({
+  maxSplats,
+  pixelScaleLimit,
+  fovXdegrees,
+  fovYdegrees,
+  instances,
+}: {
+  maxSplats: number;
+  pixelScaleLimit: number;
+  fovXdegrees: number;
+  fovYdegrees: number;
+  instances: Record<
+    string,
+    {
+      lodId: number;
+      rootPage?: number;
+      viewToObjectCols: number[];
+      lodScale: number;
+      outsideFoveate: number;
+      behindFoveate: number;
+      coneFov0: number;
+      coneFov: number;
+      coneFoveate: number;
+    }
+  >;
+}) {
+  const keyInstances = Object.entries(instances);
+  const lodIds = new Uint32Array(
+    keyInstances.map(([_key, instance]) => instance.lodId),
+  );
+  const rootPages = new Uint32Array(
+    keyInstances.map(([_key, instance]) => instance.rootPage ?? 0xffffffff),
+  );
+  const viewToObjects = new Float32Array(
+    keyInstances.flatMap(([_key, instance]) => {
+      if (instance.viewToObjectCols.length !== 16) {
+        throw new Error("Incorrect array size for viewToObjectCols");
+      }
+      return instance.viewToObjectCols;
+    }),
+  );
+  const lodScales = new Float32Array(
+    keyInstances.map(([_key, instance]) => instance.lodScale),
+  );
+  const outsideFoveates = new Float32Array(
+    keyInstances.map(([_key, instance]) => instance.outsideFoveate),
+  );
+  const behindFoveates = new Float32Array(
+    keyInstances.map(([_key, instance]) => instance.behindFoveate),
+  );
+  const coneFov0s = new Float32Array(
+    keyInstances.map(([_key, instance]) => instance.coneFov0),
+  );
+  const coneFovs = new Float32Array(
+    keyInstances.map(([_key, instance]) => instance.coneFov),
+  );
+  const coneFoveates = new Float32Array(
+    keyInstances.map(([_key, instance]) => instance.coneFoveate),
+  );
+
+  // console.log(`traverseLodTrees: maxSplats=${maxSplats}, pixelScaleLimit=${pixelScaleLimit}, fovXdegrees=${fovXdegrees}, fovYdegrees=${fovYdegrees}, outsideFoveate=${outsideFoveate}, behindFoveate=${behindFoveate}, lodIds=${lodIds.length}, viewToObjects=${viewToObjects.length}`);
+  // const { instanceIndices, chunks } = traverse_lod_trees(
+  //   maxSplats,
+  //   pixelScaleLimit,
+  //   fovXdegrees,
+  //   fovYdegrees,
+  //   lodIds,
+  //   rootPages,
+  //   viewToObjects,
+  //   lodScales,
+  //   outsideFoveates,
+  //   behindFoveates,
+  //   coneFov0s,
+  //   coneFovs,
+  //   coneFoveates,
+  // ) as {
+  //   instanceIndices: {
+  //     lodId: number;
+  //     numSplats: number;
+  //     indices: Uint32Array;
+  //   }[];
+  //   chunks: [number, number][];
+  // };
+  // const pixelRatio = undefined;
+  const result = new_traverse_lod_trees(
+    maxSplats,
+    pixelScaleLimit,
+    lodIds,
+    rootPages,
+    viewToObjects,
+    lodScales,
+    behindFoveates,
+    coneFoveates,
+    coneFov0s,
+    coneFovs,
+  ) as {
+    instanceIndices: {
+      lodId: number;
+      numSplats: number;
+      indices: Uint32Array;
+    }[];
+    chunks: [number, number][];
+    pixelRatio?: number;
+  };
+  const { instanceIndices, chunks, pixelRatio } = result;
+
+  const indices = keyInstances.reduce(
+    (indices, [key, _instance], index) => {
+      indices[key] = instanceIndices[index];
+      return indices;
+    },
+    {} as Record<
+      string,
+      { lodId: number; numSplats: number; indices: Uint32Array }
+    >,
+  );
+  // console.log(`traverseLodTrees: instanceIndices=${instanceIndices.length}`);
+  // console.log(`traverseLodTrees: chunks=${chunks.length}`, JSON.stringify(chunks));
+  return {
+    keyIndices: indices,
+    // chunks: chunks.map(([instIndex, chunk]) => [keyInstances[instIndex][0], chunk]),
+    chunks,
+    pixelRatio,
+  };
+}
+
+function getLodTreeLevel({
+  lodId,
+  level,
+}: {
+  lodId: number;
+  level: number;
+}) {
+  return get_lod_tree_level(lodId, level) as { indices: Uint32Array };
+}
+
+// Recursively finds all ArrayBuffers in an object and returns them as an array
+// to use as transferable objects to send between workers.
+function getArrayBuffers(ctx: unknown): Transferable[] {
+  const buffers: ArrayBuffer[] = [];
+  const seen = new Set();
+
+  function traverse(obj: unknown) {
+    if (obj && typeof obj === "object" && !seen.has(obj)) {
+      seen.add(obj);
+
+      if (obj instanceof ArrayBuffer) {
+        buffers.push(obj);
+      } else if (ArrayBuffer.isView(obj)) {
+        // Handles TypedArrays and DataView
+        buffers.push(obj.buffer as ArrayBuffer);
+      } else if (Array.isArray(obj)) {
+        obj.forEach(traverse);
+      } else {
+        Object.values(obj).forEach(traverse);
+      }
+    }
+  }
+
+  traverse(ctx);
+  return buffers;
 }
 
 async function initialize() {
   // Hold any messages received while initializing
+  const pending: MessageEvent[] = [];
+  const bufferMessage = (event: MessageEvent) => {
+    pending.push(event);
+  };
   self.addEventListener("message", bufferMessage);
 
   await init_wasm();
@@ -688,10 +803,10 @@ async function initialize() {
   self.addEventListener("message", onMessage);
 
   // Process any buffered messages
-  for (const event of messageBuffer) {
+  for (const event of pending) {
     onMessage(event);
   }
-  messageBuffer.length = 0;
+  pending.length = 0;
 }
 
 initialize().catch(console.error);

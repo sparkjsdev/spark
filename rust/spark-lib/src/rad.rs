@@ -36,9 +36,10 @@ pub struct RadEncoder<T: SplatGetter> {
     pub scales_encoding: RadScalesEncoding,
     pub orientation_encoding: RadOrientationEncoding,
     pub sh_encoding: RadShEncoding,
+    pub comment: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RadCenterEncoding {
     #[default]
     Auto,
@@ -48,7 +49,7 @@ pub enum RadCenterEncoding {
     F16LeBytes,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RadAlphaEncoding {
     #[default]
     Auto,
@@ -57,7 +58,7 @@ pub enum RadAlphaEncoding {
     R8,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RadRgbEncoding {
     #[default]
     Auto,
@@ -67,7 +68,7 @@ pub enum RadRgbEncoding {
     R8Delta,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RadScalesEncoding {
     #[default]
     Auto,
@@ -76,7 +77,7 @@ pub enum RadScalesEncoding {
     LnF16,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RadOrientationEncoding {
     #[default]
     Auto,
@@ -85,7 +86,7 @@ pub enum RadOrientationEncoding {
     Oct88R8,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RadShEncoding {
     #[default]
     Auto,
@@ -122,6 +123,8 @@ pub struct RadMeta {
     chunks: Vec<RadChunkRange>,
     #[serde(rename = "splatEncoding", skip_serializing_if = "Option::is_none")]
     splat_encoding: Option<SetSplatEncoding>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    comment: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -234,6 +237,7 @@ impl<T: SplatGetter> RadEncoder<T> {
             scales_encoding: RadScalesEncoding::default(),
             orientation_encoding: RadOrientationEncoding::default(),
             sh_encoding: RadShEncoding::default(),
+            comment: None,
         }
     }
 
@@ -274,6 +278,11 @@ impl<T: SplatGetter> RadEncoder<T> {
 
     pub fn with_sh_encoding(mut self, encoding: RadShEncoding) -> Self {
         self.sh_encoding = encoding;
+        self
+    }
+
+    pub fn with_comment(mut self, comment: String) -> Self {
+        self.comment = Some(comment);
         self
     }
 
@@ -507,6 +516,7 @@ impl<T: SplatGetter> RadEncoder<T> {
             all_chunk_bytes: all_chunk_bytes,
             chunks: chunk_ranges,
             splat_encoding: None,
+            comment: self.comment.clone(),
         };
         if let Some(mut encoding) = self.encoding.clone().or_else(|| self.getter.get_encoding()) {
             encoding.lod_opacity = self.getter.has_lod_tree();

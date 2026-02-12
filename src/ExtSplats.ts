@@ -1,8 +1,8 @@
 import * as THREE from "three";
-import { workerPool } from "./NewSplatWorker";
 import type { RgbaArray } from "./RgbaArray";
 import { SplatLoader } from "./SplatLoader";
 import type { SplatSource } from "./SplatMesh";
+import { workerPool } from "./SplatWorker";
 import { SPLAT_TEX_WIDTH, type SplatFileType } from "./defines";
 import {
   Dyno,
@@ -574,6 +574,32 @@ export class ExtSplats implements SplatSource {
       this.textures[0].needsUpdate = true;
       this.textures[1].needsUpdate = true;
     }
+  }
+
+  extractSplats(indices: Uint32Array, pageColoring: boolean) {
+    const maxSplats = getTextureSize(indices.length).maxSplats;
+    const newSplats = new ExtSplats({ maxSplats });
+    for (let i = 0; i < indices.length; i++) {
+      const splat = this.getSplat(indices[i]);
+      if (pageColoring) {
+        let hue = (indices[i] >>> 16) * 0.61803398875;
+        hue = hue - Math.floor(hue);
+        const r = Math.max(0, Math.min(1, Math.abs(hue * 6.0 - 3.0) - 1.0));
+        const g = Math.max(0, Math.min(1, Math.abs(hue * 6.0 + 1.0) - 1.0));
+        const b = Math.max(0, Math.min(1, Math.abs(hue * 6.0 - 1.0) - 1.0));
+        splat.color.r *= r;
+        splat.color.g *= g;
+        splat.color.b *= b;
+      }
+      newSplats.pushSplat(
+        splat.center,
+        splat.scales,
+        splat.quaternion,
+        splat.opacity,
+        splat.color,
+      );
+    }
+    return newSplats;
   }
 
   static emptyArray = (() => {

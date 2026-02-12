@@ -21,7 +21,7 @@
       }
     </script>
     <script type="module">
-      import { dyno, NewSparkRenderer, SplatMesh } from "@sparkjsdev/spark";
+      import { dyno, SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
       import * as THREE from "three";
       import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
       import { getAssetFileURL } from "/examples/js/get-asset-url.js";
@@ -126,7 +126,7 @@
       renderer.setClearColor(0x000000, 1);
 
       const scene = new THREE.Scene();
-      const spark = new NewSparkRenderer({ renderer });
+      const spark = new SparkRenderer({ renderer });
       scene.add(spark);
 
       const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.01, 1000);

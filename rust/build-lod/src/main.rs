@@ -8,11 +8,13 @@ use spark_lib::{
     decoder::{ChunkReceiver, MultiDecoder},
     gsplat::GsplatArray,
     csplat::CsplatArray,
-    tsplat::{Tsplat, TsplatArray},
+    tsplat::{Tsplat, TsplatMut, TsplatArray},
     tiny_lod,
     bhatt_lod,
     spz::SpzEncoder,
 };
+
+const INFLATE_SCALE: bool = false;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 enum BuildLodOutput {
@@ -49,6 +51,7 @@ struct BuildLodOptions {
     min_box: Option<[f32; 3]>,
     max_box: Option<[f32; 3]>,
     within_dist: Option<([f32; 3], f32)>,
+    skip_validate: bool,
 }
 
 fn read_file_chunks(filename: &str, decoder: &mut impl ChunkReceiver) -> anyhow::Result<()> {
@@ -91,22 +94,64 @@ fn process_file_lod_tsplat<TS: SplatReceiver + TsplatArray + SplatGetter>(filena
         }
     };
 
-    println!("Read: num_splats: {} with sh_degree: {}", splats.len(), TsplatArray::max_sh_degree(&splats));
+    let mut description = serde_json::Map::new();
+
+    let input_splat_count = splats.len();
+    let input_sh_degree = TsplatArray::max_sh_degree(&splats);
+
+    println!("Read: num_splats: {} with sh_degree: {}", input_splat_count, input_sh_degree);
+    description.insert("input_splat_count".to_string(), serde_json::Value::Number(input_splat_count.into()));
+    description.insert("input_sh_degree".to_string(), serde_json::Value::Number(input_sh_degree.into()));
+
+    if !options.skip_validate {
+        let mut invalid_count = 0;
+
+        for index in 0..splats.len() {
+            let splat = splats.get(index);
+            if !splat.center().is_finite() || !splat.scales().is_finite() || !splat.quaternion().is_finite() ||
+                !splat.opacity().is_finite() || !splat.rgb().is_finite() || !splat.quaternion().is_finite()
+            {
+                if invalid_count < 100 {
+                    eprintln!("Splat {} not finite: {:?}", index, splat);
+                }
+                invalid_count += 1;
+            }
+        }
+        if invalid_count > 0 {
+            eprintln!("Found {} invalid splats", invalid_count);
+            eprintln!("Stopping processing due to invalid splats! To continue, use --skip-validate");
+            return;
+        }
+    }
+
+    splats.retain(|splat| {
+        (splat.opacity() > 0.0) && (splat.max_scale() > 0.0) &&
+        (splat.quaternion().is_finite() && splat.quaternion().length() > 0.0)
+    });
+
+    if input_splat_count != splats.len() {
+        println!("Removed {} empty splats, remaining splats.len={}", input_splat_count - splats.len(), splats.len());
+        description.insert("empty_splat_count".to_string(), serde_json::Value::Number((input_splat_count - splats.len()).into()));
+        description.insert("initial_splat_count".to_string(), serde_json::Value::Number(splats.len().into()));
+    }
 
     if let Some(max_sh) = options.max_sh {
         splats.set_max_sh_degree(max_sh);
+        description.insert("max_sh_degree".to_string(), serde_json::Value::Number(max_sh.into()));
     }
 
     if let Some(min_box) = options.min_box {
         splats.retain(|splat| {
             splat.center().x >= min_box[0] && splat.center().y >= min_box[1] && splat.center().z >= min_box[2]
         });
+        description.insert("min_box".to_string(), serde_json::Value::Array(min_box.iter().map(|&v| serde_json::Number::from_f64(v as f64).into()).collect()));
     }
 
     if let Some(max_box) = options.max_box {
         splats.retain(|splat| {
             splat.center().x <= max_box[0] && splat.center().y <= max_box[1] && splat.center().z <= max_box[2]
         });
+        description.insert("max_box".to_string(), serde_json::Value::Array(max_box.iter().map(|&v| serde_json::Number::from_f64(v as f64).into()).collect()));
     }
 
     if let Some((origin, dist)) = options.within_dist {
@@ -115,88 +160,9 @@ fn process_file_lod_tsplat<TS: SplatReceiver + TsplatArray + SplatGetter>(filena
             let dist2 = (center.x - origin[0]).powi(2) + (center.y - origin[1]).powi(2) + (center.z - origin[2]).powi(2);
             dist2 <= dist * dist
         });
+        description.insert("within_dist".to_string(), serde_json::Value::Array(origin.iter().map(|&v| serde_json::Number::from_f64(v as f64).into()).collect()));
+        description.insert("within_dist_radius".to_string(), serde_json::Number::from_f64(dist as f64).into());
     }
-
-    // {
-    //     let mut center = f32::NEG_INFINITY;
-    //     let mut scale = [f32::INFINITY, f32::NEG_INFINITY];
-    //     let mut rgb = [f32::INFINITY, f32::NEG_INFINITY];
-    //     let mut sh1 = [f32::INFINITY, f32::NEG_INFINITY];
-    //     let mut sh2 = [f32::INFINITY, f32::NEG_INFINITY];
-    //     let mut sh3 = [f32::INFINITY, f32::NEG_INFINITY];
-    //     for i in 0..splats.len() {
-    //         let splat = splats.get(i);
-    //         center = center.max(splat.center().abs().max_element());
-    //         for s in splat.scales().to_array() {
-    //             if s > 0.0 {
-    //                 scale = [scale[0].min(s), scale[1].max(s)];
-    //             }
-    //         }
-    //         for c in splat.rgb().to_array() {
-    //             rgb = [rgb[0].min(c), rgb[1].max(c)];
-    //         }
-    //         for c in splats.get_sh1(i) {
-    //             sh1 = [sh1[0].min(c), sh1[1].max(c)];
-    //         }
-    //         // for c in splats.get_sh2(i) {
-    //         //     sh2 = [sh2[0].min(c), sh2[1].max(c)];
-    //         // }
-    //         // for c in splats.get_sh3(i) {
-    //         //     sh3 = [sh3[0].min(c), sh3[1].max(c)];
-    //         // }
-    //     }
-    //     println!("Stats: center={}, scale={:?}, rgb={:?}, sh1={:?}, sh2={:?}, sh3={:?}", center, scale, rgb, sh1, sh2, sh3);
-
-    //     rgb = [(rgb[0] / 0.1).floor() * 0.1, (rgb[1] / 0.1).ceil() * 0.1];
-    //     sh1 = [(sh1[0] / 0.1).floor() * 0.1, (sh1[1] / 0.1).ceil() * 0.1];
-    //     sh2 = [(sh2[0] / 0.1).floor() * 0.1, (sh2[1] / 0.1).ceil() * 0.1];
-    //     sh3 = [(sh3[0] / 0.1).floor() * 0.1, (sh3[1] / 0.1).ceil() * 0.1];
-    //     let mut rgb_buckets = Vec::new();
-    //     rgb_buckets.resize(((rgb[1] - rgb[0]) / 0.1).round() as usize, 0);
-    //     let mut sh1_buckets = Vec::new();
-    //     sh1_buckets.resize(((sh1[1] - sh1[0]) / 0.1).round() as usize, 0);
-    //     // let mut sh2_buckets = Vec::new();
-    //     // sh2_buckets.resize(((sh2[1] - sh2[0]) / 0.1).round() as usize, 0);
-    //     // let mut sh3_buckets = Vec::new();
-    //     // sh3_buckets.resize(((sh3[1] - sh3[0]) / 0.1).round() as usize, 0);
-
-    //     for i in 0..splats.len() {
-    //         for c in splats.get(i).rgb().to_array() {
-    //             let bucket = (((c - rgb[0]) / 0.1).floor() as usize).min(rgb_buckets.len() - 1);
-    //             rgb_buckets[bucket] += 1;
-    //         }
-    //         for c in splats.get_sh1(i) {
-    //             let bucket = ((c - sh1[0]) / 0.1).floor() as usize;
-    //             sh1_buckets[bucket] += 1;
-    //         }
-    //         // for c in splats.get_sh2(i) {
-    //         //     let bucket = ((c - sh2[0]) / 0.1).floor() as usize;
-    //         //     sh2_buckets[bucket] += 1;
-    //         // }
-    //         // for c in splats.get_sh3(i) {
-    //         //     let bucket = ((c - sh3[0]) / 0.1).floor() as usize;
-    //         //     sh3_buckets[bucket] += 1;
-    //         // }
-    //     }
-
-    //     println!("rgb_buckets: [{}..{}]", rgb[0], rgb[1]);
-    //     for b in 0..rgb_buckets.len() {
-    //         println!("{:.1}, {}", rgb[0] + b as f32 * 0.1, rgb_buckets[b]);
-    //     }
-
-    //     println!("sh1_buckets: [{}..{}]", sh1[0], sh1[1]);
-    //     for b in 0..sh1_buckets.len() {
-    //         println!("{:.1}, {}", sh1[0] + b as f32 * 0.1, sh1_buckets[b]);
-    //     }
-    //     // println!("sh2_buckets: [{}..{}]", sh2[0], sh2[1]);
-    //     // for b in 0..sh2_buckets.len() {
-    //     //     println!("{:.1}, {}", sh2[0] + b as f32 * 0.1, sh2_buckets[b]);
-    //     // }
-    //     // println!("sh3_buckets: [{}..{}]", sh3[0], sh3[1]);
-    //     // for b in 0..sh3_buckets.len() {
-    //     //     println!("{:.1}, {}", sh3[0] + b as f32 * 0.1, sh3_buckets[b]);
-    //     // }
-    // }
 
     let mut output_filename = filename.to_string();
     if let Some(dot) = filename.rfind('.') {
@@ -217,6 +183,7 @@ fn process_file_lod_tsplat<TS: SplatReceiver + TsplatArray + SplatGetter>(filena
         }
         splats.clear_children();
         output_filename.replace_range(output_filename.rfind("-lod").unwrap().., "");
+        description.insert("unlod".to_string(), serde_json::Value::Bool(true));
     }
 
     let method = match options.method.clone() {
@@ -224,6 +191,9 @@ fn process_file_lod_tsplat<TS: SplatReceiver + TsplatArray + SplatGetter>(filena
         BuildLodMethod::Quality => BuildLodMethod::BhattLod { lod_base: 1.75 },
         other => other,
     };
+    description.insert("method".to_string(), serde_json::Value::String(format!("{:?}", method)));
+
+    let start_time = std::time::Instant::now();
 
     match method {
         BuildLodMethod::TinyLod { lod_base } => {
@@ -236,16 +206,69 @@ fn process_file_lod_tsplat<TS: SplatReceiver + TsplatArray + SplatGetter>(filena
         _ => unreachable!()
     }
 
+    let lod_duration = start_time.elapsed();
+    description.insert("lod_duration".to_string(), serde_json::Number::from_f64(lod_duration.as_secs_f64()).into());
+
+    let start_time = std::time::Instant::now();
+
     chunk_tree::chunk_tree(&mut splats, 0, |s| println!("{}", s));
+
+    let chunk_duration = start_time.elapsed();
+    description.insert("chunk_duration".to_string(), serde_json::Number::from_f64(chunk_duration.as_secs_f64()).into());
+
+    for i in 0..splats.len() {
+        let mut splat = splats.get_mut(i);
+        
+        if splat.opacity() > 1.0 {
+            if !INFLATE_SCALE {
+                let d = splat.lod_opacity();
+                // // Map 1..5 LOD-encoded opacity to 1..2 opacity
+                splat.set_opacity((0.25 * (d - 1.0) + 1.0).clamp(1.0, 2.0));
+            } else {
+                let rescale = splat.opacity().powf(1.0 / 3.0);
+                splat.set_scales(splat.scales() * rescale);
+                splat.set_opacity(1.0);
+            }
+        }
+    }
+    if INFLATE_SCALE {
+        description.insert("inflate_scale".to_string(), serde_json::Value::Bool(true));
+    }
 
     match options.output {
         BuildLodOutput::Rad => {
             let mut encoder = RadEncoder::new(splats);
+            let input_encoding = serde_json::json!({
+                    "center": encoder.center_encoding,
+                    "alpha": encoder.alpha_encoding,
+                    "rgb": encoder.rgb_encoding,
+                    "scales": encoder.scales_encoding,
+                    "orientation": encoder.orientation_encoding,
+                    "sh": encoder.sh_encoding,
+                    "encoding": encoder.encoding,
+            });
+            description.insert("input_encoding".to_string(), input_encoding);
+
             encoder.resolve_encoding();
+            let resolved_encoding = serde_json::json!({
+                "center": encoder.center_encoding,
+                "alpha": encoder.alpha_encoding,
+                "rgb": encoder.rgb_encoding,
+                "scales": encoder.scales_encoding,
+                "orientation": encoder.orientation_encoding,
+                "sh": encoder.sh_encoding,
+                "encoding": encoder.encoding,
+            });
+            description.insert("resolved_encoding".to_string(), resolved_encoding);
+
             println!("Encoding RAD file with center={:?}, alpha={:?}, rgb={:?}, scales={:?}, orientation={:?}, sh={:?}", encoder.center_encoding, encoder.alpha_encoding, encoder.rgb_encoding, encoder.scales_encoding, encoder.orientation_encoding, encoder.sh_encoding);
             if let Some(encoding) = encoder.encoding.as_ref() {
                 println!("Splat Encoding: {:?}", encoding);
             }
+
+            let comment = serde_json::to_string_pretty(&description).unwrap();
+            let mut encoder = encoder.with_comment(comment);
+            
             let filename_ext = format!("{}.rad", output_filename);
             let mut writer = BufWriter::new(File::create(&filename_ext).unwrap());
             encoder.encode(&mut writer).unwrap();
@@ -258,8 +281,6 @@ fn process_file_lod_tsplat<TS: SplatReceiver + TsplatArray + SplatGetter>(filena
             let mut writer = BufWriter::new(File::create(&filename_ext).unwrap());
             writer.write_all(&bytes).unwrap();
             println!("Wrote {} ({} bytes)", filename_ext, bytes.len());
-            return;
-    
         },
         BuildLodOutput::SpzChunked => {
             let num_splats = splats.len();
@@ -291,6 +312,7 @@ fn show_usage_exit() {
     eprintln!("  [--min-box=<x>,<y>,<z>]                      // Crop input file to minimum bounding coord");
     eprintln!("  [--max-box=<x>,<y>,<z>]                      // Crop input file to maximum bounding coord");
     eprintln!("  [--within-dist=<x>,<y>,<z>,<radius>]         // Crop input file to within radius of a point");
+    eprintln!("  [--skip-validate]                            // Skip validation of input file");
     eprintln!("  <file.ply|file.spz|file.compressed.ply|file.splat|file.ksplat|file.sog|file.rad> [...] // Multiple input files and wildcards allowed");
     std::process::exit(1);
 }
@@ -421,6 +443,11 @@ fn main() {
             }
             options.within_dist = Some(([values[0], values[1], values[2]], values[3]));
             println!("Using --within-dist={:?}", options.within_dist);
+            continue;
+        }
+        if arg == "--skip-validate" {
+            options.skip_validate = true;
+            println!("Using --skip-validate: Skip validation of input file");
             continue;
         }
         if arg.starts_with("--") {

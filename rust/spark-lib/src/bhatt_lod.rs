@@ -5,20 +5,17 @@ use glam::IVec3;
 use ordered_float::OrderedFloat;
 use smallvec::{SmallVec, smallvec};
 
-use crate::tsplat::{Tsplat, TsplatMut, TsplatArray};
+use crate::tsplat::{Tsplat, TsplatArray};
+
+const MERGE_BASE: f32 = 2.0;
 
 pub fn compute_lod_tree<TA: TsplatArray>(splats: &mut TA, lod_base: f32, logger: impl Fn(&str)) {
-    let merge_base = 2.0;
+    let initial_len = splats.len();
+    logger(&format!("bhatt_lod::compute_lod_tree: initial_len={}", initial_len));
 
-    let input_len = splats.len();
-    logger(&format!("bhatt_lod::compute_lod_tree: input_len={}", input_len));
-
-    splats.retain(|splat| splat.opacity() > 0.0 && splat.max_scale() > 0.0);
-    if splats.len() == 0 {
+    if initial_len == 0 {
         return;
     }
-    logger(&format!("Removed {} empty splats, remaining splats.len={}", input_len - splats.len(), splats.len()));
-    let initial_len = splats.len();
 
     splats.sort_by(|s| s.feature_size());
     splats.prepare_children();
@@ -29,7 +26,7 @@ pub fn compute_lod_tree<TA: TsplatArray>(splats: &mut TA, lod_base: f32, logger:
 
     // Clamp minimum feature size to 10^-6
     let min_feature_size = splats.get(0).feature_size().max(0.000001);
-    let level_min = min_feature_size.log(merge_base).ceil() as i16;
+    let level_min = min_feature_size.log(MERGE_BASE).ceil() as i16;
     logger(&format!("level_min: {}, feature_size[0]: {}", level_min, splats.get(0).feature_size()));
 
     let mut level = level_min;
@@ -38,7 +35,7 @@ pub fn compute_lod_tree<TA: TsplatArray>(splats: &mut TA, lod_base: f32, logger:
     let mut cells = AHashMap::<[i32; 3], SmallVec<[usize; 8]>>::new();
 
     loop {
-        let step = merge_base.powf(level as f32);
+        let step = MERGE_BASE.powf(level as f32);
 
         let frontier_start = frontier;
         while frontier < initial_len {
@@ -266,13 +263,4 @@ pub fn compute_lod_tree<TA: TsplatArray>(splats: &mut TA, lod_base: f32, logger:
     logger(&format!("Average children per interior splat: {}", avg_children));
 
     logger(&format!("Root #children: {}", splats.get_children(0).len()));
-
-    for i in 0..splats.len() {
-        let mut splat = splats.get_mut(i);
-        if splat.opacity() > 1.0 {
-            let d = splat.lod_opacity();
-            // // Map 1..5 LOD-encoded opacity to 1..2 opacity
-            splat.set_opacity((0.25 * (d - 1.0) + 1.0).clamp(1.0, 2.0));
-        }
-    }
 }

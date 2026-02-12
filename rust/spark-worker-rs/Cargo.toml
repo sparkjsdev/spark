@@ -1,5 +1,5 @@
 [package]
-name = "spark-internal-rs"
+name = "spark-worker-rs"
 version = "0.1.0"
 rust-version.workspace = true
 edition.workspace = true

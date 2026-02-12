@@ -1,6 +1,6 @@
 use std::{array, collections::{BinaryHeap, VecDeque}};
 
-use glam::{Mat3A, Vec3A, quat};
+use glam::{Mat3A, Vec3A};
 use ordered_float::OrderedFloat;
 use smallvec::{SmallVec, smallvec};
 
@@ -8,7 +8,8 @@ use crate::{ordering::{morton_coord16_to_index, morton_coord24_to_index}, tsplat
 
 const ROOT_SIZE: usize = 65536;
 const CHUNK_SIZE: usize = 65536;
-const BATCH_SIZE: usize = CHUNK_SIZE / 2;
+const BATCH_SIZE: usize = 64 * 1024;
+const MIN_BATCH_SIZE: usize = 8 * 1024;
 const STD_DEVS: f32 = 1.5;
 const SLICE_FACTOR: f32 = 3.0;
 
@@ -388,7 +389,7 @@ fn batch_recurse<TA: TsplatArray>(splats: &mut TA, indices: &mut Vec<usize>, bat
     }
 }
 
-pub fn old_chunk_tree<TA: TsplatArray>(splats: &mut TA, root: usize, logger: impl Fn(&str)) {
+pub fn older_chunk_tree<TA: TsplatArray>(splats: &mut TA, root: usize, logger: impl Fn(&str)) {
     let mut indices = Vec::new();
     indices.push(root);
 
@@ -398,7 +399,7 @@ pub fn old_chunk_tree<TA: TsplatArray>(splats: &mut TA, root: usize, logger: imp
     splats.permute(&indices);
 }
 
-pub fn chunk_tree<TA: TsplatArray>(splats: &mut TA, root: usize, logger: impl Fn(&str)) {
+pub fn chunk_tree_size<TA: TsplatArray>(splats: &mut TA, root: usize, logger: impl Fn(&str)) {
     let mut indices = Vec::new();
     indices.push(root);
 
@@ -412,14 +413,13 @@ pub fn chunk_tree<TA: TsplatArray>(splats: &mut TA, root: usize, logger: impl Fn
         }
     
         let start_index = indices.len();
-        // let end_index = start_index + if start_index == 0 { 1048576 } else { BATCH_SIZE };
-        let end_index = start_index + BATCH_SIZE;
+        let end_index = (start_index + MIN_BATCH_SIZE).div_ceil(BATCH_SIZE) * BATCH_SIZE;
     
         while let Some((OrderedFloat(size), parent)) = priority.pop() {
             let children = splats.get_children(parent);
             if (indices.len() + children.len()) > end_index {
                 priority.push((OrderedFloat(size), parent));
-                logger(&format!("output batch chunk, #splats = {}", indices.len() - start_index));
+                logger(&format!("output batch chunk, chunk_rel = {}", indices.len() as f32 / 65536.0));
                 break;
             }
             let new_children: SmallVec<[usize; 8]> = (indices.len()..(indices.len() + children.len())).collect();
@@ -431,7 +431,9 @@ pub fn chunk_tree<TA: TsplatArray>(splats: &mut TA, root: usize, logger: impl Fn
             }
         }
     
-        if !priority.is_empty() {
+        if priority.is_empty() {
+            // logger(&format!("output terminal chunk, chunk_rel = {}", indices.len() as f32 / 65536.0));
+        } else {
             let mut aabb = Aabb::empty();
             for &(_, parent) in priority.iter() {
                 // aabb = aabb.add_point(splats.get(parent).center());
@@ -466,10 +468,11 @@ pub fn chunk_tree<TA: TsplatArray>(splats: &mut TA, root: usize, logger: impl Fn
                 octants[octant].push(parent);
             }
     
-            octants.sort_by_key(|o| -(o.len() as isize));
-    
             println!("octant lengths: {:?}", octants.iter().map(|o| o.len()).collect::<Vec<usize>>());
-    
+            
+            // Resort into Hilbert order
+            let mut octants = octants.into_iter().map(|o| Some(o)).collect::<Vec<_>>();
+            let octants = [0, 1, 3, 2, 6, 7, 5, 4].map(|i| octants[i].take().unwrap());
             for batch in octants {
                 batches.push_back(batch);
             }
@@ -478,4 +481,169 @@ pub fn chunk_tree<TA: TsplatArray>(splats: &mut TA, root: usize, logger: impl Fn
 
     assert_eq!(indices.len(), splats.len());
     splats.permute(&indices);
+}
+
+pub fn chunk_tree_only_size<TA: TsplatArray>(splats: &mut TA, root: usize, _logger: impl Fn(&str)) {
+    let mut indices = Vec::new();
+    indices.push(root);
+
+    let mut priority = BinaryHeap::new();
+    priority.push((OrderedFloat(splats.get(root).feature_size()), root));
+
+    while let Some((OrderedFloat(_size), parent)) = priority.pop() {
+        let children = splats.get_children(parent);
+        let new_children: SmallVec<[usize; 8]> = (indices.len()..(indices.len() + children.len())).collect();
+        splats.set_children(parent, &new_children);
+
+        for child in children {
+            indices.push(child);
+            priority.push((OrderedFloat(splats.get(child).feature_size()), child));
+        }
+    }
+
+    assert_eq!(indices.len(), splats.len());
+    splats.permute(&indices);
+}
+
+pub fn chunk_tree_rows<TA: TsplatArray>(splats: &mut TA, root: usize, _logger: impl Fn(&str)) {
+    let mut indices = Vec::new();
+    indices.push(root);
+
+    let mut queue = VecDeque::new();
+    queue.push_back(root);
+
+    while let Some(parent) = queue.pop_front() {
+        let children = splats.get_children(parent);
+        let new_children: SmallVec<[usize; 8]> = (indices.len()..(indices.len() + children.len())).collect();
+        splats.set_children(parent, &new_children);
+
+        for child in children {
+            indices.push(child);
+            queue.push_back(child);
+        }
+    }
+
+    assert_eq!(indices.len(), splats.len());
+    splats.permute(&indices);
+}
+
+pub fn chunk_tree_dfs<TA: TsplatArray>(splats: &mut TA, root: usize, _logger: impl Fn(&str)) {
+    let mut indices = Vec::new();
+    indices.push(root);
+
+    fn recurse<TA: TsplatArray>(splats: &mut TA, indices: &mut Vec<usize>, parent: usize) {
+        let children = splats.get_children(parent);
+        let new_children: SmallVec<[usize; 8]> = (indices.len()..(indices.len() + children.len())).collect();
+        splats.set_children(parent, &new_children);
+
+        for &child in &children {
+            indices.push(child);
+        }
+        for child in children {
+            recurse(splats, indices, child);
+        }
+    }
+
+    recurse(splats, &mut indices, root);
+
+    assert_eq!(indices.len(), splats.len());
+    splats.permute(&indices);
+}
+
+pub fn chunk_tree_morton<TA: TsplatArray>(splats: &mut TA, root: usize, logger: impl Fn(&str)) {
+    let mut indices = Vec::new();
+    indices.push(root);
+
+    let mut batches = VecDeque::new();
+    batches.push_back(vec![root]);
+
+    while let Some(mut batch) = batches.pop_front() {
+        let mut aabb = Aabb::empty();
+        for &parent in batch.iter() {
+            aabb = aabb.add_point(splats.get(parent).center());
+            // aabb = aabb.extend(&Aabb::from_splat(&splats.get(parent), STD_DEVS));
+        }
+
+        batch.sort_by_key(|&parent| {
+            let center = splats.get(parent).center();
+            let coord = (center - aabb.min) / aabb.extent() * 65535.0;
+            let coord = coord.clamp(Vec3A::ZERO, Vec3A::splat(65535.0)).round();
+            morton_coord16_to_index([coord.x as u16, coord.y as u16, coord.z as u16])
+        });
+
+        let mut ordering = VecDeque::from(batch);
+    
+        let start_index = indices.len();
+        let end_index = (start_index + MIN_BATCH_SIZE).div_ceil(BATCH_SIZE) * BATCH_SIZE;
+    
+        while let Some(parent) = ordering.pop_front() {
+            let children = splats.get_children(parent);
+            if (indices.len() + children.len()) > end_index {
+                ordering.push_front(parent);
+                logger(&format!("output batch chunk, chunk_rel = {}", indices.len() as f32 / 65536.0));
+                break;
+            }
+            let new_children: SmallVec<[usize; 8]> = (indices.len()..(indices.len() + children.len())).collect();
+            splats.set_children(parent, &new_children);
+    
+            for child in children {
+                indices.push(child);
+                ordering.push_back(child);
+            }
+        }
+    
+        if ordering.is_empty() {
+            // logger(&format!("output terminal chunk, chunk_rel = {}", indices.len() as f32 / 65536.0));
+        } else {
+            let mut aabb = Aabb::empty();
+            for &parent in ordering.iter() {
+                aabb = aabb.add_point(splats.get(parent).center());
+                // aabb = aabb.extend(&Aabb::from_splat(&splats.get(parent), STD_DEVS));
+            }
+    
+            if aabb.extent().max_element() >= (3.0 * aabb.extent().min_element()) {
+                let axis = aabb.longest_axis().0;
+                let split = axis.get_vec3(aabb.center());
+                let (a, b): (Vec<usize>, Vec<usize>) = ordering.into_iter()
+                    .partition(|&parent| {
+                        axis.get_vec3(splats.get(parent).center()) < split
+                    });
+                println!("split axis={:?}, extent={:?}, split={}, a.len={}, b.len={}", axis, aabb.extent(), split, a.len(), b.len());
+    
+                let mut new_batches = [a, b];
+                new_batches.sort_by_key(|b| -(b.len() as isize));
+                for batch in new_batches {
+                    batches.push_back(batch);
+                }
+                continue;
+            }
+        
+            let mut octants: [Vec<usize>; 8] = array::from_fn(|_| Vec::new());
+            let split = aabb.center();
+    
+            for parent in ordering {
+                let center = splats.get(parent).center();
+                let octant =  if center.x < split.x { 0 } else { 1 }
+                    + if center.y < split.y { 0 } else { 2 }
+                    + if center.z < split.z { 0 } else { 4 };
+                octants[octant].push(parent);
+            }
+    
+            println!("octant lengths: {:?}", octants.iter().map(|o| o.len()).collect::<Vec<usize>>());
+            
+            // Resort into Hilbert order
+            let mut octants = octants.into_iter().map(|o| Some(o)).collect::<Vec<_>>();
+            let octants = [0, 1, 3, 2, 6, 7, 5, 4].map(|i| octants[i].take().unwrap());
+            for batch in octants {
+                batches.push_back(batch);
+            }
+        }
+    }
+
+    assert_eq!(indices.len(), splats.len());
+    splats.permute(&indices);
+}
+
+pub fn chunk_tree<TA: TsplatArray>(splats: &mut TA, root: usize, logger: impl Fn(&str)) {
+    chunk_tree_morton(splats, root, logger);
 }

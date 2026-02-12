@@ -32,7 +32,7 @@
     </script>
   <script type="module">
     import * as THREE from "three";
-    import { NewSparkRenderer, SplatMesh } from "@sparkjsdev/spark";
+    import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
     import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
     import { EXRLoader } from "three/addons/loaders/EXRLoader.js";
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -62,7 +62,7 @@
     renderer.shadowMap.enabled = true;
     renderer.setSize(window.innerWidth, window.innerHeight);
 
-    const spark = new NewSparkRenderer({ renderer });
+    const spark = new SparkRenderer({ renderer });
     scene.add(spark);
 
     document.body.appendChild(renderer.domElement);

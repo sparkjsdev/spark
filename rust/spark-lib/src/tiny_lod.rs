@@ -2,20 +2,13 @@ use ahash::AHashMap;
 use glam::I64Vec3;
 use smallvec::{smallvec, SmallVec};
 
-use crate::{ordering, tsplat::{Tsplat, TsplatMut, TsplatArray}};
-
-const INFLATE_SCALE: bool = false;
+use crate::{ordering, tsplat::{Tsplat, TsplatArray}};
 
 const CHUNK_SIZE: usize = 65536;
 // const CHUNK_LEVELS: i16 = 2;
 
 pub fn compute_lod_tree<SA: TsplatArray>(splats: &mut SA, lod_base: f32, merge_filter: bool, logger: impl Fn(&str)) {
     logger(&format!("tiny_lod::compute_lod_tree: splats.len={}, lod_base={}, merge_filter={}", splats.len(), lod_base, merge_filter));
-
-    splats.retain(|splat| {
-        (splat.opacity() > 0.0) && (splat.max_scale() > 0.0)
-    });
-    logger(&format!("Removed empty splats, splats.len={}", splats.len()));
 
     if splats.len() == 0 {
         return;
@@ -179,22 +172,6 @@ pub fn compute_lod_tree<SA: TsplatArray>(splats: &mut SA, lod_base: f32, merge_f
     }
 
     splats.permute(&indices);
-
-    for i in 0..splats.len() {
-        let mut splat = splats.get_mut(i);
-        
-        if splat.opacity() > 1.0 {
-            if !INFLATE_SCALE {
-                let d = splat.lod_opacity();
-                // // Map 1..5 LOD-encoded opacity to 1..2 opacity
-                splat.set_opacity((0.25 * (d - 1.0) + 1.0).clamp(1.0, 2.0));
-            } else {
-                let rescale = splat.opacity().powf(1.0 / 3.0);
-                splat.set_scales(splat.scales() * rescale);
-                splat.set_opacity(1.0);
-            }
-        }
-    }
 
     // let mut indices = Vec::new();
     // let mut frontier: VecDeque<(u32, SmallVec<[u32; 8]>)> = VecDeque::from([(u32::MAX, smallvec![root_index])]);

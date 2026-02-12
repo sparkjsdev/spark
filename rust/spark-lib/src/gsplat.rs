@@ -341,9 +341,24 @@ impl TsplatArray for GsplatArray {
             total_cov.add_weighted(&SymMat3::new([xx, yy, zz, xy, xz, yz]), weight);
         }
 
+        // if !total_cov.xx().is_finite() || !total_cov.yy().is_finite() || !total_cov.zz().is_finite() || !total_cov.xy().is_finite() || !total_cov.xz().is_finite() || !total_cov.yz().is_finite() {
+        //     println!("--- Total cov is not finite: {:?}", total_cov);
+        //     println!("Weights: {:?}", weights);
+        //     println!("Areas: {:?}", indices.iter().map(|&index| self.get(index).area()).collect::<Vec<f32>>());
+        //     println!("Opacities: {:?}", indices.iter().map(|&index| self.get(index).opacity()).collect::<Vec<f32>>());
+        //     for &index in indices.iter() {
+        //         let splat = self.get(index);
+        //         println!("Splat {}: {:?}", index, splat);
+        //         println!("Splat {} cov: {:?}", index, SymMat3::new_scale_quaternion(splat.scales(), splat.quaternion()))
+        //     }
+        // }
+        assert!(total_cov.xx().is_finite() && total_cov.yy().is_finite() && total_cov.zz().is_finite());
+        assert!(total_cov.xy().is_finite() && total_cov.xz().is_finite() && total_cov.yz().is_finite());
+
         let (vals, vecs) = total_cov.positive_eigens();
         let scales = Vec3A::from_array(vals.map(|v| v.max(0.0).sqrt()));
         assert!(scales.x.is_finite() && scales.y.is_finite() && scales.z.is_finite());
+
         // if scales.x == 0.0 || scales.y == 0.0 || scales.z == 0.0 {
         //     println!("--- Scale is zero: {:?}", scales);
         //     println!("Weights: {:?}", weights);
@@ -363,7 +378,8 @@ impl TsplatArray for GsplatArray {
 
         let basis = Mat3A::from_cols(vecs[0], vecs[1], vecs[2]);
         let quaternion = Quat::from_mat3a(&basis);
-        let opacity = (total_weight / ellipsoid_area(scales)).clamp(0.000001, 1000.0);
+        let opacity = total_weight / ellipsoid_area(scales);
+
         // if opacity <= 0.000001 {
         //     println!("--- Opacity is zero: {}", opacity);
         //     println!("Total weight: {}", total_weight);
@@ -379,6 +395,7 @@ impl TsplatArray for GsplatArray {
         //     }
         //     // panic!("Opacity is zero!");
         // }
+        let opacity = opacity.clamp(0.000001, 1000.0);
 
         let (scales, opacity) = if INFLATE_SCALE && opacity > 1.0 {
             let rescale = opacity.powf(1.0 / 3.0);

@@ -35,7 +35,7 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { NewSparkRenderer, SplatMesh, PackedSplats } from "@sparkjsdev/spark";
+    import { SparkRenderer, SplatMesh, PackedSplats } from "@sparkjsdev/spark";
     import { EXRLoader } from "three/addons/loaders/EXRLoader.js";
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
@@ -49,7 +49,7 @@
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setClearColor(new THREE.Color(0xFFFFFF), 1);
 
-    const spark = new NewSparkRenderer({ renderer });
+    const spark = new SparkRenderer({ renderer });
     scene.add(spark);
 
     document.body.appendChild(renderer.domElement);

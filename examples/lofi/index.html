@@ -42,7 +42,7 @@
   <script type="module">
     import * as THREE from "three";
     import GUI from "lil-gui";
-    import { NewSparkRenderer, SparkRenderer, PackedSplats, SplatMesh, SparkControls, SparkXr, JOINT_IDS, JOINT_TIPS, dyno, generators, isMobile, utils } from "@sparkjsdev/spark";
+    import { SparkRenderer, OldSparkRenderer, PackedSplats, SplatMesh, SparkControls, SparkXr, JOINT_IDS, JOINT_TIPS, dyno, generators, isMobile, utils } from "@sparkjsdev/spark";
     import { WORLDS, getWorldUrl, WORLD_RUSTLE, WORLD_EFFECT } from "./worlds.js";
     import { AUDIOS, getAudioUrl } from "./audio.js";
     import { shuffleArray } from "./util.js";
@@ -166,9 +166,8 @@
     const localFrame = new THREE.Group();
     scene.add(localFrame);
 
-    // NewSparkRenderer can be swapped in, but rendering is slower in VR.
-    // const spark = new NewSparkRenderer({
     const spark = new SparkRenderer({
+    // const spark = new OldSparkRenderer({
       renderer,
       // Lower the splat rendering width to sqrt(4) std devs for more performance
       maxStdDev: Math.sqrt(4),
@@ -284,7 +283,7 @@
     });
 
     const controls = new SparkControls({ canvas: renderer.domElement });
-    controls.fpsMovement.xr = renderer.xr;
+    // controls.fpsMovement.xr = renderer.xr;
     controls.pointerControls.rotateSpeed *= 2.0;
 
     let lastTime = 0;
@@ -768,6 +767,7 @@
       const deltaTime = time - (lastTime || time);
       lastTime = time;
 
+      xr.updateControllers(camera);
       xr.updateHands({ xrFrame });
       updateHands(xr);
 

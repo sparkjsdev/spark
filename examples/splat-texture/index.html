@@ -27,7 +27,7 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { SparkRenderer, SplatMesh, SparkControls } from "@sparkjsdev/spark";
+    import { OldSparkRenderer, SplatMesh, SparkControls } from "@sparkjsdev/spark";
     import GUI from "lil-gui";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
@@ -104,7 +104,7 @@
     const texture2 = new THREE.Data3DTexture(texData2, star.width, star.height, splatTexLayers);
     texture2.needsUpdate = true;
 
-    const spark = new SparkRenderer({
+    const spark = new OldSparkRenderer({
         renderer,
         maxStdDev: 1.0,
         focalDistance: 4.0,

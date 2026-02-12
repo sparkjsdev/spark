@@ -23,7 +23,7 @@ if ! command -v wasm-pack &> /dev/null; then
     cargo install wasm-pack
 fi
 
-cd spark-internal-rs
+cd spark-worker-rs
 
 # Build the project with SIMD enabled
 RUSTFLAGS="-C target-feature=+simd128,+bulk-memory" wasm-pack build --target web --release

@@ -185,7 +185,7 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { NewSparkRenderer, SplatMesh, transcodeSpz, SparkControls } from "@sparkjsdev/spark";
+    import { SparkRenderer, SplatMesh, transcodeSpz, SparkControls } from "@sparkjsdev/spark";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
     const sparkCanvasEl = document.querySelector(".spark-canvas");
@@ -199,7 +199,7 @@
     var fileBytes;
     renderer.setSize(width, height, false);
     
-    const spark = new NewSparkRenderer({ renderer });
+    const spark = new SparkRenderer({ renderer });
     scene.add(spark);
 
     const controls = new SparkControls({ canvas: sparkCanvasEl });

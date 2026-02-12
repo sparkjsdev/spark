@@ -1,12 +1,12 @@
 import { unzipSync } from "fflate";
 import { FileLoader, Loader, type LoadingManager } from "three";
 import { ExtSplats, type ExtSplatsOptions } from "./ExtSplats";
-import { workerPool } from "./NewSplatWorker";
+import { withWorker } from "./OldSplatWorker";
 import { PackedSplats, type PackedSplatsOptions } from "./PackedSplats";
 import { SplatMesh } from "./SplatMesh";
+import { workerPool } from "./SplatWorker";
 import { type SplatEncoding, SplatFileType } from "./defines";
 import { PlyReader } from "./ply";
-import { withWorker } from "./splatWorker";
 import { decompressPartialGzip, getTextureSize } from "./utils";
 
 // SplatLoader implements the THREE.Loader interface and supports loading a variety
