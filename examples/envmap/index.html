@@ -40,7 +40,7 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { SplatMesh, SparkRenderer, PackedSplats } from "@sparkjsdev/spark";
+    import { SplatMesh, NewSparkRenderer, PackedSplats } from "@sparkjsdev/spark";
     import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
@@ -59,8 +59,8 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    // Explicitly create a SparkRenderer to render environment maps
-    const spark = new SparkRenderer({ renderer });
+    // Explicitly create a NewSparkRenderer to render environment maps
+    const spark = new NewSparkRenderer({ renderer });
     scene.add(spark);
 
     const splatURL = await getAssetFileURL("fireplace.spz");
@@ -81,6 +81,7 @@
     // Make sure background is loaded before rendering env map
     await background.initialized;
     await background2.initialized;
+    await spark.update({ scene, camera });
 
     // Add rubber duck
     const gltfLoader = new GLTFLoader();

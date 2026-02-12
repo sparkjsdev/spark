@@ -9,9 +9,6 @@
     body {
       margin: 0;
     }
-    canvas {
-      touch-action: none;
-    }
   </style>
 </head>
 
@@ -19,886 +16,124 @@
   <script type="importmap">
     {
       "imports": {
-        "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.180.0/three.module.js",
-        "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.20.0/+esm",
-        "@sparkjsdev/spark": "/dist/spark.module.js"
-      }
-    }
-  </script>
-  <script src="https://cdn.jsdelivr.net/npm/stats.js@0.17.0/build/stats.min.js"></script>
-  <!-- <script type="importmap">
-    {
-      "imports": {
         "three": "/examples/js/vendor/three/build/three.module.js",
-        "lil-gui": "/examples/js/vendor/lil-gui/dist/lil-gui.esm.js",        "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.20.0/+esm",
         "@sparkjsdev/spark": "/dist/spark.module.js"
       }
     }
   </script>
-  <script src="/examples/js/vendor/stats.js/build/stats.min.js"></script> -->
   <script type="module">
     import * as THREE from "three";
-    import { NewSparkRenderer, PackedSplats, ExtSplats, SplatMesh, SplatEdit, SplatEditRgbaBlendMode, SplatEditSdf, SplatEditSdfType, SparkControls, SparkXr, textSplats, SplatSkinning, dyno } from "@sparkjsdev/spark";
-    // import { getAssetFileURL } from "/examples/js/get-asset-url.js";
-    import GUI from "lil-gui";
-    // import initBurnGesture, { HandGestureClassifier } from "./pkg/burn_gesture.js";
-    // import RAPIER from "https://cdn.skypack.dev/@dimforge/rapier3d-compat";
-
-    const ENABLE_EXT_SPLATS = false;
-    const RENDER_TIMEOUT_MS = 120 * 1000;
-    const XR_INPUT = {
-      useAimSpace: true,
-      stickThreshold: 0.1,
-      stickMinOpacity: 0.1,
-      stickOpacityRangeMultiplier: 5,
-      triggerActivation: 0.5,
-      triggerResetThreshold: 0.1,
-      stickSmoothing: 6.0,
-      stickRange: 2.0,
-      stickResetMs: 500,
-      directionBasis: {
-        preview: "controller",
-        teleport: "controller",
-      },
-      snapTurn: {
-        enabled: true,
-        maxDegrees: 45,
-        threshold: 0.1,
-      },
-      triggerDirectionalMode: true, // true => trigger + stick axis controls snap turn or locomotion
-    };
-
-    const stats = new Stats();
-    document.body.appendChild(stats.dom);
-
-    // await initBurnGesture();
-    // const gestureClassifier = new HandGestureClassifier();
-    // console.log("gestureClassifier", gestureClassifier);
-
-    // await RAPIER.init();
-    // console.log("RAPIER initialized");
-
-    // const data = await fetch("/capture_20251121_003125.json").then((response) => response.json());
-    // const data = await fetch("/capture_20251121_003448.json").then((response) => response.json());
-    // console.log("data", data);
-    // for (const snapshot of data) {
-    //   if (snapshot.hands[0]) {
-    //     const hand = XrHand.newFromSnapshot(SparkXr.Hand.left, snapshot.hands[0]);
-    //     const array = hand.toFlatArray();
-    //     const probs = gestureClassifier.predict_probs(array);
-    //     const cl = gestureClassifier.predict(array);
-    //     // console.log("Left probs:", cl, probs);
-    //   }
-    //   if (snapshot.hands[1]) {
-    //     const hand = XrHand.newFromSnapshot(SparkXr.Hand.right, snapshot.hands[1]);
-    //     const array = hand.toFlatArray();
-    //     const probs = gestureClassifier.predict_probs(array);
-    //     const cl = gestureClassifier.predict(array);
-    //     console.log("Right probs:", cl, probs);
-    //   }
-    // }
-    // console.log("Done");
-
-    // const URL_BASE = ".";
-    // const URL_BASE = "https://storage.googleapis.com/forge-dev-public/asundqui/memory-house-scene/memory-house";
-    // const URL_BASE = "./memory-house";
-    const URL_BASE = "https://storage.googleapis.com/forge-dev-public/asundqui/hobbitverse";
-
-    const names = [];
-
-    async function getSceneAssets(url, fromMatrix, toMatrix) {
-      console.log("Getting scene assets from", url);
-      let transform = new THREE.Matrix4();
-      if (fromMatrix && toMatrix) {
-        transform.premultiply(fromMatrix.clone().invert());
-        transform.premultiply(toMatrix);
-      }
-
-      const json = await fetch(url).then((response) => response.json());
-      json.assets = json.assets.filter((asset) => !asset.filename.includes("HOME_V2"));
-      return json.assets.map((asset) => {
-        if (!asset.visibility) {
-          return null;
-        }
-        names.push(asset.filename.replace(/\.spz$/, "-lod.spz"));
-
-        const resolvedUrl = `${URL_BASE}/${asset.filename.replace(/\.spz$/, "-lod.spz")}`;
-        const position = new THREE.Vector3().fromArray(asset.transform.position);
-        const quaternion = new THREE.Quaternion().fromArray(asset.transform.quaternion);
-        const scales = new THREE.Vector3().fromArray(asset.transform.scale);
-
-        if (fromMatrix && toMatrix) {
-          const assetMatrix = new THREE.Matrix4().compose(position, quaternion, scales);
-          assetMatrix.premultiply(transform);
-          assetMatrix.decompose(position, quaternion, scales);
-        }
-
-        return {
-          url: resolvedUrl,
-          position: position.toArray(),
-          quaternion: quaternion.toArray(),
-          scale: (scales.x + scales.y + scales.z) / 3,
-        };
-      }).filter(Boolean);
-    }
-
-    const scene1From = new THREE.Matrix4().compose(
-      new THREE.Vector3(74.85235611230576, 2.939761691662505, 14.786932306748533),
-      new THREE.Quaternion(0.7649721216271451, 0.006360655608290333, -0.643988608338591, 0.007474458082157891),
-      new THREE.Vector3().setScalar(1.7102560693),
-    );
-    const scene1To = new THREE.Matrix4().compose(
-      new THREE.Vector3(-10.008118883997911, 0.8417741692478946, 6.0179726337926365),
-      new THREE.Quaternion(-0.059727959978140066, 0, 0.9982146917356254, 0),
-      new THREE.Vector3().setScalar(1.4),
-    );
-    const scene2From = new THREE.Matrix4().compose(
-      new THREE.Vector3(-15.1286193051896, 1.169541334672604, -14.181160919683432),
-      new THREE.Quaternion(0.7097647103858707, -0.002345712445232473, -0.7044341386082024, 0.001047801176450588),
-      new THREE.Vector3().setScalar(1.4038752485),
-    );
-    const scene2To = new THREE.Matrix4().compose(
-      new THREE.Vector3(-15.1286193051896, 1.169541334672604, 2.4014477362090485),
-      new THREE.Quaternion(0.7097647103858707, -0.002345712445232473, -0.7044341386082024, 0.001047801176450588),
-      new THREE.Vector3().setScalar(1.4038752485),
-    );
-    // const universe = [
-    //   // ...await getSceneAssets("./memory-connector/connector-scene.json", null, null),
-    //   ...await getSceneAssets("./memory-house1/scene.json", scene1From, scene1To),
-    //   ...await getSceneAssets("./memory-house2/scene.json", scene2From, scene2To),
-    // ];
-
-    // console.log("names", names.join("\n"));
-
-    // const universe = {
-    //   "worldship": {
-    //     "url": `../lod/worldship-lod-0.spz`,
-    //     "position": [0, 0, 0],
-    //     "quaternion": [0, 0, 0, 1],
-    //   },
-    //   "cozy_cottage": {
-    //     "url": "../portal/cozy_cottage-lod-0.spz",
-    //     "position": [0, -1, 0],
-    //     "quaternion": [0, 0, 0, 1],
-    //   },
-    //   // "cozy_ship": {
-    //   //   "url": "./cozy_ship-lod.spz",
-    //   //   "position": [0, -1, 0],
-    //   //   "quaternion": [0, 0, 0, 1],
-    //   // },
-    //   "sunken": {
-    //     "url": "../lod/sunken-lod-0.spz",
-    //     "position": [0, -1, 0],
-    //     "quaternion": [0, 0, 0, 1],
-    //   },
-    //   "hobbiton5": {
-    //     "url": `${URL_BASE}/Hobbiton5-lod-0.spz`,
-    //     "position": [0, 0, 0],
-    //     "quaternion": [1, 0, 0, 0],
-    //   },
-    //   // "toad": {
-    //   //   "url": `${URL_BASE}/toad-lod.spz`,
-    //   //   "position": [0.5725474387367916,-0.5078618461254829,-6.010018709628705],
-    //   //   "quaternion": [0.15645282834721824,-0.04146967440804525,0.9867925564627197,0.00657488527784835],
-    //   // },
-    //   // "turkey": {
-    //   //   "url": `${URL_BASE}/turkey-lod.spz`,
-    //   //   "position": [-4.462805577234763,-0.30321350004495659,-7.792976287661906],
-    //   //   "quaternion": [-0.443958268524857,-0.050133086580300315,0.8942976756110581,-0.02488768440417606],
-    //   // },
-    //   // "butterfly": {
-    //   //   "url": `${URL_BASE}/butterfly-ai-lod.spz`,
-    //   //   "position": [-0.9836462197504537,-0.2845185012733539,-24.644897758757953],
-    //   //   "quaternion": [-0.28968658389767193,-0.00646881131936965,0.9570976983098036,-0.0019579274470059634],
-    //   // },
-    //   // "snowbot": {
-    //   //   "url": `${URL_BASE}/snowbot-lod.spz`,
-    //   //   "position": [10.007435110070176,-0.36677329781066834,-10.678563326021761],
-    //   //   "quaternion": [0.9047756617124982,0.060176222293330445,0.39891279333979945,-0.13648592437703339],
-    //   // },
-
-    //   // "toad": {
-    //   //   "url": `${URL_BASE}/toad-lod.spz`,
-    //   //   "position": [0.5,0,-0.5],
-    //   //   "quaternion": [0.15645282834721824,-0.04146967440804525,0.9867925564627197,0.00657488527784835],
-    //   // },
-    //   // "turkey": {
-    //   //   "url": `${URL_BASE}/turkey-lod.spz`,
-    //   //   "position": [0,0,-2],
-    //   //   "quaternion": [-0.443958268524857,-0.050133086580300315,0.8942976756110581,-0.02488768440417606],
-    //   // },
-    //   // "butterfly": {
-    //   //   "url": `${URL_BASE}/butterfly-ai-lod.spz`,
-    //   //   "position": [-1,0,-4.5],
-    //   //   "quaternion": [-0.28968658389767193,-0.00646881131936965,0.9570976983098036,-0.0019579274470059634],
-    //   // },
-    //   // "snowbot": {
-    //   //   "url": `${URL_BASE}/snowbot-lod.spz`,
-    //   //   "position": [-3.5,0,-5],
-    //   //   "quaternion": [1,0,0,0],
-    //   // },
-    // };
-
-    const list = "03facf44-511b-42d0-9ddb-9e2a0227e50e_1000000.spz 0524c1a1-abf2-4969-ae40-9981ee836536_1000000.spz 05c65f47-5ecf-4f0f-badc-1c8234c0fe03_1000000.spz 0677323b-42b6-4b7d-88d5-e066428850e1_1000000.spz 08851659-2382-44e5-a988-05dfb6899165_1000000.spz 09a99d87-cbf2-4beb-a1d7-7e6274647d5f_1000000.spz 0f2453d4-cf93-469a-9274-76accf339c84_1000000.spz 1064da41-40b6-47d5-b143-a1cad98605ec_1000000.spz 1081428c-38a2-4908-a38a-e5d74da32b06_1000000.spz 10e947d4-2888-4d97-ad20-c918a73939ac_1000000.spz 1279023c-ceff-4f84-90e5-a81c63ff2542_1000000.spz 13958d31-dfcc-4f15-bbcc-91bed2731f73_1000000.spz 13970b1c-834f-41f8-9f7b-3a1312e161e0_1000000.spz 144fbd5e-5d1e-4564-b8ce-2993c3c05ebd_1000000.spz 1736e123-4215-4d25-b4f3-3c8cd451d616_1000000.spz 18cd8d4d-02df-4d2e-8884-b3e4342cd8c8_1000000.spz 1b6cd27e-6d11-498d-a345-2cf17ca8c6a9_1000000.spz 1d63bbd1-6c9d-4343-9df0-a17fd8057fcd_1000000.spz 1e04986e-2e3e-4666-9a56-8c15a585321f_1000000.spz 22182c03-dfc2-41ab-b518-ade4f5253505_1000000.spz 22380bc4-0a7f-4468-a8d6-b8984c7d6c82_1000000.spz 23f73c6f-3913-4b80-975a-62938679fc2f_1000000.spz 24c7c0fa-811e-45bc-8ab5-36ec562c5356_1000000.spz 28aac29b-aa6c-4a32-8d3c-7c060562cad8_1000000.spz 28b1f5b2-a983-41cd-865e-e37e6840ff84_1000000.spz 2b1f3371-3a6a-4739-a4fc-9a7ed9516caf_1000000.spz 2c59bb0b-9f3d-40a6-adad-479b1a16b292_1000000.spz 317e530c-2061-4592-a21c-fa3b93fad4af_1000000.spz 3197ed7d-6738-4358-a0e0-2e98072a5db0_1000000.spz 320ff674-5ec2-4a51-b294-002102c6dca2_1000000.spz 3568b629-0b96-4c37-a4f2-570682dba223_1000000.spz 363c0b4f-86f8-4e73-84ac-d73ddbb3c13c_1000000.spz 3a5b3ae3-068a-4092-998e-747ef8a593ff_1000000.spz 3ea5c31a-d4a7-4d0a-aa51-2b69be3c79df_1000000.spz 53f89d26-cc90-45df-8ce9-dba575b2f600_1000000.spz 54fad6e4-9c9b-43ba-be6d-f1e31cbe7a95_1000000.spz 56525f64-d1ef-441c-87d3-3f2cb85a9591_1000000.spz 56ae0deb-0c85-4180-9b8f-b45c9c41460e_1000000.spz 5b98e573-e047-42af-84a5-55c59c9faa6e_1000000.spz 5d2e497a-ac28-4450-a272-afb63c44cf67_1000000.spz 60810a6d-6288-4f43-89f3-71eb6dad866f_1000000.spz 61d00e92-2935-4179-a4a5-2cea2ca8ca85_1000000.spz 67cad50d-3b7a-40e5-8da4-021605ed65de_1000000.spz 6e14f7b3-0868-488e-9983-d6f384b4f25f_1000000.spz 7058e7a5-1a7d-4516-9e3c-601a91f5f238_1000000.spz 737410a1-6e46-4717-9b74-eaee79d5bcec_1000000.spz 75946cfc-5c2c-489b-b1a8-f0a48932be3f_1000000.spz 78955a27-26e6-43ab-92d1-f22271f32d40_1000000.spz 7b6d316f-e002-4ff8-909f-ce52a4e8df8f_1000000.spz 7b7cc4df-cb29-4903-83b8-6a7a24e60c44_1000000.spz 7c98177d-b1a6-4f6e-88ad-becbefb0b901_1000000.spz 83a38cad-e7ab-4ee5-a034-31556fb270df_1000000.spz 899aae3a-cd39-4468-9188-7fda5722c77e_1000000.spz 8d7beaae-98a7-4a63-a7b1-b12b1da566eb_1000000.spz 921bc231-4e47-42e1-91ab-111f23e650d1_1000000.spz 952d54d4-dc08-4078-b8de-7f29a1a7dacb_1000000.spz 96af0218-e0c0-460d-8f80-00f55258ba23_1000000.spz 9711aa67-4090-467c-95da-68e4db08d094_1000000.spz 9ac5aed5-a16a-4466-9397-993fc656fbef_1000000.spz 9d06f978-3afd-47c3-a2a1-1187ecb83bd0_1000000.spz 9d68d5d7-9c49-4fdd-99ed-c101fcbed066_1000000.spz a4d40913-6017-4a6a-b10e-42efc1334fd5_1000000.spz a69a8d34-20e1-428f-b183-8cb2fd98c1a0_1000000.spz a69b7e33-ec44-4e36-9b0d-31a476311150_1000000.spz ac506166-d745-4b4a-a3d3-87857e6ba502_1000000.spz ac7eddaa-7072-4a4a-b6e6-fd470481d1cf_1000000.spz aef1b7dc-19b5-49eb-9981-0048158c7da0_1000000.spz b2fb41c1-4ca4-4c8c-9ce5-c18811256bff_1000000.spz b5a81460-782d-461e-b7fd-533c3f36500a_1000000.spz b75af78a-b040-4415-9f42-6dd5b246b3a6_1000000.spz b80311c7-00c7-460a-8802-124afc3991f4_1000000.spz bdc0060f-ecf5-4e88-9880-dd8be31fdfa5_1000000.spz c3aced1b-1505-497e-bc4c-7d45afe91bca_1000000.spz c7f0ee45-5579-4a29-bed8-1e973e9c65f4_1000000.spz caafbd4b-3bb4-446b-9730-75fd420073ea_1000000.spz cb62d757-e882-41bd-abdc-8f81e46acb08_1000000.spz cbd8d6fb-4511-4d2c-a941-f4cec729a35d_1000000.spz ce15c539-3626-4899-8e67-e79626958fea_1000000.spz cec34892-76f3-4a82-aa2c-70a8d0c709d1_1000000.spz d1065995-a5ca-4916-afea-5d5ceca13310_1000000.spz d1091b06-be63-403e-b656-77d44d403868_1000000.spz d22c9ead-809f-4537-a562-5855731ab442_1000000.spz d26ce672-a8a3-43f2-9058-6833ef68cb30_1000000.spz d295b4a0-b801-4e28-871d-a2477de09862_1000000.spz d615e0f0-4538-41b3-b03e-947c653463d3_1000000.spz d9d08f5c-5392-4c8b-a0a3-6b42dfc1fa73_1000000.spz dcf13304-f1ea-4c2a-9d9c-438070cc89c6_1000000.spz e4b54868-8999-4192-aab1-9c4ee1b38230_1000000.spz e5fbafea-39e8-43f1-ae40-2eb1a8bb9b78_1000000.spz e992083f-7c8e-4eb3-b700-c66fe179e531_1000000.spz e9b628a9-62d4-4ee0-82ea-1a89b593cccf_1000000.spz eeecb241-9f2f-45da-b3b6-80be5aa7b949_1000000.spz f1e0cd05-7154-42a5-80e8-3a8826c7af1e_1000000.spz f1e7e419-d82c-4f38-a5a5-56770d668a59_1000000.spz f30c7f96-9686-4308-adf5-111cc68cef55_1000000.spz f407865c-b693-4c96-ae63-217f6ddaba5a_1000000.spz faa99524-b25e-4698-8c41-e46b146ab618_1000000.spz fbc2ba1e-bcab-40c0-97c8-26a420f1af2c_1000000.spz fe7f7ff4-7652-480e-a35f-3b8dd0b5e159_1000000.spz ff851922-c49f-41f7-b1e1-f3b0b8e65b7b_1000000.spz";
-    const universe = {};
-    for (const [index, file] of list.trim().split(" ").entries()) {
-      universe[file] = {
-        url: `./tastier-lod/${file.replace(".spz", "-lod-0.spz")}`,
-        position: [
-          ((index % 10) - 4.5) * 2,
-          (Math.floor(index / 10) - 4.5) * 2,
-          -10,
-        ],
-        quaternion: [1, 0, 0, 0],
-        scale: 0.2,
-      };
-    }
-
-    console.log("universe", universe);
+    import { NewSparkRenderer, SplatMesh, SplatEdit, SplatEditRgbaBlendMode, SplatEditSdf, SplatEditSdfType, VRButton, XrHands } from "@sparkjsdev/spark";
+    import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
     const scene = new THREE.Scene();
-    // scene.background = new THREE.Color(0, 0, 0);
-    const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 1000);
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
     const renderer = new THREE.WebGLRenderer();
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
 
-    const camera2 = camera.clone();
-    scene.add(camera2);
-
-    window.THREE = THREE;
-    window.scene = scene;
-    window.renderer = renderer;
-
-    scene.add(new THREE.AmbientLight(0xffffff, 0.1));
-    scene.add(new THREE.DirectionalLight(0xffffff, 1.0));
-
-    window.addEventListener("resize", onWindowResize, false);
+    window.addEventListener('resize', onWindowResize, false);
     function onWindowResize() {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
-      camera2.aspect = camera.aspect;
-      camera2.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
     // Make a local frame of reference that we can move to control
     // the camera, or as a frame of reference in WebXR mode
     const localFrame = new THREE.Group();
-    // localFrame.position.set(0, 0.25, 1);
-    // localFrame.position.set(-10.146059468725154,2.716757473190141,67.73128658837079);
-    // localFrame.rotation.y = 1.8;
-    // localFrame.position.set(-0.3589455442042188,-0.5136711922540228,-25.26046580090285);
-    // localFrame.quaternion.set(-0.11649979375233356,0.3992200702177954,0.051222564644665194,0.9079798359336981);
     scene.add(localFrame);
 
     // Lower the splat rendering width to sqrt(5) std devs for more performance
-    const spark = new NewSparkRenderer({
-      renderer,
-      extSplats: false,
-      maxStdDev: Math.sqrt(4),
-      // maxStdDev: 1.0,
-      lodSplatScale: 0.5,
-      // lodSplatCount: 500000 * 0.5,
-      // outsideFoveate: 0.35,
-      behindFoveate: 0.1,
-      coneFov0: 20.0,
-      coneFov: 150.0,
-      coneFoveate: 0.4,
-    });
-    scene.add(spark);
+    const spark = new NewSparkRenderer({ renderer, maxStdDev: Math.sqrt(5) });
+    localFrame.add(spark);
     localFrame.add(camera);
 
-    let renderEnabled = true;
-    let lastMoved = 0;
-    let lastPos = new THREE.Vector3().setScalar(Number.NEGATIVE_INFINITY);
-    let lastDir = new THREE.Vector3();
+    const splatURL = await getAssetFileURL("valley.spz");
+    const background = new SplatMesh({ url: splatURL });
+    background.quaternion.set(1, 0, 0, 0);
+    background.scale.setScalar(0.5);
+    scene.add(background);
 
-    let animations = [];
+    const vrButton = VRButton.createButton(renderer, {
+      optionalFeatures: ["hand-tracking"],
+    });
+    let xrHands = null;
+    if (vrButton) {
+        // WebXR is available, so show the button
+        document.body.appendChild(vrButton);
 
-    async function loadUniverse() {
-      for (const key of Object.keys(universe)) {
-        const { url, position, quaternion, scale, opacity } = universe[key];
-        console.log("Loading", key, url, position, quaternion, scale, opacity);
-        const absoluteURL = new URL(url, window.location.href).href;
-        const isCharacter = key.startsWith("toad") || key.startsWith("butterfly") || key.startsWith("turkey") || key.startsWith("snowbot");
-        // const isCharacter = true;
-
-        let packedSplats = undefined;
-        let extSplats = undefined;
-        let mesh = undefined;
-
-        if (isCharacter) {
-          packedSplats = new PackedSplats({
-            url: absoluteURL,
-            lod: true,
-            maxBoneSplats: isCharacter ? 16 : undefined,
-            computeBoneWeights: isCharacter,
-            minBoneOpacity: 0.5,
-            // maxSplats: isCharacter ? undefined : (65536 * 512),
-            maxSplats: isCharacter ? undefined : ((universe[key].chunks ?? 512) * 65536),
-          });
-          await packedSplats.initialized;
-          console.log("Loaded PackedSplats", key, packedSplats);
-
-          mesh = new SplatMesh({ packedSplats });
-        } else {
-          // if (ENABLE_EXT_SPLATS) {
-          //   extSplats = new ExtSplats({
-          //     url: absoluteURL,
-          //     // lod: true,
-          //   });
-          //   // await extSplats.initialized;
-          //   console.log("Loaded ExtSplats", key, extSplats);
-          //   mesh = new SplatMesh({ extSplats });
-          // } else {
-          //   packedSplats = new PackedSplats({ url: absoluteURL });
-          //   console.log("Loaded PackedSplats", key, packedSplats);
-          //   mesh = new SplatMesh({ packedSplats });
-          // }
-
-          mesh = new SplatMesh({ url: absoluteURL, paged: true });
-          mesh.objectModifier = dyno.dynoBlock({ gsplat: dyno.Gsplat }, { gsplat: dyno.Gsplat }, ({ gsplat }) => {
-            let { center, opacity } = dyno.splitGsplat(gsplat).outputs;
-            const distance = dyno.length(center);
-            const withinRange = dyno.lessThan(distance, dyno.dynoConst("float", 5.0));
-            opacity = dyno.select(withinRange, opacity, dyno.dynoConst("float", 0));
-
-            gsplat = dyno.combineGsplat({
-              gsplat,
-              opacity,
-            })
-            return { gsplat };
-          });
-          mesh.updateGenerator();
-        }
-
-        // const bones = new SplatMesh({ packedSplats: packedSplats.boneSplats });
-        // bones.position.fromArray(position ?? [0, 0, 0]);
-        // bones.quaternion.fromArray(quaternion ?? [0, 0, 0, 1]);
-        // bones.scale.setScalar(scale ?? 1);
-        // // scene.add(bones);
-        // // console.log("ADDED BONES", bones);
-        // // bones.forEachSplat((index, center, scales, quaternion, opacity, color) => {
-        // //   // console.log(`BONE ${index}:`, "center", center, "scales", scales, "quaternion", quaternion, "opacity", opacity, "color", color);
-        // //   bones.packedSplats.setSplat(index, center, scales, quaternion, 1, color);
-        // // });
-
-        // const mesh = new SplatMesh({ extSplats });
-
-        await mesh.initialized;
-
-        mesh.position.fromArray(position ?? [0, 0, 0]);
-        mesh.quaternion.fromArray(quaternion ?? [0, 0, 0, 1]);
-        mesh.scale.setScalar(scale ?? 1);
-        const meshOpacity = opacity ?? 1.0;
-
-        // mesh.opacity = 0;
-        scene.add(mesh);
-
-        // animations.push({
-        //   start: performance.now(),
-        //   animate: (elapsedMs) => {
-        //     const t = (elapsedMs - 1000) / 1500;
-        //     mesh.opacity = meshOpacity * Math.pow(Math.max(0, Math.min(1, t)), 2);
-        //     return t < 1;
-        //   },
-        //   dispose: () => {
-        //     mesh.opacity = meshOpacity;
-        //   },
-        // });
-
-        // bones.forEachSplat((index, center, scales, quaternion, opacity, color) => {
-        //   // Add an ellipsoid at the bone's center
-        //   const ellipsoid = new THREE.Mesh(
-        //     new THREE.SphereGeometry(1, 8, 8),
-        //     new THREE.MeshStandardMaterial({ color: new THREE.Color(color.x, color.y, color.z) }),
-        //   );
-        //   ellipsoid.position.copy(center);
-        //   const multiplier = isCharacter ? 1.5 : 2.0;
-        //   ellipsoid.scale.set(scales.x, scales.y, scales.z).multiplyScalar(multiplier * Math.max(1, opacity * 4 - 3));
-        //   // ellipsoid.scale.set(scales.x, scales.y, scales.z);
-        //   ellipsoid.quaternion.copy(quaternion);
-        //   // ellipsoid.material.opacity = 0.1;
-        //   // ellipsoid.material.transparent = true;
-        //   mesh.add(ellipsoid);
-        // });
-
-        if (isCharacter) {
-          const skinning = new SplatSkinning({
-            mesh,
-            numSplats: mesh.packedSplats.lodSplats.numSplats,
-            numBones: mesh.packedSplats.boneSplats.numSplats,
-          });
-          skinning.skinData.set(mesh.packedSplats.lodSplats.extra.boneWeights);
-
-          mesh.packedSplats.boneSplats.forEachSplat((index, center, scales, quaternion, opacity, color) => {
-            skinning.setRestQuatPos(index, quaternion, center);
-          });
-          mesh.skinning = skinning;
-
-          mesh.onFrame = ({ mesh, time, deltaTime }) => {
-            mesh.packedSplats.boneSplats.forEachSplat((index, center, scales, quaternion, opacity, color) => {
-              skinning.getRestQuatPos(index, quaternion, center);
-
-              const avgScale = (scales.x + scales.y + scales.z) / 3;
-              // const avgScale = 1.0;
-              // const delta = Math.sin(time) * 1;
-              // if (Math.random() < 0.01) {
-              //   console.log("DELTA", delta, avgScale);
-              // }
-              center.x += Math.sin(time) * 0.15 * 1/Math.log(avgScale);
-              // quaternion.x += Math.sin(time) * 0.1;
-              // quaternion.normalize();
-              // const rotate = new THREE.Quaternion()
-              //   .setFromAxisAngle(new THREE.Vector3(1, 1, 0).normalize(), time);
-              // quaternion.multiply(rotate);
-              skinning.setBoneQuatPos(index, quaternion, center);
-              // bones.packedSplats.setSplat(index, center, scales, quaternion, opacity, color);
-            });
-            // bones.packedSplats.needsUpdate = true;
-            // bones.packedSplats.source.needsUpdate = true;
-            skinning.updateBones();
-          };
-        } else {
-          
-        }
-      }
+        xrHands = new XrHands();
+        const handMesh = xrHands.makeGhostMesh();
+        handMesh.editable = false;
+        localFrame.add(handMesh);
     }
 
-    loadUniverse();
-
-    // const vrButton = VRButton.createButton(renderer, {
-    //   // optionalFeatures: ["hand-tracking"],
-    // });
-    // let xrHands = null;
-    // if (vrButton) {
-    //     // WebXR is available, so show the button
-    //     document.body.appendChild(vrButton);
-
-    //     // xrHands = new XrHands();
-    //     // const handMesh = xrHands.makeGhostMesh();
-    //     // handMesh.editable = false;
-    //     // localFrame.add(handMesh);
-    // }
-
-    // let toad = null;
-    // let butterfly = null;
-    let grapple = null;
-    const snapshots = [];
-
-    const controls = new SparkControls({
-      canvas: renderer.domElement,
+    // Create a layer of color edits to apply to editable splats
+    const edit = new SplatEdit({
+      rgbaBlendMode: SplatEditRgbaBlendMode.ADD_RGBA,
+      sdfSmooth: 0.02,
+      softEdge: 0.02,
     });
+    localFrame.add(edit);
+    const sdfs = new Map();
 
-    const xr = new SparkXr({
-      renderer,
-      onMouseLeaveOpacity: 0.5,
-      onReady: async (supported) => {
-        console.log(`SparkXr ready: ${supported ? "supported" : "not supported"}`);
-        if (supported) {
-          // toad = new PackedSplats({ url: "./toad-lod.spz" });
-          // await toad.initialized;
-          // butterfly = new PackedSplats({ url: "./butterfly-ai-lod.spz" });
-          // await butterfly.initialized;
-          // console.log("Loaded toad and butterfly");
-          // grapple = new PackedSplats({ url: "./grapple-lod.spz" });
-        }
-      },
-      onEnterXr: () => {
-        console.log("Enter XR");
-      },
-      onExitXr: () => {
-        console.log("Exit XR");
-        if (snapshots.length > 0) {
-          const body = JSON.stringify(snapshots);
-          snapshots.length = 0;
-          fetch("/capture", { method: "POST", body });
-        }
-      },
-      enableHands: true,
-      controllers: {
-        // moveHeading: true,
-        // getRotate: (gamepads) => {
-        //   return new THREE.Vector3(
-        //     gamepads.right?.axes[2] ?? 0,
-        //     gamepads.right?.axes[3] ?? 0,
-        //     0,
-        //   )
-        // },
-      },
-    });
-
-    localFrame.add(xr.makeJointSplats(SparkXr.Hand.left));
-    localFrame.add(xr.makeJointSplats(SparkXr.Hand.right));
-
-    const controllerMeshes = [null, null];
-    const controllerOffsetLocked = [false, false];
-    const controllerUnlockTimeouts = [null, null];
-    const controllerSnapActive = [false, false];
-    const controllerOffset = new THREE.Vector3();
-    const tempCameraPos = new THREE.Vector3();
-    const tempCameraQuat = new THREE.Quaternion();
-    const tempControllerQuat = new THREE.Quaternion();
-    const tempMeshPos = new THREE.Vector3();
-    const tempForward = new THREE.Vector3();
-    const tempRight = new THREE.Vector3();
-    const tempControllerPos = new THREE.Vector3();
-    const controllerForwardBasis = new THREE.Vector3();
-    const controllerRightBasis = new THREE.Vector3();
-    const tempPreviewWorld = new THREE.Vector3();
-    const tempUp = new THREE.Vector3(0, 1, 0);
-    const controllerSmoothing = [new THREE.Vector3(), new THREE.Vector3()];
-    const cameraBasis = { forward: tempForward, right: tempRight };
-    const controllerBasis = {
-      forward: controllerForwardBasis,
-      right: controllerRightBasis,
-    };
-    const curveAxis = (value) => Math.sign(value) * value * value;
-    const getBasisVectors = (mode, controller) => {
-      if (mode === "controller" && controller) {
-        controller.getWorldQuaternion(tempControllerQuat);
-        controllerBasis.forward.set(0, 0, -1).applyQuaternion(tempControllerQuat).normalize();
-        controllerBasis.right.set(1, 0, 0).applyQuaternion(tempControllerQuat).normalize();
-        return controllerBasis;
-      }
-      return cameraBasis;
-    };
-    const degreesToRadians = (deg) => (deg * Math.PI) / 180;
-    const joystickHelper = {
-      stickThreshold: XR_INPUT.stickThreshold,
-      minOpacity: XR_INPUT.stickMinOpacity,
-      opacityRangeMultiplier: XR_INPUT.stickOpacityRangeMultiplier,
-      applyDeadzone(value) {
-        return Math.abs(value) < this.stickThreshold ? 0 : value;
-      },
-      computeOpacity(magnitudeSq) {
-        const fadeStart = this.stickThreshold;
-        const fadeEnd = this.stickThreshold * this.opacityRangeMultiplier;
-        if (fadeEnd <= fadeStart) {
-          return 1;
-        }
-        const fadeStartSq = fadeStart * fadeStart;
-        const fadeEndSq = fadeEnd * fadeEnd;
-        const t = THREE.MathUtils.clamp((magnitudeSq - fadeStartSq) / (fadeEndSq - fadeStartSq), 0, 1);
-        return this.minOpacity + (1 - this.minOpacity) * t;
-      },
-    };
-    // const controllerNodes = XR_INPUT.useAimSpace
-    //   ? [renderer.xr.getController(0), renderer.xr.getController(1)]
-    //   : [renderer.xr.getControllerGrip(0), renderer.xr.getControllerGrip(1)];
-    const controllerNodes = [];
-    controllerNodes.forEach((controller, index) => {
-      localFrame.add(controller);
-
-      const onConnected = (event) => {
-        const handedness = event.data?.handedness ?? (index === 0 ? "left" : "right");
-        const slot = handedness === "left" ? 0 : 1;
-        if (!controllerMeshes[slot]) {
-          // const packedSplats = slot === 0 ? toad : butterfly;
-          const packedSplats = grapple;
-          if (!packedSplats) {
-            throw new Error("Packed splats not loaded");
-          }
-          const mesh = new SplatMesh({ packedSplats, lodScale: 1.25 });
-          mesh.quaternion.set(0, -1, 1, 0).normalize();
-          mesh.scale.setScalar(0.2);
-          controllerMeshes[slot] = mesh;
-        }
-        if (!controllerMeshes[slot].parent) {
-          controller.add(controllerMeshes[slot]);
-        }
-        controller.userData.slot = slot;
-      };
-
-      const onDisconnected = () => {
-        const slot = controller.userData.slot;
-        if (slot != null && controllerMeshes[slot]) {
-          controller.remove(controllerMeshes[slot]);
-          controllerMeshes[slot] = null;
-        }
-        delete controller.userData.slot;
-      };
-
-      controller.addEventListener("connected", onConnected);
-      controller.addEventListener("disconnected", onDisconnected);
-    });
-
-    let lastTime = 0;
-    let rotation = 0;
-    let xrTime = 0;
-
-    const gui = new GUI({ title: "Settings" });
-    gui.add({ disableRender: () => { renderEnabled = false; } }, "disableRender").name("Disable render");
-    gui.add(spark, "lodSplatScale", 0.001, 2.0, 0.001);
-
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "\\") {
-        const cameraPos = camera.getWorldPosition(new THREE.Vector3());
-        const cameraQuat = camera.getWorldQuaternion(new THREE.Quaternion());
-        console.log("camera position: ", JSON.stringify(cameraPos.toArray()), "quaternion: ", JSON.stringify(cameraQuat.toArray()));
-      }
-      if (event.key === "/") {
-        const cameraPos = camera.getWorldPosition(new THREE.Vector3());
-        const cameraQuat = camera.getWorldQuaternion(new THREE.Quaternion());
-        cameraQuat.premultiply(new THREE.Quaternion(1, 0, 0, 0));
-        console.log("camera position: ", JSON.stringify(cameraPos.toArray()), "quaternion: ", JSON.stringify(cameraQuat.toArray()));
-      }
-    });
+    let lastCameraPos = new THREE.Vector3(0, 0, 0);
 
     renderer.setAnimationLoop(function animate(time, xrFrame) {
-      stats.begin();
+      // This is a hack to make a "local" frame work reliably across
+      // Quest 3 and Vision Pro. Any big discontinuity in the camera
+      // results in a reverse shift of the local frame to compensate.
+      if (lastCameraPos.distanceTo(camera.position) > 0.5) {
+        localFrame.position.copy(camera.position).multiplyScalar(-1);
+      }
+      lastCameraPos.copy(camera.position);
 
-      const deltaTime = time - (lastTime || time);
-      lastTime = time;
+      if (xrHands) {
+        // Updates the xrHands object with coordinates
+        // and also updates ghost mesh
+        xrHands.update({ xr: renderer.xr, xrFrame });
 
-      xr.updateControllers(camera);
-      controls.update(localFrame);
+        // Create interactor SDFs for each hand tip
+        for (const hand of ["left", "right"]) {
+          for (const [index, tip] of ["t3", "i4", "m4", "r4", "p4"].entries()) {
+            // Make a sphere SDF for each hand tip with different colors
+            const key = `${hand}-${tip}`;
+            if (!sdfs.has(key)) {
+              const sdf = new SplatEditSdf({
+                type: SplatEditSdfType.SPHERE,
+                radius: 0.03,
+                color: new THREE.Color(
+                  (index % 5 < 3) ? 1 : 0,
+                  (index % 5 % 2),
+                  ((index % 5) > 1) ? 1 : 0
+                ),
+                opacity: 0,
+              });
+              sdfs.set(key, sdf);
+            }
 
-      xr.updateHands({ xrFrame });
+            const sdf = sdfs.get(key);
+            // Make each SDF wobble in different directions
+            sdf.displace.set(
+              0.01 * Math.sin(time * 0.007 + index * 1),
+              0.01 * Math.sin(time * 0.002 + index * 2),
+              0.01 * Math.sin(time * 0.009 + index * 3),
+            );
 
-      // scene.background.set(0, 0, 0);
-
-      // if (xr.left()?.valid()) {
-      //   const leftArray = xr.left().toFlatArray();
-      //   const start = performance.now();
-      //   const leftClass = gestureClassifier.predict(leftArray);
-      //   const duration = performance.now() - start;
-      //   if (leftClass === 1) {
-      //     scene.background.r = 0.2;
-      //   }
-        
-      //   if (Math.random() < 0.01) {
-      //     const text = textSplats({ text: `${duration.toFixed(3)}ms`, objectScale: 0.01 });
-      //     text.position.set(0, 0, -1);
-      //     scene.add(text);
-      //     setTimeout(() => {
-      //       scene.remove(text);
-      //     }, 1000);
-      //   }
-      // }
-
-      // if (xr.right()?.valid()) {
-      //   const rightArray = xr.right().toFlatArray();
-      //   const rightClass = gestureClassifier.predict(rightArray);
-      //   if (rightClass === 1) {
-      //     scene.background.g = 0.2;
-      //   }
-      // }
-
-      // scene.background.set(0, 0, 0);
-      // if (renderer.xr.isPresenting) {
-      //   xrTime += (deltaTime / 1000);
-      //   const xrPhase = xrTime % 10;
-      //   if (xrPhase > 5) {
-      //     scene.background.set(0, 0.1, 0);
-      //     snapshots.push(xr.snapshotHands(time / 1000));
-      //   }
-      // }
-      
-      // // This is a hack to make a "local" frame work reliably across
-      // // Quest 3 and Vision Pro. Any big discontinuity in the camera
-      // // results in a reverse shift of the local frame to compensate.
-      // if (lastCameraPos.distanceTo(camera.position) > 0.5) {
-      //   localFrame.position.copy(camera.position).multiplyScalar(-1);
-      // }
-      // lastCameraPos.copy(camera.position);
-
-      const xrSession = renderer.xr.getSession();
-      if (xrSession) {
-        camera.getWorldPosition(tempCameraPos);
-        camera.getWorldQuaternion(tempCameraQuat);
-        tempForward.set(0, 0, -1).applyQuaternion(tempCameraQuat).normalize();
-        tempRight.set(1, 0, 0).applyQuaternion(tempCameraQuat).normalize();
-        xrSession.inputSources.forEach((inputSource) => {
-          const slot = inputSource.handedness === "left" ? 0 : 1;
-          const mesh = controllerMeshes[slot];
-          if (!mesh) {
-            return;
-          }
-          const gamepad = inputSource.gamepad;
-          if (!gamepad || gamepad.axes.length < 4) {
-            mesh.position.set(0, 0, 0);
-            mesh.opacity = joystickHelper.minOpacity;
-            mesh.visible = true;
-            controllerOffsetLocked[slot] = false;
-            return;
-          }
-          const rawX = gamepad.axes[2];
-          const rawZ = gamepad.axes[3];
-          const magnitudeSq = rawX * rawX + rawZ * rawZ;
-          const x = joystickHelper.applyDeadzone(rawX);
-          const z = joystickHelper.applyDeadzone(rawZ);
-          const absX = Math.abs(x);
-          const absZ = Math.abs(z);
-          const curvedX = curveAxis(x) * XR_INPUT.stickRange;
-          const curvedZ = curveAxis(z) * XR_INPUT.stickRange;
-          const opacity = joystickHelper.computeOpacity(magnitudeSq);
-          const inDeadZone = x === 0 && z === 0;
-          const horizontalDominant = absX > absZ;
-          const triggerValue = gamepad.buttons?.[0]?.value ?? 0;
-          const triggerActive = triggerValue >= XR_INPUT.triggerActivation;
-          const triggerReleased = triggerValue <= XR_INPUT.triggerResetThreshold;
-          if (controllerOffsetLocked[slot]) {
-            mesh.position.set(0, 0, 0);
-            mesh.opacity = joystickHelper.minOpacity;
-            mesh.visible = true;
-            const shouldUnlock = inDeadZone || triggerReleased;
-            if (shouldUnlock) {
-              controllerOffsetLocked[slot] = false;
-              if (controllerUnlockTimeouts[slot]) {
-                clearTimeout(controllerUnlockTimeouts[slot]);
-                controllerUnlockTimeouts[slot] = null;
-              }
+            if (xrHands.hands[hand] && xrHands.hands[hand][tip]) {
+              // Make the SDF follow the hand tips
+              sdf.position.copy(xrHands.hands[hand][tip].position);
+              edit.add(sdf);
             } else {
-              return;
+              // Remove the SDF when the hand is not detected
+              edit.remove(sdf);
             }
           }
-          mesh.opacity = opacity;
-          mesh.visible = true;
-          const controller = mesh.parent;
-          const targetOffset = tempPreviewWorld.set(0, 0, 0);
-          if (!inDeadZone) {
-            const previewBasis = getBasisVectors(XR_INPUT.directionBasis.preview, controller);
-            targetOffset
-              .copy(previewBasis.forward)
-              .multiplyScalar(-curvedZ)
-              .addScaledVector(previewBasis.right, curvedX);
-          }
-          if (controller) {
-            const smoothing = controllerSmoothing[slot];
-            const smoothingFactor = 1 - Math.exp(-XR_INPUT.stickSmoothing * deltaTime);
-            smoothing.lerp(targetOffset, smoothingFactor);
-            controller.getWorldPosition(tempControllerPos);
-            tempPreviewWorld.copy(smoothing).add(tempControllerPos);
-            controller.worldToLocal(tempPreviewWorld);
-            mesh.position.copy(tempPreviewWorld);
-          } else {
-            mesh.position.set(0, 0, 0);
-          }
-
-          const directionalSnapActive = XR_INPUT.triggerDirectionalMode && !inDeadZone && triggerActive && horizontalDominant;
-          const shouldMoveForward = !inDeadZone && triggerActive && (!XR_INPUT.triggerDirectionalMode || !horizontalDominant);
-          if (shouldMoveForward) {
-            const teleportBasis = getBasisVectors(XR_INPUT.directionBasis.teleport, controller);
-            controllerOffset
-              .copy(teleportBasis.forward)
-              .multiplyScalar(-curvedZ)
-              .addScaledVector(teleportBasis.right, curvedX);
-            localFrame.position.add(controllerOffset);
-            mesh.position.set(0, 0, 0);
-            mesh.opacity = joystickHelper.minOpacity;
-            controllerOffsetLocked[slot] = true;
-            clearTimeout(controllerUnlockTimeouts[slot]);
-             controllerUnlockTimeouts[slot] = setTimeout(() => {
-              controllerOffsetLocked[slot] = false;
-              controllerUnlockTimeouts[slot] = null;
-            }, XR_INPUT.stickResetMs);
-          }
-          
-          const stickButton = gamepad.buttons?.[3];
-          const snapInputAvailable = XR_INPUT.triggerDirectionalMode || !!stickButton;
-          if (XR_INPUT.snapTurn.enabled && snapInputAvailable) {
-            const magnitude = absX;
-            const snapActivation = XR_INPUT.triggerDirectionalMode
-              ? directionalSnapActive
-              : Boolean(stickButton && stickButton.pressed);
-            if (snapActivation) {
-              if (!controllerSnapActive[slot] && magnitude > XR_INPUT.snapTurn.threshold) {
-                // Map threshold..(1-threshold) to 0..1
-                const t = (magnitude - XR_INPUT.snapTurn.threshold) / (1 - 2.0 * XR_INPUT.snapTurn.threshold);
-                const snapDegrees = XR_INPUT.snapTurn.maxDegrees * Math.sign(x) * Math.max(0, Math.min(1, t));
-
-                camera.getWorldPosition(tempCameraPos);
-                const parent = localFrame.parent;
-                const pivotParentBefore = tempPreviewWorld.copy(tempCameraPos);
-                if (parent) {
-                  parent.worldToLocal(pivotParentBefore);
-                }
-                const deltaRadians = degreesToRadians(snapDegrees);
-                const eulers = new THREE.Euler().setFromQuaternion(
-                  localFrame.quaternion,
-                  "YXZ",
-                );
-                const beforeRotation = eulers.y;
-                eulers.y -= deltaRadians;
-                const afterRotation = eulers.y;
-                localFrame.quaternion.setFromEuler(eulers);
-                localFrame.updateMatrixWorld(true);
-                const snapQuat = tempCameraQuat.setFromAxisAngle(tempUp, -deltaRadians);
-                controllerSmoothing.forEach((smoothing) => {
-                  smoothing.applyQuaternion(snapQuat);
-                });
-                camera.getWorldPosition(tempCameraPos);
-                const pivotParentAfter = tempControllerPos.copy(tempCameraPos);
-                if (parent) {
-                  parent.worldToLocal(pivotParentAfter);
-                }
-                pivotParentBefore.sub(pivotParentAfter);
-                localFrame.position.add(pivotParentBefore);
-                localFrame.updateMatrixWorld(true);
-                camera.getWorldQuaternion(tempCameraQuat);
-                tempForward.set(0, 0, -1).applyQuaternion(tempCameraQuat).normalize();
-                tempRight.set(1, 0, 0).applyQuaternion(tempCameraQuat).normalize();
-
-                // const DEBUG_DURATION_MS = 1000;
-                // const debug = `rotation.y: ${beforeRotation.toFixed(3)} => ${afterRotation.toFixed(3)}, x=${x.toFixed(3)}, magnitude=${magnitude.toFixed(3)}, snapDegrees=${snapDegrees.toFixed(3)}`;
-                // const debugSplats = textSplats({ text: debug, objectScale: 0.001 });
-                // // debugSplats.rotation.y = 2.0 * Math.PI;
-                // controllerNodes[slot].add(debugSplats);
-
-                // animations.push({
-                //   start: performance.now(),
-                //   animate: (elapsedMs) => {
-                //     debugSplats.position.y = 0.00002 * elapsedMs;
-                //     return elapsedMs < DEBUG_DURATION_MS;
-                //   },
-                //   dispose: () => {
-                //     controllerNodes[slot].remove(debugSplats);
-                //     debugSplats.dispose();
-                //   },
-                // });
-                controllerSnapActive[slot] = true;
-              }
-            } else {
-              controllerSnapActive[slot] = false;
-            }
-          }
-        });
-      }
-
-      const now = performance.now();
-      const dir = localFrame.getWorldDirection(new THREE.Vector3());
-      if ((localFrame.position.distanceTo(lastPos) > 0.0001) || (dir.dot(lastDir) < 0.9999)) {
-        lastMoved = now;
-        if (!renderEnabled) {
-          console.log("Render enabled");
         }
-        renderEnabled = true;
-        lastPos.copy(localFrame.position);
-        lastDir.copy(dir);
-      }
-      if ((now - lastMoved) > RENDER_TIMEOUT_MS) {
-        if (renderEnabled) {
-          console.log("Render disabled");
-        }
-        renderEnabled = false;
       }
 
-      animations = animations.filter((debug) => {
-        const now = performance.now();
-        const keep = debug.animate(now - debug.start);
-        if (!keep) {
-          debug.dispose();
-        }
-        return keep;
-      });
-
-      if (renderEnabled) {
-        renderer.render(scene, camera);
-      }
-
-      stats.end();
+      renderer.render(scene, camera);
     });
   </script>
 </body>
