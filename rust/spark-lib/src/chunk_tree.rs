@@ -645,5 +645,5 @@ pub fn chunk_tree_morton<TA: TsplatArray>(splats: &mut TA, root: usize, logger: 
 }
 
 pub fn chunk_tree<TA: TsplatArray>(splats: &mut TA, root: usize, logger: impl Fn(&str)) {
-    chunk_tree_morton(splats, root, logger);
+    chunk_tree_size(splats, root, logger);
 }
