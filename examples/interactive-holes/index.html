@@ -43,7 +43,7 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { SplatMesh, dyno, SparkControls, SplatEdit, SplatEditSdf, SplatEditSdfType, SplatEditRgbaBlendMode } from "@sparkjsdev/spark";
+    import { SplatMesh, NewSparkRenderer, dyno, SparkControls, SplatEdit, SplatEditSdf, SplatEditSdfType, SplatEditRgbaBlendMode } from "@sparkjsdev/spark";
     import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
     import { GUI } from "lil-gui";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
@@ -57,6 +57,9 @@
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
+    
+    const spark = new NewSparkRenderer({ renderer });
+    scene.add(spark);
 
     window.addEventListener('resize', () => {
       camera.aspect = window.innerWidth / window.innerHeight;

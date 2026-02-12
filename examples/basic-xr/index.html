@@ -110,9 +110,7 @@
 
     const gui = new GUI({ title: "Settings" });
     gui.add({ disableRender: () => { renderEnabled = false; } }, "disableRender").name("Disable render");
-    gui.add(spark, "lodSplatScale", 0.001, 2.0, 0.001).onChange((value) => {
-      spark2.lodSplatScale = value;
-    });
+    gui.add(spark, "lodSplatScale", 0.001, 2.0, 0.001);
 
     document.addEventListener("keydown", (event) => {
       if (event.key === "\\") {
