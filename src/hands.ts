@@ -238,6 +238,9 @@ export class XrHands {
 
     const mesh = new SplatMesh({
       onFrame: () => {
+        if (!mesh.packedSplats) {
+          return;
+        }
         let splatIndex = 0;
         for (const handedness of HANDS) {
           const xrHand = this.hands[handedness];
