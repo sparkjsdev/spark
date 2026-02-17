@@ -294,8 +294,8 @@ export function mapFilterObject(
 
 // Recursively finds all ArrayBuffers in an object and returns them as an array
 // to use as transferable objects to send between workers.
-export function getArrayBuffers(ctx: unknown): Transferable[] {
-  const buffers: ArrayBuffer[] = [];
+export function getTransferable(ctx: unknown): Transferable[] {
+  const buffers: Transferable[] = [];
   const seen = new Set();
 
   function traverse(obj: unknown) {
@@ -303,6 +303,11 @@ export function getArrayBuffers(ctx: unknown): Transferable[] {
       seen.add(obj);
 
       if (obj instanceof ArrayBuffer) {
+        buffers.push(obj);
+      } else if (
+        obj instanceof ReadableStream ||
+        obj instanceof WritableStream
+      ) {
         buffers.push(obj);
       } else if (ArrayBuffer.isView(obj)) {
         // Handles TypedArrays and DataView

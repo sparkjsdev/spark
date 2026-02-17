@@ -58,6 +58,10 @@ export type SplatMeshOptions = {
   fileType?: SplatFileType;
   // File name to use for type detection. (default: undefined)
   fileName?: string;
+  // Stream to read the Gaussian splat file from. (default: undefined)
+  stream?: ReadableStream;
+  // Length of the stream in bytes. (default: undefined)
+  streamLength?: number;
   // Use an existing PackedSplats object as the source instead of loading from
   // a file. Can be used to share a collection of Gsplats among multiple SplatMeshes
   // (default: undefined creates a new empty PackedSplats or decoded from a
@@ -113,8 +117,9 @@ export type SplatMeshOptions = {
   // LoD it will use the "quick lod" algorithm to generate one on-the-fly with
   // the selected LoD level base. (default: undefined=false)
   lod?: boolean | number;
+  lodAbove?: number;
   // Keep the original PackedSplats data before creating LoD version. (default: false)
-  nonLod?: boolean | "wait";
+  nonLod?: boolean;
   // Force enable/disable LoD (default: enabled iff packedSplats.lodSplats is not null)
   enableLod?: boolean;
   // LoD scale to apply @default 1.0
@@ -221,6 +226,7 @@ export class SplatMesh extends SplatGenerator {
   extSplats?: ExtSplats;
   covSplats: boolean;
   splats?: SplatSource;
+  lastSplats?: SplatSource;
   paged?: PagedSplats;
 
   // A THREE.Color that can be used to tint all splats in the mesh.
@@ -238,6 +244,7 @@ export class SplatMesh extends SplatGenerator {
     time,
     deltaTime,
   }: { mesh: SplatMesh; time: number; deltaTime: number }) => void;
+  generatorDirty = true;
 
   objectModifiers?: GsplatModifier[];
   worldModifiers?: GsplatModifier[];
@@ -348,6 +355,9 @@ export class SplatMesh extends SplatGenerator {
     };
 
     this.covSplats = options.covSplats ?? false;
+    if (this.covSplats && !this.extSplats) {
+      throw new Error("CovSplats requires ExtSplats");
+    }
 
     this.objectModifiers = options.objectModifier
       ? [options.objectModifier]
@@ -376,6 +386,7 @@ export class SplatMesh extends SplatGenerator {
     if (
       options.url ||
       options.fileBytes ||
+      options.stream ||
       options.constructSplats ||
       (options.packedSplats && !options.packedSplats.isInitialized) ||
       (this.extSplats && !this.extSplats.isInitialized)
@@ -414,33 +425,39 @@ export class SplatMesh extends SplatGenerator {
       fileBytes,
       fileType,
       fileName,
+      stream,
+      streamLength,
       maxSplats,
       constructSplats,
       onProgress,
       splatEncoding,
       lod,
       nonLod,
+      lodAbove,
     } = options;
     if (this.packedSplats) {
-      if (url || fileBytes || constructSplats) {
+      if (url || fileBytes || stream || constructSplats) {
         const packedSplatsOptions = {
           url,
           fileBytes,
           fileType,
           fileName,
+          stream,
+          streamLength,
           maxSplats,
           construct: constructSplats,
           onProgress,
           splatEncoding,
           lod,
           nonLod,
+          lodAbove,
         };
         this.packedSplats.reinitialize(packedSplatsOptions);
       }
       await this.packedSplats.initialized;
       this.splats = this.packedSplats;
     } else if (this.extSplats) {
-      if (url || fileBytes || constructSplats) {
+      if (url || fileBytes || stream || constructSplats) {
         const construct = constructSplats as
           | ((splats: ExtSplats) => Promise<void>)
           | undefined;
@@ -449,11 +466,14 @@ export class SplatMesh extends SplatGenerator {
           fileBytes,
           fileType,
           fileName,
+          stream,
+          streamLength,
           maxSplats,
           construct,
           onProgress,
           lod,
           nonLod,
+          lodAbove,
         });
         await this.extSplats.initialized;
         this.splats = this.extSplats;
@@ -621,7 +641,10 @@ export class SplatMesh extends SplatGenerator {
   }
 
   private constructGenerator(context: SplatMeshContext) {
-    // console.log("SplatMesh.constructGenerator");
+    if (this.covSplats) {
+      return this.constructCovGenerator(context);
+    }
+
     const { transform, viewToObject, recolor } = context;
     const generator = dynoBlock(
       { index: "int" },
@@ -785,17 +808,7 @@ export class SplatMesh extends SplatGenerator {
   // Compiled generators are cached for efficiency and re-use when the same
   // pipeline structure emerges after successive changes.
   updateGenerator() {
-    // console.log("SplatMesh.updateGenerator", this.uuid, this);
-    const splats = this.splats ?? this.packedSplats ?? this.extSplats;
-    if (splats) {
-      this.context.splats = splats;
-    }
-
-    if (this.covSplats) {
-      this.constructCovGenerator(this.context);
-    } else {
-      this.constructGenerator(this.context);
-    }
+    this.generatorDirty = true;
   }
 
   // This is called automatically by SparkRenderer and you should not have to
@@ -932,13 +945,13 @@ export class SplatMesh extends SplatGenerator {
         maxEdits: edits,
         maxSdfs: sdfs,
       });
-      this.updateGenerator();
+      this.generatorDirty = true;
     }
     if (this.rgbaDisplaceEdits) {
       const editResult = this.rgbaDisplaceEdits.update(editsSdfs);
       updated ||= editResult.updated;
       if (editResult.dynoUpdated) {
-        this.updateGenerator();
+        this.generatorDirty = true;
       }
     }
 
@@ -955,6 +968,17 @@ export class SplatMesh extends SplatGenerator {
     }
 
     this.context.numSplats.value = this.numSplats;
+
+    if (this.context.splats !== this.lastSplats) {
+      this.lastSplats = this.context.splats;
+      this.generatorDirty = true;
+    }
+
+    if (this.generatorDirty) {
+      this.constructGenerator(this.context);
+      this.generatorDirty = false;
+      updated = true;
+    }
 
     if (updated) {
       this.updateVersion();

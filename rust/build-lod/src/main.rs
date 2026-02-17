@@ -124,12 +124,20 @@ fn process_file_lod_tsplat<TS: SplatReceiver + TsplatArray + SplatGetter>(filena
         }
     }
 
+    let mut zero_opacity = 0;
+    let mut zero_scale = 0;
+    let mut invalid_quat = 0;
+
     splats.retain(|splat| {
+        zero_opacity += if splat.opacity() > 0.0 { 0 } else { 1 };
+        zero_scale += if splat.max_scale() > 0.0 { 0 } else { 1 };
+        invalid_quat += if splat.quaternion().is_finite() && splat.quaternion().length() > 0.0 { 0 } else { 1 };
         (splat.opacity() > 0.0) && (splat.max_scale() > 0.0) &&
         (splat.quaternion().is_finite() && splat.quaternion().length() > 0.0)
     });
 
     if input_splat_count != splats.len() {
+        println!("zero_opacity: {}, zero_scale: {}, invalid_quat: {}", zero_opacity, zero_scale, invalid_quat);
         println!("Removed {} empty splats, remaining splats.len={}", input_splat_count - splats.len(), splats.len());
         description.insert("empty_splat_count".to_string(), serde_json::Value::Number((input_splat_count - splats.len()).into()));
         description.insert("initial_splat_count".to_string(), serde_json::Value::Number(splats.len().into()));
@@ -209,6 +217,9 @@ fn process_file_lod_tsplat<TS: SplatReceiver + TsplatArray + SplatGetter>(filena
     let lod_duration = start_time.elapsed();
     description.insert("lod_duration".to_string(), serde_json::Number::from_f64(lod_duration.as_secs_f64()).into());
 
+    let final_splat_count = splats.len();
+    description.insert("final_splat_count".to_string(), serde_json::Value::Number(final_splat_count.into()));
+
     let start_time = std::time::Instant::now();
 
     chunk_tree::chunk_tree(&mut splats, 0, |s| println!("{}", s));
@@ -267,6 +278,7 @@ fn process_file_lod_tsplat<TS: SplatReceiver + TsplatArray + SplatGetter>(filena
             }
 
             let comment = serde_json::to_string_pretty(&description).unwrap();
+            println!("Comment: {}", comment);
             let mut encoder = encoder.with_comment(comment);
             
             let filename_ext = format!("{}.rad", output_filename);
@@ -353,7 +365,7 @@ fn main() {
             if let Some(rest) = rest.strip_prefix("=") {
                 match rest.parse::<f32>() {
                     Ok(base) => {
-                        let base = base.clamp(1.1, 2.0);
+                        let base = base.clamp(1.1, 16.0);
                         println!("Using --tiny-lod with base {}", base);
                         options.method = BuildLodMethod::TinyLod { lod_base: base };
                     }
@@ -372,7 +384,7 @@ fn main() {
             if let Some(rest) = rest.strip_prefix("=") {
                 match rest.parse::<f32>() {
                     Ok(base) => {
-                        let base = base.clamp(1.1, 2.0);
+                        let base = base.clamp(1.1, 16.0);
                         println!("Using --bhatt-lod with base {}", base);
                         options.method = BuildLodMethod::BhattLod { lod_base: base };
                     }

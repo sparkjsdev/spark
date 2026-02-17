@@ -110,6 +110,13 @@ pub trait TsplatArray {
             splat.set_rgb(rgb);
         }
     }
+
+    fn remove_invalid(&mut self) {
+        self.retain(|splat| {
+            splat.opacity() > 0.0 && splat.max_scale() > 0.0 &&
+            splat.quaternion().is_finite() && splat.quaternion().length() > 0.0
+        });
+    }
 }
 
 pub fn ellipsoid_area(scales: Vec3A) -> f32 {

@@ -1,5 +1,5 @@
 import BundledWorker from "./oldWorker?worker&inline";
-import { getArrayBuffers } from "./utils.js";
+import { getTransferable } from "./utils.js";
 
 // SplatWorker is an internal class that manages a WebWorker for executing
 // longer running CPU tasks such as Gsplat file decoding and sorting.
@@ -60,7 +60,7 @@ export class OldSplatWorker {
     // console.log(`SplatWorker.call(${name}):`, args);
     this.worker.postMessage(
       { name, args, id },
-      { transfer: getArrayBuffers(args) },
+      { transfer: getTransferable(args) },
     );
     return promise;
   }
