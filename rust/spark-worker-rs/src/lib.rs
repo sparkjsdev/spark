@@ -182,11 +182,19 @@ impl GsplatArray {
     // }
 
     pub fn tiny_lod(&mut self, lod_base: f32, merge_filter: bool) {
-        spark_lib::tiny_lod::compute_lod_tree(&mut self.inner, lod_base, merge_filter, |s| web_sys::console::log_1(&JsValue::from(s)));
+        // let log = |s: &str| web_sys::console::log_1(&JsValue::from(s));
+        let log = |_s: &str| {};
+        self.inner.remove_invalid();
+        spark_lib::tiny_lod::compute_lod_tree(&mut self.inner, lod_base, merge_filter, log);
+        spark_lib::chunk_tree::chunk_tree(&mut self.inner, 0, log);
     }
 
     pub fn bhatt_lod(&mut self, lod_base: f32) {
-        spark_lib::bhatt_lod::compute_lod_tree(&mut self.inner, lod_base, |s| web_sys::console::log_1(&JsValue::from(s)));
+        // let log = |s: &str| web_sys::console::log_1(&JsValue::from(s));
+        let log = |_s: &str| {};
+        self.inner.remove_invalid();
+        spark_lib::bhatt_lod::compute_lod_tree(&mut self.inner, lod_base, log);
+        spark_lib::chunk_tree::chunk_tree(&mut self.inner, 0, log);
     }
 
     pub fn to_packedsplats(&self, encoding: JsValue) -> Result<Object, JsValue> {
@@ -302,11 +310,19 @@ impl CsplatArray {
     }
 
     pub fn tiny_lod(&mut self, lod_base: f32, merge_filter: bool) {
-        spark_lib::tiny_lod::compute_lod_tree(&mut self.inner, lod_base, merge_filter, |s| web_sys::console::log_1(&JsValue::from(s)));
+        // let log = |s: &str| web_sys::console::log_1(&JsValue::from(s));
+        let log = |_s: &str| {};
+        self.inner.remove_invalid();
+        spark_lib::tiny_lod::compute_lod_tree(&mut self.inner, lod_base, merge_filter, log);
+        spark_lib::chunk_tree::chunk_tree(&mut self.inner, 0, log);
     }
 
     pub fn bhatt_lod(&mut self, lod_base: f32) {
-        spark_lib::bhatt_lod::compute_lod_tree(&mut self.inner, lod_base, |s| web_sys::console::log_1(&JsValue::from(s)));
+        let log = |s: &str| web_sys::console::log_1(&JsValue::from(s));
+        // let log = |_s: &str| {};
+        self.inner.remove_invalid();
+        spark_lib::bhatt_lod::compute_lod_tree(&mut self.inner, lod_base, log);
+        spark_lib::chunk_tree::chunk_tree(&mut self.inner, 0, log);
     }
 
     pub fn to_packedsplats(&self) -> Result<Object, JsValue> {
@@ -409,6 +425,7 @@ pub fn tiny_lod_packedsplats(num_splats: u32, packed: Uint32Array, extra: Option
     if let Some(rgba) = rgba {
         gs.inject_rgba8(rgba);
     }
+    gs.inner.remove_invalid();
     gs.tiny_lod(lod_base, merge_filter);
     gs.to_packedsplats_lod()
 }
@@ -419,6 +436,7 @@ pub fn bhatt_lod_packedsplats(num_splats: u32, packed: Uint32Array, extra: Optio
     if let Some(rgba) = rgba {
         gs.inject_rgba8(rgba);
     }
+    gs.inner.remove_invalid();
     gs.bhatt_lod(lod_base);
     gs.to_packedsplats_lod()
 }
@@ -429,6 +447,7 @@ pub fn tiny_lod_extsplats(num_splats: u32, ext1: Uint32Array, ext2: Uint32Array,
     if let Some(rgba) = rgba {
         gs.inject_rgba8(rgba);
     }
+    gs.inner.remove_invalid();
     gs.tiny_lod(lod_base, merge_filter);
     gs.to_extsplats_lod()
 }
@@ -439,6 +458,7 @@ pub fn bhatt_lod_extsplats(num_splats: u32, ext1: Uint32Array, ext2: Uint32Array
     if let Some(rgba) = rgba {
         gs.inject_rgba8(rgba);
     }
+    gs.inner.remove_invalid();
     gs.bhatt_lod(lod_base);
     gs.to_extsplats_lod()
 }

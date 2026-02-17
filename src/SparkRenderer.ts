@@ -351,6 +351,7 @@ export class SparkRenderer extends THREE.Mesh {
     lodTreeData?: Uint32Array;
   }[] = [];
   lastTraverseTime = 0;
+  lastPixelLimit?: number;
 
   pager?: SplatPager;
   pagerId = 0;
@@ -1235,11 +1236,12 @@ export class SparkRenderer extends THREE.Mesh {
     // console.log("instances", instances);
 
     const traverseStart = performance.now();
-    const { keyIndices, chunks, pixelRatio } = (await worker.call(
+    const { keyIndices, chunks, pixelLimit } = (await worker.call(
       "traverseLodTrees",
       {
         maxSplats,
         pixelScaleLimit,
+        lastPixelLimit: this.lastPixelLimit,
         fovXdegrees,
         fovYdegrees,
         instances,
@@ -1250,11 +1252,16 @@ export class SparkRenderer extends THREE.Mesh {
         { lodId: number; numSplats: number; indices: Uint32Array }
       >;
       chunks: [number, number][];
-      pixelRatio?: number;
+      pixelLimit?: number;
     };
     this.lastTraverseTime = performance.now() - traverseStart;
+    this.lastPixelLimit = pixelLimit;
+    const totalLodSplats = Object.values(keyIndices).reduce(
+      (sum, { numSplats }) => sum + numSplats,
+      0,
+    );
     // console.log(
-    //   `traverseLodTrees in ${this.lastTraverseTime} ms, pixelRatio=${pixelRatio}`,
+    //   `traverseLodTrees in ${this.lastTraverseTime} ms, pixelLimit=${pixelLimit}, totalLodSplats=${totalLodSplats}`,
     // );
 
     this.updateLodIndices(uuidToMesh, keyIndices);
@@ -1782,7 +1789,6 @@ export class SparkRenderer extends THREE.Mesh {
     // Pre-filter the cube map using THREE.PMREMGenerator if requested
     if (!SparkRenderer.pmrem) {
       SparkRenderer.pmrem = new THREE.PMREMGenerator(this.renderer);
-      console.log("Created PMREMGenerator");
     }
 
     return SparkRenderer.pmrem?.fromCubemap(cubeTexture).texture;

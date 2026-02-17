@@ -39,6 +39,10 @@ export type ExtSplatsOptions = {
   fileType?: SplatFileType;
   // File name to use for type detection. (default: undefined)
   fileName?: string;
+  // Stream to read the Gaussian splat file from. (default: undefined)
+  stream?: ReadableStream;
+  // Length of the stream in bytes. (default: undefined)
+  streamLength?: number;
   // Reserve space for at least this many splats when constructing the collection
   // initially. The array will automatically resize past maxSplats so setting it is
   // an optional optimization. (default: 0)
@@ -62,7 +66,8 @@ export type ExtSplatsOptions = {
   // the selected LoD level base. (default: undefined=false)
   lod?: boolean | number;
   // Keep the original PackedSplats data before creating LoD version. (default: false)
-  nonLod?: boolean | "wait";
+  nonLod?: boolean;
+  lodAbove?: number;
   // The LoD version of the ExtSplats
   lodSplats?: ExtSplats;
 };
@@ -74,7 +79,7 @@ export class ExtSplats implements SplatSource {
   extra: Record<string, unknown> = {};
   maxSh = 3;
   lod?: boolean | number;
-  nonLod?: boolean | "wait";
+  nonLod?: boolean;
   lodSplats?: ExtSplats;
 
   initialized: Promise<ExtSplats>;
@@ -114,7 +119,12 @@ export class ExtSplats implements SplatSource {
     this.lod = options.lod;
     this.nonLod = options.nonLod;
 
-    if (options.url || options.fileBytes || options.construct) {
+    if (
+      options.url ||
+      options.fileBytes ||
+      options.stream ||
+      options.construct
+    ) {
       // We need to initialize asynchronously given the options
       this.initialized = this.asyncInitialize(options).then(() => {
         this.isInitialized = true;
@@ -156,20 +166,33 @@ export class ExtSplats implements SplatSource {
   }
 
   async asyncInitialize(options: ExtSplatsOptions) {
-    const { url, fileBytes, fileType, fileName, construct, lod, nonLod } =
-      options;
+    const {
+      url,
+      fileBytes,
+      fileType,
+      fileName,
+      stream,
+      streamLength,
+      construct,
+      lod,
+      nonLod,
+      lodAbove,
+    } = options;
     this.lod = lod;
     this.nonLod = nonLod;
 
     const loader = new SplatLoader();
-    if (fileBytes || url) {
+    if (fileBytes || url || stream) {
       await loader.loadInternalAsync({
         extSplats: this,
         url,
         fileBytes,
         fileType,
         fileName,
+        stream,
+        streamLength,
         onProgress: options.onProgress,
+        lodAbove,
       });
     }
 
@@ -668,7 +691,6 @@ export class ExtSplats implements SplatSource {
         extra: Record<string, unknown>;
       };
     });
-    // console.log("=> createLodSplats: decoded =", decoded);
 
     const lodSplats = new ExtSplats(decoded);
     if (this.lodSplats) {

@@ -11,7 +11,7 @@ import {
   encodeSh1Rgb,
   encodeSh2Rgb,
   encodeSh3Rgb,
-  getArrayBuffers,
+  getTransferable,
   setPackedSplat,
   setPackedSplatCenter,
   setPackedSplatOpacity,
@@ -216,7 +216,7 @@ async function onMessage(event: MessageEvent) {
   // Send the result or error back to the main thread, making sure to transfer any ArrayBuffers
   self.postMessage(
     { id, result, error },
-    { transfer: getArrayBuffers(result) },
+    { transfer: getTransferable(result) },
   );
 }
 
