@@ -758,7 +758,13 @@ export class SparkRenderer extends THREE.Mesh {
       // Should never happen
       throw new Error("No next accumulator");
     }
-    const { version, visibleGenerators, generate, readback } =
+    if (next === this.current) {
+      // Should never happen
+      throw new Error(
+        "Next accumulator is the same as the current accumulator",
+      );
+    }
+    const { version, mappingVersion, visibleGenerators, generate, readback } =
       next.prepareGenerate({
         renderer,
         scene,
@@ -770,43 +776,51 @@ export class SparkRenderer extends THREE.Mesh {
         lodInstances: this.enableLod ? this.lodInstances : undefined,
       });
 
+    let doUpdate = true;
+    const needsUpdate = viewChanged || version !== this.current.version;
+    const mappingUpdated = mappingVersion !== this.current.mappingVersion;
+
+    if (autoUpdate && !needsUpdate) {
+      // Triggered by auto-update but no change
+      doUpdate = false;
+    }
+
+    if (mappingUpdated && this.sorting) {
+      // We need to be able to sort the splats because the mapping has changed.
+      // Try again next time around.
+      doUpdate = false;
+    }
+
+    if (!doUpdate) {
+      // Restore unused accumulator to the free list
+      this.accumulators.push(next);
+    } else {
+      generate();
+
+      if (this.flushAfterGenerate) {
+        const gl = renderer.getContext() as WebGL2RenderingContext;
+        gl.flush();
+      }
+
+      if (this.display.mappingVersion === next.mappingVersion) {
+        // Same splat mapping so let's display it immediately and
+        // reuse the sort order
+        this.accumulators.push(this.display);
+        this.display = next;
+      } else {
+        if (this.display !== this.current) {
+          // The previous current is not being displayed, so replace it
+          this.accumulators.push(this.current);
+        }
+      }
+
+      this.current = next;
+      this.sortDirty = true;
+    }
+
     if (this.enableDriveLod) {
       this.driveLod({ visibleGenerators, camera, scene });
     }
-    this.driveSort();
-
-    const needsUpdate = viewChanged || version !== this.current.version;
-
-    if (autoUpdate && !needsUpdate) {
-      // Triggered by auto-update but no change, so exit early
-      this.accumulators.push(next);
-      return null;
-    }
-
-    if (needsUpdate && this.sorting) {
-      this.accumulators.push(next);
-      return null;
-    }
-
-    generate();
-
-    if (this.flushAfterGenerate) {
-      const gl = renderer.getContext() as WebGL2RenderingContext;
-      gl.flush();
-    }
-
-    if (this.display.mappingVersion === next.mappingVersion) {
-      this.accumulators.push(this.display);
-      this.display = next;
-    } else {
-      if (this.display !== this.current) {
-        this.accumulators.push(this.current);
-      }
-    }
-
-    this.current = next;
-    this.sortDirty = true;
-
     await this.driveSort();
   }
 
@@ -940,9 +954,11 @@ export class SparkRenderer extends THREE.Mesh {
 
     // console.log(`Sorted (${this.minSortIntervalMs}) ${numSplats} splats in ${(performance.now() - now).toFixed(0)} ms`);
 
-    if (this.display.mappingVersion !== current.mappingVersion) {
-      this.accumulators.push(this.display);
-      this.display = this.current;
+    if (this.current.mappingVersion === current.mappingVersion) {
+      if (this.current.mappingVersion !== this.display.mappingVersion) {
+        this.accumulators.push(this.display);
+        this.display = this.current;
+      }
     }
     this.sorting = false;
 
@@ -956,7 +972,7 @@ export class SparkRenderer extends THREE.Mesh {
     return this.lodWorker;
   }
 
-  private async driveLod({
+  private driveLod({
     visibleGenerators,
     camera: inputCamera,
     scene,
