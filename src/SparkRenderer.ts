@@ -785,7 +785,7 @@ export class SparkRenderer extends THREE.Mesh {
       doUpdate = false;
     }
 
-    if (mappingUpdated && this.sorting) {
+    if (needsUpdate && this.sorting) {
       // We need to be able to sort the splats because the mapping has changed.
       // Try again next time around.
       doUpdate = false;
