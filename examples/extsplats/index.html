@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark • ExtSplats</title>
+  <style>
+    body {
+      margin: 0;
+      background-color: black;
+    }
+    canvas {
+      touch-action: none;
+    }
+  </style>
+</head>
+
+<body>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/examples/js/vendor/three/build/three.module.js",
+        "@sparkjsdev/spark": "/dist/spark.module.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { SparkRenderer, SplatMesh, SparkControls, dyno } from "@sparkjsdev/spark";
+    import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 1000);
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+    window.addEventListener('resize', onWindowResize, false);
+
+    const spark = new SparkRenderer({ renderer });
+    scene.add(spark);
+
+    // Splats in file are positioned 1000 units away, bring them toward the camera.
+    // PackedSplats stores positions as float16, which has only 10 bits of mantissa
+    // (approx 1/1000 relative precision), while ExtSplats stores float32 positions,
+    // with 24 bits of mantissa (approx 1/16M relative precision).
+    const group = new THREE.Group();
+    group.position.set(0, 0, 1000);
+    scene.add(group);
+
+    function makeSplats(url, position, options) {
+      const splats = new SplatMesh({ url, ...options });
+      splats.position.set(...position);
+      group.add(splats);
+    }
+
+    const url = await getAssetFileURL("distant-igloo.spz");
+    makeSplats(url, [0, -1.5, 0], { extSplats: false });
+    makeSplats(url, [0, 1.5, 0], { extSplats: true });
+
+    const controls = new SparkControls({ canvas: renderer.domElement });
+
+    renderer.setAnimationLoop(function animate(time) {
+      group.position.y = Math.sin(time / 1000) * 1.5;
+      controls.update(camera);
+      renderer.render(scene, camera);
+    });
+  </script>
+</body>
+
+</html>

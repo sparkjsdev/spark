@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark • Non-LoD + LoD</title>
+  <style>
+    body {
+      margin: 0;
+      background-color: black;
+    }
+    canvas {
+      touch-action: none;
+    }
+  </style>
+</head>
+
+<body>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/examples/js/vendor/three/build/three.module.js",
+        "lil-gui": "/examples/js/vendor/lil-gui/dist/lil-gui.esm.js",
+        "@sparkjsdev/spark": "/dist/spark.module.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { SparkRenderer, SplatMesh, SparkControls, dyno } from "@sparkjsdev/spark";
+    import GUI from "lil-gui";
+    import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 1000);
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+    window.addEventListener('resize', onWindowResize, false);
+
+    const spark = new SparkRenderer({
+      renderer,
+      // Limit to 100K LoD splats so we can clearly see individual splats
+      lodSplatCount: 100000,
+    });
+    scene.add(spark);
+
+    const allSplats = [];
+
+    function updateAllSplats() {
+      allSplats.forEach((splats) => splats.updateVersion());
+    }
+
+    const splatColoring = dyno.dynoBool(true);
+
+    function makeSplatIndexColoring() {
+      return dyno.dynoBlock({ gsplat: dyno.Gsplat }, { gsplat: dyno.Gsplat }, ({ gsplat }) => {
+        let { index, rgb } = dyno.splitGsplat(gsplat).outputs;
+        const debugRgb = dyno.debugColorHue(dyno.shr(index, dyno.dynoConst("int", 12)));
+        rgb = dyno.select(splatColoring, dyno.mul(debugRgb, rgb), rgb);
+        return { gsplat: dyno.combineGsplat({ gsplat, rgb }) };
+      });
+    }
+
+    function makeButterfly(url, position, options) {
+      const splats = new SplatMesh({ url, ...options });
+      splats.objectModifiers = [makeSplatIndexColoring()];
+      splats.updateGenerator();
+      splats.quaternion.set(1, 0, 0, 0);
+      splats.position.set(...position);
+      scene.add(splats);
+
+      allSplats.push(splats);
+      return splats;
+    }
+
+    const url = await getAssetFileURL("butterfly-ai.spz");
+    makeButterfly(url, [-1, 0, -1.5], { lod: false });
+    makeButterfly(url, [1, 0, -1.5], { lod: true });
+    
+    const nonLod = makeButterfly(url, [0, 0, -1.5], { lod: true, nonLod: true });
+    nonLod.enableLod = true;
+
+    const gui = new GUI({ title: "Settings" });
+    gui.add(nonLod, "enableLod").name("Enable LoD for non-LoD").onChange(updateAllSplats);
+    gui.add(spark, "lodSplatCount", 10000, 250000, 10000).name("LoD splat count");
+    gui.add(splatColoring, "value").name("Splat index coloring").onChange(updateAllSplats);
+
+    const controls = new SparkControls({ canvas: renderer.domElement });
+
+    renderer.setAnimationLoop(function animate(time) {
+      controls.update(camera);
+      renderer.render(scene, camera);
+    });
+  </script>
+</body>
+
+</html>

@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark • LoD-on-demand</title>
+  <style>
+    body {
+      margin: 0;
+      background-color: black;
+    }
+    canvas {
+      touch-action: none;
+    }
+    #overlay {
+      position: fixed;
+      margin: 12px;
+      color: white;
+      display: none;
+    }
+  </style>
+</head>
+
+<body>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/examples/js/vendor/three/build/three.module.js",
+        "lil-gui": "/examples/js/vendor/lil-gui/dist/lil-gui.esm.js",
+        "@sparkjsdev/spark": "/dist/spark.module.js"
+      }
+    }
+  </script>
+  <h2 id="overlay">Creating LoD splats...</h2>
+  <script type="module">
+    import * as THREE from "three";
+    import { SparkRenderer, SplatMesh, SparkControls, RgbaArray, dyno } from "@sparkjsdev/spark";
+    import GUI from "lil-gui";
+    import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 1000);
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+    window.addEventListener('resize', onWindowResize, false);
+
+    const spark = new SparkRenderer({
+      renderer,
+      // Limit to 50K LoD splats so we can clearly see individual splats
+      lodSplatCount: 50000,
+    });
+    scene.add(spark);
+
+    const url = await getAssetFileURL("woobles.spz");
+    const splats = new SplatMesh({ url });
+    splats.quaternion.set(1, 0, 0, 0);
+    splats.position.set(0, -0.5, -2);
+    splats.enableLod = false;
+    scene.add(splats);
+
+    function newColors() {
+      const modulate = new THREE.Color(Math.random(), Math.random(), Math.random());
+      const array = new Uint8ClampedArray(splats.numSplats * 4);
+      splats.forEachSplat((index, center, scales, quaternion, opacity, color) => {
+        array[index * 4] = color.r * modulate.r * 255;
+        array[index * 4 + 1] = color.g * modulate.g * 255;
+        array[index * 4 + 2] = color.b * modulate.b * 255;
+        array[index * 4 + 3] = opacity * 255;
+      });
+      splats.splatRgba?.dispose();
+      splats.splatRgba = new RgbaArray({ array: new Uint8Array(array.buffer) });
+      splats.updateGenerator();
+    }
+
+    async function createLod() {
+      const overlay = document.getElementById("overlay");
+      if (overlay.style.display) {
+        return;
+      }
+      overlay.style.display = "block";
+      await splats.createLodSplats({ quality: false, rgbaArray: splats.splatRgba });
+      overlay.style.display = "";
+      splats.enableLod = true;
+    }
+
+    const gui = new GUI({ title: "Settings" });
+    const buttons = { newColors, createLod };
+    gui.add(buttons, "newColors").name("Change non-LoD splat colors");
+    gui.add(buttons, "createLod").name("Create LoD splats");
+    gui.add(splats, "enableLod").name("Show LoD splats").listen().onChange((enable) => {
+      if (enable && !splats.splats.lodSplats) {
+        splats.enableLod = false;
+        alert("Create LoD splats first!");
+      }
+    });
+    gui.add(spark, "lodSplatCount", 10000, 100000, 10000).name("LoD splat count");
+
+    const controls = new SparkControls({ canvas: renderer.domElement });
+
+    renderer.setAnimationLoop(function animate(time) {
+      controls.update(camera);
+      renderer.render(scene, camera);
+    });
+  </script>
+</body>
+
+</html>

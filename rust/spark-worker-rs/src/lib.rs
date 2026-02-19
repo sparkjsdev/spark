@@ -425,7 +425,6 @@ pub fn tiny_lod_packedsplats(num_splats: u32, packed: Uint32Array, extra: Option
     if let Some(rgba) = rgba {
         gs.inject_rgba8(rgba);
     }
-    gs.inner.remove_invalid();
     gs.tiny_lod(lod_base, merge_filter);
     gs.to_packedsplats_lod()
 }
@@ -436,7 +435,6 @@ pub fn bhatt_lod_packedsplats(num_splats: u32, packed: Uint32Array, extra: Optio
     if let Some(rgba) = rgba {
         gs.inject_rgba8(rgba);
     }
-    gs.inner.remove_invalid();
     gs.bhatt_lod(lod_base);
     gs.to_packedsplats_lod()
 }
@@ -447,7 +445,6 @@ pub fn tiny_lod_extsplats(num_splats: u32, ext1: Uint32Array, ext2: Uint32Array,
     if let Some(rgba) = rgba {
         gs.inject_rgba8(rgba);
     }
-    gs.inner.remove_invalid();
     gs.tiny_lod(lod_base, merge_filter);
     gs.to_extsplats_lod()
 }
@@ -458,7 +455,6 @@ pub fn bhatt_lod_extsplats(num_splats: u32, ext1: Uint32Array, ext2: Uint32Array
     if let Some(rgba) = rgba {
         gs.inject_rgba8(rgba);
     }
-    gs.inner.remove_invalid();
     gs.bhatt_lod(lod_base);
     gs.to_extsplats_lod()
 }

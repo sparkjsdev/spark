@@ -603,13 +603,15 @@ export class PointerControls {
           .add(this.sliding.last)
           .multiplyScalar(0.5);
         let midpointDir = new THREE.Vector3();
-        if (camera) {
+        const theCamera =
+          camera ?? (control instanceof THREE.Camera ? control : undefined);
+        if (theCamera) {
           const ndcMidpoint = new THREE.Vector2(
             (midpoint.x / this.canvas.clientWidth) * 2 - 1,
             -(midpoint.y / this.canvas.clientHeight) * 2 + 1,
           );
           const raycaster = new THREE.Raycaster();
-          raycaster.setFromCamera(ndcMidpoint, camera);
+          raycaster.setFromCamera(ndcMidpoint, theCamera);
           midpointDir = raycaster.ray.direction;
         }
         const pinchOut = motionDir[1] - motionDir[0];

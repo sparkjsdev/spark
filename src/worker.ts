@@ -568,7 +568,7 @@ async function tinyLodExtSplats({
     rgba,
   );
   const lodDuration = performance.now() - lodStart;
-  const result = toPackedResult(decoded as DecodedPackedResult);
+  const result = toExtResult(decoded as DecodedExtResult);
   console.log(
     `Tiny LoD: ${numSplats} -> ${result.numSplats} (${lodDuration} ms)`,
   );
@@ -668,7 +668,6 @@ function updateLodTrees({
     counts,
     lodTreeData,
   );
-  // console.log("updateLodTrees", result);
 }
 
 function traverseLodTrees({

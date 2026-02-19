@@ -20,6 +20,7 @@ export type Rgba8Readback = Dyno<{ index: "int" }, { rgba8: "vec4" }>;
 export type ReadbackBuffer =
   | ArrayBuffer
   | Uint8Array
+  | Uint8ClampedArray
   | Int8Array
   | Uint16Array
   | Int16Array

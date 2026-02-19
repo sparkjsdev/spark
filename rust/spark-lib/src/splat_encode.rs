@@ -432,7 +432,7 @@ pub fn decode_sh1_internal_words(words: [u32; 2], sh1_scale: f32) -> [f32; 9] {
         if bit_start + 7 > word_bit_start + 32 {
             val |= (words[word_start + 1] << (32 - bit_offset)) & 0x7f;
         }
-        let signed = (val as i32 - 64) as f32;
+        let signed = (((val as i32) << 25) >> 25) as f32;
         out[i] = signed / sh1_scale;
     }
     out
@@ -471,7 +471,7 @@ pub fn decode_sh3_internal_words(words: [u32; 4], sh3_scale: f32) -> [f32; 21] {
         if bit_start + 6 > word_bit_start + 32 {
             val |= (words[word_start + 1] << (32 - bit_offset)) & 0x3f;
         }
-        let signed = (val as i32 - 32) as f32;
+        let signed = (((val as i32) << 26) >> 26) as f32;
         out[i] = signed / sh3_scale;
     }
     out

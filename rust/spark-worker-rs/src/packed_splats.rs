@@ -93,7 +93,6 @@ impl PackedSplatsData {
                     data.sh3 = Some(Uint32Array::from(sh3));
                     data.max_sh_degree = 3;
                 }
-                data.max_sh_degree = 3;
             }
             if let Ok(lod_tree) = Reflect::get(extra, &JsValue::from_str("lodTree")) {
                 if !lod_tree.is_falsy() {
@@ -146,7 +145,7 @@ impl PackedSplatsData {
     }
 
     pub fn to_csplat_array(&mut self) -> anyhow::Result<CsplatArray> {
-        let mut out = CsplatArray::new();
+        let mut out = CsplatArray::new_encoding(Some(self.encoding.clone()));
         copy_getter_to_receiver(self, &mut out)?;
         Ok(out)
     }

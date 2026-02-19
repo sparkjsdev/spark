@@ -669,7 +669,7 @@ export class ExtSplats implements SplatSource {
           ? 1.75
           : 1.5;
     const extArrays = [this.extArrays[0].slice(), this.extArrays[1].slice()];
-    const rgba = rgbaArray ? (await rgbaArray.read()).slice() : undefined;
+    const rgba = rgbaArray ? (await rgbaArray.getArray()).slice() : undefined;
     const extra = {
       sh1: this.extra.sh1 ? (this.extra.sh1 as Uint32Array).slice() : undefined,
       sh2: this.extra.sh2 ? (this.extra.sh2 as Uint32Array).slice() : undefined,

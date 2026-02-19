@@ -478,7 +478,33 @@ impl SplatReceiver for CsplatArray {
         Ok(())
     }
 
-    fn set_encoding(&mut self, _encoding: &SetSplatEncoding) -> anyhow::Result<()> {
+    fn set_encoding(&mut self, encoding: &SetSplatEncoding) -> anyhow::Result<()> {
+        let mut current = self.encoding.clone().unwrap_or_default();
+        if let Some(rgb_min) = encoding.rgb_min {
+            current.rgb_min = rgb_min;
+        }
+        if let Some(rgb_max) = encoding.rgb_max {
+            current.rgb_max = rgb_max;
+        }
+        if let Some(ln_scale_min) = encoding.ln_scale_min {
+            current.ln_scale_min = ln_scale_min;
+        }
+        if let Some(ln_scale_max) = encoding.ln_scale_max {
+            current.ln_scale_max = ln_scale_max;
+        }
+        if let Some(sh1_max) = encoding.sh1_max {
+            current.sh1_max = sh1_max;
+        }
+        if let Some(sh2_max) = encoding.sh2_max {
+            current.sh2_max = sh2_max;
+        }
+        if let Some(sh3_max) = encoding.sh3_max {
+            current.sh3_max = sh3_max;
+        }
+        if let Some(lod_opacity) = encoding.lod_opacity {
+            current.lod_opacity = lod_opacity;
+        }
+        self.encoding = Some(current);
         Ok(())
     }
 

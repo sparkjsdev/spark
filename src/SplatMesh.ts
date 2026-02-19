@@ -1044,6 +1044,17 @@ export class SplatMesh extends SplatGenerator {
       });
     }
   }
+
+  async createLodSplats({
+    rgbaArray,
+    quality,
+  }: { rgbaArray?: RgbaArray; quality?: boolean } = {}) {
+    if (this.packedSplats) {
+      await this.packedSplats.createLodSplats({ quality, rgbaArray });
+    } else if (this.extSplats) {
+      await this.extSplats.createLodSplats({ quality, rgbaArray });
+    }
+  }
 }
 
 export function maybeLookupIndex(

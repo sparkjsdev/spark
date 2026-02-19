@@ -331,9 +331,15 @@ export class SparkRenderer extends THREE.Mesh {
   lodIdToSplats: Map<number, PackedSplats | ExtSplats | PagedSplats> =
     new Map();
   lodInitQueue: (PackedSplats | ExtSplats | PagedSplats)[] = [];
-  lodPos = new THREE.Vector3().setScalar(Number.NEGATIVE_INFINITY);
-  lodQuat = new THREE.Quaternion().set(0, 0, 0, 0);
-  lodTimestamp = 0;
+  lastLod?: {
+    pos: THREE.Vector3;
+    quat: THREE.Quaternion;
+    fovXdegrees: number;
+    fovYdegrees: number;
+    pixelScaleLimit: number;
+    maxSplats: number;
+    timestamp: number;
+  };
   lodInstances: Map<
     SplatMesh,
     {
@@ -981,6 +987,51 @@ export class SparkRenderer extends THREE.Mesh {
     camera: THREE.Camera;
     scene: THREE.Scene;
   }) {
+    inputCamera.updateMatrixWorld(true);
+    // Make a copy of the camera so it can't change underneath us
+    const camera = inputCamera.clone();
+
+    const defaultSplatCount = isOculus()
+      ? 500000
+      : isVisionPro()
+        ? 750000
+        : isAndroid()
+          ? 1000000
+          : isIos()
+            ? 1500000
+            : 2500000;
+    const splatCount = this.lodSplatCount ?? defaultSplatCount;
+    const maxSplats = splatCount * this.lodSplatScale;
+
+    let pixelScaleLimit = 0.0;
+    let fovXdegrees = Number.POSITIVE_INFINITY;
+    let fovYdegrees = Number.POSITIVE_INFINITY;
+    if (camera instanceof THREE.PerspectiveCamera) {
+      const tanYfov = Math.tan((0.5 * camera.fov * Math.PI) / 180);
+      pixelScaleLimit = (2.0 * tanYfov) / this.renderSize.y;
+      fovYdegrees = camera.fov;
+      fovXdegrees =
+        ((Math.atan(tanYfov * camera.aspect) * 180) / Math.PI) * 2.0;
+    }
+    pixelScaleLimit *= this.lodRenderScale;
+
+    const viewPos = new THREE.Vector3();
+    const viewQuat = new THREE.Quaternion();
+    this.current.viewToWorld.decompose(viewPos, viewQuat, new THREE.Vector3());
+
+    if (this.lastLod) {
+      if (
+        viewPos.distanceTo(this.lastLod.pos) > 0.001 ||
+        viewQuat.dot(this.lastLod.quat) < 0.999 ||
+        this.lastLod.fovXdegrees !== fovXdegrees ||
+        this.lastLod.fovYdegrees !== fovYdegrees ||
+        this.lastLod.pixelScaleLimit !== pixelScaleLimit ||
+        this.lastLod.maxSplats !== maxSplats
+      ) {
+        this.lodDirty = true;
+      }
+    }
+
     const lodMeshes = !this.enableLod
       ? []
       : (visibleGenerators.filter((generator) => {
@@ -994,33 +1045,28 @@ export class SparkRenderer extends THREE.Mesh {
         }) as SplatMesh[]);
     const hasPaged = lodMeshes.some((mesh) => mesh.paged);
 
-    let forceUpdate = this.lodMeshes.length !== lodMeshes.length;
-    if (
-      !forceUpdate &&
-      lodMeshes.some(
-        (m, i) =>
-          m !== this.lodMeshes[i].mesh || m.version > this.lodMeshes[i].version,
-      )
-    ) {
-      forceUpdate = true;
+    if (this.lodMeshes.length !== lodMeshes.length) {
+      this.lodDirty = true;
+    } else {
+      if (
+        lodMeshes.some(
+          (m, i) =>
+            m !== this.lodMeshes[i].mesh ||
+            m.version > this.lodMeshes[i].version,
+        )
+      ) {
+        this.lodDirty = true;
+      }
     }
+
     this.lodMeshes = lodMeshes.map((mesh) => ({
       mesh,
       version: mesh.version + 1,
     }));
-    // console.log(`lodMeshes versions: ${JSON.stringify(this.lodMeshes.map(m => m.version))}`);
 
-    if (forceUpdate) {
-      this.lodDirty = true;
-    }
-
-    if (!this.lodDirty && lodMeshes.length === 0 && this.lodIds.size === 0) {
-      return;
-    }
-
-    inputCamera.updateMatrixWorld(true);
-    // Make a copy of the camera so it can't change underneath us
-    const camera = inputCamera.clone();
+    // if (!this.lodDirty && lodMeshes.length === 0 && this.lodIds.size === 0) {
+    //   return;
+    // }
 
     this.lodInitQueue = [];
     const now = performance.now();
@@ -1051,7 +1097,6 @@ export class SparkRenderer extends THREE.Mesh {
           capacity: this.pager.maxSplats,
         })) as { lodId: number };
         this.pagerId = lodId;
-        // console.log("*** Set pagerId to", lodId);
       }
 
       // Assign pager to any new meshes that don't have one yet
@@ -1099,39 +1144,41 @@ export class SparkRenderer extends THREE.Mesh {
       if (this.lodUpdates.length > 0) {
         const lodUpdates = this.lodUpdates;
         this.lodUpdates = [];
-        // console.log("Calling updateLodTrees", lodUpdates);
         await worker.call("updateLodTrees", { ranges: lodUpdates });
         this.lodDirty = true;
       }
 
-      const viewPos = new THREE.Vector3();
-      const viewQuat = new THREE.Quaternion();
-      this.current.viewToWorld.decompose(
-        viewPos,
-        viewQuat,
-        new THREE.Vector3(),
-      );
-      const viewChanged =
-        viewPos.distanceTo(this.lodPos) > 0.001 ||
-        viewQuat.dot(this.lodQuat) < 0.999;
-
-      if (this.lodDirty || viewChanged) {
-        const now = performance.now();
-        const deltaTime = now - this.lodTimestamp;
-        const deltaPos = viewPos.clone().sub(this.lodPos);
-        const deltaPred = deltaPos.multiplyScalar(
-          this.lastTraverseTime / deltaTime,
-        );
-        this.lodPos.copy(viewPos);
-        this.lodQuat.copy(viewQuat);
-        this.lodTimestamp = now;
+      if (this.lodDirty) {
+        const deltaPred = new THREE.Vector3();
+        if (this.lastLod) {
+          const now = performance.now();
+          const deltaTime = now - this.lastLod.timestamp;
+          deltaPred
+            .copy(viewPos)
+            .sub(this.lastLod.pos)
+            .multiplyScalar(this.lastTraverseTime / deltaTime);
+        }
+        this.lastLod = {
+          pos: viewPos,
+          quat: viewQuat,
+          fovXdegrees,
+          fovYdegrees,
+          pixelScaleLimit,
+          maxSplats,
+          timestamp: now,
+        };
         this.lodDirty = false;
+
         await this.updateLodInstances(
           worker,
           camera,
           deltaPred,
           lodMeshes,
           scene,
+          maxSplats,
+          pixelScaleLimit,
+          fovXdegrees,
+          fovYdegrees,
         );
       }
 
@@ -1169,32 +1216,11 @@ export class SparkRenderer extends THREE.Mesh {
     deltaPred: THREE.Vector3,
     lodMeshes: SplatMesh[],
     scene: THREE.Scene,
+    maxSplats: number,
+    pixelScaleLimit: number,
+    fovXdegrees: number,
+    fovYdegrees: number,
   ) {
-    const defaultSplatCount = isOculus()
-      ? 500000
-      : isVisionPro()
-        ? 750000
-        : isAndroid()
-          ? 1000000
-          : isIos()
-            ? 1500000
-            : 2500000;
-    const splatCount = this.lodSplatCount ?? defaultSplatCount;
-    const maxSplats = splatCount * this.lodSplatScale;
-
-    let pixelScaleLimit = 0.0;
-    let fovXdegrees = Number.POSITIVE_INFINITY;
-    let fovYdegrees = Number.POSITIVE_INFINITY;
-    if (camera instanceof THREE.PerspectiveCamera) {
-      const tanYfov = Math.tan((0.5 * camera.fov * Math.PI) / 180);
-      pixelScaleLimit = (2.0 * tanYfov) / this.renderSize.y;
-      fovYdegrees = camera.fov;
-      fovXdegrees =
-        ((Math.atan(tanYfov * camera.aspect) * 180) / Math.PI) * 2.0;
-    }
-
-    pixelScaleLimit *= this.lodRenderScale;
-
     const uuidToMesh: Map<string, SplatMesh> = new Map();
 
     const instances = lodMeshes.reduce(
@@ -1249,7 +1275,6 @@ export class SparkRenderer extends THREE.Mesh {
         }
       >,
     );
-    // console.log("instances", instances);
 
     const traverseStart = performance.now();
     const { keyIndices, chunks, pixelLimit } = (await worker.call(
