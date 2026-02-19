@@ -9,6 +9,14 @@
         :root {
           --panel-width: 300px;
           --border-style: 4px solid #ab2f3b;
+          --mobile-header-height: 4rem;
+          --mobile-viewport-height: 100vh;
+        }
+
+        @supports (height: 100dvh) {
+          :root {
+            --mobile-viewport-height: 100dvh;
+          }
         }
 
         body, html {
@@ -171,20 +179,21 @@
 
           .content {
             margin: 0 !important;
-            padding-top: 4rem !important;
+            top: var(--mobile-header-height) !important;
             width: 100% !important;
-            height: calc(100vh - 4rem) !important;
+            height: calc(var(--mobile-viewport-height) - var(--mobile-header-height)) !important;
+            padding-top: 0 !important;
           }
 
           .mobile-panel {
             display: flex;
             position: fixed;
             flex-direction: column;
-            top: 4rem;
+            top: var(--mobile-header-height);
             right: -100%;
             left: auto;
             width: 70%;
-            height: calc(100vh - 4rem);
+            height: calc(var(--mobile-viewport-height) - var(--mobile-header-height));
             transform: none;
             transition: right 0.3s ease-in-out;
             z-index: 1001;
@@ -246,7 +255,18 @@
           'debug-color': '/examples/debug-color/index.html',
           'depth-of-field': '/examples/depth-of-field/index.html',
           'splat-texture': '/examples/splat-texture/index.html',
-          'editor': '/examples/editor/index.html'
+          'editor': '/examples/editor/index.html',
+          'viewer': '/examples/viewer/index.html',
+          'basic-xr': '/examples/basic-xr/index.html',
+          'interactive-holes': '/examples/interactive-holes/index.html',
+          'lofi': '/examples/lofi/index.html',
+          'mobile-joystick': '/examples/mobile-joystick/index.html',
+          'render-cube-depth': '/examples/render-cube-depth/index.html',
+          'lod-on-demand': '/examples/lod-on-demand/index.html',
+          'nonlod': '/examples/nonlod/index.html',
+          'extsplats': '/examples/extsplats/index.html',
+          'streaming-lod': '/examples/streaming-lod/index.html',
+          'multi-lod': '/examples/multi-lod/index.html'
         };
 
         function getExampleFromHash() {
@@ -443,14 +463,22 @@
           <a href="#splat-shader-effects" data-example="splat-shader-effects" class="example-link">Splat Shader Effects</a>
           <a href="#splat-dissolve-effects" data-example="splat-dissolve-effects" class="example-link">Splat Dissolve Effects</a>
           <a href="#splat-transitions" data-example="splat-transitions" class="example-link">Splat Transitions</a>
-          <a href="#stochastic" data-example="stochastic" class="example-link">Stochastic splat sorting</a>
           <a href="#sogs" data-example="sogs" class="example-link">SOGS Compression</a>
           <a href="#webxr" data-example="webxr" class="example-link">WebXR</a>
           <a href="#glsl" data-example="glsl" class="example-link">GLSL Shaders</a>
           <a href="#debug-color" data-example="debug-color" class="example-link">Debug Coloring</a>
           <a href="#depth-of-field" data-example="depth-of-field" class="example-link">Depth of Field</a>
-          <a href="#splat-texture" data-example="splat-texture" class="example-link">Splat Texture</a>
           <a href="#editor" data-example="editor" class="example-link">Editor</a>
+          <a href="#viewer" data-example="viewer" class="example-link">Viewer</a>
+          <a href="#interactive-holes" data-example="interactive-holes" class="example-link">Interactive Holes</a>
+          <a href="#lofi" data-example="lofi" class="example-link">Lofi Worlds</a>
+          <a href="#mobile-joystick" data-example="mobile-joystick" class="example-link">Mobile On-Screen Joystick</a>
+          <a href="#render-cube-depth" data-example="render-cube-depth" class="example-link">Render Cube Depthmap</a>
+          <a href="#lod-on-demand" data-example="lod-on-demand" class="example-link">LoD-on-demand</a>
+          <a href="#nonlod" data-example="nonlod" class="example-link">Simultaneous Non-LoD + LoD</a>
+          <a href="#extsplats" data-example="extsplats" class="example-link">Extended Splats encoding</a>
+          <a href="#streaming-lod" data-example="streaming-lod" class="example-link">Streaming LoDs</a>
+        <a href="#multi-lod" data-example="multi-lod" class="example-link">Multiple Streaming LoDs</a>
         </div>
       </div>
       <div class="content">

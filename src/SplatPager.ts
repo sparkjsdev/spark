@@ -139,7 +139,7 @@ export class PagedSplats implements SplatSource {
       }
       throw new Error("Failed to decode RAD header");
     })().then((metaStart) => {
-      console.log("RAD meta: ", metaStart);
+      // console.log("RAD meta: ", metaStart.meta);
       return metaStart;
     });
 
@@ -216,8 +216,6 @@ export class PagedSplats implements SplatSource {
         const result = (await worker.call("loadPackedSplats", {
           fileBytes: decodeBytes,
           pathName: this.chunkUrl(chunk),
-          // radMeta: this.radMetaPromise,
-          // chunk,
         })) as { lodSplats: PackedResult };
         const lodSplats = result.lodSplats;
         if (!this.splatEncoding) {
@@ -252,8 +250,6 @@ export class PagedSplats implements SplatSource {
       const result = (await worker.call("loadExtSplats", {
         fileBytes: decodeBytes,
         pathName: this.chunkUrl(chunk),
-        // radMeta: this.radMetaPromise,
-        // chunk,
       })) as { lodSplats: ExtResult };
       const lodSplats = result.lodSplats;
       if (!this.splatEncoding) {

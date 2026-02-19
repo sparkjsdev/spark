@@ -351,7 +351,7 @@
         splatsFolder.foldersRecursive().forEach((child) => child.destroy());
       }
 
-      guiOptions.openCv = true;
+      // guiOptions.openCv = true;
       guiOptions.autoRotate = false;
       resetFrameQuaternion();
       // writeOptions.filename = "";
@@ -387,21 +387,20 @@
 
           const init = { url, fileName, stream, streamLength, ...splatExtra };
           init.splatEncoding = { ...splatEncoding };
-          console.log("Creating SplatMesh", init);
           const splatMesh = new SplatMesh(init);
           const translate = guiOptions.loadOffset * index
           splatMesh.position.set(translate, 0.5 * translate, 0.1 * translate);
           splatMesh.enableWorldToView = true;
           splatMesh.worldModifier = makeWorldModifier(splatMesh);
           await splatMesh.initialized;
-          console.log("Loaded SplatMesh", fileName, splatMesh);
 
           // if (!url) {
           //   // PC SOGS transcode not supported yet
           //   inputs.push({ fileBytes, pathOrUrl: fileName, object: splatMesh });
           // }
           frame.add(splatMesh);
-          console.log(`Loaded ${fileName} with ${splatMesh.numSplats} splats`);
+          const numSplats = splatMesh.splats?.lodSplats?.numSplats ?? splatMesh.splats?.numSplats;
+          console.log(`Loaded ${fileName} with ${numSplats} splats`);
           addBoundingBoxHelper(splatMesh);
 
           const splatFolder = splatsFolder.addFolder(fileName).close();
@@ -490,12 +489,13 @@
 
     const splatExtra = {
       extSplats: true,
-      lod: true,
-      lodAbove: 4000000,
+      lod: false,
+      // lodAbove: 0,
     };
 
-    gui.add(splatExtra, "lod").name("Level-of-Detail")
-    gui.add(splatExtra, "lodAbove", 0, 100000000, 100000).name("LoD min splat count");
+    gui.add(splatExtra, "lod").name("Create Level-of-Detail on load")
+    // gui.add(splatExtra, "lodAbove", 0, 100000000, 100000).name("LoD min splat count");
+    gui.add(spark, "lodSplatScale", 0.001, 3.0, 0.001).name("LoD splat scale").listen();
 
     gui.add(guiOptions, "highDevicePixel").name("High DPI").onChange((value) => {
       setHighDpi(value);

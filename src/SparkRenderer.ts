@@ -13,7 +13,14 @@ import { SplatGeometry } from "./SplatGeometry";
 import { SplatWorker } from "./SplatWorker";
 import { SPLAT_TEX_HEIGHT, SPLAT_TEX_WIDTH } from "./defines";
 import { getShaders } from "./shaders";
-import { cloneClock, isAndroid, isIos, isOculus, isVisionPro } from "./utils";
+import {
+  cloneClock,
+  isAndroid,
+  isIos,
+  isMobile,
+  isOculus,
+  isVisionPro,
+} from "./utils";
 
 export interface SparkRendererOptions {
   /**
@@ -439,7 +446,8 @@ export class SparkRenderer extends THREE.Mesh {
     this.lodRenderScale = options.lodRenderScale ?? 1.0;
     this.globalLodScale = options.globalLodScale ?? 1.0;
     this.pagedExtSplats = options.pagedExtSplats ?? false;
-    this.maxPagedSplats = options.maxPagedSplats ?? 16777216;
+    const defaultPages = isMobile() ? (isIos() ? 96 : 128) : 256;
+    this.maxPagedSplats = options.maxPagedSplats ?? defaultPages * 65536;
     this.numLodFetchers = options.numLodFetchers ?? 3;
     this.outsideFoveate = options.outsideFoveate ?? 1.0;
     this.behindFoveate = options.behindFoveate ?? 1.0;

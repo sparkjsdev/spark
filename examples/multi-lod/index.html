@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark • Multiple Streaming LoDs</title>
+  <style>
+    body {
+      margin: 0;
+      background-color: black;
+    }
+    canvas {
+      touch-action: none;
+    }
+  </style>
+</head>
+
+<body>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/examples/js/vendor/three/build/three.module.js",
+        "@sparkjsdev/spark": "/dist/spark.module.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { SparkRenderer, SplatMesh, SparkControls, isMobile } from "@sparkjsdev/spark";
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 1000);
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+    window.addEventListener('resize', onWindowResize, false);
+
+    const spark = new SparkRenderer({
+      renderer,
+      maxPagedSplats: (isMobile() ? 128 : 256) * 65536,
+    });
+    scene.add(spark);
+
+    const list = "03facf44-511b-42d0-9ddb-9e2a0227e50e 0524c1a1-abf2-4969-ae40-9981ee836536 05c65f47-5ecf-4f0f-badc-1c8234c0fe03 0677323b-42b6-4b7d-88d5-e066428850e1 08851659-2382-44e5-a988-05dfb6899165 09a99d87-cbf2-4beb-a1d7-7e6274647d5f 0f2453d4-cf93-469a-9274-76accf339c84 1064da41-40b6-47d5-b143-a1cad98605ec 1081428c-38a2-4908-a38a-e5d74da32b06 10e947d4-2888-4d97-ad20-c918a73939ac 1279023c-ceff-4f84-90e5-a81c63ff2542 13958d31-dfcc-4f15-bbcc-91bed2731f73 13970b1c-834f-41f8-9f7b-3a1312e161e0 144fbd5e-5d1e-4564-b8ce-2993c3c05ebd 1736e123-4215-4d25-b4f3-3c8cd451d616 18cd8d4d-02df-4d2e-8884-b3e4342cd8c8 1b6cd27e-6d11-498d-a345-2cf17ca8c6a9 1d63bbd1-6c9d-4343-9df0-a17fd8057fcd 1e04986e-2e3e-4666-9a56-8c15a585321f 22182c03-dfc2-41ab-b518-ade4f5253505 22380bc4-0a7f-4468-a8d6-b8984c7d6c82 23f73c6f-3913-4b80-975a-62938679fc2f 24c7c0fa-811e-45bc-8ab5-36ec562c5356 28aac29b-aa6c-4a32-8d3c-7c060562cad8 28b1f5b2-a983-41cd-865e-e37e6840ff84 2b1f3371-3a6a-4739-a4fc-9a7ed9516caf 2c59bb0b-9f3d-40a6-adad-479b1a16b292 317e530c-2061-4592-a21c-fa3b93fad4af 3197ed7d-6738-4358-a0e0-2e98072a5db0 320ff674-5ec2-4a51-b294-002102c6dca2 3568b629-0b96-4c37-a4f2-570682dba223 363c0b4f-86f8-4e73-84ac-d73ddbb3c13c 3a5b3ae3-068a-4092-998e-747ef8a593ff 3ea5c31a-d4a7-4d0a-aa51-2b69be3c79df 53f89d26-cc90-45df-8ce9-dba575b2f600 54fad6e4-9c9b-43ba-be6d-f1e31cbe7a95 56525f64-d1ef-441c-87d3-3f2cb85a9591 56ae0deb-0c85-4180-9b8f-b45c9c41460e 5b98e573-e047-42af-84a5-55c59c9faa6e 5d2e497a-ac28-4450-a272-afb63c44cf67 60810a6d-6288-4f43-89f3-71eb6dad866f 61d00e92-2935-4179-a4a5-2cea2ca8ca85 67cad50d-3b7a-40e5-8da4-021605ed65de 6e14f7b3-0868-488e-9983-d6f384b4f25f 7058e7a5-1a7d-4516-9e3c-601a91f5f238 737410a1-6e46-4717-9b74-eaee79d5bcec 75946cfc-5c2c-489b-b1a8-f0a48932be3f 78955a27-26e6-43ab-92d1-f22271f32d40 7b6d316f-e002-4ff8-909f-ce52a4e8df8f 7b7cc4df-cb29-4903-83b8-6a7a24e60c44 7c98177d-b1a6-4f6e-88ad-becbefb0b901 83a38cad-e7ab-4ee5-a034-31556fb270df 899aae3a-cd39-4468-9188-7fda5722c77e 8d7beaae-98a7-4a63-a7b1-b12b1da566eb 921bc231-4e47-42e1-91ab-111f23e650d1 952d54d4-dc08-4078-b8de-7f29a1a7dacb 96af0218-e0c0-460d-8f80-00f55258ba23 9711aa67-4090-467c-95da-68e4db08d094 9ac5aed5-a16a-4466-9397-993fc656fbef 9d06f978-3afd-47c3-a2a1-1187ecb83bd0 9d68d5d7-9c49-4fdd-99ed-c101fcbed066 a4d40913-6017-4a6a-b10e-42efc1334fd5 a69a8d34-20e1-428f-b183-8cb2fd98c1a0 a69b7e33-ec44-4e36-9b0d-31a476311150 ac506166-d745-4b4a-a3d3-87857e6ba502 ac7eddaa-7072-4a4a-b6e6-fd470481d1cf aef1b7dc-19b5-49eb-9981-0048158c7da0 b2fb41c1-4ca4-4c8c-9ce5-c18811256bff b5a81460-782d-461e-b7fd-533c3f36500a b75af78a-b040-4415-9f42-6dd5b246b3a6 b80311c7-00c7-460a-8802-124afc3991f4 bdc0060f-ecf5-4e88-9880-dd8be31fdfa5 c3aced1b-1505-497e-bc4c-7d45afe91bca c7f0ee45-5579-4a29-bed8-1e973e9c65f4 caafbd4b-3bb4-446b-9730-75fd420073ea cb62d757-e882-41bd-abdc-8f81e46acb08 cbd8d6fb-4511-4d2c-a941-f4cec729a35d ce15c539-3626-4899-8e67-e79626958fea cec34892-76f3-4a82-aa2c-70a8d0c709d1 d1065995-a5ca-4916-afea-5d5ceca13310 d1091b06-be63-403e-b656-77d44d403868 d22c9ead-809f-4537-a562-5855731ab442 d26ce672-a8a3-43f2-9058-6833ef68cb30 d295b4a0-b801-4e28-871d-a2477de09862 d615e0f0-4538-41b3-b03e-947c653463d3 d9d08f5c-5392-4c8b-a0a3-6b42dfc1fa73 dcf13304-f1ea-4c2a-9d9c-438070cc89c6 e4b54868-8999-4192-aab1-9c4ee1b38230 e5fbafea-39e8-43f1-ae40-2eb1a8bb9b78 e992083f-7c8e-4eb3-b700-c66fe179e531 e9b628a9-62d4-4ee0-82ea-1a89b593cccf eeecb241-9f2f-45da-b3b6-80be5aa7b949 f1e0cd05-7154-42a5-80e8-3a8826c7af1e f1e7e419-d82c-4f38-a5a5-56770d668a59 f30c7f96-9686-4308-adf5-111cc68cef55 f407865c-b693-4c96-ae63-217f6ddaba5a faa99524-b25e-4698-8c41-e46b146ab618 fbc2ba1e-bcab-40c0-97c8-26a420f1af2c fe7f7ff4-7652-480e-a35f-3b8dd0b5e159 ff851922-c49f-41f7-b1e1-f3b0b8e65b7b";
+    for (const [index, file] of list.trim().split(" ").entries()) {
+      const url = `https://storage.googleapis.com/forge-dev-public/marble-100-mini/${file}_1000000-lod.rad`;
+      const splats = new SplatMesh({ url, paged: true })
+      const x = ((index % 10) / 9) - 0.5;
+      const y = (Math.floor(index / 10) / 9) - 0.5;
+      const z = Math.sqrt(0.7 - x * x - y * y);
+      splats.position.set(20 * x, 16 * y, -20 * z + 10);
+      splats.quaternion.set(1, 0, 0, 0);
+      splats.scale.setScalar(0.2);
+      scene.add(splats);
+    }
+
+    const controls = new SparkControls({ canvas: renderer.domElement });
+
+    renderer.setAnimationLoop(function animate(time) {
+      controls.update(camera);
+      renderer.render(scene, camera);
+    });
+  </script>
+</body>
+
+</html>

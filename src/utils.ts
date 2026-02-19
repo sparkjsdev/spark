@@ -840,6 +840,9 @@ export function computeMaxSplats(numSplats: number): number {
 
 // Heuristic function to determine if we are running on a mobile device.
 export function isMobile(): boolean {
+  if (navigator.platform.toLowerCase().startsWith("win")) {
+    return false;
+  }
   if (navigator.maxTouchPoints > 0) {
     // Touch-enabled device, assume it's mobile
     return true;

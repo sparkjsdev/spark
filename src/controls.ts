@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { isAndroid, isIos } from "./utils";
 
 // Spark controls for keyboard + mouse, game pad, or mobile multi-touch
 
@@ -434,7 +435,7 @@ export class PointerControls {
     this.slideSpeed = slideSpeed ?? DEFAULT_SLIDE_SPEED;
     this.scrollSpeed = scrollSpeed ?? DEFAULT_SCROLL_SPEED;
     this.swapRotateSlide = swapRotateSlide ?? false;
-    this.reverseRotate = reverseRotate ?? false;
+    this.reverseRotate = reverseRotate ?? (isAndroid() || isIos());
     this.reverseSlide = reverseSlide ?? false;
     this.reverseSwipe = reverseSwipe ?? false;
     this.reverseScroll = reverseScroll ?? false;

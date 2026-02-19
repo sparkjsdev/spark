@@ -176,21 +176,6 @@ export class SplatLoader extends Loader {
         const basedUrl = resolvedURL
           ? new URL(resolvedURL, window.location.href).toString()
           : undefined;
-        // console.log("Calling", extSplats ? "loadExtSplats" : "loadPackedSplats", {
-        //   url: basedUrl,
-        //   requestHeader: this.requestHeader,
-        //   withCredentials: this.withCredentials,
-        //   fileBytes: fileBytes?.slice(),
-        //   fileType,
-        //   pathName: resolvedURL ?? fileName,
-        //   stream,
-        //   streamLength,
-        //   encoding: packedSplats?.splatEncoding,
-        //   lod,
-        //   lodBase,
-        //   nonLod,
-        //   lodAbove,
-        // });
         const decoded = (await worker.call(
           extSplats ? "loadExtSplats" : "loadPackedSplats",
           {
@@ -199,7 +184,7 @@ export class SplatLoader extends Loader {
             withCredentials: this.withCredentials,
             fileBytes: fileBytes?.slice(),
             fileType,
-            pathName: resolvedURL ?? fileName,
+            pathName: resolvedURL || fileName,
             stream,
             streamLength,
             encoding: packedSplats?.splatEncoding,

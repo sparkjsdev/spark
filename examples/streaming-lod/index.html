@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark • Streaming LoD</title>
+  <style>
+    body {
+      margin: 0;
+      background-color: black;
+    }
+    canvas {
+      touch-action: none;
+    }
+    .overlay {
+      position: fixed;
+      margin: 12px;
+      bottom: 0;
+      color: white;
+    }
+    .overlay > * {
+      margin: 6px;
+    }
+  </style>
+</head>
+
+<body>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/examples/js/vendor/three/build/three.module.js",
+        "lil-gui": "/examples/js/vendor/lil-gui/dist/lil-gui.esm.js",
+        "@sparkjsdev/spark": "/dist/spark.module.js"
+      }
+    }
+  </script>
+  <div class="overlay">
+    <h2 id="title"></h2>
+    <p id="subtitle"></p>
+  </div>
+  <canvas id="canvas" tabindex="0" style="outline: none;"></canvas>
+  <script type="module">
+    import * as THREE from "three";
+    import { SparkRenderer, SplatMesh, SparkControls } from "@sparkjsdev/spark";
+    import GUI from "lil-gui";
+
+    const initialWorld = "Coit Tower, SF";
+    const worlds = {
+      "Hobbiton": {
+        url: "https://storage.googleapis.com/forge-dev-public/asundqui/rad/260219/tijerin_w6_hobbiton-lod.rad",
+        quaternion: [1, 0, 0, 0],
+        background: "#cafefe",
+        description: "24M splats created by Tijerin with World Labs Marble",
+      },
+      "Cozy Spaceship": {
+        url: "https://storage.googleapis.com/forge-dev-public/asundqui/rad/260217/cozy-spaceship_2-lod.rad",
+        position: [0, -6.5, 0],
+        background: "#000000",
+        description: "6M splats created by Britt Casado with World Labs Marble",
+      },
+      "Coit Tower, SF": {
+        url: "https://storage.googleapis.com/forge-dev-public/asundqui/rad/260217/coit-40m-sh1-lod.rad",
+        quaternion: [1, 0, 0, 0],
+        scale: 10.0,
+        cameraPosition: [-0.858, 2.203, -1.128],
+        cameraQuaternion: [-0.043, -0.909, -0.097, 0.402],
+        background: "#cafefe",
+        lodSplatScale: 1.5,
+        description: "40M splats scanned by Vincent Wu",
+      },
+      "Jastrzębia Góra, Poland": {
+        url: "https://storage.googleapis.com/forge-dev-public/asundqui/rad/260217/poland-lod.rad",
+        quaternion: [1, 0, 0, 0],
+        scale: 0.05,
+        cameraPosition: [43.7, -3.5, -1.7],
+        cameraQuaternion: [-0.230, 0.241, 0.006, 0.943],
+        background: "#cafefe",
+        description: "100M splats scanned by Andrii Shramko",
+      },
+    };
+
+    const title = document.getElementById("title");
+    const subtitle = document.getElementById("subtitle");
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color("#000000");
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 1000);
+    const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById("canvas") });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+    window.addEventListener('resize', onWindowResize, false);
+
+    const spark = new SparkRenderer({
+      renderer,
+      pagedExtSplats: true,
+      coneFov0: 70.0,
+      coneFov: 120.0,
+      behindFoveate: 0.2,
+      coneFoveate: 0.4,
+    });
+    scene.add(spark);
+
+    const settings = {
+      worldKey: initialWorld,
+    };
+    let world = null;
+
+    function selectWorld(worldKey) {
+      if (world) {
+        scene.remove(world);
+        world.dispose();
+      }
+
+      const { url, quaternion, position, scale, background, description, cameraPosition, cameraQuaternion, lodSplatScale } = worlds[worldKey];
+      world = new SplatMesh({ url, paged: true });
+      world.quaternion.set(...quaternion ?? [0, 0, 0, 1]).normalize();
+      world.position.set(...(position ?? [0, 0, 0]));
+      world.scale.setScalar(scale ?? 1.0);
+      scene.add(world);
+      scene.background = new THREE.Color(background);
+
+      camera.position.set(...(cameraPosition ?? [0, 0, 0]));
+      camera.quaternion.set(...(cameraQuaternion ?? [0, 0, 0, 1])).normalize();
+      title.textContent = worldKey;
+      subtitle.textContent = description;
+      spark.lodSplatScale = lodSplatScale ?? 1.0;
+      renderer.domElement.focus();
+    }
+
+    selectWorld(settings.worldKey);
+
+    const gui = new GUI({ title: "Settings" });
+    gui.add(settings, "worldKey", Object.keys(worlds)).name("World").onChange(selectWorld);
+
+    const controls = new SparkControls({ canvas: renderer.domElement });
+
+    renderer.setAnimationLoop(function animate(time) {
+      controls.update(camera);
+      renderer.render(scene, camera);
+    });
+  </script>
+</body>
+
+</html>
