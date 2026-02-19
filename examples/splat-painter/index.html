@@ -57,11 +57,10 @@
   <script type="module">
     import {
       dyno,
-      OldSparkRenderer,
+      SparkRenderer,
       SplatMesh,
-      SplatTransformer,
+      RgbaArray,
       SparkControls,
-      transcodeSpz,
     } from "@sparkjsdev/spark";
     import * as THREE from "three";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
@@ -129,18 +128,26 @@
         url: url,
         onFrame: ({ mesh, time }) => {
           mesh.needsUpdate = true;
-        }
+        },
+        onLoad: () => {
+          splatMesh.worldModifier = brushDyno(
+            brushEnabled,
+            eraseEnabled,
+            brushRadius, 
+            brushDepth,
+            brushOrigin, 
+            brushDirection, 
+            brushColor,
+          );
+          splatMesh.splatRgba = new RgbaArray().fromPackedSplats({
+            packedSplats: splatMesh.packedSplats,
+            base: 0,
+            count: splatMesh.packedSplats.numSplats,
+            renderer,
+          });
+          splatMesh.updateGenerator();
+        },
       });
-      splatMesh.worldModifier = brushDyno(
-        brushEnabled,
-        eraseEnabled,
-        brushRadius, 
-        brushDepth,
-        brushOrigin, 
-        brushDirection, 
-        brushColor,
-      );
-      splatMesh.updateGenerator();
       return splatMesh;
     }
 
@@ -149,9 +156,7 @@
     renderer.setClearColor(new THREE.Color(0xaaffff), 1);
 
     const scene = new THREE.Scene();
-    const spark = new OldSparkRenderer({
-      renderer,
-    });
+    const spark = new SparkRenderer({ renderer });
     scene.add(spark);
     const controls = new SparkControls({
       canvas: renderer.domElement,
@@ -221,6 +226,25 @@
       }, 2000);
     }
 
+    function updateRgba() {
+      if (currentSplatMesh) {
+        const newRgba = new RgbaArray();
+        newRgba.render({
+          renderer,
+          count: currentSplatMesh.packedSplats.numSplats,
+          reader: dyno.dynoBlock({ index: "int" }, { rgba8: "vec4" }, ({ index }) => {
+            const { gsplat } = currentSplatMesh.generator.apply({ index });
+            const { rgba } = dyno.splitGsplat(gsplat).outputs;
+            return { rgba8: rgba };
+          }),
+        });
+
+        currentSplatMesh.splatRgba.dispose();
+        currentSplatMesh.splatRgba = newRgba;
+        currentSplatMesh.updateGenerator();
+      }
+    }
+
     renderer.domElement.addEventListener('pointermove', (event) => {
         const clickCoords = new THREE.Vector2(
           (event.clientX / renderer.domElement.width) * 2 - 1,
@@ -236,32 +260,14 @@
         PARAMETERS.brushOrigin.value.z = raycaster.ray.origin.z;
 
         // Apply painting effect while dragging
-        if (isDragging && currentSplatMesh) {
-          const noSplatRgba = !currentSplatMesh.splatRgba;
-          currentSplatMesh.splatRgba = spark.getRgba(
-            { generator: currentSplatMesh , rgba: currentSplatMesh.splatRgba}
-          );
-          if (noSplatRgba) {
-            currentSplatMesh.updateGenerator();
-          } else {
-            currentSplatMesh.updateVersion();
-          }
+        if (isDragging) {
+          updateRgba();
         }
-    });
+      });
     
     renderer.domElement.addEventListener('pointerdown', (event) => {
       isDragging = true;
-      if (currentSplatMesh) {
-        const noSplatRgba = !currentSplatMesh.splatRgba;
-        currentSplatMesh.splatRgba = spark.getRgba(
-          { generator: currentSplatMesh , rgba: currentSplatMesh.splatRgba}
-        );
-        if (noSplatRgba) {
-          currentSplatMesh.updateGenerator();
-        } else {
-          currentSplatMesh.updateVersion();
-        }
-      }
+      updateRgba();
     });
     
     renderer.domElement.addEventListener('pointerup', (event) => {
@@ -353,11 +359,7 @@
     console.log("Starting render loop");
 
     // Animation loop
-    let lastTime = 0;
-    renderer.setAnimationLoop((rawTime) => {
-      rawTime *= 0.0005;
-      const deltaTime = rawTime - (lastTime ?? rawTime);
-      lastTime = rawTime;
+    renderer.setAnimationLoop(() => {
       if (PARAMETERS.controlsEnabled) {
         controls.update(camera);
       }

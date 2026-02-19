@@ -1,4 +1,4 @@
-import { getArrayBuffers } from "./utils";
+import { getTransferable } from "./utils";
 import BundledWorker from "./worker?worker&inline";
 
 type PromiseRecord = {
@@ -75,7 +75,7 @@ export class SplatWorker {
     });
     this.worker.postMessage(
       { id, name, args },
-      { transfer: getArrayBuffers(args) },
+      { transfer: getTransferable(args) },
     );
     return await promise;
   }

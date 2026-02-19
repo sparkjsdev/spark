@@ -65,7 +65,12 @@ export interface SparkXrButton {
   zIndex?: number;
 }
 
-export type XrGamepads = { left?: Gamepad; right?: Gamepad };
+export type XrGamepads = {
+  left?: Gamepad;
+  right?: Gamepad;
+  leftIsHand?: boolean;
+  rightIsHand?: boolean;
+};
 
 export interface SparkXrControllers {
   moveSpeed?: number;
@@ -91,24 +96,31 @@ export const DEFAULT_CONTROLLER_GETMOVE = (
   gamepads: XrGamepads,
   sparkXr: SparkXr,
 ) =>
-  new THREE.Vector3(
-    gamepads.left?.axes[2] ?? 0,
-    (gamepads.left?.buttons[0].value ?? 0) -
-      (gamepads.left?.buttons[1].value ?? 0),
-    gamepads.left?.axes[3] ?? 0,
-  );
+  gamepads.leftIsHand
+    ? new THREE.Vector3()
+    : new THREE.Vector3(
+        gamepads.left?.axes[2] ?? 0,
+        (gamepads.left?.buttons[0].value ?? 0) -
+          (gamepads.left?.buttons[1].value ?? 0),
+        gamepads.left?.axes[3] ?? 0,
+      );
 export const DEFAULT_CONTROLLER_GETROTATE = (
   gamepads: XrGamepads,
   sparkXr: SparkXr,
-) => new THREE.Vector3(gamepads.right?.axes[2] ?? 0, 0, 0);
+) =>
+  gamepads.rightIsHand
+    ? new THREE.Vector3()
+    : new THREE.Vector3(gamepads.right?.axes[2] ?? 0, 0, 0);
 export const DEFAULT_CONTROLLER_GETFAST = (
   gamepads: XrGamepads,
   sparkXr: SparkXr,
-) => gamepads.right?.buttons[0]?.pressed ?? false;
+) =>
+  gamepads.rightIsHand ? false : (gamepads.right?.buttons[0]?.pressed ?? false);
 export const DEFAULT_CONTROLLER_GETSLOW = (
   gamepads: XrGamepads,
   sparkXr: SparkXr,
-) => gamepads.right?.buttons[1]?.pressed ?? false;
+) =>
+  gamepads.rightIsHand ? false : (gamepads.right?.buttons[1]?.pressed ?? false);
 
 export enum JointEnum {
   w = "wrist",
@@ -562,6 +574,11 @@ export class SparkXr {
         (source.handedness === "left" || source.handedness === "right")
       ) {
         xrGamepads[source.handedness] = gamepad;
+        if (source.handedness === "left") {
+          xrGamepads.leftIsHand = !!source.hand;
+        } else if (source.handedness === "right") {
+          xrGamepads.rightIsHand = !!source.hand;
+        }
       }
     }
 

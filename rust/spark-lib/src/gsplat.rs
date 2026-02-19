@@ -764,6 +764,14 @@ impl SplatReceiver for GsplatArray {
     }
 
     fn set_batch(&mut self, base: usize, count: usize, batch: &SplatProps) {
+        // Validate that we have enough data in the batch arrays
+        assert!(batch.center.len() >= count * 3, "center array too small: {} < {}", batch.center.len(), count * 3);
+        assert!(batch.opacity.len() >= count, "opacity array too small: {} < {}", batch.opacity.len(), count);
+        assert!(batch.rgb.len() >= count * 3, "rgb array too small: {} < {}", batch.rgb.len(), count * 3);
+        assert!(batch.scale.len() >= count * 3, "scale array too small: {} < {}", batch.scale.len(), count * 3);
+        assert!(batch.quat.len() >= count * 4, "quat array too small: {} < {}", batch.quat.len(), count * 4);
+        assert!(base + count <= self.splats.len(), "base + count out of bounds: {} + {} > {}", base, count, self.splats.len());
+
         for i in 0..count {
             let [i3, i4] = [i * 3, i * 4];
             let mut splat = self.get_mut(base + i);

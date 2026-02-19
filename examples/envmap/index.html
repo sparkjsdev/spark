@@ -59,7 +59,6 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    // Explicitly create a SparkRenderer to render environment maps
     const spark = new SparkRenderer({ renderer });
     scene.add(spark);
 
@@ -81,7 +80,6 @@
     // Make sure background is loaded before rendering env map
     await background.initialized;
     await background2.initialized;
-    await spark.update({ scene, camera });
 
     // Add rubber duck
     const gltfLoader = new GLTFLoader();
@@ -91,6 +89,21 @@
     duck.position.set(0, 0.45, -0.4);
     scene.add(duck);
 
+    const offline = new SparkRenderer({ renderer });
+    const envMap = await offline.renderEnvMap({
+      scene,
+      // World center to render from
+      worldCenter: duck.position,
+      // Hide the duck so we don't obscure the environment
+      hideObjects: [duck],
+    });
+    for (let obj of duck.children) {
+      // Set some reflectivity in the materials of the duck
+      obj.material.envMap = envMap;
+      obj.material.metalness = 1.0;
+      obj.material.roughness = 0.02;
+    }
+
     let lastTime;
     let renderedEnvMap = false;
     renderer.setAnimationLoop(function animate(time) {
@@ -98,29 +111,6 @@
       lastTime = time;
       renderer.render(scene, camera);
       duck.rotation.y += deltaTime / 2500;
-
-      // Make sure we only launch async renderEnvMap once
-      if (!renderedEnvMap) {
-        renderedEnvMap = true;
-        spark.renderEnvMap({
-          scene,
-          // World center to render from
-          worldCenter: duck.position,
-          // Hide the duck so we don't obscure the environment
-          hideObjects: [duck],
-          // Not needed in normal use, guards against "first render" issues
-          update: true,
-        })
-          .then((envMap) => {
-            for (let obj of duck.children) {
-              // Set some reflectivity in the materials of the duck
-              obj.material.envMap = envMap;
-              obj.material.original_color = obj.material.color.clone();
-              obj.material.metalness = 1.0;
-              obj.material.roughness = 0.02;
-            }
-          });
-      }
     });
 
     // Toggles between normal duck and metal duck
