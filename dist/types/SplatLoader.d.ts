@@ -5,36 +5,40 @@ import { SplatMesh } from './SplatMesh';
 import { SplatEncoding, SplatFileType } from './defines';
 export declare class SplatLoader extends Loader {
     fileLoader: FileLoader;
-    static lod: boolean;
-    static nonLod: boolean | "wait";
     constructor(manager?: LoadingManager);
     load(url: string, onLoad?: (decoded: PackedSplats | ExtSplats) => void, onProgress?: (event: ProgressEvent) => void, onError?: (error: unknown) => void): void;
     loadAsync(url: string, onProgress?: (event: ProgressEvent) => void): Promise<PackedSplats | ExtSplats>;
     parse(packedSplats: PackedSplats): SplatMesh;
-    loadInternal({ packedSplats, extSplats, url, fileBytes, fileType, fileName, onLoad, onProgress, onError, lod, nonLod, lodBase, }: {
+    loadInternal({ packedSplats, extSplats, url, fileBytes, fileType, fileName, stream, streamLength, onLoad, onProgress, onError, lod, nonLod, lodAbove, lodBase, }: {
         packedSplats?: PackedSplats;
         extSplats?: ExtSplats;
         url?: string;
         fileBytes?: Uint8Array | ArrayBuffer;
         fileType?: SplatFileType;
         fileName?: string;
+        stream?: ReadableStream;
+        streamLength?: number;
         onLoad?: (decoded: PackedSplats | ExtSplats) => void;
         onProgress?: (event: ProgressEvent) => void;
         onError?: (error: unknown) => void;
         lod?: boolean;
-        nonLod?: boolean | "wait";
+        nonLod?: boolean;
+        lodAbove?: number;
         lodBase?: number;
     }): void;
-    loadInternalAsync({ packedSplats, extSplats, url, fileBytes, fileType, fileName, onProgress, lod, nonLod, lodBase, }: {
+    loadInternalAsync({ packedSplats, extSplats, url, fileBytes, fileType, fileName, stream, streamLength, onProgress, lod, nonLod, lodAbove, lodBase, }: {
         packedSplats?: PackedSplats;
         extSplats?: ExtSplats;
         url?: string;
         fileBytes?: Uint8Array | ArrayBuffer;
         fileType?: SplatFileType;
         fileName?: string;
+        stream?: ReadableStream;
+        streamLength?: number;
         onProgress?: (event: ProgressEvent) => void;
         lod?: boolean;
-        nonLod?: boolean | "wait";
+        nonLod?: boolean;
+        lodAbove?: number;
         lodBase?: number;
     }): Promise<unknown>;
 }

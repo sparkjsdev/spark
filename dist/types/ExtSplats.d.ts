@@ -8,6 +8,8 @@ export type ExtSplatsOptions = {
     fileBytes?: Uint8Array | ArrayBuffer;
     fileType?: SplatFileType;
     fileName?: string;
+    stream?: ReadableStream;
+    streamLength?: number;
     maxSplats?: number;
     extArrays?: [Uint32Array, Uint32Array];
     numSplats?: number;
@@ -15,7 +17,8 @@ export type ExtSplatsOptions = {
     onProgress?: (event: ProgressEvent) => void;
     extra?: Record<string, unknown>;
     lod?: boolean | number;
-    nonLod?: boolean | "wait";
+    nonLod?: boolean;
+    lodAbove?: number;
     lodSplats?: ExtSplats;
 };
 export declare class ExtSplats implements SplatSource {
@@ -25,7 +28,7 @@ export declare class ExtSplats implements SplatSource {
     extra: Record<string, unknown>;
     maxSh: number;
     lod?: boolean | number;
-    nonLod?: boolean | "wait";
+    nonLod?: boolean;
     lodSplats?: ExtSplats;
     initialized: Promise<ExtSplats>;
     isInitialized: boolean;
@@ -59,6 +62,7 @@ export declare class ExtSplats implements SplatSource {
     pushSplat(center: THREE.Vector3, scales: THREE.Vector3, quaternion: THREE.Quaternion, opacity: number, color: THREE.Color): void;
     forEachSplat(callback: (index: number, center: THREE.Vector3, scales: THREE.Vector3, quaternion: THREE.Quaternion, opacity: number, color: THREE.Color) => void): void;
     private updateTextures;
+    extractSplats(indices: Uint32Array, pageColoring: boolean): ExtSplats;
     static emptyArray: THREE.DataArrayTexture;
     static emptyTexture: THREE.DataArrayTexture;
     disposeLodSplats(): void;

@@ -11,6 +11,8 @@ export type PackedSplatsOptions = {
     fileBytes?: Uint8Array | ArrayBuffer;
     fileType?: SplatFileType;
     fileName?: string;
+    stream?: ReadableStream;
+    streamLength?: number;
     maxSplats?: number;
     packedArray?: Uint32Array;
     numSplats?: number;
@@ -19,7 +21,8 @@ export type PackedSplatsOptions = {
     extra?: Record<string, unknown>;
     splatEncoding?: SplatEncoding;
     lod?: boolean | number;
-    nonLod?: boolean | "wait";
+    nonLod?: boolean;
+    lodAbove?: number;
     lodSplats?: PackedSplats;
 };
 export declare class PackedSplats implements SplatSource {
@@ -30,7 +33,7 @@ export declare class PackedSplats implements SplatSource {
     maxSh: number;
     splatEncoding?: SplatEncoding;
     lod?: boolean | number;
-    nonLod?: boolean | "wait";
+    nonLod?: boolean;
     lodSplats?: PackedSplats;
     initialized: Promise<PackedSplats>;
     isInitialized: boolean;
@@ -98,6 +101,7 @@ export declare class PackedSplats implements SplatSource {
         rgbaArray?: RgbaArray;
         quality?: boolean;
     }): Promise<void>;
+    extractSplats(indices: Uint32Array, pageColoring: boolean): PackedSplats;
     static programTemplate: DynoProgramTemplate | null;
     static generatorProgram: Map<GsplatGenerator, DynoProgram>;
     static fullScreenQuad: FullScreenQuad;

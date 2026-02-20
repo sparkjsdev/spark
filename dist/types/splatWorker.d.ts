@@ -1,20 +1,31 @@
+type PromiseRecord = {
+    resolve: (value: unknown) => void;
+    reject: (reason?: unknown) => void;
+    onStatus?: (data: unknown) => void;
+};
 export declare class SplatWorker {
     worker: Worker;
-    messages: Record<number, {
-        resolve: (value: unknown) => void;
-        reject: (reason?: unknown) => void;
-    }>;
-    messageIdNext: number;
+    queue: (() => void)[] | null;
+    messages: Record<number, PromiseRecord>;
+    static currentId: number;
     constructor();
-    makeMessageId(): number;
-    makeMessagePromiseId(): {
-        id: number;
-        promise: Promise<unknown>;
-    };
     onMessage(event: MessageEvent): void;
-    call(name: string, args: unknown): Promise<unknown>;
+    tryExclusive<T>(callback: (worker: SplatWorker) => Promise<T>): Promise<T> | null;
+    exclusive<T>(callback: (worker: SplatWorker) => Promise<T>): Promise<T>;
+    call(name: string, args: unknown, options?: {
+        onStatus?: (data: unknown) => void;
+    }): Promise<unknown>;
+    dispose(): void;
 }
-export declare function setWorkerPool(count?: number): void;
-export declare function allocWorker(): Promise<SplatWorker>;
-export declare function freeWorker(worker: SplatWorker): void;
-export declare function withWorker<T>(callback: (worker: SplatWorker) => Promise<T>): Promise<T>;
+export declare class NewSplatWorkerPool {
+    maxWorkers: number;
+    numWorkers: number;
+    freelist: SplatWorker[];
+    queue: ((worker: SplatWorker) => void)[];
+    constructor(maxWorkers?: number);
+    withWorker<T>(callback: (worker: SplatWorker) => Promise<T>): Promise<T>;
+    allocWorker(): Promise<SplatWorker>;
+    freeWorker(worker: SplatWorker): void;
+}
+export declare const workerPool: NewSplatWorkerPool;
+export {};

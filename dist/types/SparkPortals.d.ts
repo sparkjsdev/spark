@@ -1,4 +1,4 @@
-import { NewSparkRenderer, NewSparkRendererOptions } from './NewSparkRenderer';
+import { SparkRenderer, SparkRendererOptions } from './SparkRenderer';
 import * as THREE from "three";
 /**
  * Fragment shader for portal disk clipping.
@@ -38,8 +38,8 @@ export interface SparkPortalsOptions {
     camera: THREE.PerspectiveCamera;
     /** The local frame (parent of camera, used for teleportation) */
     localFrame: THREE.Group;
-    /** Options passed to both NewSparkRenderer instances */
-    sparkOptions?: Partial<NewSparkRendererOptions>;
+    /** Options passed to both SparkRenderer instances */
+    sparkOptions?: Partial<SparkRendererOptions>;
     /** Default portal disk radius for new pairs (default: 1.0) */
     defaultPortalRadius?: number;
     /** Epsilon for portal crossing detection (default: 1e-6) */
@@ -51,7 +51,7 @@ export interface SparkPortalsOptions {
  * Portal implementation to connect two non-contiguous areas of a scene.
  * Supports multiple portal pairs - each pair connects two locations.
  *
- * The rough approach is to use two NewSparkRenderers: one for the "front"/portal
+ * The rough approach is to use two SparkRenderers: one for the "front"/portal
  * view (portalRenderer), and one for the "behind portal" pass (behindRenderer).
  *
  * Example:
@@ -82,9 +82,9 @@ export declare class SparkPortals {
     /** The local frame (parent of camera, used for teleportation) */
     localFrame: THREE.Group;
     /** Primary renderer with portal shader (added to scene) */
-    portalRenderer: NewSparkRenderer;
+    portalRenderer: SparkRenderer;
     /** Secondary renderer for behind-portal pass (not in scene) */
-    behindRenderer: NewSparkRenderer;
+    behindRenderer: SparkRenderer;
     /** Secondary camera for behind-portal view */
     camera2: THREE.PerspectiveCamera;
     /** All portal pairs */

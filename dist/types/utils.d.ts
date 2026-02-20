@@ -32,7 +32,7 @@ export declare class DataCache {
 }
 export declare function mapObject(obj: Record<string, unknown>, fn: (value: unknown, key: string) => unknown): Record<string, unknown>;
 export declare function mapFilterObject(obj: Record<string, unknown>, fn: (value: unknown, key: string) => unknown): Record<string, unknown>;
-export declare function getArrayBuffers(ctx: unknown): Transferable[];
+export declare function getTransferable(ctx: unknown): Transferable[];
 export declare function newArray<T>(n: number, initFunction: (index: number) => T): T[];
 export declare class FreeList<T, Args> {
     items: T[];
