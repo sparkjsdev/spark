@@ -4,7 +4,7 @@
 >
 > Spark 2.0 is now available as a preview release! This documentation is being updated to cover the new features and changes, and expect code changes and improvements, but the core functionality and API should be stable enough to develop on.
 >
-> Read about the new features on the [New Features in 2.0](new-features-2.0.md) page.
+> Read about the new features on the [New Features in 2.0](new-features-2.0.md) page. Learn how to use the new Level-of-Detail features on the [Spark Level-of-Detail](lod-getting-started.md) page.
 >
 > v2.0.* is mostly backwards compatible with v0.1.*, with breaking changes described in [1.0 → 2.0 Migration Guide](0.1-2.0-migration-guide.md).
 >
@@ -66,10 +66,10 @@ This will run a Web server at [http://localhost:8080/](http://localhost:8080/) w
 
 - [New Features in 2.0](new-features-2.0.md)
 - [0.1 → 2.0 Migration Guide](0.1-2.0-migration-guide.md)
+- [Spark Level-of-Detail](lod-getting-started.md)
 - [Spark Overview](overview.md)
 - [System Design](system-design.md)
 - [SparkRenderer](spark-renderer.md)
-- [Getting Started with Level-of-Detail](lod-getting-started.md)
 - [SplatMesh](splat-mesh.md)
 - [PackedSplats](packed-splats.md)
 - [ExtSplats](ext-splats.md)

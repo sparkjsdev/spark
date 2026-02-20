@@ -15,10 +15,10 @@ nav:
   - Getting Started: docs/index.md
   - New Features in 2.0: docs/new-features-2.0.md
   - 0.1 → 2.0 Migration Guide: docs/0.1-2.0-migration-guide.md
+  - Spark Level-of-Detail: docs/lod-getting-started.md
   - Overview: docs/overview.md
   - System Design: docs/system-design.md
   - SparkRenderer: docs/spark-renderer.md
-  - Getting Started with Level-of-Detail: docs/lod-getting-started.md
   - SplatMesh: docs/splat-mesh.md
   - PackedSplats: docs/packed-splats.md
   - ExtSplats: docs/ext-splats.md
