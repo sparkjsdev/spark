@@ -10,31 +10,60 @@ The usual THREE.js properties `position`, `quaternion`, `rotation` behave as you
 
 ```typescript
 const splats = new SplatMesh({
-  // Fetch PLY/SPZ/SPLAT/KSPLAT file from URL
+  // Fetch PLY/SPZ/SPLAT/KSPLAT/SOG/ZIP/RAD file from URL
   url?: string;
-  // Decode raw PLY/SPZ/SPLAT/KSPLAT file bytes
+  // Decode raw PLY/SPZ/SPLAT/KSPLAT/SOG/ZIP/RAD file bytes
   fileBytes?: Uint8Array | ArrayBuffer;
-  // Override file type
-  fileType?: SplatFileType;
+  // ReadableStream to read file from
+  stream?: ReadableStream;
+  // Length of stream in bytes
+  streamLength?: number;
   // Use PackedSplats object as source
   packedSplats?: PackedSplats;
   // Reserve space for at least this many splats for construction
   maxSplats?: number;
   // Constructor callback to create splats
   constructSplats?: (splats: PackedSplats) => Promise<void> | void;
+  // Callback function called while downloading and initializing (default: undefined)
+  onProgress?: (event: ProgressEvent) => void;
   // Callback for when mesh initialization is complete
   onLoad?: (mesh: SplatMesh) => Promise<void> | void;
   // Toggle controls whether SplatEdits have an effect, default true
   editable?: boolean;
+  // Controls whether SplatMesh participates in Three.js raycasting (default: true)
+  raycastable?: boolean;
   // Frame callback to update mesh. Call mesh.updateVersion() if we need to re-generate
   onFrame?: ({
     mesh,
     time,
     deltaTime,
   }: { mesh: SplatMesh; time: number; deltaTime: number }) => void;
-  // Object-space and world-space splat modifiers to apply
-  objectModifier?: GsplatModifier;
-  worldModifier?: GsplatModifier;
+  // Object-space and world-space splat modifiers to apply in sequence
+  objectModifiers?: GsplatModifier[];
+  worldModifiers?: GsplatModifier[];
+  // Override the default splat encoding ranges for the PackedSplats.
+  // (default: undefined)
+  splatEncoding?: SplatEncoding;
+  // Set to true to load/use "extended splat" encoding with float32 x/y/z,
+  // or use provided ExtSplats object
+  extSplats?: boolean | ExtSplats;
+  // Enable Level-of-Detail (LoD). If set to true, it will ensure the SplatMesh
+  // has a LoD version, whether it's pre-computed in a .RAD file, or generate it
+  // on-the-fly in a background WebWorker using the quick tiny-lod algorithm.
+  lod?: boolean | number;
+  // If set, the original non-LoDd input splats will be retained along with the LoD version.
+  // The original splats are in .packedSplats/.extSplats, while the LoD version is contained
+  // within those in .packedSplats.lodSplats/.extSplats.lodSplats.
+  nonLod?: boolean;
+  // If unset, will default to using LoD if the LoD version is available, otherwise
+  // falling back to the non-LoD version. If set to true, will force the use of the
+  // LoD version if both exist, and vice versa if set to false.
+  enableLod?: boolean;
+  // LoD detail scale to apply for this particular SplatMesh. 2.0 will 2x the detail
+  // while 0.5 well result in 2x coarser (2x larger splats on average).
+  lodScale?: number;
+  // Set this to true to enable paged splat streaming from a .RAD file.
+  paged?: boolean | PagedSplats | SplatPager;
 });
 // Add to scene to show splats
 scene.add(splats);
@@ -42,31 +71,51 @@ scene.add(splats);
 
 ### Optional parameters
 
-You can create a `new SplatMesh()` with no options, which will create a new default instance with `.numSplats=0`. Alternatively, you can provide an input `url` to fetch and decode, `fileBytes`, or `packedSplats` (an existing collection of "packed" splats). Spark supports most splat file types, including .ply (including SuperSplat/gsplat compressed), .splat, .ksplat, .spz. To load filetypes .splat and .ksplat (which can't be reliably auto-detected), use the optional `fileType` argument.
+You can create a `new SplatMesh()` with no options, which creates a default instance with `.numSplats=0`. You can also initialize from `url`, `fileBytes`, `stream`, or `packedSplats`. Spark supports most splat file formats, including `.ply` (including SuperSplat/gsplat compressed), `.splat`, `.ksplat`, `.spz`, `.sog`, `.zip`, and `.rad`.
 
-Constructor argument callbacks can be used like `constructSplats` to create a collection of splats procedurally at initialization, `onLoad` when loading and initialization completes, `onFrame` to update state every frame. Splat effects can be injected into the standard splat processing pipeline that operate in object-space and world-space via `objectModifier` and `worldModifier` respectively.
+Constructor callbacks include `constructSplats` (procedural creation), `onProgress` (download/decode progress), `onLoad` (initialization complete), and `onFrame` (per-frame updates). Splat effects can be injected into the processing pipeline in object-space and world-space via `objectModifiers` and `worldModifiers` (and covariance variants when covariance splats are enabled).
 
-| **Parameter**     | Description |
-| ----------------- | ----------- |
-| **url**           | URL to fetch a Gaussian splat file from (supports .ply, .splat, .ksplat, .spz formats). (default: `undefined`)
-| **fileBytes**     | Raw bytes of a Gaussian splat file to decode directly instead of fetching from URL. (default: `undefined`)
-| **fileType**      | Override the file type detection for formats that can't be reliably auto-detected (.splat, .ksplat). (default: `undefined` auto-detects other formats from file contents)
-| **packedSplats**  | Use an existing PackedSplats object as the source instead of loading from a file. Can be used to share a collection of splats among multiple `SplatMesh`es (default: `undefined` creates a new empty `PackedSplats` or decoded from a data source above)
-| **maxSplats**     | Reserve space for at least this many splats when constructing the mesh initially. (default: determined by file)
-| **constructSplats** | Callback function to programmatically create splats at initialization in a newly created `PackedSplats`. (default: `undefined`)
-| **onLoad**        | Callback function that is called when mesh initialization is complete. (default: `undefined`)
-| **editable**      | Controls whether SplatEdits have any effect on this mesh. (default: `true`)
-| **onFrame**       | Callback function that is called every frame to update the mesh. Call `mesh.updateVersion()` if splats need to be regenerated due to some change. Calling `updateVersion()` is not necessary for object transformations, recoloring, or opacity adjustments as these changes are auto-detected. (default: `undefined`)
-| **objectModifier** | Splat modifier to apply in object-space before any transformations. A `GsplatModifier` is a `dyno` shader-graph block that transforms an input `gsplat: DynoVal<Gsplat>` to an output `gsplat: DynoVal<Gsplat>` with `gsplat.center` and other parameters in object-space. (default: `undefined`)
-| **worldModifier** | Splat modifier to apply in world-space after transformations. (default: `undefined`)
+| **Parameter** | Description |
+| ------------- | ----------- |
+| **url** | `string` URL to fetch a splat file from (`.ply`, `.splat`, `.ksplat`, `.spz`, `.sog`, `.zip`, `.rad`). (default: `undefined`) |
+| **fileBytes** | `Uint8Array | ArrayBuffer` raw file bytes to decode directly instead of fetching from URL. (default: `undefined`) |
+| **fileType** | `SplatFileType` override for file type detection. Use this for formats like `.splat` / `.ksplat` that may not be reliably auto-detected from content alone. (default: `undefined`) |
+| **fileName** | `string` filename hint used for `.splat` / `.ksplat` type inference when using bytes/streams (other file types can usually be detected from content). (default: `undefined`) |
+| **stream** | `ReadableStream` source to load and decode from a stream instead of a URL/byte buffer. (default: `undefined`) |
+| **streamLength** | `number` total stream length in bytes, used for stream/progress handling. (default: `undefined`) |
+| **packedSplats** | `PackedSplats` source to initialize directly from an existing packed splat set instead of decoding a file. (default: `undefined`) |
+| **maxSplats** | `number` reserved capacity for at least this many splats during construction. (default: derived from source) |
+| **constructSplats** | `(splats: PackedSplats) => Promise<void> | void` callback to procedurally populate a newly created `PackedSplats`. (default: `undefined`) |
+| **onProgress** | `(event: ProgressEvent) => void` callback fired while downloading/decoding/initializing. (default: `undefined`) |
+| **onLoad** | `(mesh: SplatMesh) => Promise<void> | void` callback fired when initialization is complete. (default: `undefined`) |
+| **editable** | `boolean` toggle controlling whether `SplatEdit`s have any effect on this mesh. (default: `true`) |
+| **raycastable** | `boolean` controls whether this `SplatMesh` participates in Three.js raycasting. (default: `true`) |
+| **onFrame** | `({ mesh, time, deltaTime }) => void` per-frame callback for dynamic updates. Call `mesh.updateVersion()` when changes require splat re-generation. (default: `undefined`) |
+| **objectModifiers** | `GsplatModifier[]` object-space modifiers applied in sequence before transforms. (default: `undefined`) |
+| **worldModifiers** | `GsplatModifier[]` world-space modifiers applied in sequence after transforms. (default: `undefined`) |
+| **covObjectModifiers** | `CovSplatModifier[]` object-space covariance-encoded modifier pipeline (requires covariance splat workflow). (default: `undefined`) |
+| **covWorldModifiers** | `CovSplatModifier[]` world-space covariance-encoded modifier pipeline (requires covariance splat workflow). (default: `undefined`) |
+| **splatEncoding** | `SplatEncoding` override for default packed splat encoding ranges used by `PackedSplats`. (default: `undefined`) |
+| **extSplats** | `boolean | ExtSplats`; set `true` to load/use extended splat encoding (float32 `x/y/z`) or provide an `ExtSplats` source directly. (default: `undefined`) |
+| **covSplats** | `boolean`; set `true` to output/use covariance splats for anisotropic scaling (requires `SparkRenderer.covSplats=true`). (default: `undefined`) |
+| **lod** | `boolean | number`; `true` ensures LoD is available (from `.rad` if present or generated in a background WebWorker). A `number` sets the LoD exponential base (default base `1.5`). (default: `undefined`) |
+| **lodAbove** | `number` threshold: only create LoD when input splat count is at least this value. (default: `undefined`) |
+| **nonLod** | `boolean`; when LoD is generated/loaded, keep original non-LoD splats too (`.packedSplats`/`.extSplats` originals, LoD under `.lodSplats`). (default: `undefined`) |
+| **enableLod** | `boolean`; when both LoD and non-LoD exist, force LoD (`true`) or non-LoD (`false`). If unset, Spark auto-selects LoD when available. (default: `undefined`, auto behavior) |
+| **lodScale** | `number` per-mesh LoD detail scale (`2.0` = ~2x finer, `0.5` = ~2x coarser / larger splats on average). (default: `1`) |
+| **behindFoveate** | `number` foveation scale behind viewer (`0.1` means ~10x larger splats behind the viewer). (default: `undefined`) |
+| **coneFov0** | `number` full-width angle in degrees for full-detail foveation along view direction. (default: `undefined`) |
+| **coneFov** | `number` full-width angle in degrees for reduced-detail foveation region (paired with `coneFoveate`). (default: `undefined`) |
+| **coneFoveate** | `number` foveation scale at the edge of `coneFov`. (default: `undefined`) |
+| **paged** | `boolean | PagedSplats | SplatPager`; set `true` to enable paged streaming from `.rad`, or provide an existing pager/paged source object. (default: `undefined`) |
 
 ## Instance properties
 
-The constructor argument options `packedSplats`, `editable`, `onFrame`, `objectModifier`, and `worldModifier` can be modified directly on the `SplatMesh`.
+The constructor argument options `packedSplats`, `editable`, `onFrame`, `objectModifiers`, and `worldModifiers` can be modified directly on the `SplatMesh`.
 
 If you modify `packedSplats` you should set `splatMesh.packedSplats.needsUpdate = true` to signal to THREE.js that it should re-upload the data to the underlying texture. Use this sparingly with objects with lower splat counts as it requires a CPU-GPU data transfer for each frame. Thousands to tens of thousands of splats is reasonable. (See `hands.ts` for an example of rendering "splat hands" in WebXR using this technique.)
 
-If you modify `objectModifier` or `worldModifier` you should call `splatMesh.updateGenerator()` to update the pipeline and have it compile to run efficiently on the GPU.
+If you modify `objectModifiers` or `worldModifiers` you should call `splatMesh.updateGenerator()` to update the pipeline and have it compile to run efficiently on the GPU.
 
 Additional properties on a `SplatMesh` instance:
 
@@ -106,7 +155,7 @@ Note that this function will raise an error if called before splats are initiali
 
 ## `updateGenerator()`
 
-Call this whenever something changes in the splat processing pipeline, for example changing `maxSh` or updating `objectModifier` or `worldModifier`. Compiled generators are cached for efficiency and re-used when the same graph structure emerges after successive changes.
+Call this whenever something changes in the splat processing pipeline, for example changing `maxSh` or updating `objectModifiers` or `worldModifiers`. Compiled generators are cached for efficiency and re-used when the same graph structure emerges after successive changes.
 
 ## `update(...)`
 
