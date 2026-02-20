@@ -11,6 +11,7 @@
       background-color: black;
     }
     canvas {
+      display: block;
       touch-action: none;
     }
     .overlay {
@@ -67,6 +68,7 @@
         cameraQuaternion: [-0.043, -0.909, -0.097, 0.402],
         background: "#cafefe",
         lodSplatScale: 1.5,
+        highDpi: true,
         description: "40M splats scanned by Vincent Wu",
       },
       "Jastrzębia Góra, Poland": {
@@ -76,6 +78,7 @@
         cameraPosition: [43.7, -3.5, -1.7],
         cameraQuaternion: [-0.230, 0.241, 0.006, 0.943],
         background: "#cafefe",
+        highDpi: true,
         description: "100M splats scanned by Andrii Shramko",
       },
     };
@@ -93,7 +96,7 @@
     function onWindowResize() {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setSize(window.innerWidth, window.innerHeight, false);
     }
     window.addEventListener('resize', onWindowResize, false);
 
@@ -118,7 +121,7 @@
         world.dispose();
       }
 
-      const { url, quaternion, position, scale, background, description, cameraPosition, cameraQuaternion, lodSplatScale } = worlds[worldKey];
+      const { url, quaternion, position, scale, background, description, cameraPosition, cameraQuaternion, lodSplatScale, highDpi } = worlds[worldKey];
       world = new SplatMesh({ url, paged: true });
       world.quaternion.set(...quaternion ?? [0, 0, 0, 1]).normalize();
       world.position.set(...(position ?? [0, 0, 0]));
@@ -131,6 +134,9 @@
       title.textContent = worldKey;
       subtitle.textContent = description;
       spark.lodSplatScale = lodSplatScale ?? 1.0;
+      renderer.setPixelRatio(highDpi ? window.devicePixelRatio : 1);
+      onWindowResize();
+      console.log("Render size", renderer.domElement.width, renderer.domElement.height);
       renderer.domElement.focus();
     }
 
@@ -138,6 +144,7 @@
 
     const gui = new GUI({ title: "Settings" });
     gui.add(settings, "worldKey", Object.keys(worlds)).name("World").onChange(selectWorld);
+    gui.add(spark, "lodSplatScale", 0.01, 2.5, 0.001).name("Level of Detail").listen();
 
     const controls = new SparkControls({ canvas: renderer.domElement });
 

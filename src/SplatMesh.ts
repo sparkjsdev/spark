@@ -2,6 +2,7 @@ import * as THREE from "three";
 
 import init_wasm, { raycast_splats } from "spark-rs";
 import { ExtSplats } from "./ExtSplats";
+import { OldSparkRenderer } from "./OldSparkRenderer";
 import { PackedSplats } from "./PackedSplats";
 import { type RgbaArray, TRgbaArray } from "./RgbaArray";
 import { SparkRenderer } from "./SparkRenderer";
@@ -117,6 +118,7 @@ export type SplatMeshOptions = {
   // LoD it will use the "quick lod" algorithm to generate one on-the-fly with
   // the selected LoD level base. (default: undefined=false)
   lod?: boolean | number;
+  // Only create LoD if the input splat acount is above this (default: undefined=0)
   lodAbove?: number;
   // Keep the original PackedSplats data before creating LoD version. (default: false)
   nonLod?: boolean;
@@ -1165,7 +1167,7 @@ function createRendererDetectionMesh(): THREE.Mesh {
     // Check if the scene has a SparkRenderer instance
     let hasSparkRenderer = false;
     scene.traverse((c) => {
-      if (c instanceof SparkRenderer) {
+      if (c instanceof SparkRenderer || c instanceof OldSparkRenderer) {
         hasSparkRenderer = true;
       }
     });

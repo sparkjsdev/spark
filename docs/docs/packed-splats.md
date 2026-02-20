@@ -6,39 +6,55 @@ A `PackedSplats` is a collection of Gaussian splats, packed into a format that t
 
 ```typescript
 const packedSplats = new PackedSplats({
-  // Fetch PLY/SPZ/SPLAT/KSPLAT file from URL
   url?: string;
-  // Decode raw PLY/SPZ/SPLAT/KSPLAT file bytes
   fileBytes?: Uint8Array | ArrayBuffer;
-  // Override file type
   fileType?: SplatFileType;
-  // Reserve space for at least this many splats for construction
+  fileName?: string;
+  stream?: ReadableStream;
+  streamLength?: number;
   maxSplats?: number;
-  // Use provided packed data array, 4 words per splat
   packedArray?: Uint32Array;
-  // Override number of splats in packed array to a subset
   numSplats?: number;
-  // Constructor callback to create splats
   construct?: (splats: PackedSplats) => Promise<void> | void;
-  // Extra splat data, such as sh1..3 components
+  onProgress?: (event: ProgressEvent) => void;
   extra?: Record<string, unknown>;
+  splatEncoding?: SplatEncoding;
+  lod?: boolean | number;
+  nonLod?: boolean;
+  lodAbove?: number;
+  lodSplats?: PackedSplats;
 });
 ```
 
-### Optional parameters
+### Parameters
 
 Like for `SplatMesh` you can create a `new PackedSplats()` with no options, which will create a new empty instance with 0 splats. Similarly, you can provide an input `url` or `fileBytes` to decode from a file source. You can also create a `PackedSplats` from a raw `Uint32Array` where each successive 4 Uint32 values encodes one "packed" splat. Finally, a `construct(splats)` callback provides an ergonomic way to create splats procedurally with an in-line initialization closure.
 
 | **Parameter**     | Description |
 | ----------------- | ----------- |
-| **url**           | URL to fetch a Gaussian splat file from (supports .ply, .splat, .ksplat, .spz formats). (default: `undefined`)
+| **url**           | URL to fetch a Gaussian splat file from (supports `.ply`, `.spz`, `.splat`, `.ksplat`, `.sog`/PC-SOGS zip, and `.rad`; PC-SOGS JSON can be loaded with `fileType`). (default: `undefined`)
 | **fileBytes**     | Raw bytes of a Gaussian splat file to decode directly instead of fetching from URL. (default: `undefined`)
 | **fileType**      | Override the file type detection for formats that can't be reliably auto-detected (.splat, .ksplat). (default: `undefined` auto-detects other formats from file contents)
+| **fileName**      | Optional file name hint used for type detection. (default: `undefined`)
+| **stream**        | Stream to read a Gaussian splat file from. (default: `undefined`)
+| **streamLength**  | Byte length for `stream`. (default: `undefined`)
 | **maxSplats**     | Reserve space for at least this many splats when constructing the collection initially. The array will automatically resize past maxSplats so setting it is an optional optimization. (default: `0`)
 | **packedArray**   | Use provided packed data array, where each 4 consecutive uint32 values encode one "packed" splat. (default: `undefined`)
 | **numSplats**     | Override number of splats in packed array to use only a subset. (default: length of packed array / 4)
 | **construct**     | Callback function to programmatically create splats at initialization. (default: `undefined`)
+| **onProgress**    | Callback fired while downloading/initializing. (default: `undefined`)
 | **extra**         | Additional splat data, such as spherical harmonics components (sh1, sh2, sh3). (default: `{}`)
+| **splatEncoding** | Override packed encoding ranges (`rgbMin`, `rgbMax`, `lnScaleMin`, `lnScaleMax`, `sh1Max..sh3Max`, `lodOpacity`). (default: internal defaults)
+| **lod**           | Enable LoD generation/loading. `number` sets LoD base; `true` uses default base. (default: `false`)
+| **nonLod**        | Keep original data when creating LoD representation. (default: `false`)
+| **lodAbove**      | Only create LoD if source splat count exceeds this value. (default: `undefined`)
+| **lodSplats**     | Explicit LoD `PackedSplats` to attach to this instance. (default: `undefined`)
+
+### Spark 2.0 preview notes
+
+- `PackedSplats` now supports initialization from a `ReadableStream` via `stream` + `streamLength`.
+- Quantization bounds can be tuned with `splatEncoding` for color/scale/SH ranges.
+- LoD setup is now first-class via `lod`, `lodAbove`, `nonLod`, and `lodSplats`.
 
 ## Encoding / Decoding
 
@@ -129,7 +145,23 @@ Each instance of `PackedSplats` also has a property `extra: Record<string, unkno
 
 This structure can be used to extend and store additional data in a `PackedSplats`, but there is no specific convention yet to prevent collisions.
 
-`sh1` stores each of 3 x 3 RGB signed components as Sint7 (mapping -1..1) in 63 bits (8 bytes) per splat. `sh2` stores each of 5 x 3 RGB signed components as Sint8 in 120 bits (16 bytes). `sh3` stores each of 7 x 3 RGB signed components as Sint6 in 126 bits (16 bytes) to improve memory bandwidth efficiency. Note that using spherical harmonics dramatically increases the memory footprint from 16 bytes per splat up to 56 bytes per splat with SH0..3, which can impact rendering performance.
+### Spherical harmonics (SH) layout
+
+Packed SH data is quantized per degree and packed into integer bitfields:
+
+| Buffer | Words per splat | Stored values | Quantization |
+| ------ | --------------- | ------------- | ------------ |
+| `sh1`  | 2 (`8` bytes)   | 9 values (`3 coeffs x RGB`) | signed 7-bit (`Sint7`) |
+| `sh2`  | 4 (`16` bytes)  | 15 values (`5 coeffs x RGB`) | signed 8-bit (`Sint8`) |
+| `sh3`  | 4 (`16` bytes)  | 21 values (`7 coeffs x RGB`) | signed 6-bit (`Sint6`) |
+
+Details:
+- `sh1` uses `63` bits total (`9 x 7`), leaving `1` unused bit in the 2-word block.
+- `sh2` uses `120` bits total (`15 x 8`), leaving `8` unused bits in the 4-word block.
+- `sh3` uses `126` bits total (`21 x 6`), leaving `2` unused bits in the 4-word block.
+- Decode scaling is controlled by `splatEncoding.sh1Max`, `sh2Max`, and `sh3Max`.
+
+Using SH increases memory from base `16` bytes/splat (SH0 only) to up to `56` bytes/splat when SH1+SH2+SH3 are present.
 
 ## `PackedSplats` instance methods
 

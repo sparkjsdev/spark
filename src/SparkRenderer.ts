@@ -156,11 +156,6 @@ export interface SparkRendererOptions {
    * @default 1
    */
   minSortIntervalMs?: number;
-  /**
-   * Minimum interval between LOD calls in milliseconds.
-   * @default 1
-   */
-  minLodIntervalMs?: number;
   /*
    * Flag to control whether LoD is enabled. @default true
    */
@@ -287,6 +282,7 @@ export class SparkRenderer extends THREE.Mesh {
   encodeLinear: boolean;
 
   sortRadial: boolean;
+  minSortIntervalMs: number;
 
   clock: THREE.Clock;
   time?: number;
@@ -309,9 +305,6 @@ export class SparkRenderer extends THREE.Mesh {
   sortedCenter = new THREE.Vector3().setScalar(Number.NEGATIVE_INFINITY);
   sortedDir = new THREE.Vector3().setScalar(0);
   readback32 = new Uint32Array(0);
-
-  minSortIntervalMs: number;
-  minLodIntervalMs: number;
 
   enableLod: boolean;
   enableDriveLod: boolean;
@@ -436,7 +429,6 @@ export class SparkRenderer extends THREE.Mesh {
 
     this.sortRadial = options.sortRadial ?? true;
     this.minSortIntervalMs = options.minSortIntervalMs ?? 0;
-    this.minLodIntervalMs = options.minLodIntervalMs ?? 0;
 
     this.enableLod = options.enableLod ?? true;
     // enableDriveLod defaults to true if enableLod is true, false otherwise

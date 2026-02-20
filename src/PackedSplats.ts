@@ -94,6 +94,7 @@ export type PackedSplatsOptions = {
   lod?: boolean | number;
   // Keep the original PackedSplats data before creating LoD version. (default: false)
   nonLod?: boolean;
+  // Only create LoD if the input splat acount is above this
   lodAbove?: number;
   // The LoD version of the PackedSplats
   lodSplats?: PackedSplats;

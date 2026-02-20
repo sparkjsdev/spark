@@ -21,6 +21,7 @@
     {
       "imports": {
         "three": "/examples/js/vendor/three/build/three.module.js",
+        "lil-gui": "/examples/js/vendor/lil-gui/dist/lil-gui.esm.js",
         "@sparkjsdev/spark": "/dist/spark.module.js"
       }
     }
@@ -28,6 +29,7 @@
   <script type="module">
     import * as THREE from "three";
     import { SparkRenderer, SplatMesh, SparkControls, isMobile } from "@sparkjsdev/spark";
+    import GUI from "lil-gui";
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 1000);
@@ -60,6 +62,9 @@
       splats.scale.setScalar(0.2);
       scene.add(splats);
     }
+
+    const gui = new GUI({ title: "Settings" });
+    gui.add(spark, "lodSplatScale", 0.001, 2.0, 0.001).name("Level of Detail").listen();
 
     const controls = new SparkControls({ canvas: renderer.domElement });
 

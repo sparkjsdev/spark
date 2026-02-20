@@ -5,18 +5,23 @@ theme:
   favicon: assets/images/favicon.png
   custom_dir: docs/overrides
   features:
-      - content.code.copy
+    - content.code.copy
 extra_css:
   - stylesheets/spark.css
+extra_javascript:
+  - javascript/menu-toggle.js
 nav:
   - Home: index.md
   - Getting Started: docs/index.md
+  - New Features in 2.0: docs/new-features-2.0.md
+  - 0.1 → 2.0 Migration Guide: docs/0.1-2.0-migration-guide.md
   - Overview: docs/overview.md
   - System Design: docs/system-design.md
   - SparkRenderer: docs/spark-renderer.md
   - SparkViewpoint: docs/spark-viewpoint.md
   - SplatMesh: docs/splat-mesh.md
   - PackedSplats: docs/packed-splats.md
+  - ExtSplats: docs/ext-splats.md
   - Loading Gsplats: docs/loading-splats.md
   - Procedural Splats: docs/procedural-splats.md
   - Splat RGBA-XYZ SDF editing: docs/splat-editing.md
