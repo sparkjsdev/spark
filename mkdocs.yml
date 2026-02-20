@@ -18,7 +18,7 @@ nav:
   - Overview: docs/overview.md
   - System Design: docs/system-design.md
   - SparkRenderer: docs/spark-renderer.md
-  - SparkViewpoint: docs/spark-viewpoint.md
+  - Getting Started with Level-of-Detail: docs/lod-getting-started.md
   - SplatMesh: docs/splat-mesh.md
   - PackedSplats: docs/packed-splats.md
   - ExtSplats: docs/ext-splats.md
@@ -27,6 +27,7 @@ nav:
   - Splat RGBA-XYZ SDF editing: docs/splat-editing.md
   - Dyno overview: docs/dyno-overview.md
   - Dyno standard library: docs/dyno-stdlib.md
+  - Level-of-Detail Deep Dive: docs/new-spark-renderer.md
   - Controls: docs/controls.md
   - Performance tuning: docs/performance.md
   - Community Resources: docs/community-resources.md

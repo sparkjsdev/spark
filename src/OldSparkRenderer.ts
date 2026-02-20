@@ -262,8 +262,8 @@ export class OldSparkRenderer extends THREE.Mesh {
     const premultipliedAlpha = options.premultipliedAlpha ?? true;
     const material = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
-      vertexShader: shaders.splatVertex,
-      fragmentShader: shaders.splatFragment,
+      vertexShader: shaders.oldSplatVertex,
+      fragmentShader: shaders.oldSplatFragment,
       uniforms,
       premultipliedAlpha,
       transparent: true,

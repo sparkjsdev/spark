@@ -6,25 +6,26 @@ precision highp usampler2DArray;
 #include <splatDefines>
 #include <logdepthbuf_pars_vertex>
 
-attribute uint splatIndex;
-
 out vec4 vRgba;
 out vec2 vSplatUv;
 out vec3 vNdc;
 flat out uint vSplatIndex;
+flat out float adjustedStdDev;
 
+// uniform uint numSplats;
 uniform vec2 renderSize;
-uniform uint numSplats;
 uniform vec4 renderToViewQuat;
 uniform vec3 renderToViewPos;
+uniform mat3 renderToViewBasis;
 uniform float maxStdDev;
 uniform float minPixelRadius;
 uniform float maxPixelRadius;
+uniform bool enableExtSplats;
+uniform bool enableCovSplats;
 uniform float time;
 uniform float deltaTime;
 uniform bool debugFlag;
 uniform float minAlpha;
-uniform bool stochastic;
 uniform bool enable2DGS;
 uniform float blurAmount;
 uniform float preBlurAmount;
@@ -33,8 +34,16 @@ uniform float apertureAngle;
 uniform float clipXY;
 uniform float focalAdjustment;
 
-uniform usampler2DArray packedSplats;
-uniform vec4 rgbMinMaxLnScaleMinMax;
+uniform usampler2D ordering;
+uniform usampler2DArray extSplats;
+uniform usampler2DArray extSplats2;
+
+// Required by logdepthbuf_pars_vertex (normally defined in three.js #include <common>)
+bool isPerspectiveMatrix( mat4 m ) {
+    return m[ 2 ][ 3 ] == -1.0;
+}
+
+#include <logdepthbuf_pars_vertex>
 
 #ifdef USE_LOGDEPTHBUF
     bool isPerspectiveMatrix( mat4 m ) {
@@ -46,44 +55,70 @@ void main() {
     // Default to outside the frustum so it's discarded if we return early
     gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
 
-    if (uint(gl_InstanceID) >= numSplats) {
+    ivec2 orderingCoord = ivec2((gl_InstanceID >> 2) & 4095, gl_InstanceID >> 14);
+    uint splatIndex = texelFetch(ordering, orderingCoord, 0)[gl_InstanceID & 3];
+    if (splatIndex == 0xffffffffu) {
+        // Special value reserved for "no splat"
         return;
     }
 
-    ivec3 texCoord;
-    if (stochastic) {
-        texCoord = ivec3(
-            uint(gl_InstanceID) & SPLAT_TEX_WIDTH_MASK,
-            (uint(gl_InstanceID) >> SPLAT_TEX_WIDTH_BITS) & SPLAT_TEX_HEIGHT_MASK,
-            (uint(gl_InstanceID) >> SPLAT_TEX_LAYER_BITS)
-        );
-    } else {
-        if (splatIndex == 0xffffffffu) {
-            // Special value reserved for "no splat"
+    ivec3 texCoord = splatTexCoord(int(splatIndex));
+    vec3 center, scales, xxyyzz, xyxzyz;
+    vec4 quaternion, rgba;
+    mat3 cov3D;
+    bvec3 zeroScales = bvec3(false);
+
+    if (enableExtSplats) {
+        uvec4 ext1 = texelFetch(extSplats, texCoord, 0);
+        float alpha = unpackSplatExtAlpha(ext1);
+        if ((alpha == 0.0) || (alpha < minAlpha)) {
             return;
         }
-        texCoord = ivec3(
-            splatIndex & SPLAT_TEX_WIDTH_MASK,
-            (splatIndex >> SPLAT_TEX_WIDTH_BITS) & SPLAT_TEX_HEIGHT_MASK,
-            splatIndex >> SPLAT_TEX_LAYER_BITS
-        );
-    }
-    uvec4 packed = texelFetch(packedSplats, texCoord, 0);
+        uvec4 ext2 = texelFetch(extSplats2, texCoord, 0);
 
-    vec3 center, scales;
-    vec4 quaternion, rgba;
-    unpackSplatEncoding(packed, center, scales, quaternion, rgba, rgbMinMaxLnScaleMinMax);
+        if (!enableCovSplats) {
+            unpackSplatExt(ext1, ext2, center, scales, quaternion, rgba);
+            zeroScales = equal(scales, vec3(0.0));
+            if (all(zeroScales)) {
+                return;
+            }
+        } else {
+            unpackSplatExtCov(ext1, ext2, center, rgba, xxyyzz, xyxzyz);
+            if (all(equal(xxyyzz, vec3(0.0))) && all(equal(xyxzyz, vec3(0.0)))) {
+                return;
+            }
+        }
+    } else {
+        uvec4 packed = texelFetch(extSplats, texCoord, 0);
+        if (!enableCovSplats) {
+            unpackSplatEncoding(packed, center, scales, quaternion, rgba, vec4(0.0, 1.0, LN_SCALE_MIN, LN_SCALE_MAX));
+            zeroScales = equal(scales, vec3(0.0));
+            if (all(zeroScales)) {
+                return;
+            }
+        } else {
+            unpackSplatCovEncoding(packed, center, rgba, xxyyzz, xyxzyz, vec4(0.0, 1.0, LN_SCALE_MIN, LN_SCALE_MAX));
+            if (all(equal(xxyyzz, vec3(0.0))) && all(equal(xyxzyz, vec3(0.0)))) {
+                return;
+            }
+        }
 
-    if (rgba.a < minAlpha) {
-        return;
+        rgba.a *= 2.0;
+        if ((rgba.a == 0.0) || (rgba.a < minAlpha)) {
+            return;
+        }
     }
-    bvec3 zeroScales = equal(scales, vec3(0.0));
-    if (all(zeroScales)) {
-        return;
+
+    adjustedStdDev = maxStdDev;
+    if (rgba.a > 1.0) {
+        // Stretch 1..2 to 1..5
+        rgba.a = min(rgba.a * 4.0 - 3.0, 5.0);
+        // Expand the maximum std dev to approximately cover the larger range
+        adjustedStdDev = maxStdDev + 0.7 * (rgba.a - 1.0);
     }
 
     // Compute the view space center of the splat
-    vec3 viewCenter = quatVec(renderToViewQuat, center) + renderToViewPos;
+    vec3 viewCenter = (!enableCovSplats ? quatVec(renderToViewQuat, center) : (renderToViewBasis * center)) + renderToViewPos;
 
     // Discard splats behind the camera
     if (viewCenter.z >= 0.0) {
@@ -104,44 +139,52 @@ void main() {
         return;
     }
 
+    vRgba = rgba;
+    vSplatUv = position.xy * adjustedStdDev;
+
     // Record the splat index for entropy
     vSplatIndex = splatIndex;
 
-    // Compute view space quaternion of splat
-    vec4 viewQuaternion = quatQuat(renderToViewQuat, quaternion);
+    if (!enableCovSplats) {
+        // Compute view space quaternion of splat
+        vec4 viewQuaternion = quatQuat(renderToViewQuat, quaternion);
 
-    if (enable2DGS && any(zeroScales)) {
-        vRgba = rgba;
-        vSplatUv = position.xy * maxStdDev;
+        if (enable2DGS && any(zeroScales)) {
+            vec3 offset;
+            if (zeroScales.z) {
+                offset = vec3(vSplatUv.xy * scales.xy, 0.0);
+            } else if (zeroScales.y) {
+                offset = vec3(vSplatUv.x * scales.x, 0.0, vSplatUv.y * scales.z);
+            } else {
+                offset = vec3(0.0, vSplatUv.xy * scales.yz);
+            }
 
-        vec3 offset;
-        if (zeroScales.z) {
-            offset = vec3(vSplatUv.xy * scales.xy, 0.0);
-        } else if (zeroScales.y) {
-            offset = vec3(vSplatUv.x * scales.x, 0.0, vSplatUv.y * scales.z);
-        } else {
-            offset = vec3(0.0, vSplatUv.xy * scales.yz);
+            vec3 viewPos = viewCenter + quatVec(viewQuaternion, offset);
+            gl_Position = projectionMatrix * vec4(viewPos, 1.0);
+            vNdc = gl_Position.xyz / gl_Position.w;
+
+            #include <logdepthbuf_vertex>
+            return;
         }
 
-        vec3 viewPos = viewCenter + quatVec(viewQuaternion, offset);
-        gl_Position = projectionMatrix * vec4(viewPos, 1.0);
-        vNdc = gl_Position.xyz / gl_Position.w;
-        return;
+        // Compute the 3D covariance matrix of the splat
+        mat3 RS = scaleQuaternionToMatrix(scales, viewQuaternion);
+        cov3D = RS * transpose(RS);
+    } else {
+        cov3D = mat3(
+            xxyyzz.x, xyxzyz.x, xyxzyz.y,
+            xyxzyz.x, xxyyzz.y, xyxzyz.z,
+            xyxzyz.y, xyxzyz.z, xxyyzz.z
+        );
+        cov3D = renderToViewBasis * cov3D * transpose(renderToViewBasis);
     }
-
-    // Compute NDC center of the splat
-    vec3 ndcCenter = clipCenter.xyz / clipCenter.w;
-
-    // Compute the 3D covariance matrix of the splat
-    mat3 RS = scaleQuaternionToMatrix(scales, viewQuaternion);
-    mat3 cov3D = RS * transpose(RS);
 
     // Compute the Jacobian of the splat's projection at its center
     vec2 scaledRenderSize = renderSize * focalAdjustment;
     vec2 focal = 0.5 * scaledRenderSize * vec2(projectionMatrix[0][0], projectionMatrix[1][1]);
 
     mat3 J;
-    if(isOrthographic) {
+    if (isOrthographic) {
         J = mat3(
             focal.x, 0.0, 0.0,
             0.0, focal.y, 0.0,
@@ -160,11 +203,6 @@ void main() {
 
     // Compute the 2D covariance by projecting the 3D covariance
     // and picking out the XY plane components.
-    // Keeping below because we may need it in the future
-    // for skinning deformations.
-    // mat3 W = transpose(mat3(viewMatrix));
-    // mat3 T = W * J;
-    // mat3 cov2D = transpose(T) * cov3D * T;
     mat3 cov2D = transpose(J) * cov3D * J;
     float a = cov2D[0][0];
     float d = cov2D[1][1];
@@ -197,6 +235,7 @@ void main() {
     if (rgba.a < minAlpha) {
         return;
     }
+    vRgba.a = rgba.a;
 
     // Compute the eigenvalue and eigenvectors of the 2D covariance matrix
     float eigenAvg = 0.5 * (a + d);
@@ -207,8 +246,8 @@ void main() {
     vec2 eigenVec1 = normalize(vec2((abs(b) < 0.001) ? 1.0 : b, eigen1 - a));
     vec2 eigenVec2 = vec2(eigenVec1.y, -eigenVec1.x);
 
-    float scale1 = min(maxPixelRadius, maxStdDev * sqrt(eigen1));
-    float scale2 = min(maxPixelRadius, maxStdDev * sqrt(eigen2));
+    float scale1 = min(maxPixelRadius, adjustedStdDev * sqrt(eigen1));
+    float scale2 = min(maxPixelRadius, adjustedStdDev * sqrt(eigen2));
     if (scale1 < minPixelRadius && scale2 < minPixelRadius) {
         return;
     }
@@ -216,10 +255,11 @@ void main() {
     // Compute the NDC coordinates for the ellipsoid's diagonal axes.
     vec2 pixelOffset = position.x * eigenVec1 * scale1 + position.y * eigenVec2 * scale2;
     vec2 ndcOffset = (2.0 / scaledRenderSize) * pixelOffset;
+
+    // Compute NDC center of the splat
+    vec3 ndcCenter = clipCenter.xyz / clipCenter.w;
     vec3 ndc = vec3(ndcCenter.xy + ndcOffset, ndcCenter.z);
 
-    vRgba = rgba;
-    vSplatUv = position.xy * maxStdDev;
     vNdc = ndc;
     gl_Position = vec4(ndc.xy * clipCenter.w, clipCenter.zw);
     #include <logdepthbuf_vertex>

@@ -126,9 +126,6 @@ export type SplatMeshOptions = {
   enableLod?: boolean;
   // LoD scale to apply @default 1.0
   lodScale?: number;
-  // Foveation scale to apply outside the view frustum (but not behind viewer)
-  // (default: 1.0)
-  outsideFoveate?: number;
   // Foveation scale to apply behind viewer
   // (default: 1.0)
   behindFoveate?: number;
@@ -377,7 +374,7 @@ export class SplatMesh extends SplatGenerator {
 
     this.enableLod = options.enableLod;
     this.lodScale = options.lodScale ?? 1.0;
-    this.outsideFoveate = options.outsideFoveate;
+    this.outsideFoveate = undefined;
     this.behindFoveate = options.behindFoveate;
     this.coneFov0 = options.coneFov0;
     this.coneFov = options.coneFov;

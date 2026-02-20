@@ -1,8 +1,10 @@
 # <a id="spark-lod-rendering"></a>Spark LoD Rendering
 
+Note: This page is a work in progress and not fully up-to-date.
+
 ## <a id="page-outline"></a>Page Outline
 
-- [NewSparkRenderer](#new-spark-renderer)
+- New [SparkRenderer](#new-spark-renderer)
   - [Enabling LoD](#enabling-lod)
 - [Level-of-Detail Gaussian Splat Tree](#level-of-detail-gaussian-splat-tree)
   - [Downsampling Splats](#downsampling-splats)
@@ -18,7 +20,7 @@
   - [Requires Three.js r179 or later](#requires-threejs-r179-or-later)
   - [Loading as Extended Splats in SplatMesh](#loading-as-extended-splats-in-splatmesh)
 - [Splat Sorting](#splat-sorting)
-  - [NewSplatGeometry](#newsplatgeometry)
+  - New [SplatGeometry](#newsplatgeometry)
 - [Pre-built SPZ LoD Splat Trees](#pre-built-spz-lod-splat-trees)
 - [Multi-Viewpoint Rendering](#multi-viewpoint-rendering)
 - [NewSplatWorker, newWorker](#newsplatworker-newworker)
@@ -27,7 +29,7 @@
 
 ## <a id="new-spark-renderer"></a>NewSparkRenderer
 
-The new class `NewSparkRenderer` is an experimental rewrite of `SparkRenderer` that features a number of new capabilities, including:
+The new `SparkRenderer` class is a rewrite of `OldSparkRenderer` (renamed to this from the original `SparkRenderer` class) that features a number of new capabilities, including:
 - Level-of-Detail Gaussian splat rendering with a fixed splat rendering budget N, with near-constant rendering complexity regardless of viewpoint or number of total splats.
 - LoD rendering across multiple SplatMeshes simultaneously
 - On-demand (in background WebWorker) and fast LoD tree generation after loading any splat file
@@ -37,9 +39,9 @@ The new class `NewSparkRenderer` is an experimental rewrite of `SparkRenderer` t
 
 ### <a id="enabling-lod"></a>Enabling LoD
 
-Unlike in `SparkRenderer`, the `NewSparkRenderer` must be explicitly added to the scene to enable rendering.
+Unlike in `OldSparkRenderer`, `SparkRenderer` must be explicitly added to the scene to enable rendering.
 
-LoD support is enabled by default via `NewSparkRenderer.enableLod = true`. To adjust the LoD detail, adjust the parameters `NewSparkRenderer.lodSplatCount` to directly set the max # of LoD splats to render (defaults to 1.5 M on desktop, 500K on mobile), or `NewSparkRenderer.lodSplatScale` to a value other than 1.0 to scale the default count (e.g. 2.0 will render 3.0 M on desktop and 1.0 M on mobile). The splat budget is in aggregate across all LoDed `SplatMesh`es in the scene.
+LoD support is enabled by default via `SparkRenderer.enableLod = true`. To adjust the LoD detail, adjust the parameters `SparkRenderer.lodSplatCount` to directly set the max # of LoD splats to render (defaults to 1.5 M on desktop, 500K on mobile), or `SparkRenderer.lodSplatScale` to a value other than 1.0 to scale the default count (e.g. 2.0 will render 3.0 M on desktop and 1.0 M on mobile). The splat budget is in aggregate across all LoDed `SplatMesh`es in the scene.
 
 Additional parameters `.outsideFoveate` and `.behindFoveate` can be set to control how LoD splats are allocated between the view frustum, just outside the view frustum, and behind the observer. Setting these foveate values to 0.1 for example will result in splats 10x larger than inside the frustum.
 
@@ -182,7 +184,7 @@ For details, refer to `lod_tree::traverse_lod_trees()` in [rust/spark-internal-r
 
 ### <a id="lod-worker"></a>LoD Worker
 
-The splat tree traversal algorithm runs in a background WebWorker so as not to impact the main rendering/UI thread. It is implemented in Rust and compiled to WebAssembly for efficient execution. After loading a splat tree (or after running Quick LoD with input splats) we precompute a `LodTree` as described at the end of "Splat Tree Traversal" above. Because the traversal is implemented in Rust, the `LodTree` is also stored in a Wasm instance's memory. To limit the memory footprint of these precomputed data structures, we create a single, dedicated `NewSparkRenderer.lodWorker` instance whose sole purpose is to perform tree traversals on behalf of the renderer, serialized through an async/await RPC mechanism.
+The splat tree traversal algorithm runs in a background WebWorker so as not to impact the main rendering/UI thread. It is implemented in Rust and compiled to WebAssembly for efficient execution. After loading a splat tree (or after running Quick LoD with input splats) we precompute a `LodTree` as described at the end of "Splat Tree Traversal" above. Because the traversal is implemented in Rust, the `LodTree` is also stored in a Wasm instance's memory. To limit the memory footprint of these precomputed data structures, we create a single, dedicated `SparkRenderer.lodWorker` instance whose sole purpose is to perform tree traversals on behalf of the renderer, serialized through an async/await RPC mechanism.
 
 The entrypoint to tree traversal in the worker is in `newWorker::traverseLodTrees()` in [src/newWorker.ts](../../src/newWorker.ts) with the following signature:
 ```
@@ -212,13 +214,13 @@ function traverseLodTrees({
 
 Each `SplatMesh` LoD instance is passed to the worker via the `instances` parameter, which references a particular pre-initialized `LodTree` through `lodId`. Each instance can be transformed independently through matrix columns `viewToObjectCols`, have its detail scaled independently through `lodScale`, and have its foveated resolution adjusted. The key for the `instances` record is the `SplatMesh.uuid` string.
 
-`NewSparkRenderer` also now has a dedicated `.sortWorker` instance per renderer because sorting is a crucial operation and shouldn't be blocked in a worker pool by other operations such as loading. The old `SparkRenderer` always used a pool of workers, which is more likely to cause blocking/stuttering.
+`SparkRenderer` also now has a dedicated `.sortWorker` instance per renderer because sorting is a crucial operation and shouldn't be blocked in a worker pool by other operations such as loading. `OldSparkRenderer` always used a pool of workers, which is more likely to cause blocking/stuttering.
 
 ---
 
 ## <a id="extended-splat-encoding-for-rendered-splats"></a>Extended Splat Encoding for Rendered Splats
 
-`NewSparkRenderer` makes use of `NewSplatAccumulator` to collect splats generated by instances of `SplatGenerator`/`SplatMesh` in the scene hierarchy. In the old `SparkRenderer` these were transformed to the local space of a `SparkRenderer` in the scene, which could be attached to the camera to reduce artifacts from float16 encoding in `PackedSplats`. In `NewSparkRenderer` we always accumulate in world-space using a new "extended splat encoding" that uses *two* 4 x Uint32 (32 bytes total) to store the centers with 32-bit precision, RGB and alpha/D as float16, log(scale x/y/z) as float16, and orientation with 32 bits of octahedral encoding, eliminating most precision issues.
+The new `SparkRenderer` makes use of a new `SplatAccumulator` to collect splats generated by instances of `SplatGenerator`/`SplatMesh` in the scene hierarchy. In `OldSparkRenderer` these were transformed to the local space of a `SparkRenderer` in the scene, which could be attached to the camera to reduce artifacts from float16 encoding in `PackedSplats`. In the new `SparkRenderer` we always accumulate in world-space using a new "extended splat encoding" that uses *two* 4 x Uint32 (32 bytes total) to store the centers with 32-bit precision, RGB and alpha/D as float16, log(scale x/y/z) as float16, and orientation with 32 bits of octahedral encoding, eliminating most precision issues.
 
 Extended splats are written into two Uint32Arrays, with 4 consecutive Uint32 values per splat, for a total of 8 Uint32s or 32 bytes. 
 
@@ -277,17 +279,17 @@ As detailed in "Splat Sorting" below, we also render a third target, a RGBA8 tar
 
 In the original `SparkRenderer` after generating the splats via `SplatAccumulator` we perform a render pass to take the global list of scene splats to compute the distance metric per splat, which we then read back to the CPU. Finally, we sort the splats by this metric in a background WebWorker so it doesn't impact the main rendering/UI thread.
 
-In `NewSparkRenderer` this additional render pass is eliminated, instead generating a float32 sort metric at the same time as generating the extended splats. We read back the sort metric rendering target as a RGBA8 texture and decode it as a float32 array for sorting in a dedicated `NewSparkRenderer.sortWorker` instance. Because of this, we only support the more-accurate (but slower) sort32 mode. Eliminating a render pass should result in more stable and lower latency sorting.
+In `SparkRenderer` this additional render pass is eliminated, instead generating a float32 sort metric at the same time as generating the extended splats. We read back the sort metric rendering target as a RGBA8 texture and decode it as a float32 array for sorting in a dedicated `SparkRenderer.sortWorker` instance. Because of this, we only support the more-accurate (but slower) sort32 mode. Eliminating a render pass should result in more stable and lower latency sorting.
 
-### <a id="newsplatgeometry"></a>NewSplatGeometry
+### <a id="newsplatgeometry"></a>New SplatGeometry
 
 In the old `SparkRenderer` we used a custom `SplatGeometry` that is a `THREE.InstancedBufferGeometry` with a `Uint32Array` of splat indices. Unfortunate internal plumbing in Three.js during rendering makes it impossible to modify this geometry during its `SparkRenderer.onBeforeRender()` callback.
 
-In the new `NewSparkRenderer` we use a new `NewSplatGeometry` that is simply an instanced quad, with no other attribute that is modified. We directly update `NewSparkRenderer.geometry.instanceCount` to the number of active splats to render. The splat indices are stored in a RGBAUint32 texture sized 4096 x H, effectively storing 16384 Uint32 indices per row. H is calculated so it can fit `maxSplats` and automatically grows as needed. This encoding has a limit of 67M splats (64 * 2^20 splats), from 16384 * 4096 max WebGL2 texture height, which hopefully will not need to be exceeded with the LoD capabilities of this renderer.
+In the new `SparkRenderer` we use a new `SplatGeometry` that is simply an instanced quad, with no other attribute that is modified. We directly update `SparkRenderer.geometry.instanceCount` to the number of active splats to render. The splat indices are stored in a RGBAUint32 texture sized 4096 x H, effectively storing 16384 Uint32 indices per row. H is calculated so it can fit `maxSplats` and automatically grows as needed. This encoding has a limit of 67M splats (64 * 2^20 splats), from 16384 * 4096 max WebGL2 texture height, which hopefully will not need to be exceeded with the LoD capabilities of this renderer.
 
-When a new sort order is generated by the sortWorker, it is written to the RGBAUint32 texture, with code that directly calls `gl.texSubImage2D()` because Three.js doesn't have a mechanism to update a batch of rows in a 2D texture. There is a small risk of this breaking in a future version of Three.js but we could likely work around it using runtime Three.js version checks. See `NewSparkRenderer.driveSort()` for more details.
+When a new sort order is generated by the sortWorker, it is written to the RGBAUint32 texture, with code that directly calls `gl.texSubImage2D()` because Three.js doesn't have a mechanism to update a batch of rows in a 2D texture. There is a small risk of this breaking in a future version of Three.js but we could likely work around it using runtime Three.js version checks. See `SparkRenderer.driveSort()` for more details.
 
-LoD splat tree indices produced by `traverseLodTrees()` above are also stored in a RGBAUint32 texture, directly calling `gl.texSubImage2D()` to update a minimal subset of its rows as well (in `NewSparkRenderer.updateLodIndices()`).
+LoD splat tree indices produced by `traverseLodTrees()` above are also stored in a RGBAUint32 texture, directly calling `gl.texSubImage2D()` to update a minimal subset of its rows as well (in `SparkRenderer.updateLodIndices()`).
 
 ## <a id="pre-built-spz-lod-splat-trees"></a>Pre-built SPZ LoD Splat Trees
 
@@ -309,11 +311,11 @@ Spark will auto-detect and decode these extended SPZ files and render them in Lo
 
 ## <a id="multi-viewpoint-rendering"></a>Multi-Viewpoint Rendering
 
-In old `SparkRenderer` we called `sparkRenderer.newViewpoint()` to create a `SparkViewpoint` that could be sorted and rendered independently from the main canvas render. In `NewSparkRenderer` we change this abstraction: Each `NewSparkRenderer` is its own independent viewpoint, and multiple `NewSparkRenderer`s can be created with different render layers, sort options, or dyno programs. Creating more `NewSparkRenderer`s allows to create both multi-viewport programs as well as off-screen frame renders for video output.
+In `OldSparkRenderer` we called `sparkRenderer.newViewpoint()` to create a `SparkViewpoint` that could be sorted and rendered independently from the main canvas render. In the new `SparkRenderer` we change this abstraction: Each `SparkRenderer` is its own independent viewpoint, and multiple `SparkRenderer`s can be created with different render layers, sort options, or dyno programs. Creating more `SparkRenderer`s allows to create both multi-viewport programs as well as off-screen frame renders for video output.
 
-To create a new rendering viewpoint, construct a new `NewSparkRenderer` with the `target` options:
+To create a new rendering viewpoint, construct a new `SparkRenderer` with the `target` options:
 ```
-export interface NewSparkRendererOptions {
+export interface SparkRendererOptions {
   ...
   target?: {
     /**
@@ -342,15 +344,15 @@ export interface NewSparkRendererOptions {
 }
 ```
 
-By setting `width` and `height` you create a new render target that will be renderer to when calling `newSparkRenderer.renderTarget({ scene, camera })`. If you are using the rendered output as an input to the same scene, set `doubleBuffer: true` to enable rendering to a back buffer and swapping each render. Finally, setting `superXY` to an integer 1..4 will rendering to a target that is `superXY` times larger horizontally and vertically, then average the colors on readback to the super-sampled pixels.
+By setting `width` and `height` you create a new render target that will be renderer to when calling `SparkRenderer.renderTarget({ scene, camera })`. If you are using the rendered output as an input to the same scene, set `doubleBuffer: true` to enable rendering to a back buffer and swapping each render. Finally, setting `superXY` to an integer 1..4 will rendering to a target that is `superXY` times larger horizontally and vertically, then average the colors on readback to the super-sampled pixels.
 
-In order for `NewSparkRenderer` to function, there must be one instance within the `scene` hierarchy. Calling `newSparkRenderer.renderTarget()` from a different `NewSparkRenderer` will re-use the `NewSparkRenderer` instance in the scene hierarchy temporarily.
+In order for `SparkRenderer` to function, there must be one instance within the `scene` hierarchy. Calling `SparkRenderer.renderTarget()` from a different `SparkRenderer` will re-use the `SparkRenderer` instance in the scene hierarchy temporarily.
 
-If you are rendering a second viewpoint that needs to be updated continuously, keep `NewSparkRenderer.autoUpdate` set to the default `true` and it will update and re-sort the splats whenever things update or the viewpoint changes.
+If you are rendering a second viewpoint that needs to be updated continuously, keep `SparkRenderer.autoUpdate` set to the default `true` and it will update and re-sort the splats whenever things update or the viewpoint changes.
 
-If you are rendering intermittently and want higher quality, set `autoUpdate: false` and manually call `await newSparkRenderer.update({ scene, camera })` to update the splats based on the scene graph, and awaiting it will wait until the sort order has also bee updated. Note that awaiting sort completion only works if `autoUpdate: false` and you always await the update call before doing `newSparkRenderer.readTarget()`.
+If you are rendering intermittently and want higher quality, set `autoUpdate: false` and manually call `await SparkRenderer.update({ scene, camera })` to update the splats based on the scene graph, and awaiting it will wait until the sort order has also bee updated. Note that awaiting sort completion only works if `autoUpdate: false` and you always await the update call before doing `SparkRenderer.readTarget()`.
 
-Once you are finished with any additional viewpoints / `NewSparkRenderer` instances, make sure you dispose it with `newSparkRenderer.dispose()` to free up render targets, textures, and other resources.
+Once you are finished with any additional viewpoints / `SparkRenderer` instances, make sure you dispose it with `SparkRenderer.dispose()` to free up render targets, textures, and other resources.
 
 ## <a id="newsplatworker-newworker"></a>NewSplatWorker, newWorker
 
@@ -358,11 +360,11 @@ In the new version of Spark we've re-written `SplatWorker/worker.ts` into `NewSp
 
 We also have `workerPool` in `NewSplatWorker` which creates a pool of (default 4) web workers that can be shared and queued by multiple independent operations. For example, fetching and decoding a splat file is done by a worker in the pool. To allocate a worker from the pool, call `await workerPool.withWorker(async_callback)`, which will invoke the callback with the worker once one has freed up in the pool.
 
-In `NewSparkRenderer` we allocate two dedicated workers, `.sortWorker` and `.lodWorker` to perform those time-sensitive operations respectively, without being blocked by another operation in the the worker pool.
+In the new `SparkRenderer` we allocate two dedicated workers, `.sortWorker` and `.lodWorker` to perform those time-sensitive operations respectively, without being blocked by another operation in the the worker pool.
 
 ## <a id="streaming-file-download-and-decoding"></a>Streaming File Download and Decoding
 
-The `NewSparkRenderer` splat file downloading and decoding has been revamped to enable large-file download, streaming, and pipelined decoding. In the old `SplatLoader` we fetched the entire splat file as a series of byte chunks, then combined them into one big ArrayBuffer, which would sometimes overflow the size limitations of the browser and required large memory allocations.
+The `SparkRenderer` splat file downloading and decoding has been revamped to enable large-file download, streaming, and pipelined decoding. In the old `SplatLoader` we fetched the entire splat file as a series of byte chunks, then combined them into one big ArrayBuffer, which would sometimes overflow the size limitations of the browser and required large memory allocations.
 
 The new architecture sends the URL of the file to fetch to a WebWorker, where chunks of bytes are downloaded in the background, and progressively sent to a Rust Wasm decoder that decodes the bytes from the stream into the final `PackedSplats` result. The encoding+decoding of splat data is managed by Rust traits `SplatReceiver` and `SplatGetter`, which allow the creation of generic splat encoders and decoders. SPZ and PLY file decoders send the decoded data to any structure implementing `SplatReceiver` so can store it internally as a `PackedSplats`, or to another structure called `GsplatArray` which is an internal representation that enables Quick LoD computation. Data structure vehicles such as `PackedSplats` and `GsplatArray` also implement `SplatGetter` to allow fetching the data out of the structure and conversion into another.
 

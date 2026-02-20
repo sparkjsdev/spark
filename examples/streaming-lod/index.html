@@ -43,7 +43,7 @@
   <canvas id="canvas" tabindex="0" style="outline: none;"></canvas>
   <script type="module">
     import * as THREE from "three";
-    import { SparkRenderer, SplatMesh, SparkControls } from "@sparkjsdev/spark";
+    import { SparkRenderer, SplatMesh, SparkControls, isMobile } from "@sparkjsdev/spark";
     import GUI from "lil-gui";
 
     const initialWorld = "Coit Tower, SF";
@@ -68,7 +68,7 @@
         cameraQuaternion: [-0.043, -0.909, -0.097, 0.402],
         background: "#cafefe",
         lodSplatScale: 1.5,
-        highDpi: true,
+        highDpi: !isMobile(),
         description: "40M splats scanned by Vincent Wu",
       },
       "Jastrzębia Góra, Poland": {
@@ -78,7 +78,7 @@
         cameraPosition: [43.7, -3.5, -1.7],
         cameraQuaternion: [-0.230, 0.241, 0.006, 0.943],
         background: "#cafefe",
-        highDpi: true,
+        highDpi: !isMobile(),
         description: "100M splats scanned by Andrii Shramko",
       },
     };
@@ -96,7 +96,7 @@
     function onWindowResize() {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight, false);
+      renderer.setSize(window.innerWidth, window.innerHeight);
     }
     window.addEventListener('resize', onWindowResize, false);
 

@@ -47,20 +47,20 @@ export interface SparkRendererOptions {
    */
   clock?: THREE.Clock;
   /**
-   * Controls whether to check and automatically update Gsplat collection after
+   * Controls whether to check and automatically update Gsplat collection
    * each frame render.
    * @default true
    */
   autoUpdate?: boolean;
   /**
    * Controls whether to update the Gsplats before or after rendering. For WebXR
-   * this must be false in order to complete rendering as soon as possible.
-   * @default true
+   * this is set to false in order to complete rendering as soon as possible.
+   * @default true (if not WebXR)
    */
   preUpdate?: boolean;
   /**
    * Maximum standard deviations from the center to render Gaussians. Values
-   * Math.sqrt(5)..Math.sqrt(8) produce good results and can be tweaked for
+   * Math.sqrt(4)..Math.sqrt(9) produce acceptable results and can be tweaked for
    * performance.
    * @default Math.sqrt(8)
    */
@@ -153,7 +153,7 @@ export interface SparkRendererOptions {
   sortRadial?: boolean;
   /**
    * Minimum interval between sort calls in milliseconds.
-   * @default 1
+   * @default 0
    */
   minSortIntervalMs?: number;
   /*
@@ -168,60 +168,72 @@ export interface SparkRendererOptions {
    */
   enableDriveLod?: boolean;
   /**
-   * Set the target # splats for LoD. Recommended # splats is 500K for mobile and 1.5M for desktop,
-   * which is set automatically if this isn't set.
+   * Set the target # splats for LoD. If this isn't set then default base LoD splat
+   * counts will apply: 500K-750K for WebXR, 1-1.5M for mobile, and 2.5M for desktop.
+   * @default 500K-2500K depending on platform
    */
   lodSplatCount?: number;
   /**
-   * Scale factor for target # splats for LoD. 2.0 means 2x the recommended # splats.
-   * Recommended # splats is 500K for mobile and 1.5M for desktop.
+   * Scale factor for target # splats for LoD. 2.0 means 2x the base LoD splat count.
+   * This is the easiest LoD parameter to adjust and will scale detail appropriately
+   * for the platform.
    * @default 1.0
    */
   lodSplatScale?: number;
   /**
-   * Scale factor for render size. 2.0 means 2x the render size.
+   * Determines the minimum screen pixel size of LoD splats. The default 1.0 means
+   * the splat LoD tree will pick splats that are no smaller than 1 pixel in size.
+   * Setting this to a higher value as high as 5.0 will often be indistinguishable
+   * but will avoid wasting rendering capacity on tiny splats.
    * @default 1.0
    */
   lodRenderScale?: number;
-  /* Global LoD scale to apply @default 1.0
-   */
-  globalLodScale?: number;
   /**
-   * Whether to use extended Gsplat encoding for paged splats.
+   * Whether to use extended Gsplat encoding for paged splats, useful for eliminating
+   * quantization artifacts from splat scenes with large internal position coordinates.
    * @default false
    */
   pagedExtSplats?: boolean;
   /**
-   * Allocation size of paged splats
-   * @default 16777216
+   * Allocation size of paged splats. This must be a multiple of the page size (65536).
+   * @default 16777216 (256 * 65536) for desktop, 6291456 for iOS, 8,388,608 for other mobile
    */
   maxPagedSplats?: number;
   /**
-   * Number of parallel chunk fetchers for LoD.
+   * Number of parallel chunk fetchers for LoD. These are run within a shared pool
+   * of 4 background WebWorker threads, so setting it above 4 will not have any
+   * effect. Setting it 3 leaves one spare worker for other loading/decoding tasks.
    * @default 3
    */
   numLodFetchers?: number;
-  /* Foveation scale to apply outside the view frustum (but not behind viewer)
-   * @default 1.0
-   */
-  outsideFoveate?: number;
-  /* Foveation scale to apply behind viewer
-   * @default 1.0
-   */
-  behindFoveate?: number;
   /* Full-width angle in degrees of fixed foveation cone along the view direction
-   * with perfection foveation=1.0
-   * @default 0.0 (disables perfect foveation zone)
+   * with no foveation applied (full resolution, foveate=1.0).
+   * @default 0.0
    */
   coneFov0?: number;
   /* Full-width angle in degrees of fixed foveation cone along the view direction
+   * with reduced resolution specified by `coneFoveate`. Foveation will be applied
+   * smoothly from 1.0 down to `coneFoveate` as you move outward from
+   * `coneFov0` to `coneFov`.
    * @default 0.0 (disables cone foveation)
    */
   coneFov?: number;
-  /* Foveation scale to apply at the edge of the cone
+  /* Foveation scale to apply to LoD splats at the edge of coneFov. Foveation will
+   * be applied smoothly from `coneFoveate` down to `behindFoveate` as you move
+   * outward from `coneFov` to 180 degrees (behind the viewer).
    * @default 1.0
    */
   coneFoveate?: number;
+  /* Foveation scale to apply to LoD splats behind the viewer. Setting this to 0.1
+   * for example will result in splats 10x larger than inside the viewing frustum.
+   * @default 1.0
+   */
+  behindFoveate?: number;
+  /* Configures an offline render target for the SparkRenderer (as opposed to
+   * rendering to the canvas). This is useful for rendering environment maps,
+   * additional viewpoints, or video frame rendering.
+   * @default undefined
+   */
   target?: {
     /**
      * Width of the render target in pixels.
@@ -246,11 +258,34 @@ export interface SparkRendererOptions {
      */
     superXY?: number;
   };
+  /* Extra uniform values to pass to the shader.
+   * @default undefined = no extra uniforms
+   */
   extraUniforms?: Record<string, unknown>;
+  /* Replace the default `splatVertex.glsl` splat shader with a custom one.
+   * @default undefined = use the default `splatVertex.glsl` shader
+   */
   vertexShader?: string;
+  /* Replace the default `splatFragment.glsl` splat shader with a custom one.
+   * @default undefined = use the default `splatFragment.glsl` shader
+   */
   fragmentShader?: string;
+  /* Set the splat shader material to be transparent which determines if the
+   * splats are rendered during the first opaque THREE.js render pass or the
+   * second transparent render pass.
+   * @default undefined = true
+   */
   transparent?: boolean;
+  /* Set the splat shader material to enable depth testing which determines if the
+   * splats respect the Z depth buffer and blend with other opaque objects in the scene.
+   * @default undefined = true
+   */
   depthTest?: boolean;
+  /* Set the splat shader material to enable depth writing which determines if the
+   * splats write to the Z depth buffer. Note that enabling this may produce
+   * undesirable results because most of the Gsplat is transparent.
+   * @default undefined = false
+   */
   depthWrite?: boolean;
 }
 
@@ -311,7 +346,6 @@ export class SparkRenderer extends THREE.Mesh {
   lodSplatCount?: number;
   lodSplatScale: number;
   lodRenderScale: number;
-  globalLodScale: number;
   pagedExtSplats: boolean;
   maxPagedSplats: number;
   numLodFetchers: number;
@@ -387,8 +421,8 @@ export class SparkRenderer extends THREE.Mesh {
     const geometry = new SplatGeometry();
     const material = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
-      vertexShader: options.vertexShader ?? shaders.newSplatVertex,
-      fragmentShader: options.fragmentShader ?? shaders.newSplatFragment,
+      vertexShader: options.vertexShader ?? shaders.splatVertex,
+      fragmentShader: options.fragmentShader ?? shaders.splatFragment,
       uniforms,
       premultipliedAlpha,
       transparent: options.transparent ?? true,
@@ -436,12 +470,11 @@ export class SparkRenderer extends THREE.Mesh {
     this.lodSplatCount = options.lodSplatCount;
     this.lodSplatScale = options.lodSplatScale ?? 1.0;
     this.lodRenderScale = options.lodRenderScale ?? 1.0;
-    this.globalLodScale = options.globalLodScale ?? 1.0;
     this.pagedExtSplats = options.pagedExtSplats ?? false;
     const defaultPages = isMobile() ? (isIos() ? 96 : 128) : 256;
     this.maxPagedSplats = options.maxPagedSplats ?? defaultPages * 65536;
     this.numLodFetchers = options.numLodFetchers ?? 3;
-    this.outsideFoveate = options.outsideFoveate ?? 1.0;
+    this.outsideFoveate = 1.0;
     this.behindFoveate = options.behindFoveate ?? 1.0;
     this.coneFov0 = options.coneFov0 ?? 0.0;
     this.coneFov = options.coneFov ?? 0.0;
@@ -1251,7 +1284,7 @@ export class SparkRenderer extends THREE.Mesh {
           lodId: record.lodId,
           rootPage: record.rootPage,
           viewToObjectCols: viewToObject.elements,
-          lodScale: mesh.lodScale * this.globalLodScale,
+          lodScale: mesh.lodScale,
           outsideFoveate: mesh.outsideFoveate ?? this.outsideFoveate,
           behindFoveate: mesh.behindFoveate ?? this.behindFoveate,
           coneFov0: mesh.coneFov0 ?? this.coneFov0,
@@ -1711,7 +1744,6 @@ export class SparkRenderer extends THREE.Mesh {
     update: boolean;
     filter: boolean;
   }): Promise<THREE.CubeTexture> {
-    const renderer = this.renderer;
     if (
       !SparkRenderer.cubeRender ||
       SparkRenderer.cubeRender.target.width !== size ||
