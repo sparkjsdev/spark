@@ -36,6 +36,8 @@
 > 
 > Read about all the [New Features in 2.0](https://sparkjs.dev/2.0.0-preview/docs/new-features-2.0/), learn how to migrate in our [1.0 → 2.0 Migration Guide](https://sparkjs.dev/2.0.0-preview/docs/0.1-2.0-migration-guide/), and get started quick with our [Level-of-Detail system](https://sparkjs.dev/2.0.0-preview/docs/lod-getting-started/).
 
+> New [Spark 2.0 examples](https://sparkjs.dev/2.0.0-preview/examples/) have been added, including [huge streaming LoD worlds](https://sparkjs.dev/2.0.0-preview/examples/#streaming-lod) and [streaming multiple simultaneous LoD worlds](https://sparkjs.dev/2.0.0-preview/examples/#multi-lod).
+
 ## Features
 
 - Integrates with THREE.js rendering pipeline to fuse splat and mesh-based objects
