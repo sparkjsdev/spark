@@ -7,7 +7,7 @@ export type Rgba8Readback = Dyno<{
 }, {
     rgba8: "vec4";
 }>;
-export type ReadbackBuffer = ArrayBuffer | Uint8Array | Int8Array | Uint16Array | Int16Array | Uint32Array | Int32Array | Float32Array;
+export type ReadbackBuffer = ArrayBuffer | Uint8Array | Uint8ClampedArray | Int8Array | Uint16Array | Int16Array | Uint32Array | Int32Array | Float32Array;
 export declare class Readback {
     renderer?: THREE.WebGLRenderer;
     target?: THREE.WebGLArrayRenderTarget;

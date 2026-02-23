@@ -39,6 +39,8 @@ export interface SparkXrButton {
 export type XrGamepads = {
     left?: Gamepad;
     right?: Gamepad;
+    leftIsHand?: boolean;
+    rightIsHand?: boolean;
 };
 export interface SparkXrControllers {
     moveSpeed?: number;

@@ -32,6 +32,7 @@ export declare class RgbaArray {
         renderer: THREE.WebGLRenderer;
     }): this;
     read(): Promise<Uint8Array>;
+    getArray(): Promise<Uint8Array>;
     private static emptySource;
     static getEmpty(): THREE.DataArrayTexture;
     private static dynos;

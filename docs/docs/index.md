@@ -20,7 +20,7 @@ Copy and paste code below in an `index.html` file or remix in the [Web Playgroun
   {
     "imports": {
       "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.180.0/three.module.js",
-      "@sparkjsdev/spark": "https://sparkjs.dev/releases/spark/2.0.0-preview/spark.module.js"
+      "@sparkjsdev/spark": "https://sparkjs.dev/releases/spark/preview/2.0.0/spark.module.js"
     }
   }
 </script>

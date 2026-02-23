@@ -13,6 +13,8 @@ export type SplatMeshOptions = {
     fileBytes?: Uint8Array | ArrayBuffer;
     fileType?: SplatFileType;
     fileName?: string;
+    stream?: ReadableStream;
+    streamLength?: number;
     packedSplats?: PackedSplats;
     splats?: SplatSource;
     maxSplats?: number;
@@ -36,10 +38,10 @@ export type SplatMeshOptions = {
     extSplats?: boolean | ExtSplats;
     covSplats?: boolean;
     lod?: boolean | number;
-    nonLod?: boolean | "wait";
+    lodAbove?: number;
+    nonLod?: boolean;
     enableLod?: boolean;
     lodScale?: number;
-    outsideFoveate?: number;
     behindFoveate?: number;
     coneFov0?: number;
     coneFov?: number;
@@ -96,6 +98,7 @@ export declare class SplatMesh extends SplatGenerator {
     extSplats?: ExtSplats;
     covSplats: boolean;
     splats?: SplatSource;
+    lastSplats?: SplatSource;
     paged?: PagedSplats;
     recolor: THREE.Color;
     opacity: number;
@@ -105,6 +108,7 @@ export declare class SplatMesh extends SplatGenerator {
         time: number;
         deltaTime: number;
     }) => void;
+    generatorDirty: boolean;
     objectModifiers?: GsplatModifier[];
     worldModifiers?: GsplatModifier[];
     covObjectModifiers?: CovSplatModifier[];
@@ -126,6 +130,8 @@ export declare class SplatMesh extends SplatGenerator {
     coneFov0?: number;
     coneFov?: number;
     coneFoveate?: number;
+    showLodPage?: number;
+    showLodPageDyno: DynoInt<string>;
     constructor(options?: SplatMeshOptions);
     asyncInitialize(options: SplatMeshOptions): Promise<void>;
     static staticInitialized: Promise<void>;
@@ -147,7 +153,11 @@ export declare class SplatMesh extends SplatGenerator {
         point: THREE.Vector3;
         object: THREE.Object3D;
     }[]): void;
+    createLodSplats({ rgbaArray, quality, }?: {
+        rgbaArray?: RgbaArray;
+        quality?: boolean;
+    }): Promise<void>;
 }
-export declare function maybeLookupIndex(lodIndices: DynoUsampler2D<"lodIndices", THREE.DataTexture>, index: DynoVal<"int">, numSplats: DynoVal<"int">, enableLod: DynoVal<"bool">): DynoVal<"int">;
+export declare function maybeLookupIndex(lodIndices: DynoUsampler2D<"lodIndices", THREE.DataTexture>, index: DynoVal<"int">, numSplats: DynoVal<"int">, enableLod: DynoVal<"bool">, showLodPage: DynoVal<"int">): DynoVal<"int">;
 export declare function maybeInjectSplatRgba(gsplat: DynoVal<typeof Gsplat>, rgba: DynoVal<typeof TRgbaArray>, index: DynoVal<"int">, enableLod: DynoVal<"bool">): DynoVal<typeof Gsplat>;
 export declare const emptyLodIndices: THREE.DataTexture;
