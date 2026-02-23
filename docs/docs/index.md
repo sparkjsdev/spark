@@ -19,8 +19,13 @@ Copy and paste code below in an `index.html` file or remix in the [Web Playgroun
 <script type="importmap">
   {
     "imports": {
+<<<<<<< HEAD
       "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.178.0/three.module.js",
       "@sparkjsdev/spark": "https://sparkjs.dev/releases/spark/0.1.10/spark.module.js"
+=======
+      "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.180.0/three.module.js",
+      "@sparkjsdev/spark": "https://sparkjs.dev/releases/spark/preview/2.0.0/spark.module.js"
+>>>>>>> 9f999f6 (Bump build)
     }
   }
 </script>
