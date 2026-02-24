@@ -23,7 +23,7 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { SparkRenderer, SplatMesh, SplatEdit, SplatEditRgbaBlendMode, SplatEditSdf, SplatEditSdfType, VRButton, XrHands } from "@sparkjsdev/spark";
+    import { SparkRenderer, SplatMesh, SplatEdit, SplatEditRgbaBlendMode, SplatEditSdf, SplatEditSdfType, SparkXr } from "@sparkjsdev/spark";
     import { getAssetFileURL } from "/examples/js/get-asset-url.js";
 
     const scene = new THREE.Scene();
@@ -55,19 +55,20 @@
     background.scale.setScalar(0.5);
     scene.add(background);
 
-    const vrButton = VRButton.createButton(renderer, {
-      optionalFeatures: ["hand-tracking"],
+    const xr = new SparkXr({
+      renderer,
+      mode: "vr",
+      enableHands: true,
+      sessionInit: {
+        optionalFeatures: ["hand-tracking"],
+      },
     });
-    let xrHands = null;
-    if (vrButton) {
-        // WebXR is available, so show the button
-        document.body.appendChild(vrButton);
-
-        xrHands = new XrHands();
-        const handMesh = xrHands.makeGhostMesh();
-        handMesh.editable = false;
-        localFrame.add(handMesh);
-    }
+    const leftHand = xr.makeJointSplats(SparkXr.Hand.left);
+    const rightHand = xr.makeJointSplats(SparkXr.Hand.right);
+    leftHand.editable = false;
+    rightHand.editable = false;
+    localFrame.add(leftHand);
+    localFrame.add(rightHand);
 
     // Create a layer of color edits to apply to editable splats
     const edit = new SplatEdit({
@@ -89,13 +90,13 @@
       }
       lastCameraPos.copy(camera.position);
 
-      if (xrHands) {
+      if (xrFrame) {
         // Updates the xrHands object with coordinates
-        // and also updates ghost mesh
-        xrHands.update({ xr: renderer.xr, xrFrame });
+        xr.updateHands({ xrFrame });
 
         // Create interactor SDFs for each hand tip
         for (const hand of ["left", "right"]) {
+          const handJoints = hand === "left" ? xr.left()?.joints : xr.right()?.joints;
           for (const [index, tip] of ["t3", "i4", "m4", "r4", "p4"].entries()) {
             // Make a sphere SDF for each hand tip with different colors
             const key = `${hand}-${tip}`;
@@ -121,9 +122,9 @@
               0.01 * Math.sin(time * 0.009 + index * 3),
             );
 
-            if (xrHands.hands[hand] && xrHands.hands[hand][tip]) {
+            if (handJoints && handJoints[tip]) {
               // Make the SDF follow the hand tips
-              sdf.position.copy(xrHands.hands[hand][tip].position);
+              sdf.position.copy(handJoints[tip].position);
               edit.add(sdf);
             } else {
               // Remove the SDF when the hand is not detected
