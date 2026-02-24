@@ -817,14 +817,14 @@ export class SparkRenderer extends THREE.Mesh {
 
     let doUpdate = true;
     const needsUpdate = viewChanged || version !== this.current.version;
-    const mappingUpdated = mappingVersion !== this.current.mappingVersion;
+    const mappingUpdated = mappingVersion !== this.display.mappingVersion;
 
     if (autoUpdate && !needsUpdate) {
       // Triggered by auto-update but no change
       doUpdate = false;
     }
 
-    if (needsUpdate && this.sorting) {
+    if (mappingUpdated && this.sorting) {
       // We need to be able to sort the splats because the mapping has changed.
       // Try again next time around.
       doUpdate = false;
