@@ -50,7 +50,7 @@ Copy and paste code below in an `index.html` file or remix in the [Web Playgroun
 ## Install with NPM
 
 ```shell
-[TODO] npm install @sparkjsdev/spark
+npm install sparkjsdev/spark#v2.0.0-preview
 ```
 ## Develop and contribute to Spark
 
