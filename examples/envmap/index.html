@@ -32,9 +32,9 @@
   <script type="importmap">
     {
       "imports": {
-        "three": "/examples/js/vendor/three/build/three.module.js",
+        "three": "../js/vendor/three/build/three.module.js",
         "three/addons/": "/examples/js/vendor/three/examples/jsm/",
-        "@sparkjsdev/spark": "/dist/spark.module.js"
+        "@sparkjsdev/spark": "../../dist/spark.module.js"
       }
     }
   </script>
@@ -42,7 +42,7 @@
     import * as THREE from "three";
     import { SplatMesh, SparkRenderer, PackedSplats } from "@sparkjsdev/spark";
     import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-    import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+    import { getAssetFileURL } from "../js/get-asset-url.js";
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);

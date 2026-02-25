@@ -1,5 +1,5 @@
 import { SplatMesh } from "@sparkjsdev/spark";
-import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+import { getAssetFileURL } from "../js/get-asset-url.js";
 
 // Add loading icon in the center of the screen
 function addLoader(loading_icon_color) {

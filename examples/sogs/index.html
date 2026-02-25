@@ -16,9 +16,9 @@
   <script type="importmap">
     {
       "imports": {
-        "three": "/examples/js/vendor/three/build/three.module.js",
+        "three": "../js/vendor/three/build/three.module.js",
         "three/addons/": "/examples/js/vendor/three/examples/jsm/",
-        "@sparkjsdev/spark": "/dist/spark.module.js"
+        "@sparkjsdev/spark": "../../dist/spark.module.js"
       }
     }
   </script>
@@ -27,7 +27,7 @@
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { Sky } from 'three/addons/objects/Sky.js';
     import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
-    import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+    import { getAssetFileURL } from "../js/get-asset-url.js";
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 1000);

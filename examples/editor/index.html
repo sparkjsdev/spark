@@ -54,9 +54,9 @@
   <script type="importmap">
     {
       "imports": {
-        "three": "/examples/js/vendor/three/build/three.module.js",
+        "three": "../js/vendor/three/build/three.module.js",
         "three/addons/": "/examples/js/vendor/three/examples/jsm/",
-        "@sparkjsdev/spark": "/dist/spark.module.js",
+        "@sparkjsdev/spark": "../../dist/spark.module.js",
         "lil-gui": "/examples/js/vendor/lil-gui/dist/lil-gui.esm.js"
       }
     }
@@ -70,7 +70,7 @@
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
     import { GUI } from "lil-gui";
     import { constructGrid, SparkControls, SparkRenderer, SplatMesh, textSplats, dyno, transcodeSpz, isMobile, isPcSogs, LN_SCALE_MIN, LN_SCALE_MAX } from "@sparkjsdev/spark";
-    import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+    import { getAssetFileURL } from "../js/get-asset-url.js";
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 1000);

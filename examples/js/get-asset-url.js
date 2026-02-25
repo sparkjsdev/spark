@@ -1,6 +1,6 @@
 export async function getAssetFileURL(assetFile) {
   try {
-    const response = await fetch("/examples/assets.json");
+    const response = await fetch("../assets.json");
     const assetsDirectory = "/examples/assets/";
     const assetsInfo = await response.json();
     let url = assetsInfo[assetFile].url;

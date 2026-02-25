@@ -1,7 +1,7 @@
 import { SparkControls, SplatMesh, dyno, textSplats } from "@sparkjsdev/spark";
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+import { getAssetFileURL } from "../js/get-asset-url.js";
 
 export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
   const group = new THREE.Group();
