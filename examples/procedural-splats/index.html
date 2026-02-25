@@ -19,15 +19,15 @@
   <script type="importmap">
     {
       "imports": {
-        "three": "/examples/js/vendor/three/build/three.module.js",
-        "@sparkjsdev/spark": "/dist/spark.module.js"
+        "three": "../js/vendor/three/build/three.module.js",
+        "@sparkjsdev/spark": "../../dist/spark.module.js"
       }
     }
   </script>
   <script type="module">
     import * as THREE from "three";
     import { SparkRenderer, SparkControls, SplatMesh, constructGrid, constructAxes, textSplats, imageSplats } from "@sparkjsdev/spark";
-    import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+    import { getAssetFileURL } from "../js/get-asset-url.js";
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);

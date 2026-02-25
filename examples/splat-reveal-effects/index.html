@@ -19,16 +19,16 @@
   <script type="importmap">
     {
       "imports": {
-        "three": "/examples/js/vendor/three/build/three.module.js",
+        "three": "../js/vendor/three/build/three.module.js",
         "lil-gui": "/examples/js/vendor/lil-gui/dist/lil-gui.esm.js",
-        "@sparkjsdev/spark": "/dist/spark.module.js"
+        "@sparkjsdev/spark": "../../dist/spark.module.js"
       }
     }
   </script>
   <script type="module">
     import * as THREE from "three";
     import { SparkRenderer, SparkControls, SplatMesh, dyno } from "@sparkjsdev/spark";
-    import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+    import { getAssetFileURL } from "../js/get-asset-url.js";
     import GUI from "lil-gui";
 
     const scene = new THREE.Scene();

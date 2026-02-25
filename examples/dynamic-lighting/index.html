@@ -68,8 +68,8 @@
   <script type="importmap">
   {
     "imports": {
-      "three": "/examples/js/vendor/three/build/three.module.js",
-      "@sparkjsdev/spark": "/dist/spark.module.js"
+      "three": "../js/vendor/three/build/three.module.js",
+      "@sparkjsdev/spark": "../../dist/spark.module.js"
     }
   }
   </script>
@@ -85,7 +85,7 @@
       FpsMovement,
       PointerControls,
     } from "@sparkjsdev/spark";
-    import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+    import { getAssetFileURL } from "../js/get-asset-url.js";
 
     const canvas = document.getElementById("canvas");
     const scene = new THREE.Scene();

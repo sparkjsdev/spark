@@ -38,14 +38,14 @@
     {
       "imports": {
         "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.179.0/three.module.js",
-        "@sparkjsdev/spark": "/dist/spark.module.js"
+        "@sparkjsdev/spark": "../../dist/spark.module.js"
       }
     }
   </script>
   <script type="module">
     import * as THREE from "three";
     import { SparkRenderer, SplatMesh, SparkControls } from "@sparkjsdev/spark";
-    import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+    import { getAssetFileURL } from "../js/get-asset-url.js";
     import { initMobileControls, getMobileInput, isMobileDevice } from "./mobile-joystick.js";
 
     // Scene setup
