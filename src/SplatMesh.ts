@@ -297,6 +297,11 @@ export class SplatMesh extends SplatGenerator {
       this.splats = options.splats;
       this.numSplats = options.splats.getNumSplats();
     } else if (options.paged) {
+      if (options.extSplats) {
+        console.warn(
+          "To set extSplats with the paged option, set SparkRenderer.pagedExtSplats",
+        );
+      }
       const rootUrl = options.url ?? "";
       if (options.paged === true) {
         this.paged = new PagedSplats({ rootUrl });

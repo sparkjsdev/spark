@@ -104,6 +104,8 @@ pub struct RadChunkRange {
     base: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    filename: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -466,6 +468,15 @@ impl<T: SplatGetter> RadEncoder<T> {
     }
 
     pub fn encode<W: Write>(&mut self, writer: &mut W) -> anyhow::Result<()> {
+        let chunks = self.encode_with_chunks(writer, "")?;
+        for (_filename, chunk) in chunks {
+            assert!(chunk.len() & 7 == 0);
+            writer.write_all(&chunk)?;
+        }
+        Ok(())
+    }
+
+    pub fn encode_with_chunks<W: Write>(&mut self, writer: &mut W, chunk_prefix: &str) -> anyhow::Result<Vec<(String, Vec<u8>)>> {
         const PRETTY: bool = true;
         const CHUNK_SIZE: usize = 65536;
 
@@ -494,11 +505,15 @@ impl<T: SplatGetter> RadEncoder<T> {
             let count = (num_splats - base).min(CHUNK_SIZE);
             let chunk = self.encode_chunk(base, count, &encoding, &mut buffer, &mut buffer_u16, &mut buffer_usize)?;
 
+            let filename = if chunk_prefix.is_empty() { None } else {
+                Some(format!("{}{}.radc", chunk_prefix, chunk_index))
+            };
             chunk_ranges.push(RadChunkRange {
-                offset,
+                offset: if chunk_prefix.is_empty() { offset } else { 0 },
                 bytes: chunk.len() as u64,
                 // base: Some(base),
                 // count: Some(count),
+                filename,
                 ..Default::default()
             });
             offset += chunk.len() as u64;
@@ -536,12 +551,12 @@ impl<T: SplatGetter> RadEncoder<T> {
         writer.write_all(&meta_bytes)?;
         write_pad(writer, meta_bytes_size)?;
 
-        for chunk in chunks {
-            assert!(chunk.len() & 7 == 0);
-            writer.write_all(&chunk)?;
-        }
+        let chunks: Vec<_> = chunks.into_iter().enumerate().map(|(index, chunk)| {
+            let filename = format!("{}{}.radc", chunk_prefix, index);
+            (filename, chunk)
+        }).collect();
 
-        Ok(())
+        Ok(chunks)
     }
 
     fn encode_chunk_center(&mut self, base: usize, count: usize, buffer: &mut Vec<f32>) -> (RadChunkProperty, Vec<u8>) {

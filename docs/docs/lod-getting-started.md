@@ -123,6 +123,9 @@ The most important options are:
 - `--quick`: Use the fast, compact `tiny-lod` method (default setting, no need to specify)
 - `--quality`: Use the higher-quality, slower `bhatt-lod` method. Recommended for offline LoD tree building and streaming.
 - `--max-sh=#`: Limit the maximum Spherical Harmonics encoded, from 0..3.
+- `--rad-chunked`: Output a chunked RAD file for streaming, with .RAD header and .RADC chunk files.
+
+When using `--rad-chunked` the resulting files will be a small header file `my-splats-lod.rad` and chunks in `my-splats-lod-0.radc`, `...-lod-1.radc`, etc. Use the `my-splats-lod.rad` file as URL with `paged: true` and Spark will automatically fetch the chunks as needed.
 
 The tool `build-lod` supports most splat file formats: .ply (including PlayCanvas compressed), .spz, .splat, .ksplat, .sog, .zip (containing SOGS files). It also accepts multiple file inputs, so you can for example run:
 ```shell

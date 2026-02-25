@@ -166,26 +166,43 @@ export class PagedSplats implements SplatSource {
           `Chunk index out of range: ${chunk} (max: ${meta.chunks.length - 1})`,
         );
       }
-      let { offset, bytes } = meta.chunks[chunk];
-      offset += chunksStart;
-      // console.log(`Fetching chunk ${chunk} at offset ${offset} with bytes ${bytes}`);
-      if (this.fileBytes) {
-        if (offset < 0 || offset + bytes > this.fileBytes.length) {
-          throw new Error(
-            `Invalid chunk offset or bytes: ${offset} + ${bytes} > ${this.fileBytes.length}`,
-          );
+      let { offset, bytes, filename } = meta.chunks[chunk];
+
+      if (filename) {
+        if (this.fileBytes) {
+          throw new Error("Chunked RAD file not supported with fileBytes");
         }
-        decodeBytes = this.fileBytes.slice(offset, offset + bytes);
-      } else if (this.rootUrl) {
+        const resolvedRoot = new URL(
+          this.rootUrl,
+          window.location.href,
+        ).toString();
+        const chunkUrl = new URL(filename, resolvedRoot).toString();
         decodeBytes = await fetchRange({
-          url: this.rootUrl,
+          url: chunkUrl,
           requestHeader: this.requestHeader,
           withCredentials: this.withCredentials,
-          offset,
-          bytes,
         });
       } else {
-        throw new Error("No url or fileBytes provided");
+        offset += chunksStart;
+        // console.log(`Fetching chunk ${chunk} at offset ${offset} with bytes ${bytes}`);
+        if (this.fileBytes) {
+          if (offset < 0 || offset + bytes > this.fileBytes.length) {
+            throw new Error(
+              `Invalid chunk offset or bytes: ${offset} + ${bytes} > ${this.fileBytes.length}`,
+            );
+          }
+          decodeBytes = this.fileBytes.slice(offset, offset + bytes);
+        } else if (this.rootUrl) {
+          decodeBytes = await fetchRange({
+            url: this.rootUrl,
+            requestHeader: this.requestHeader,
+            withCredentials: this.withCredentials,
+            offset,
+            bytes,
+          });
+        } else {
+          throw new Error("No url or fileBytes provided");
+        }
       }
     } else if (this.fileBytes) {
       // Fall through

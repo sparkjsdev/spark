@@ -20,6 +20,7 @@ const INFLATE_SCALE: bool = false;
 enum BuildLodOutput {
     #[default]
     Rad,
+    RadChunked,
     Spz,
     SpzChunked,
 }
@@ -247,7 +248,7 @@ fn process_file_lod_tsplat<TS: SplatReceiver + TsplatArray + SplatGetter>(filena
     }
 
     match options.output {
-        BuildLodOutput::Rad => {
+        BuildLodOutput::Rad | BuildLodOutput::RadChunked => {
             let mut encoder = RadEncoder::new(splats);
             let input_encoding = serde_json::json!({
                     "center": encoder.center_encoding,
@@ -283,7 +284,21 @@ fn process_file_lod_tsplat<TS: SplatReceiver + TsplatArray + SplatGetter>(filena
             
             let filename_ext = format!("{}.rad", output_filename);
             let mut writer = BufWriter::new(File::create(&filename_ext).unwrap());
-            encoder.encode(&mut writer).unwrap();
+
+            if options.output == BuildLodOutput::Rad {
+                encoder.encode(&mut writer).unwrap();
+            } else {
+                let mut output_path = std::path::PathBuf::from(&output_filename);
+                let filename_only = output_path.file_name().unwrap().to_str().unwrap();
+                let chunk_prefix = format!("{}-", filename_only);
+                let chunks = encoder.encode_with_chunks(&mut writer, &chunk_prefix).unwrap();
+                for (filename, chunk) in chunks {
+                    output_path.set_file_name(&filename);
+                    let mut chunk_writer = BufWriter::new(File::create(&output_path).unwrap());
+                    chunk_writer.write_all(&chunk).unwrap();
+                    println!("Wrote {} ({} bytes)", filename, chunk.len());
+                }
+            }
             println!("Wrote {}", filename_ext);
         },
         BuildLodOutput::Spz => {
@@ -315,16 +330,16 @@ fn process_file_lod_tsplat<TS: SplatReceiver + TsplatArray + SplatGetter>(filena
 
 fn show_usage_exit() {
     eprintln!("Usage: build-lod");
-    eprintln!("  [--unlod]                                    // Remove LoD nodes with children from file");
-    eprintln!("  [--csplat] [--gsplat]                        // Use compact (csplat) or higher-precision (default gsplat) splat encoding");
-    eprintln!("  [--quick] [--quality]                        // Use quick (tiny-lod) or quality (bhatt-lod) LoD method (default quick)");
-    eprintln!("  [--tiny-lod[=<base>]] [--bhatt-lod[=<base>]] // Use tiny-lod (default base 1.5) or bhatt-lod (default base 1.75) LoD method");
-    eprintln!("  [--max-sh=<max-sh>]                          // Set maximum SH degree (default 3)");
-    eprintln!("  [--rad] [--spz] [--spz-chunked]              // Output RAD, SPZ, or chunked SPZ files");
-    eprintln!("  [--min-box=<x>,<y>,<z>]                      // Crop input file to minimum bounding coord");
-    eprintln!("  [--max-box=<x>,<y>,<z>]                      // Crop input file to maximum bounding coord");
-    eprintln!("  [--within-dist=<x>,<y>,<z>,<radius>]         // Crop input file to within radius of a point");
-    eprintln!("  [--skip-validate]                            // Skip validation of input file");
+    eprintln!("  [--unlod]                                       // Remove LoD nodes with children from file");
+    eprintln!("  [--csplat] [--gsplat]                           // Use compact (csplat) or higher-precision (default gsplat) splat encoding");
+    eprintln!("  [--quick] [--quality]                           // Use quick (tiny-lod) or quality (bhatt-lod) LoD method (default quick)");
+    eprintln!("  [--tiny-lod[=<base>]] [--bhatt-lod[=<base>]]    // Use tiny-lod (default base 1.5) or bhatt-lod (default base 1.75) LoD method");
+    eprintln!("  [--max-sh=<max-sh>]                             // Set maximum SH degree (default 3)");
+    eprintln!("  [--rad] [--rad-chunked] [--spz] [--spz-chunked] // Output RAD (+chunked) or SPZ (+chunked) output files");
+    eprintln!("  [--min-box=<x>,<y>,<z>]                         // Crop input file to minimum bounding coord");
+    eprintln!("  [--max-box=<x>,<y>,<z>]                         // Crop input file to maximum bounding coord");
+    eprintln!("  [--within-dist=<x>,<y>,<z>,<radius>]            // Crop input file to within radius of a point");
+    eprintln!("  [--skip-validate]                               // Skip validation of input file");
     eprintln!("  <file.ply|file.spz|file.compressed.ply|file.splat|file.ksplat|file.sog|file.rad> [...] // Multiple input files and wildcards allowed");
     std::process::exit(1);
 }
@@ -415,6 +430,11 @@ fn main() {
         if arg == "--rad" {
             options.output = BuildLodOutput::Rad;
             println!("Using --rad: RAD file output (default)");
+            continue;
+        }
+        if arg == "--rad-chunked" {
+            options.output = BuildLodOutput::RadChunked;
+            println!("Using --rad-chunked: Chunk RAD file output");
             continue;
         }
         if arg == "--spz" {
