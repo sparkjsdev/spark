@@ -4,7 +4,7 @@ Spark provides loaders for most popular splat file formats, including `.ply` (or
 
 Spark can also load formats `.splat` (from [`antimatter15/splat`](https://github.com/antimatter15/splat)) and `.ksplat` (from [`mkkellogg/GaussianSplats3D`](https://github.com/mkkellogg/GaussianSplats3D)) if the file type can be inferred from the URL/path extension, or set explicitly using the `fileType` property when creating a `SplatMesh` or `PackedSplats`.
 
-## Loading auto-detectable formats `.ply` and `.spz`
+## Loading auto-detectable formats `.ply`, `.spz`, `.sog`/`.zip`, `.rad`
 
 Adding an individual `SplatMesh` from an auto-detectable format is easy and can be done as simply as:
 
@@ -18,9 +18,9 @@ scene.add(new SplatMesh({ url: "plyBin/0123456789abcdef" }));
 scene.add(new SplatMesh({ url: "spzBin/fedcba9876543210" }));
 ```
 
-### Load via `PackedSplats`
+### Load via `PackedSplats` / `ExtSplats`
 
-Alternatively, you can load a `.ply` or `.spz` into a `PackedSplats`, which can then be used as an input source for multiple `SplatMesh` instances in the scene.
+Alternatively, you can load a `.ply` or `.spz` into a `PackedSplats` or `ExtSplats`, which can then be used as an input source for multiple `SplatMesh` instances in the scene.
 
 ```javascript
 const packedSplats = new PackedSplats({ url: "./clone.ply" });
