@@ -4,6 +4,13 @@ import fs from "node:fs";
 import path from "node:path";
 
 const stringReplacements = {
+  "site/index.html": {
+    replacements: {
+      "../../examples/": "./examples/",
+      "../../docs/": "./docs/",
+      "../../viewer/": "./viewer/",
+    },
+  },
   "site/viewer/index.html": {
     replacements: {
       "../js/vendor/three/build/three.module.js":
