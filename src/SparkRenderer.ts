@@ -413,6 +413,13 @@ export class SparkRenderer extends THREE.Mesh {
   sortDelay = 0;
 
   constructor(options: SparkRendererOptions) {
+    if (!options) {
+      throw new Error("SparkRenderer options are required");
+    }
+    if (!options.renderer) {
+      throw new Error("renderer is required in SparkRenderer options");
+    }
+
     const uniforms = SparkRenderer.makeUniforms();
     Object.assign(uniforms, options.extraUniforms ?? {});
 
