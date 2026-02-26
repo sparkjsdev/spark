@@ -363,6 +363,7 @@ impl SplatFileType {
             "splat" => Some(Self::ANTISPLAT),
             "ksplat" => Some(Self::KSPLAT),
             "sog" => Some(Self::SOGS),
+            "sogs" => Some(Self::SOGS),
             "zip" => Some(Self::SOGS),
             "rad" => Some(Self::RAD),
             _ => None,
@@ -370,7 +371,13 @@ impl SplatFileType {
     }
 
     pub fn from_pathname(pathname: &str) -> Option<Self> {
-        pathname.split('.').last().and_then(Self::from_extension)
+        let clean_path = pathname
+            .split_once('?')
+            .map_or(pathname, |(path, _)| path);
+        let clean_path = clean_path
+            .split_once('#')
+            .map_or(clean_path, |(path, _)| path);
+        clean_path.split('.').last().and_then(Self::from_extension)
     }
 }
 
