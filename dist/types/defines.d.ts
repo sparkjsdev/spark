@@ -49,6 +49,7 @@ export type RadMeta = {
         bytes: number;
         base?: number;
         count?: number;
+        filename?: string;
     }[];
     splatEncoding?: SplatEncoding;
 };
