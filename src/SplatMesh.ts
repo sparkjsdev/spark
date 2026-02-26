@@ -420,7 +420,7 @@ export class SplatMesh extends SplatGenerator {
       }
     }
 
-    this.add(createRendererDetectionMesh());
+    // this.add(createRendererDetectionMesh());
   }
 
   async asyncInitialize(options: SplatMeshOptions) {
