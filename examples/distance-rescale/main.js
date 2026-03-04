@@ -3,6 +3,7 @@ import { GUI } from "lil-gui";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+import { setupInfiniteRotation } from "/examples/js/orbit-controls-utils.js";
 
 // ============================================================================
 // Scene Setup
@@ -26,6 +27,7 @@ scene.add(spark);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.05;
+setupInfiniteRotation(controls); // Enable infinite rotation without angle limits
 camera.position.set(0, 2, 5);
 camera.lookAt(0, 0, 0);
 
@@ -62,6 +64,10 @@ const state = {
   // Interaction
   mode: "select1", // 'select1' | 'select2' | 'complete'
   dragging: null, // 'point1' | 'point2' | null
+
+  // Coordinate axes
+  axesHelper: null,
+  axesVisible: false,
 };
 
 let splatMesh = null;
@@ -371,6 +377,45 @@ function rescaleModel(newDistance) {
 }
 
 // ============================================================================
+// Coordinate Origin Transform
+// ============================================================================
+
+function transformOriginTo(newOrigin) {
+  if (!splatMesh) return;
+
+  console.log("Transforming origin to:", newOrigin.toFixed(2));
+
+  // Calculate translation: move newOrigin to (0,0,0)
+  const translation = newOrigin.clone().negate();
+
+  // Transform all splat centers
+  splatMesh.packedSplats.forEachSplat(
+    (i, center, scales, quat, opacity, color) => {
+      center.add(translation);
+      splatMesh.packedSplats.setSplat(i, center, scales, quat, opacity, color);
+    },
+  );
+  splatMesh.packedSplats.needsUpdate = true;
+
+  // Transform axes helper if exists
+  if (state.axesHelper) {
+    state.axesHelper.position.add(translation);
+  }
+
+  // Reset measurements (user preference)
+  resetSelection();
+
+  // Transform camera to maintain view
+  camera.position.add(translation);
+  controls.target.add(translation);
+  controls.update();
+
+  updateInstructions(
+    "Coordinate origin set. Click to select first measurement point",
+  );
+}
+
+// ============================================================================
 // Reset
 // ============================================================================
 
@@ -527,6 +572,51 @@ renderer.domElement.addEventListener("pointerup", (event) => {
   pointerDownPos = null;
 });
 
+// Double-click handler for setting coordinate origin
+renderer.domElement.addEventListener("dblclick", (event) => {
+  if (event.button !== 0) return; // Only left button
+
+  if (!splatMesh) return;
+
+  const ndc = getMouseNDC(event);
+  const hitPoint = getHitPoint(ndc);
+
+  if (!hitPoint) {
+    console.log("Double-click missed model");
+    return;
+  }
+
+  transformOriginTo(hitPoint);
+});
+
+// Drag and drop handlers
+const onDragover = (e) => {
+  e.preventDefault();
+  // Add visual feedback
+  renderer.domElement.style.outline = "3px solid #00ff00";
+};
+
+const onDragLeave = (e) => {
+  e.preventDefault();
+  renderer.domElement.style.outline = "none";
+};
+
+const onDrop = (e) => {
+  e.preventDefault();
+  renderer.domElement.style.outline = "none";
+
+  const files = e.dataTransfer.files;
+  if (files.length > 0) {
+    loadSplatFile(files[0]);
+  } else {
+    console.warn("No files dropped");
+  }
+};
+
+renderer.domElement.addEventListener("dragover", onDragover);
+renderer.domElement.addEventListener("dragleave", onDragLeave);
+renderer.domElement.addEventListener("drop", onDrop);
+
 // ============================================================================
 // GUI
 // ============================================================================
@@ -535,11 +625,21 @@ const gui = new GUI();
 const guiParams = {
   measuredDistance: "0.0000",
   newDistance: 1.0,
+  loadPlyFile: () => {
+    // Trigger file input click
+    document.getElementById("file-input").click();
+  },
+  toggleAxes: () => toggleAxes(),
   reset: resetSelection,
   rescale: () => rescaleModel(guiParams.newDistance),
   exportPly: exportPly,
 };
 
+// Add load button at the top
+gui.add(guiParams, "loadPlyFile").name("Load PLY File");
+gui.add(guiParams, "toggleAxes").name("Toggle Axes");
+
+// Measurement controls
 gui
   .add(guiParams, "measuredDistance")
   .name("Measured Distance")
@@ -577,8 +677,7 @@ async function loadSplatFile(urlOrFile) {
       splatMesh = new SplatMesh({ fileBytes: new Uint8Array(arrayBuffer) });
     }
 
-    // Apply rotation to match common PLY orientation
-    splatMesh.rotation.x = Math.PI;
+    // No fixed rotation applied - users can rotate freely with OrbitControls
     scene.add(splatMesh);
 
     await splatMesh.initialized;
@@ -586,6 +685,10 @@ async function loadSplatFile(urlOrFile) {
 
     // Auto-center camera on the model
     centerCameraOnModel();
+
+    // Create or update coordinate axes
+    createOrUpdateAxes();
+
     updateInstructions("Click on the model to select first measurement point");
   } catch (error) {
     console.error("Error loading splat:", error);
@@ -657,6 +760,46 @@ function centerCameraOnModel() {
   } catch (error) {
     console.error("Error computing bounding box:", error);
   }
+}
+
+function createOrUpdateAxes() {
+  if (!splatMesh) return;
+
+  // Remove existing axes
+  if (state.axesHelper) {
+    scene.remove(state.axesHelper);
+    state.axesHelper.dispose();
+  }
+
+  // Get model bounding box to size axes appropriately
+  const bbox = splatMesh.getBoundingBox(true);
+  const size = new THREE.Vector3();
+  bbox.getSize(size);
+  const maxDim = Math.max(size.x, size.y, size.z);
+
+  // Create axes helper (1.5x model size)
+  state.axesHelper = new THREE.AxesHelper(maxDim * 1.5);
+  state.axesHelper.visible = state.axesVisible;
+  scene.add(state.axesHelper);
+}
+
+function toggleAxes() {
+  if (!splatMesh) {
+    console.warn("No model loaded");
+    return;
+  }
+
+  state.axesVisible = !state.axesVisible;
+
+  if (!state.axesHelper) {
+    createOrUpdateAxes();
+  } else {
+    state.axesHelper.visible = state.axesVisible;
+  }
+
+  // Update instructions to show state
+  const stateText = state.axesVisible ? "shown" : "hidden";
+  console.log(`Axes ${stateText}`);
 }
 
 // File input handler

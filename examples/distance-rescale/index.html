@@ -30,30 +30,6 @@
       z-index: 10;
     }
 
-    #file-input-container {
-      position: absolute;
-      bottom: 20px;
-      left: 20px;
-      z-index: 100;
-    }
-
-    #file-input-container label {
-      background: #333;
-      color: white;
-      padding: 10px 20px;
-      border-radius: 5px;
-      cursor: pointer;
-      font-size: 14px;
-    }
-
-    #file-input-container label:hover {
-      background: #555;
-    }
-
-    #file-input {
-      display: none;
-    }
-
     #distance-display {
       position: absolute;
       bottom: 20px;
@@ -83,10 +59,8 @@
 <body>
   <header id="instructions">Click on the model to select first measurement point</header>
 
-  <div id="file-input-container">
-    <label for="file-input">Load PLY File</label>
-    <input type="file" id="file-input" accept=".ply,.spz,.splat">
-  </div>
+  <!-- Hidden file input triggered by lil-gui button -->
+  <input type="file" id="file-input" accept=".ply,.spz,.splat" style="display: none;">
 
   <div id="distance-display">
     <div class="label">Distance</div>
