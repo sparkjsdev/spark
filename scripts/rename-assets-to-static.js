@@ -1,6 +1,5 @@
 import { execSync } from "node:child_process";
 import {
-  copyFileSync,
   readFileSync,
   readdirSync,
   renameSync,
@@ -38,13 +37,4 @@ function replaceInHtmlFiles(dir) {
       }
     }
   }
-}
-
-// Copy Azure Static Web Apps config if it exists
-const swaConfig = "staticwebapp.config.json";
-try {
-  copyFileSync(swaConfig, join(siteDirectory, swaConfig));
-  console.log(`Copied ${swaConfig} to ${siteDirectory}/`);
-} catch {
-  // Config file is optional - skip if not present
 }
