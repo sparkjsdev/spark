@@ -90,6 +90,9 @@ export class SplatLoader extends Loader {
     lodAbove?: number;
     lodBase?: number;
   }) {
+    if (fileBytes instanceof ArrayBuffer) {
+      fileBytes = new Uint8Array(fileBytes);
+    }
     const resolvedURL = fileBytes
       ? undefined
       : this.manager.resolveURL((this.path ?? "") + (url ?? ""));
