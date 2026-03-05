@@ -316,8 +316,10 @@ export class PagedSplats implements SplatSource {
       renderer.initTexture(indicesTexture);
       this.dynoIndices.value = indicesTexture;
     } else {
-      const gl = renderer.getContext() as WebGL2RenderingContext;
+      const textureIndices = indicesTexture.image.data as Uint32Array;
+      textureIndices.set(indices.subarray(0, numSplats));
 
+      const gl = renderer.getContext() as WebGL2RenderingContext;
       renderer.state.activeTexture(gl.TEXTURE0);
       renderer.state.bindTexture(
         gl.TEXTURE_2D,

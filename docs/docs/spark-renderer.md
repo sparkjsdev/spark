@@ -66,10 +66,10 @@ const spark = new SparkRenderer({
 | **pagedExtSplats** | Whether to use extended Gsplat encoding for paged splats, useful for eliminating quantization artifacts from splat scenes with large internal position coordinates. (default: `false`)
 | **maxPagedSplats** | Allocation size of paged splats. This must be a multiple of the page size (65536). (default: `16777216` for desktop, `6291456` for iOS, `8,388,608` for other mobile)
 | **numLodFetchers** | Number of parallel chunk fetchers for LoD. These are run within a shared pool of 4 background WebWorker threads, so setting it above 4 will not have any effect. Setting it 3 leaves one spare worker for other loading/decoding tasks. (default: `3`)
-| **coneFov0** | Full-width angle in degrees of fixed foveation cone along the view direction with no foveation applied (full resolution, foveate=1.0). (default: `0.0`)
-| **coneFov** | Full-width angle in degrees of fixed foveation cone along the view direction with reduced resolution specified by `coneFoveate`. Foveation will be applied smoothly from 1.0 down to `coneFoveate` as you move outward from `coneFov0` to `coneFov`. (default: `0.0`)
-| **coneFoveate** | Foveation scale to apply to LoD splats at the edge of coneFov. Foveation will be applied smoothly from `coneFoveate` down to `behindFoveate` as you move outward from `coneFov` to 180 degrees (behind the viewer). (default: `1.0`)
-| **behindFoveate** | Foveation scale to apply to LoD splats behind the viewer. Setting this to 0.1 for example will result in splats 10x larger than inside the viewing frustum. (default: `1.0`)
+| **coneFov0** | Full-width angle in degrees of fixed foveation cone along the view direction with no foveation applied (full resolution, foveate=1.0). (default: `90.0`)
+| **coneFov** | Full-width angle in degrees of fixed foveation cone along the view direction with reduced resolution specified by `coneFoveate`. Foveation will be applied smoothly from 1.0 down to `coneFoveate` as you move outward from `coneFov0` to `coneFov`. (default: `120.0`)
+| **coneFoveate** | Foveation scale to apply to LoD splats at the edge of coneFov. Foveation will be applied smoothly from `coneFoveate` down to `behindFoveate` as you move outward from `coneFov` to 180 degrees (behind the viewer). (default: `0.4`)
+| **behindFoveate** | Foveation scale to apply to LoD splats behind the viewer. Setting this to 0.1 for example will result in splats 10x larger than inside the viewing frustum. (default: `0.2`)
 | **target**        | Configures an offline render target for the `SparkRenderer` (as opposed to rendering to the canvas). This is useful for rendering environment maps, additional viewpoints, or video frame rendering. (default: `undefined`)
 | **target.width**  | Width of the render target in pixels.
 | **target.height** | Height of the render target in pixels.

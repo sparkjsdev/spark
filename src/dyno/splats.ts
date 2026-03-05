@@ -405,7 +405,7 @@ const defineReadCovArrays = unindent(`
       ivec3 coord = splatTexCoord(index);
       uvec4 packed1 = texelFetch(texture1, coord, 0);
       uvec4 packed2 = texelFetch(texture2, coord, 0);
-      unpackSplatExt(packed1, packed2, covsplat.center, covsplat.rgba, covsplat.xxyyzz, covsplat.xyxzyz);
+      unpackSplatExtCov(packed1, packed2, covsplat.center, covsplat.rgba, covsplat.xxyyzz, covsplat.xyxzyz);
       covsplat.flags = (all(equal(covsplat.xxyyzz, vec3(0.0))) && all(equal(covsplat.xyxzyz, vec3(0.0)))) ? 0u : GSPLAT_FLAG_ACTIVE;
       gsplat.index = index;
     }
