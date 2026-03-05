@@ -23,6 +23,7 @@ export type SplatMeshOptions = {
     onLoad?: (mesh: SplatMesh) => Promise<void> | void;
     editable?: boolean;
     raycastable?: boolean;
+    minRaycastOpacity?: number;
     onFrame?: ({ mesh, time, deltaTime, }: {
         mesh: SplatMesh;
         time: number;
@@ -120,6 +121,7 @@ export declare class SplatMesh extends SplatGenerator {
     edits: SplatEdit[] | null;
     editable: boolean;
     raycastable: boolean;
+    minRaycastOpacity: number;
     rgbaDisplaceEdits: SplatEdits | null;
     splatRgba: RgbaArray | null;
     maxSh: number;
@@ -153,6 +155,8 @@ export declare class SplatMesh extends SplatGenerator {
         point: THREE.Vector3;
         object: THREE.Object3D;
     }[]): void;
+    static raycastBuffer: Float32Array<ArrayBuffer>;
+    private appendRaycastBuffer;
     createLodSplats({ rgbaArray, quality, }?: {
         rgbaArray?: RgbaArray;
         quality?: boolean;

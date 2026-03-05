@@ -207,26 +207,26 @@ export interface SparkRendererOptions {
    */
   numLodFetchers?: number;
   /* Full-width angle in degrees of fixed foveation cone along the view direction
-   * with no foveation applied (full resolution, foveate=1.0).
-   * @default 0.0
+   * with no foveation applied (full resolution, foveate=1.0). Set to 0 to disable.
+   * @default 90.0
    */
   coneFov0?: number;
   /* Full-width angle in degrees of fixed foveation cone along the view direction
    * with reduced resolution specified by `coneFoveate`. Foveation will be applied
    * smoothly from 1.0 down to `coneFoveate` as you move outward from
-   * `coneFov0` to `coneFov`.
-   * @default 0.0 (disables cone foveation)
+   * `coneFov0` to `coneFov`. Set to 0 to disable.
+   * @default 120.0
    */
   coneFov?: number;
   /* Foveation scale to apply to LoD splats at the edge of coneFov. Foveation will
    * be applied smoothly from `coneFoveate` down to `behindFoveate` as you move
    * outward from `coneFov` to 180 degrees (behind the viewer).
-   * @default 1.0
+   * @default 0.4
    */
   coneFoveate?: number;
   /* Foveation scale to apply to LoD splats behind the viewer. Setting this to 0.1
    * for example will result in splats 10x larger than inside the viewing frustum.
-   * @default 1.0
+   * @default 0.2
    */
   behindFoveate?: number;
   /* Configures an offline render target for the SparkRenderer (as opposed to
@@ -482,10 +482,10 @@ export class SparkRenderer extends THREE.Mesh {
     this.maxPagedSplats = options.maxPagedSplats ?? defaultPages * 65536;
     this.numLodFetchers = options.numLodFetchers ?? 3;
     this.outsideFoveate = 1.0;
-    this.behindFoveate = options.behindFoveate ?? 1.0;
-    this.coneFov0 = options.coneFov0 ?? 0.0;
-    this.coneFov = options.coneFov ?? 0.0;
-    this.coneFoveate = options.coneFoveate ?? 1.0;
+    this.behindFoveate = options.behindFoveate ?? 0.2;
+    this.coneFov0 = options.coneFov0 ?? 90.0;
+    this.coneFov = options.coneFov ?? 120.0;
+    this.coneFoveate = options.coneFoveate ?? 0.4;
 
     this.clock = options.clock ? cloneClock(options.clock) : new THREE.Clock();
 
@@ -1467,6 +1467,8 @@ export class SparkRenderer extends THREE.Mesh {
           this.lodInstances.set(mesh, instance);
         } else {
           instance.numSplats = numSplats;
+          instance.indices.set(indices.subarray(0, numSplats));
+
           const renderer = this.renderer;
           const gl = renderer.getContext() as WebGL2RenderingContext;
           if (renderer.properties.has(instance.texture)) {

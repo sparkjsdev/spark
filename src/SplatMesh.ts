@@ -1,6 +1,11 @@
 import * as THREE from "three";
 
-import init_wasm, { raycast_splats } from "spark-rs";
+import init_wasm, {
+  get_raycast_buffer,
+  get_raycast_buffer2,
+  raycast_ext_buffers,
+  raycast_packed_buffer,
+} from "spark-rs";
 import { ExtSplats } from "./ExtSplats";
 import { OldSparkRenderer } from "./OldSparkRenderer";
 import { PackedSplats } from "./PackedSplats";
@@ -85,6 +90,8 @@ export type SplatMeshOptions = {
   editable?: boolean;
   // Controls whether SplatMesh participates in Three.js raycasting (default: true)
   raycastable?: boolean;
+  // Minimum opacity for raycasting splats. (default: 0.2)
+  minRaycastOpacity?: number;
   // Callback function that is called every frame to update the mesh.
   // Call mesh.updateVersion() if splats need to be regenerated due to some change.
   // Calling updateVersion() is not necessary for object transformations, recoloring,
@@ -267,6 +274,7 @@ export class SplatMesh extends SplatGenerator {
   edits: SplatEdit[] | null = null;
   editable: boolean;
   raycastable: boolean;
+  minRaycastOpacity: number;
   // Compiled SplatEdits for applying SDF edits to splat RGBA + centers
   rgbaDisplaceEdits: SplatEdits | null = null;
   // Optional RgbaArray to overwrite splat RGBA values with custom values.
@@ -333,6 +341,7 @@ export class SplatMesh extends SplatGenerator {
 
     this.editable = options.editable ?? true;
     this.raycastable = options.raycastable ?? true;
+    this.minRaycastOpacity = options.minRaycastOpacity ?? 0.2;
     this.onFrame = options.onFrame;
 
     this.context = {
@@ -1004,39 +1013,137 @@ export class SplatMesh extends SplatGenerator {
   ) {
     if (
       !this.raycastable ||
-      !this.packedSplats?.packedArray ||
-      !this.packedSplats?.numSplats
+      (!this.packedSplats && !this.extSplats && !this.paged)
     ) {
       return;
     }
+    const paged = this.paged != null;
+    const ext = paged
+      ? (this.paged?.pager?.extSplats ?? false)
+      : this.extSplats != null;
 
     const { near, far, ray } = raycaster;
     const worldToMesh = this.matrixWorld.clone().invert();
     const worldToMeshRot = new THREE.Matrix3().setFromMatrix4(worldToMesh);
     const origin = ray.origin.clone().applyMatrix4(worldToMesh);
     const direction = ray.direction.clone().applyMatrix3(worldToMeshRot);
-    const scales = new THREE.Vector3();
-    worldToMesh.decompose(new THREE.Vector3(), new THREE.Quaternion(), scales);
-    const scale = (scales.x * scales.y * scales.z) ** (1.0 / 3.0);
 
-    const RAYCAST_ELLIPSOID = true;
-    const distances = raycast_splats(
-      origin.x,
-      origin.y,
-      origin.z,
-      direction.x,
-      direction.y,
-      direction.z,
-      near,
-      far,
-      this.packedSplats.numSplats,
-      this.packedSplats.packedArray,
-      RAYCAST_ELLIPSOID,
-      this.packedSplats.splatEncoding?.lnScaleMin ?? LN_SCALE_MIN,
-      this.packedSplats.splatEncoding?.lnScaleMax ?? LN_SCALE_MAX,
-    );
+    const buffer = get_raycast_buffer();
+    const bufferSize = buffer.length / 4;
+    let intersections = 0;
 
-    for (const distance of distances) {
+    const numSplats =
+      (paged ? this.paged?.numSplats : this.context.numSplats.value) ?? 0;
+    const indices = paged
+      ? (this.paged?.dynoIndices.value.image.data as Uint32Array)
+      : this.context.enableLod.value
+        ? (this.context.lodIndices.value.image.data as Uint32Array)
+        : null;
+
+    if (!ext) {
+      const packed = paged
+        ? (this.paged?.pager?.packedTexture.value.image.data as Uint32Array)
+        : indices
+          ? this.packedSplats?.lodSplats?.packedArray
+          : this.packedSplats?.packedArray;
+      if (!packed) {
+        return;
+      }
+      const splatEncoding = paged
+        ? this.paged?.splatEncoding
+        : this.packedSplats?.splatEncoding;
+      for (let base = 0; base < numSplats; base += bufferSize) {
+        const count = Math.min(bufferSize, numSplats - base);
+        if (!indices) {
+          buffer.set(packed.subarray(base * 4, (base + count) * 4));
+        } else {
+          for (let i = 0; i < count; ++i) {
+            const index = indices[base + i];
+            const i4 = i * 4;
+            const index4 = index * 4;
+            buffer[i4] = packed[index4];
+            buffer[i4 + 1] = packed[index4 + 1];
+            buffer[i4 + 2] = packed[index4 + 2];
+            buffer[i4 + 3] = packed[index4 + 3];
+          }
+        }
+
+        const newIntersections = raycast_packed_buffer(
+          origin.x,
+          origin.y,
+          origin.z,
+          direction.x,
+          direction.y,
+          direction.z,
+          this.minRaycastOpacity,
+          near,
+          far,
+          count,
+          splatEncoding?.lnScaleMin ?? LN_SCALE_MIN,
+          splatEncoding?.lnScaleMax ?? LN_SCALE_MAX,
+          splatEncoding?.lodOpacity ?? false,
+        );
+        intersections = this.appendRaycastBuffer(
+          intersections,
+          newIntersections,
+        );
+      }
+    } else {
+      const buffer2 = get_raycast_buffer2();
+      const ext1 = paged
+        ? (this.paged?.pager?.packedTexture.value.image.data as Uint32Array)
+        : indices
+          ? this.extSplats?.lodSplats?.extArrays[0]
+          : this.extSplats?.extArrays[0];
+      const ext2 = paged
+        ? (this.paged?.pager?.extTexture.value.image.data as Uint32Array)
+        : indices
+          ? this.extSplats?.lodSplats?.extArrays[1]
+          : this.extSplats?.extArrays[1];
+      if (!ext1 || !ext2) {
+        return;
+      }
+      for (let base = 0; base < numSplats; base += bufferSize) {
+        const count = Math.min(bufferSize, numSplats - base);
+        if (!indices) {
+          buffer.set(ext1.subarray(base * 4, (base + count) * 4));
+          buffer2.set(ext2.subarray(base * 4, (base + count) * 4));
+        } else {
+          for (let i = 0; i < count; ++i) {
+            const index = indices[base + i];
+            const i4 = i * 4;
+            const index4 = index * 4;
+            buffer[i4] = ext1[index4];
+            buffer[i4 + 1] = ext1[index4 + 1];
+            buffer[i4 + 2] = ext1[index4 + 2];
+            buffer[i4 + 3] = ext1[index4 + 3];
+            buffer2[i4] = ext2[index4];
+            buffer2[i4 + 1] = ext2[index4 + 1];
+            buffer2[i4 + 2] = ext2[index4 + 2];
+            buffer2[i4 + 3] = ext2[index4 + 3];
+          }
+        }
+
+        const newIntersections = raycast_ext_buffers(
+          origin.x,
+          origin.y,
+          origin.z,
+          direction.x,
+          direction.y,
+          direction.z,
+          this.minRaycastOpacity,
+          near,
+          far,
+          count,
+        );
+        intersections = this.appendRaycastBuffer(
+          intersections,
+          newIntersections,
+        );
+      }
+    }
+
+    for (const distance of SplatMesh.raycastBuffer.subarray(0, intersections)) {
       const point = ray.direction
         .clone()
         .multiplyScalar(distance)
@@ -1047,6 +1154,25 @@ export class SplatMesh extends SplatGenerator {
         object: this,
       });
     }
+  }
+
+  static raycastBuffer = new Float32Array(1024);
+
+  private appendRaycastBuffer(count: number, additional: Float32Array) {
+    const total = count + additional.length;
+    let capacity = SplatMesh.raycastBuffer.length;
+
+    if (total > capacity) {
+      while (capacity < total) {
+        capacity *= 2;
+      }
+      const newBuffer = new Float32Array(capacity);
+      newBuffer.set(SplatMesh.raycastBuffer.subarray(0, count));
+      SplatMesh.raycastBuffer = newBuffer;
+    }
+
+    SplatMesh.raycastBuffer.set(additional, count);
+    return count + additional.length;
   }
 
   async createLodSplats({

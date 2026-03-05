@@ -32,6 +32,8 @@ const splats = new SplatMesh({
   editable?: boolean;
   // Controls whether SplatMesh participates in Three.js raycasting (default: true)
   raycastable?: boolean;
+  // Minimum opacity for raycasting splats. (default: 0.2)
+  minRaycastOpacity?: number;
   // Frame callback to update mesh. Call mesh.updateVersion() if we need to re-generate
   onFrame?: ({
     mesh,
@@ -90,6 +92,7 @@ Constructor callbacks include `constructSplats` (procedural creation), `onProgre
 | **onLoad** | `(mesh: SplatMesh) => Promise<void> | void` callback fired when initialization is complete. (default: `undefined`) |
 | **editable** | `boolean` toggle controlling whether `SplatEdit`s have any effect on this mesh. (default: `true`) |
 | **raycastable** | `boolean` controls whether this `SplatMesh` participates in Three.js raycasting. (default: `true`) |
+| **minRaycastOpacity** | `number` minimum opacity for raycasting splats. (default: `0.2`) |
 | **onFrame** | `({ mesh, time, deltaTime }) => void` per-frame callback for dynamic updates. Call `mesh.updateVersion()` when changes require splat re-generation. (default: `undefined`) |
 | **objectModifiers** | `GsplatModifier[]` object-space modifiers applied in sequence before transforms. (default: `undefined`) |
 | **worldModifiers** | `GsplatModifier[]` world-space modifiers applied in sequence after transforms. (default: `undefined`) |
