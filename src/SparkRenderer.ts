@@ -101,6 +101,11 @@ export interface SparkRendererOptions {
    */
   enable2DGS?: boolean;
   /**
+   * Enable 3DGUT (unscented transform) rendering.
+   * @default false
+   */
+  enable3DGUT?: boolean;
+  /**
    * Scalar value to add to 2D splat covariance diagonal, effectively blurring +
    * enlarging splats. In scenes trained without the Gsplat anti-aliasing tweak
    * this value was typically 0.3, but with anti-aliasing it is 0.0
@@ -307,6 +312,7 @@ export class SparkRenderer extends THREE.Mesh {
   covSplats: boolean;
   minAlpha: number;
   enable2DGS: boolean;
+  enable3DGUT: boolean;
   preBlurAmount: number;
   blurAmount: number;
   focalDistance: number;
@@ -459,6 +465,7 @@ export class SparkRenderer extends THREE.Mesh {
     this.covSplats = options.covSplats ?? false;
     this.minAlpha = options.minAlpha ?? 0.5 * (1.0 / 255.0);
     this.enable2DGS = options.enable2DGS ?? false;
+    this.enable3DGUT = options.enable3DGUT ?? false;
     this.preBlurAmount = options.preBlurAmount ?? 0.0;
     this.blurAmount = options.blurAmount ?? 0.3;
     this.focalDistance = options.focalDistance ?? 0.0;
@@ -555,6 +562,8 @@ export class SparkRenderer extends THREE.Mesh {
       minAlpha: { value: 0.5 * (1.0 / 255.0) },
       // Enable interpreting 0-thickness Gsplats as 2DGS
       enable2DGS: { value: false },
+      // Enable 3DGUT (unscented transform) rendering
+      enable3DGUT: { value: false },
       // Add to projected 2D splat covariance diagonal (thickens and brightens)
       preBlurAmount: { value: 0.0 },
       // Add to 2D splat covariance diagonal and adjust opacity (anti-aliasing)
@@ -691,6 +700,7 @@ export class SparkRenderer extends THREE.Mesh {
     this.uniforms.maxPixelRadius.value = spark.maxPixelRadius;
     this.uniforms.minAlpha.value = spark.minAlpha;
     this.uniforms.enable2DGS.value = spark.enable2DGS;
+    this.uniforms.enable3DGUT.value = spark.enable3DGUT;
     this.uniforms.preBlurAmount.value = spark.preBlurAmount;
     this.uniforms.blurAmount.value = spark.blurAmount;
     this.uniforms.focalDistance.value = spark.focalDistance;
@@ -1288,6 +1298,7 @@ export class SparkRenderer extends THREE.Mesh {
         }
 
         instances[mesh.uuid] = {
+          instanceId: mesh.uuid,
           lodId: record.lodId,
           rootPage: record.rootPage,
           viewToObjectCols: viewToObject.elements,
@@ -1303,6 +1314,7 @@ export class SparkRenderer extends THREE.Mesh {
       {} as Record<
         string,
         {
+          instanceId: string;
           lodId: number;
           rootPage?: number;
           viewToObjectCols: number[];
@@ -1341,9 +1353,9 @@ export class SparkRenderer extends THREE.Mesh {
       (sum, { numSplats }) => sum + numSplats,
       0,
     );
-    // console.log(
-    //   `traverseLodTrees in ${this.lastTraverseTime} ms, pixelLimit=${pixelLimit}, totalLodSplats=${totalLodSplats}`,
-    // );
+    console.log(
+      `traverseLodTrees in ${this.lastTraverseTime} ms, pixelLimit=${pixelLimit}, totalLodSplats=${totalLodSplats}`,
+    );
 
     this.updateLodIndices(uuidToMesh, keyIndices);
     // console.log("chunks.length =", chunks.length);

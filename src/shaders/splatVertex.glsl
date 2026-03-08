@@ -10,6 +10,11 @@ out vec2 vSplatUv;
 out vec3 vNdc;
 flat out uint vSplatIndex;
 flat out float adjustedStdDev;
+flat out uint vUse3DGUT;
+flat out vec3 vCenterVS;
+flat out vec3 vIsclRot0;
+flat out vec3 vIsclRot1;
+flat out vec3 vIsclRot2;
 
 // uniform uint numSplats;
 uniform vec2 renderSize;
@@ -26,6 +31,7 @@ uniform float deltaTime;
 uniform bool debugFlag;
 uniform float minAlpha;
 uniform bool enable2DGS;
+uniform bool enable3DGUT;
 uniform float blurAmount;
 uniform float preBlurAmount;
 uniform float focalDistance;
@@ -126,10 +132,12 @@ void main() {
         return;
     }
 
-    // Discard splats more than clipXY times outside the XY frustum
-    float clip = clipXY * clipCenter.w;
-    if (abs(clipCenter.x) > clip || abs(clipCenter.y) > clip) {
-        return;
+    if (clipXY > 0.0) {
+        // Discard splats more than clipXY times outside the XY frustum
+        float clip = clipXY * clipCenter.w;
+        if (abs(clipCenter.x) > clip || abs(clipCenter.y) > clip) {
+            return;
+        }
     }
 
     vRgba = rgba;
@@ -137,6 +145,19 @@ void main() {
 
     // Record the splat index for entropy
     vSplatIndex = splatIndex;
+    vUse3DGUT = 0u;
+    vCenterVS = vec3(0.0);
+    vIsclRot0 = vec3(1.0, 0.0, 0.0);
+    vIsclRot1 = vec3(0.0, 1.0, 0.0);
+    vIsclRot2 = vec3(0.0, 0.0, 1.0);
+
+    vec2 scaledRenderSize = renderSize * focalAdjustment;
+    vec2 focal = 0.5 * scaledRenderSize * vec2(projectionMatrix[0][0], projectionMatrix[1][1]);
+    vec2 ndcCenterXY = clipCenter.xy / clipCenter.w;
+
+    float a = 0.0;
+    float b = 0.0;
+    float d = 0.0;
 
     if (!enableCovSplats) {
         // Compute view space quaternion of splat
@@ -160,9 +181,92 @@ void main() {
             return;
         }
 
-        // Compute the 3D covariance matrix of the splat
-        mat3 RS = scaleQuaternionToMatrix(scales, viewQuaternion);
-        cov3D = RS * transpose(RS);
+        if (enable3DGUT && !isOrthographic && !any(zeroScales)) {
+            const float utAlpha = 0.1;
+            const float utBeta = 2.0;
+            const float utKappa = 0.0;
+            const int sigmaCount = 7;
+
+            float lambda = sqr(utAlpha) * (3.0 + utKappa) - 3.0;
+            float nPlusLambda = 3.0 + lambda;
+            if (nPlusLambda <= 0.0) {
+                return;
+            }
+
+            float sigmaScale = sqrt(nPlusLambda);
+            float wMean0 = lambda / nPlusLambda;
+            float wCov0 = wMean0 + (1.0 - sqr(utAlpha) + utBeta);
+            float wOther = 1.0 / (2.0 * nPlusLambda);
+
+            mat3 R = quaternionToMatrix(viewQuaternion);
+            vec3 sigmaPoints[sigmaCount];
+            sigmaPoints[0] = viewCenter;
+            sigmaPoints[1] = viewCenter + sigmaScale * scales.x * R[0];
+            sigmaPoints[2] = viewCenter + sigmaScale * scales.y * R[1];
+            sigmaPoints[3] = viewCenter + sigmaScale * scales.z * R[2];
+            sigmaPoints[4] = viewCenter - sigmaScale * scales.x * R[0];
+            sigmaPoints[5] = viewCenter - sigmaScale * scales.y * R[1];
+            sigmaPoints[6] = viewCenter - sigmaScale * scales.z * R[2];
+
+            vec2 projectedPx[sigmaCount];
+            for (int i = 0; i < sigmaCount; i++) {
+                vec3 sigmaVS = sigmaPoints[i];
+                if (sigmaVS.z >= 0.0) {
+                    return;
+                }
+
+                vec4 sigmaClip = projectionMatrix * vec4(sigmaVS, 1.0);
+                if ((sigmaClip.w <= 0.0) || (abs(sigmaClip.z) >= sigmaClip.w)) {
+                    return;
+                }
+
+                // if (clipXY > 0.0) {
+                //     float clip = clipXY * sigmaClip.w;
+                //     if ((abs(sigmaClip.x) > clip) || (abs(sigmaClip.y) > clip)) {
+                //         return;
+                //     }
+                // }
+
+                vec2 sigmaNdc = sigmaClip.xy / sigmaClip.w;
+                projectedPx[i] = (0.5 * sigmaNdc + 0.5) * scaledRenderSize;
+            }
+
+            vec2 meanPx = wMean0 * projectedPx[0];
+            for (int i = 1; i < sigmaCount; i++) {
+                meanPx += wOther * projectedPx[i];
+            }
+            ndcCenterXY = (2.0 * meanPx / scaledRenderSize) - 1.0;
+
+            vec2 delta0 = projectedPx[0] - meanPx;
+            a += wCov0 * delta0.x * delta0.x;
+            b += wCov0 * delta0.x * delta0.y;
+            d += wCov0 * delta0.y * delta0.y;
+
+            for (int i = 1; i < sigmaCount; i++) {
+                vec2 delta = projectedPx[i] - meanPx;
+                a += wOther * delta.x * delta.x;
+                b += wOther * delta.x * delta.y;
+                d += wOther * delta.y * delta.y;
+            }
+
+            vec3 safeScales = max(scales, vec3(1e-6));
+            vec3 invScales = 1.0 / safeScales;
+            mat3 isclRot = mat3(
+                invScales.x, 0.0, 0.0,
+                0.0, invScales.y, 0.0,
+                0.0, 0.0, invScales.z
+            ) * transpose(R);
+
+            vUse3DGUT = 1u;
+            vCenterVS = viewCenter;
+            vIsclRot0 = isclRot[0];
+            vIsclRot1 = isclRot[1];
+            vIsclRot2 = isclRot[2];
+        } else {
+            // Compute the 3D covariance matrix of the splat
+            mat3 RS = scaleQuaternionToMatrix(scales, viewQuaternion);
+            cov3D = RS * transpose(RS);
+        }
     } else {
         cov3D = mat3(
             xxyyzz.x, xyxzyz.x, xyxzyz.y,
@@ -172,34 +276,33 @@ void main() {
         cov3D = renderToViewBasis * cov3D * transpose(renderToViewBasis);
     }
 
-    // Compute the Jacobian of the splat's projection at its center
-    vec2 scaledRenderSize = renderSize * focalAdjustment;
-    vec2 focal = 0.5 * scaledRenderSize * vec2(projectionMatrix[0][0], projectionMatrix[1][1]);
+    if (vUse3DGUT == 0u) {
+        // Compute the Jacobian of the splat's projection at its center
+        mat3 J;
+        if (isOrthographic) {
+            J = mat3(
+                focal.x, 0.0, 0.0,
+                0.0, focal.y, 0.0,
+                0.0, 0.0, 0.0
+            );
+        } else {
+            float invZ = 1.0 / viewCenter.z;
+            vec2 J1 = focal * invZ;
+            vec2 J2 = -(J1 * viewCenter.xy) * invZ;
+            J = mat3(
+                J1.x, 0.0, J2.x,
+                0.0, J1.y, J2.y,
+                0.0, 0.0, 0.0
+            );
+        }
 
-    mat3 J;
-    if (isOrthographic) {
-        J = mat3(
-            focal.x, 0.0, 0.0,
-            0.0, focal.y, 0.0,
-            0.0, 0.0, 0.0
-        );
-    } else {
-        float invZ = 1.0 / viewCenter.z;
-        vec2 J1 = focal * invZ;
-        vec2 J2 = -(J1 * viewCenter.xy) * invZ;
-        J = mat3(
-            J1.x, 0.0, J2.x,
-            0.0, J1.y, J2.y,
-            0.0, 0.0, 0.0
-        );
+        // Compute the 2D covariance by projecting the 3D covariance
+        // and picking out the XY plane components.
+        mat3 cov2D = transpose(J) * cov3D * J;
+        a = cov2D[0][0];
+        d = cov2D[1][1];
+        b = cov2D[0][1];
     }
-
-    // Compute the 2D covariance by projecting the 3D covariance
-    // and picking out the XY plane components.
-    mat3 cov2D = transpose(J) * cov3D * J;
-    float a = cov2D[0][0];
-    float d = cov2D[1][1];
-    float b = cov2D[0][1];
 
     // Optionally pre-blur the splat to match non-antialias optimized splats
     a += preBlurAmount;
@@ -221,6 +324,9 @@ void main() {
     a += fullBlurAmount;
     d += fullBlurAmount;
     float det = a * d - b * b;
+    if (det <= 0.0) {
+        return;
+    }
 
     // Compute anti-aliasing intensity scaling factor
     float blurAdjust = sqrt(max(0.0, detOrig / det));
@@ -233,8 +339,8 @@ void main() {
     // Compute the eigenvalue and eigenvectors of the 2D covariance matrix
     float eigenAvg = 0.5 * (a + d);
     float eigenDelta = sqrt(max(0.0, eigenAvg * eigenAvg - det));
-    float eigen1 = eigenAvg + eigenDelta;
-    float eigen2 = eigenAvg - eigenDelta;
+    float eigen1 = max(0.0, eigenAvg + eigenDelta);
+    float eigen2 = max(0.0, eigenAvg - eigenDelta);
 
     vec2 eigenVec1 = normalize(vec2((abs(b) < 0.001) ? 1.0 : b, eigen1 - a));
     vec2 eigenVec2 = vec2(eigenVec1.y, -eigenVec1.x);
@@ -248,10 +354,7 @@ void main() {
     // Compute the NDC coordinates for the ellipsoid's diagonal axes.
     vec2 pixelOffset = position.x * eigenVec1 * scale1 + position.y * eigenVec2 * scale2;
     vec2 ndcOffset = (2.0 / scaledRenderSize) * pixelOffset;
-
-    // Compute NDC center of the splat
-    vec3 ndcCenter = clipCenter.xyz / clipCenter.w;
-    vec3 ndc = vec3(ndcCenter.xy + ndcOffset, ndcCenter.z);
+    vec3 ndc = vec3(ndcCenterXY + ndcOffset, clipCenter.z / clipCenter.w);
 
     vNdc = ndc;
     gl_Position = vec4(ndc.xy * clipCenter.w, clipCenter.zw);
