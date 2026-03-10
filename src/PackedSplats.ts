@@ -218,6 +218,7 @@ export class PackedSplats {
     if (url) {
       const loader = new SplatLoader();
       loader.packedSplats = this;
+      loader.fileType = options.fileType;
       await loader.loadAsync(url);
     } else if (fileBytes) {
       const unpacked = await unpackSplats({
