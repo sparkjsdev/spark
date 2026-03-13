@@ -1027,9 +1027,13 @@ export class SparkRenderer extends THREE.Mesh {
     camera: THREE.Camera;
     scene: THREE.Scene;
   }) {
-    inputCamera.updateMatrixWorld(true);
-    // Make a copy of the camera so it can't change underneath us
-    const camera = inputCamera.clone();
+    // Refresh only the camera world matrix; don't force updates on camera children.
+    inputCamera.updateWorldMatrix(true, false);
+    // Snapshot camera state to avoid touching camera descendants (e.g. fullscreen UI trees).
+    const cameraMatrixWorld = inputCamera.matrixWorld.clone();
+    const cameraPosition = new THREE.Vector3().setFromMatrixPosition(
+      cameraMatrixWorld,
+    );
 
     const defaultSplatCount = isOculus()
       ? 500000
@@ -1046,12 +1050,12 @@ export class SparkRenderer extends THREE.Mesh {
     let pixelScaleLimit = 0.0;
     let fovXdegrees = Number.POSITIVE_INFINITY;
     let fovYdegrees = Number.POSITIVE_INFINITY;
-    if (camera instanceof THREE.PerspectiveCamera) {
-      const tanYfov = Math.tan((0.5 * camera.fov * Math.PI) / 180);
+    if (inputCamera instanceof THREE.PerspectiveCamera) {
+      const tanYfov = Math.tan((0.5 * inputCamera.fov * Math.PI) / 180);
       pixelScaleLimit = (2.0 * tanYfov) / this.renderSize.y;
-      fovYdegrees = camera.fov;
+      fovYdegrees = inputCamera.fov;
       fovXdegrees =
-        ((Math.atan(tanYfov * camera.aspect) * 180) / Math.PI) * 2.0;
+        ((Math.atan(tanYfov * inputCamera.aspect) * 180) / Math.PI) * 2.0;
     }
     pixelScaleLimit *= this.lodRenderScale;
 
@@ -1211,7 +1215,8 @@ export class SparkRenderer extends THREE.Mesh {
 
         await this.updateLodInstances(
           worker,
-          camera,
+          cameraMatrixWorld,
+          cameraPosition,
           deltaPred,
           lodMeshes,
           scene,
@@ -1252,7 +1257,8 @@ export class SparkRenderer extends THREE.Mesh {
 
   private async updateLodInstances(
     worker: SplatWorker,
-    camera: THREE.Camera,
+    cameraMatrixWorld: THREE.Matrix4,
+    cameraPosition: THREE.Vector3,
     deltaPred: THREE.Vector3,
     lodMeshes: SplatMesh[],
     scene: THREE.Scene,
@@ -1269,7 +1275,7 @@ export class SparkRenderer extends THREE.Mesh {
         const viewToObject = mesh.matrixWorld
           .clone()
           .invert()
-          .multiply(camera.matrixWorld);
+          .multiply(cameraMatrixWorld);
 
         const splats =
           mesh.packedSplats?.lodSplats ??
@@ -1351,7 +1357,6 @@ export class SparkRenderer extends THREE.Mesh {
     if (this.pager) {
       this.pager.processUploads();
 
-      const cameraPosition = camera.getWorldPosition(new THREE.Vector3());
       const pagedMeshes = lodMeshes
         .map((mesh) => {
           if (!mesh.paged || !this.pager) {
