@@ -348,7 +348,7 @@ impl SplatFileType {
         match enum_str {
             "ply" => Ok(Self::PLY),
             "spz" => Ok(Self::SPZ),
-            "antisplat" => Ok(Self::ANTISPLAT),
+            "antisplat" | "splat" => Ok(Self::ANTISPLAT),
             "ksplat" => Ok(Self::KSPLAT),
             "sogs" => Ok(Self::SOGS),
             "rad" => Ok(Self::RAD),
