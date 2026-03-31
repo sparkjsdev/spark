@@ -44,7 +44,7 @@
   "license": "MIT",
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
-    "@types/three": "0.178.0",
+    "@types/three": "0.183.1",
     "lefthook": "1.11.12",
     "lil-gui": "^0.20.0",
     "onchange": "7.1.0",
