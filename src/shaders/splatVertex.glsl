@@ -36,7 +36,7 @@ uniform float focalAdjustment;
 uniform usampler2DArray packedSplats;
 uniform vec4 rgbMinMaxLnScaleMinMax;
 
-#ifdef USE_LOGDEPTHBUF
+#ifdef USE_LOGARITHMIC_DEPTH_BUFFER
     bool isPerspectiveMatrix( mat4 m ) {
       return m[ 2 ][ 3 ] == - 1.0;
     }
