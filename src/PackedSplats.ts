@@ -243,12 +243,10 @@ export class PackedSplats {
   dispose() {
     if (this.target) {
       this.target.dispose();
-      this.target.texture.source.data = null;
       this.target = null;
     }
     if (this.source) {
       this.source.dispose();
-      this.source.source.data = null;
       this.source = null;
     }
 
@@ -264,7 +262,6 @@ export class PackedSplats {
         const texture = dyno.value;
         if (texture?.isTexture) {
           texture.dispose();
-          texture.source.data = null;
         }
       }
     }
@@ -542,7 +539,10 @@ export class PackedSplats {
         this.source.type = THREE.UnsignedIntType;
         this.source.internalFormat = "RGBA32UI";
         this.source.needsUpdate = true;
-      } else if (this.packedArray.buffer !== this.source.image.data.buffer) {
+      } else if (
+        !this.source.image.data ||
+        this.packedArray.buffer !== this.source.image.data.buffer
+      ) {
         // The source texture is the right size, update the data
         this.source.image.data = new Uint8Array(this.packedArray.buffer);
       }
