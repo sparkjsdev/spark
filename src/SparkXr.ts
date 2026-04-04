@@ -79,6 +79,7 @@ export interface SparkXrControllers {
   fastMultiplier?: number;
   slowMultiplier?: number;
   moveHeading?: boolean;
+  moveDirection?: boolean;
   getMove?: (gamepads: XrGamepads, sparkXr: SparkXr) => THREE.Vector3;
   getRotate?: (gamepads: XrGamepads, sparkXr: SparkXr) => THREE.Vector3;
   getFast?: (gamepads: XrGamepads, sparkXr: SparkXr) => boolean;
@@ -633,6 +634,12 @@ export class SparkXr {
 
     if (this.controllers?.moveHeading) {
       move.applyQuaternion(camera.quaternion);
+    } else if (this.controllers?.moveDirection) {
+      SCRATCH_EULER.setFromQuaternion(camera.quaternion, "YXZ");
+      SCRATCH_EULER.x = 0;
+      SCRATCH_EULER.z = 0;
+      SCRATCH_QUAT_A.setFromEuler(SCRATCH_EULER);
+      move.applyQuaternion(SCRATCH_QUAT_A);
     }
     move.applyQuaternion(cameraFrame.quaternion);
 
@@ -723,6 +730,7 @@ type HandsSnapshot = {
 };
 
 const round4 = (value: number) => Math.round(value * 10000) / 10000;
+const SCRATCH_EULER = new THREE.Euler(0, 0, 0, "YXZ");
 const SCRATCH_QUAT_A = new THREE.Quaternion();
 const SCRATCH_QUAT_B = new THREE.Quaternion();
 

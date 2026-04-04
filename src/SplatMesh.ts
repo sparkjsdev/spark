@@ -275,6 +275,7 @@ export class SplatMesh extends SplatGenerator {
   editable: boolean;
   raycastable: boolean;
   minRaycastOpacity: number;
+  raycastIndices?: { numSplats: number; indices: Uint32Array };
   // Compiled SplatEdits for applying SDF edits to splat RGBA + centers
   rgbaDisplaceEdits: SplatEdits | null = null;
   // Optional RgbaArray to overwrite splat RGBA values with custom values.
@@ -287,7 +288,6 @@ export class SplatMesh extends SplatGenerator {
 
   enableLod?: boolean;
   lodScale: number;
-  outsideFoveate?: number;
   behindFoveate?: number;
   coneFov0?: number;
   coneFov?: number;
@@ -388,7 +388,6 @@ export class SplatMesh extends SplatGenerator {
 
     this.enableLod = options.enableLod;
     this.lodScale = options.lodScale ?? 1.0;
-    this.outsideFoveate = undefined;
     this.behindFoveate = options.behindFoveate;
     this.coneFov0 = options.coneFov0;
     this.coneFov = options.coneFov;
@@ -850,6 +849,25 @@ export class SplatMesh extends SplatGenerator {
 
     let updated = false;
 
+    const lodSplats = this.packedSplats?.lodSplats ?? this.extSplats?.lodSplats;
+    this.context.enableLod.value = lodSplats != null && lodIndices != null;
+    if (this.enableLod === false) {
+      this.context.enableLod.value = false;
+    }
+    this.context.lodIndices.value = lodIndices?.texture ?? emptyLodIndices;
+
+    if (this.context.enableLod.value && lodSplats) {
+      this.context.splats = lodSplats;
+      this.numSplats = lodIndices?.numSplats ?? 0;
+    }
+
+    this.context.numSplats.value = this.numSplats;
+
+    if (this.context.splats !== this.lastSplats) {
+      this.lastSplats = this.context.splats;
+      this.generatorDirty = true;
+    }
+
     if (!this.covSplats) {
       if (this.context.transform.update(this)) {
         updated = true;
@@ -968,25 +986,6 @@ export class SplatMesh extends SplatGenerator {
       }
     }
 
-    const lodSplats = this.packedSplats?.lodSplats ?? this.extSplats?.lodSplats;
-    this.context.enableLod.value = lodSplats != null && lodIndices != null;
-    if (this.enableLod === false) {
-      this.context.enableLod.value = false;
-    }
-    this.context.lodIndices.value = lodIndices?.texture ?? emptyLodIndices;
-
-    if (this.context.enableLod.value && lodSplats) {
-      this.context.splats = lodSplats;
-      this.numSplats = lodIndices?.numSplats ?? 0;
-    }
-
-    this.context.numSplats.value = this.numSplats;
-
-    if (this.context.splats !== this.lastSplats) {
-      this.lastSplats = this.context.splats;
-      this.generatorDirty = true;
-    }
-
     if (this.generatorDirty) {
       this.constructGenerator(this.context);
       this.generatorDirty = false;
@@ -1012,6 +1011,7 @@ export class SplatMesh extends SplatGenerator {
     }[],
   ) {
     if (
+      !SplatMesh.isStaticInitialized ||
       !this.raycastable ||
       (!this.packedSplats && !this.extSplats && !this.paged)
     ) {
@@ -1033,12 +1033,17 @@ export class SplatMesh extends SplatGenerator {
     let intersections = 0;
 
     const numSplats =
-      (paged ? this.paged?.numSplats : this.context.numSplats.value) ?? 0;
-    const indices = paged
-      ? (this.paged?.dynoIndices.value.image.data as Uint32Array)
-      : this.context.enableLod.value
-        ? (this.context.lodIndices.value.image.data as Uint32Array)
-        : null;
+      this.raycastIndices?.numSplats ??
+      (paged ? this.paged?.numSplats : this.context.numSplats.value) ??
+      0;
+    const indices =
+      this.raycastIndices?.indices ??
+      (paged
+        ? (this.paged?.dynoIndices.value.image.data as Uint32Array)
+        : this.context.enableLod.value
+          ? (this.context.lodIndices.value.image.data as Uint32Array)
+          : null) ??
+      null;
 
     if (!ext) {
       const packed = paged

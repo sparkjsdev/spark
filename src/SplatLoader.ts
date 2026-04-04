@@ -97,6 +97,8 @@ export class SplatLoader extends Loader {
       ? undefined
       : this.manager.resolveURL((this.path ?? "") + (url ?? ""));
 
+    let readStream = stream?.getReader();
+
     this.manager.itemStart(resolvedURL ?? "");
     // let calledOnLoad = false;
 
@@ -129,7 +131,7 @@ export class SplatLoader extends Loader {
         //   extra: Record<string, unknown>;
         // } | null = null;
 
-        const onStatus = (data: unknown) => {
+        const onStatus = async (data: unknown) => {
           const { loaded, total } = data as { loaded: number; total: number };
           if (loaded !== undefined && onProgress) {
             onProgress(
@@ -140,6 +142,24 @@ export class SplatLoader extends Loader {
               }),
             );
           }
+
+          if ((data as { nextChunk?: boolean }).nextChunk) {
+            let chunk: Uint8Array;
+            if (!readStream) {
+              chunk = new Uint8Array(0);
+            } else {
+              const { done, value } = await readStream.read();
+              if (done) {
+                readStream.releaseLock();
+                readStream = undefined;
+                chunk = new Uint8Array(0);
+              } else {
+                chunk = value;
+              }
+            }
+            worker.call("nextChunk", { chunk });
+          }
+
           // if ((data as { orig?: unknown }).orig) {
           //   if (extSplats) {
           //     initExt = (data as { orig?: unknown }).orig as {
@@ -188,8 +208,8 @@ export class SplatLoader extends Loader {
             fileBytes: fileBytes?.slice(),
             fileType,
             pathName: resolvedURL || fileName,
-            stream,
-            streamLength,
+            chunked: stream !== undefined,
+            chunkedLength: streamLength,
             encoding: packedSplats?.splatEncoding,
             lod,
             lodBase,

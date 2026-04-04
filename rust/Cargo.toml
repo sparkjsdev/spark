@@ -32,6 +32,12 @@ wasm-bindgen = "0.2.100"
 web-sys = { version = "0.3.77", features = ["console"] }
 zip = { version = "7.0.0", default-features = false, features = ["deflate"] }
 image = { version = "0.25.9", default-features = false, features = ["png", "webp"] }
+hnsw = "0.11.0"
+rand_pcg = "0.3.1"
+space = { version = "0.17.0", default-features = false, features = ["alloc"] }
+wgpu = "29"
+pollster = "0.4.0"
+bytemuck = { version = "1.25.0", features = ["derive"] }
 
 [profile.release]
 opt-level = 3

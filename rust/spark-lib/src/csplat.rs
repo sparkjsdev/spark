@@ -582,33 +582,39 @@ impl SplatReceiver for CsplatArray {
     }
 
     fn set_sh1(&mut self, base: usize, count: usize, sh1: &[f32]) {
+        let SplatEncoding { sh1_max, .. } = *self.encoding.as_ref().unwrap_or(&SplatEncoding::default());
+        let rescale = 127.0 / sh1_max;
         if self.max_sh_degree >= 1 {
             for i in 0..count {
                 let i9 = i * 9;
                 for k in 0..9 {
-                    self.sh1[base + i][k] = (sh1[i9 + k] * (127.0 / 1.0)).clamp(-127.0, 127.0).round() as i8;
+                    self.sh1[base + i][k] = (sh1[i9 + k] * rescale).clamp(-127.0, 127.0).round() as i8;
                 }
             }
         }
     }
 
     fn set_sh2(&mut self, base: usize, count: usize, sh2: &[f32]) {
+        let SplatEncoding { sh2_max, .. } = *self.encoding.as_ref().unwrap_or(&SplatEncoding::default());
+        let rescale = 127.0 / sh2_max;
         if self.max_sh_degree >= 2 {
             for i in 0..count {
                 let i15 = i * 15;
                 for k in 0..15 {
-                    self.sh2[base + i][k] = (sh2[i15 + k] * (127.0 / 1.0)).clamp(-127.0, 127.0).round() as i8;
+                    self.sh2[base + i][k] = (sh2[i15 + k] * rescale).clamp(-127.0, 127.0).round() as i8;
                 }
             }
         }
     }
 
     fn set_sh3(&mut self, base: usize, count: usize, sh3: &[f32]) {
+        let SplatEncoding { sh3_max, .. } = *self.encoding.as_ref().unwrap_or(&SplatEncoding::default());
+        let rescale = 127.0 / sh3_max;
         if self.max_sh_degree >= 3 {
             for i in 0..count {
                 let i21 = i * 21;
                 for k in 0..21 {
-                    self.sh3[base + i][k] = (sh3[i21 + k] * (127.0 / 1.0)).clamp(-127.0, 127.0).round() as i8;
+                    self.sh3[base + i][k] = (sh3[i21 + k] * rescale).clamp(-127.0, 127.0).round() as i8;
                 }
             }
         }

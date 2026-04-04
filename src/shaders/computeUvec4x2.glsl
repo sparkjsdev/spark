@@ -21,7 +21,7 @@ layout(location = 1) out uvec4 target2;
 
 {{ GLOBALS }}
 
-void produceSplat(int index) {
+void produceSplat(int _index) {
     {{ STATEMENTS }}
 }
 
