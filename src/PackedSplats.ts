@@ -277,6 +277,17 @@ export class PackedSplats implements SplatSource {
       this.source.dispose();
       this.source = null;
     }
+    (this.extra.sh1Texture as { value?: THREE.DataArrayTexture } | undefined)
+      ?.value?.dispose();
+    (this.extra.sh2Texture as { value?: THREE.DataArrayTexture } | undefined)
+      ?.value?.dispose();
+    (this.extra.sh3Texture as { value?: THREE.DataArrayTexture } | undefined)
+      ?.value?.dispose();
+    this.packedArray = null;
+    this.extra = {};
+    this.numSplats = 0;
+    this.maxSplats = 0;
+    this.needsUpdate = true;
     this.disposeLodSplats();
   }
 
@@ -949,6 +960,17 @@ export class PackedSplats implements SplatSource {
 
   // Cache for GsplatGenerator programs
   static generatorProgram = new Map<GsplatGenerator, DynoProgram>();
+
+  static releaseGeneratorProgram(generator?: GsplatGenerator) {
+    if (!generator) {
+      return;
+    }
+    const program = PackedSplats.generatorProgram.get(generator);
+    if (program) {
+      program.dispose();
+      PackedSplats.generatorProgram.delete(generator);
+    }
+  }
 
   // Static full-screen quad for pseudo-compute shader rendering
   static fullScreenQuad = new FullScreenQuad(

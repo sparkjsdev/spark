@@ -11,6 +11,7 @@ import { OldSparkRenderer } from "./OldSparkRenderer";
 import { PackedSplats } from "./PackedSplats";
 import { type RgbaArray, TRgbaArray } from "./RgbaArray";
 import { SparkRenderer } from "./SparkRenderer";
+import { SplatAccumulator } from "./SplatAccumulator";
 import { SplatEdit, SplatEditSdf, SplatEdits } from "./SplatEdit";
 import {
   type CovSplatModifier,
@@ -216,6 +217,8 @@ export class EmptySplatSource implements SplatSource {
 }
 
 export class SplatMesh extends SplatGenerator {
+  private static emptySource = new EmptySplatSource();
+
   // A Promise<SplatMesh> you can await to ensure fetching, parsing,
   // and initialization has completed
   initialized: Promise<SplatMesh>;
@@ -556,7 +559,31 @@ export class SplatMesh extends SplatGenerator {
 
   // Call this when you are finished with the SplatMesh and want to free
   // any buffers it holds (via packedSplats).
+  private releaseGeneratorCaches() {
+    SplatAccumulator.releaseGeneratorProgram(this.generator);
+    SplatAccumulator.releaseGeneratorProgram(this.covGenerator);
+    PackedSplats.releaseGeneratorProgram(this.generator);
+    this.generator = undefined;
+    this.covGenerator = undefined;
+  }
+
   dispose() {
+    SparkRenderer.unregisterMesh(this);
+
+    this.releaseGeneratorCaches();
+
+    if (this.rgbaDisplaceEdits) {
+      this.rgbaDisplaceEdits.dispose();
+      this.rgbaDisplaceEdits = null;
+    }
+
+    this.context.splats = SplatMesh.emptySource;
+    this.lastSplats = undefined;
+    this.numSplats = 0;
+    this.context.numSplats.value = 0;
+    this.context.enableLod.value = false;
+    this.context.lodIndices.value = emptyLodIndices;
+
     if (
       this.splats &&
       this.splats !== this.packedSplats &&
@@ -573,6 +600,26 @@ export class SplatMesh extends SplatGenerator {
       this.extSplats.dispose();
       this.extSplats = undefined;
     }
+    this.splats = undefined;
+
+    this.paged = undefined;
+    this.objectModifiers = undefined;
+    this.worldModifiers = undefined;
+    this.covObjectModifiers = undefined;
+    this.covWorldModifiers = undefined;
+    this.onFrame = undefined;
+    if (this.skinning) {
+      this.skinning.dispose();
+      this.skinning = null;
+    }
+    this.edits = null;
+    if (this.splatRgba) {
+      this.splatRgba.dispose();
+      this.splatRgba = null;
+    }
+    this.generatorError = undefined;
+    this.covGeneratorError = undefined;
+    this.removeFromParent();
   }
 
   // Returns axis-aligned bounding box of the SplatMesh. If centers_only is true,
@@ -654,6 +701,8 @@ export class SplatMesh extends SplatGenerator {
   }
 
   private constructGenerator(context: SplatMeshContext) {
+    this.releaseGeneratorCaches();
+
     if (this.covSplats) {
       return this.constructCovGenerator(context);
     }
@@ -733,6 +782,7 @@ export class SplatMesh extends SplatGenerator {
   }
 
   constructCovGenerator(context: SplatMeshContext) {
+
     // console.log("CovSplatMesh.constructCovGenerator");
     const { covTransform, covViewToObject, recolor } = context;
     const generator = dynoBlock(

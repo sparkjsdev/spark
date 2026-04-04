@@ -60,6 +60,16 @@ export class DynoProgram {
       updater();
     }
   }
+
+  dispose() {
+    const material = programMaterial.get(this);
+    if (material) {
+      material.dispose();
+      programMaterial.delete(this);
+    }
+    this.updaters = [];
+    this.uniforms = {};
+  }
 }
 
 export class DynoProgramTemplate {

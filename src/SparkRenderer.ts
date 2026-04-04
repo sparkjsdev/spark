@@ -290,6 +290,8 @@ export interface SparkRendererOptions {
 }
 
 export class SparkRenderer extends THREE.Mesh {
+  private static activeRenderers = new Set<SparkRenderer>();
+
   renderer: THREE.WebGLRenderer;
   premultipliedAlpha: boolean;
   material: THREE.ShaderMaterial;
@@ -448,6 +450,7 @@ export class SparkRenderer extends THREE.Mesh {
 
     // sparkRendererInstance = this;
     this.renderer = options.renderer;
+    SparkRenderer.activeRenderers.add(this);
     this.premultipliedAlpha = premultipliedAlpha;
     this.autoUpdate = options.autoUpdate ?? true;
     this.preUpdate = options.preUpdate ?? true;
@@ -590,6 +593,17 @@ export class SparkRenderer extends THREE.Mesh {
   }
 
   dispose() {
+    SparkRenderer.activeRenderers.delete(this);
+
+    if (this.updateTimeoutId !== -1) {
+      clearTimeout(this.updateTimeoutId);
+      this.updateTimeoutId = -1;
+    }
+    if (this.sortTimeoutId !== -1) {
+      clearTimeout(this.sortTimeoutId);
+      this.sortTimeoutId = -1;
+    }
+
     if (this.target) {
       this.target.dispose();
       this.target = undefined;
@@ -630,6 +644,83 @@ export class SparkRenderer extends THREE.Mesh {
     if (this.pager) {
       this.pager.dispose();
       this.pager = undefined;
+    }
+
+    this.lodMeshes = [];
+    this.lodIds.clear();
+    this.lodIdToSplats.clear();
+    this.lodInitQueue = [];
+    this.lodUpdates = [];
+
+    this.material.dispose();
+    this.geometry.dispose();
+  }
+
+  static unregisterMesh(mesh: SplatMesh) {
+    for (const renderer of SparkRenderer.activeRenderers) {
+      renderer.unregisterMesh(mesh);
+    }
+  }
+
+  private static getMeshLodSplats(mesh: SplatMesh) {
+    return (
+      mesh.packedSplats?.lodSplats ?? mesh.extSplats?.lodSplats ?? mesh.paged
+    );
+  }
+
+  private unregisterMesh(mesh: SplatMesh) {
+    this.lodMeshes = this.lodMeshes.filter((entry) => entry.mesh !== mesh);
+
+    const instance = this.lodInstances.get(mesh);
+    if (instance) {
+      instance.texture.dispose();
+      this.lodInstances.delete(mesh);
+    }
+
+    const splats = SparkRenderer.getMeshLodSplats(mesh);
+    if (!splats) {
+      return;
+    }
+
+    this.lodInitQueue = this.lodInitQueue.filter((queued) => queued !== splats);
+
+    const stillTracked = this.lodMeshes.some(
+      ({ mesh: trackedMesh }) =>
+        SparkRenderer.getMeshLodSplats(trackedMesh) === splats,
+    );
+    if (stillTracked) {
+      this.lodDirty = true;
+      return;
+    }
+
+    const record = this.lodIds.get(splats);
+    if (!record) {
+      this.lodDirty = true;
+      return;
+    }
+
+    this.lodIds.delete(splats);
+    this.lodIdToSplats.delete(record.lodId);
+    this.lodUpdates = this.lodUpdates.filter(
+      (update) => update.lodId !== record.lodId,
+    );
+
+    if (this.lodWorker) {
+      this.lodWorker.tryExclusive(async (worker) => {
+        await worker.call("disposeLodTree", { lodId: record.lodId });
+      });
+    }
+
+    this.lodDirty = true;
+  }
+
+  private cleanupStaleLodInstances(liveMeshes: SplatMesh[]) {
+    const liveMeshSet = new Set(liveMeshes);
+    for (const [mesh, instance] of this.lodInstances.entries()) {
+      if (!liveMeshSet.has(mesh)) {
+        instance.texture.dispose();
+        this.lodInstances.delete(mesh);
+      }
     }
   }
 
@@ -1084,6 +1175,8 @@ export class SparkRenderer extends THREE.Mesh {
           );
         }) as SplatMesh[]);
     const hasPaged = lodMeshes.some((mesh) => mesh.paged);
+
+    this.cleanupStaleLodInstances(lodMeshes);
 
     if (this.lodMeshes.length !== lodMeshes.length) {
       this.lodDirty = true;

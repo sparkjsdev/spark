@@ -121,6 +121,15 @@ export class SplatSkinning {
     });
   }
 
+  dispose() {
+    this.skinTexture.dispose();
+    this.boneTexture.dispose();
+    this.skinData = new Uint16Array(0);
+    this.boneData = new Float32Array(0);
+    this.boneRestQuatPosScale = [];
+    this.boneRestInvMats = [];
+  }
+
   // Apply the skeletal animation to a Gsplat in a dyno program.
   modify(gsplat: DynoVal<typeof Gsplat>): DynoVal<typeof Gsplat> {
     if (this.mode === SplatSkinningMode.LINEAR_BLEND) {
