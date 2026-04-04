@@ -21,7 +21,7 @@ layout(location = 1) out vec4 target3;
 
 {{ GLOBALS }}
 
-void produceSplat(int index) {
+void produceSplat(int _index) {
     {{ STATEMENTS }}
 }
 

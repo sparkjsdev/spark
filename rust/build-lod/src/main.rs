@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 
-use spark_lib::chunk_tree;
+use spark_lib::{chunk_tree, sh_clustering};
 use spark_lib::decoder::{SplatEncoding, SplatGetter, SplatReceiver};
 use spark_lib::rad::RadEncoder;
 use spark_lib::{
@@ -14,7 +14,9 @@ use spark_lib::{
     spz::SpzEncoder,
 };
 
-const INFLATE_SCALE: bool = false;
+use crate::gpu_sh_clustering::GpuFindNearestClusters;
+
+mod gpu_sh_clustering;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 enum BuildLodOutput {
@@ -23,6 +25,12 @@ enum BuildLodOutput {
     RadChunked,
     Spz,
     SpzChunked,
+}
+
+impl BuildLodOutput {
+    fn is_rad(&self) -> bool {
+        matches!(self, BuildLodOutput::Rad | BuildLodOutput::RadChunked)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -36,8 +44,8 @@ enum BuildLodTsplat {
 enum BuildLodMethod {
     TinyLod { lod_base: f32 },
     BhattLod { lod_base: f32 },
-    #[default]
     Quick,
+    #[default]
     Quality,
 }
 
@@ -53,6 +61,9 @@ struct BuildLodOptions {
     max_box: Option<[f32; 3]>,
     within_dist: Option<([f32; 3], f32)>,
     skip_validate: bool,
+    inflate: bool,
+    cluster_sh: Option<usize>,
+    cluster_sh_cpu: bool,
 }
 
 fn read_file_chunks(filename: &str, decoder: &mut impl ChunkReceiver) -> anyhow::Result<()> {
@@ -228,11 +239,51 @@ fn process_file_lod_tsplat<TS: SplatReceiver + TsplatArray + SplatGetter>(filena
     let chunk_duration = start_time.elapsed();
     description.insert("chunk_duration".to_string(), serde_json::Number::from_f64(chunk_duration.as_secs_f64()).into());
 
+    let num_sh = TsplatArray::max_sh_degree(&splats).min(options.max_sh.unwrap_or(3));
+    let mut sh_clusters = None;
+    if let Some(num_iterations) = options.cluster_sh {
+        if num_sh > 0 {
+            let num_clusters = splats.len().min(65536);
+            let start_time = std::time::Instant::now();
+
+            if !options.cluster_sh_cpu {
+                match sh_clustering::compute_sh_clusters::<GpuFindNearestClusters, _>(
+                    &splats,
+                    num_sh,
+                    num_clusters,
+                    num_iterations,
+                    |s| println!("{}", s),
+                ) {
+                    Ok(clusters) => {
+                        sh_clusters = Some(clusters);
+                    },
+                    Err(e) => {
+                        println!("Error GPU SH clustering: {}", e);
+                    },
+                }
+            }
+
+            if sh_clusters.is_none() {
+                let clusters = sh_clustering::compute_sh_clusters::<sh_clustering::CpuFindNearestClusters, _>(
+                    &splats,
+                    num_sh,
+                    num_clusters,
+                    num_iterations,
+                    |s| println!("{}", s),
+                ).unwrap();
+                sh_clusters = Some(clusters);
+            }
+            
+            let sh_cluster_duration = start_time.elapsed();
+            description.insert("sh_cluster_duration".to_string(), serde_json::Number::from_f64(sh_cluster_duration.as_secs_f64()).into());
+        }
+    }
+
     for i in 0..splats.len() {
         let mut splat = splats.get_mut(i);
         
         if splat.opacity() > 1.0 {
-            if !INFLATE_SCALE {
+            if !options.inflate {
                 let d = splat.lod_opacity();
                 // // Map 1..5 LOD-encoded opacity to 1..2 opacity
                 splat.set_opacity((0.25 * (d - 1.0) + 1.0).clamp(1.0, 2.0));
@@ -243,21 +294,27 @@ fn process_file_lod_tsplat<TS: SplatReceiver + TsplatArray + SplatGetter>(filena
             }
         }
     }
-    if INFLATE_SCALE {
+
+    if options.inflate {
         description.insert("inflate_scale".to_string(), serde_json::Value::Bool(true));
     }
 
     match options.output {
         BuildLodOutput::Rad | BuildLodOutput::RadChunked => {
             let mut encoder = RadEncoder::new(splats);
+            if let Some(sh_clusters) = sh_clusters {
+                encoder = encoder.with_sh_clusters(sh_clusters);
+            }
+
             let input_encoding = serde_json::json!({
-                    "center": encoder.center_encoding,
-                    "alpha": encoder.alpha_encoding,
-                    "rgb": encoder.rgb_encoding,
-                    "scales": encoder.scales_encoding,
-                    "orientation": encoder.orientation_encoding,
-                    "sh": encoder.sh_encoding,
-                    "encoding": encoder.encoding,
+                "center": encoder.center_encoding,
+                "alpha": encoder.alpha_encoding,
+                "rgb": encoder.rgb_encoding,
+                "scales": encoder.scales_encoding,
+                "orientation": encoder.orientation_encoding,
+                "sh": encoder.sh_encoding,
+                "encoding": encoder.encoding,
+                "sh_label": encoder.sh_label_encoding,
             });
             description.insert("input_encoding".to_string(), input_encoding);
 
@@ -270,6 +327,7 @@ fn process_file_lod_tsplat<TS: SplatReceiver + TsplatArray + SplatGetter>(filena
                 "orientation": encoder.orientation_encoding,
                 "sh": encoder.sh_encoding,
                 "encoding": encoder.encoding,
+                "sh_label": encoder.sh_label_encoding,
             });
             description.insert("resolved_encoding".to_string(), resolved_encoding);
 
@@ -332,7 +390,7 @@ fn show_usage_exit() {
     eprintln!("Usage: build-lod");
     eprintln!("  [--unlod]                                       // Remove LoD nodes with children from file");
     eprintln!("  [--csplat] [--gsplat]                           // Use compact (csplat) or higher-precision (default gsplat) splat encoding");
-    eprintln!("  [--quick] [--quality]                           // Use quick (tiny-lod) or quality (bhatt-lod) LoD method (default quick)");
+    eprintln!("  [--quick] [--quality]                           // Use quick (tiny-lod) or quality (bhatt-lod) LoD method (default quality)");
     eprintln!("  [--tiny-lod[=<base>]] [--bhatt-lod[=<base>]]    // Use tiny-lod (default base 1.5) or bhatt-lod (default base 1.75) LoD method");
     eprintln!("  [--max-sh=<max-sh>]                             // Set maximum SH degree (default 3)");
     eprintln!("  [--rad] [--rad-chunked] [--spz] [--spz-chunked] // Output RAD (+chunked) or SPZ (+chunked) output files");
@@ -340,6 +398,9 @@ fn show_usage_exit() {
     eprintln!("  [--max-box=<x>,<y>,<z>]                         // Crop input file to maximum bounding coord");
     eprintln!("  [--within-dist=<x>,<y>,<z>,<radius>]            // Crop input file to within radius of a point");
     eprintln!("  [--skip-validate]                               // Skip validation of input file");
+    eprintln!("  [--inflate]                                     // Inflate scales to output normal splat opacity 0..1");
+    eprintln!("  [--cluster-sh[=<iterations>]]                   // Cluster SH coefficients into <=64K codebook (default 10 iterations)");
+    eprintln!("  [--cluster-sh-cpu[=<iterations>]]               // Cluster SH coefficients using CPU");
     eprintln!("  <file.ply|file.spz|file.compressed.ply|file.splat|file.ksplat|file.sog|file.rad> [...] // Multiple input files and wildcards allowed");
     std::process::exit(1);
 }
@@ -482,11 +543,58 @@ fn main() {
             println!("Using --skip-validate: Skip validation of input file");
             continue;
         }
+        if arg == "--inflate" {
+            options.inflate = true;
+            println!("Using --inflate: Inflate scales to output normal splat opacity 0..1");
+            continue;
+        }
+        if let Some(rest) = arg.strip_prefix("--cluster-sh-cpu") {
+            options.cluster_sh_cpu = true;
+            if let Some(rest) = rest.strip_prefix("=") {
+                match rest.parse::<usize>() {
+                    Ok(v) => {
+                        options.cluster_sh = Some(v);
+                        println!("Using --cluster-sh-cpu with {} iterations", v);
+                    }
+                    Err(_) => {
+                        eprintln!("Invalid --cluster-sh-cpu iterations: {}", rest);
+                        show_usage_exit();
+                    }
+                }
+            } else {
+                options.cluster_sh = Some(10);
+                println!("Using --cluster-sh-cpu with default 10 iterations");
+            }
+            continue;
+        }
+        if let Some(rest) = arg.strip_prefix("--cluster-sh") {
+            if let Some(rest) = rest.strip_prefix("=") {
+                match rest.parse::<usize>() {
+                    Ok(v) => {
+                        options.cluster_sh = Some(v);
+                        println!("Using --cluster-sh with {} iterations", v);
+                    }
+                    Err(_) => {
+                        eprintln!("Invalid --cluster-sh iterations: {}", rest);
+                        show_usage_exit();
+                    }
+                }
+            } else {
+                options.cluster_sh = Some(10);
+                println!("Using --cluster-sh with default 10 iterations");
+            }
+            continue;
+        }
         if arg.starts_with("--") {
             eprintln!("Unknown option: {}", arg);
             show_usage_exit();
         }
         filenames.push(arg);
+    }
+
+    if options.cluster_sh.is_some() && !options.output.is_rad() {
+        eprintln!("--cluster-sh is only supported for RAD output");
+        show_usage_exit();
     }
 
     if filenames.is_empty() {

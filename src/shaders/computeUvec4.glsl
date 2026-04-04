@@ -20,7 +20,7 @@ out uvec4 target;
 
 {{ GLOBALS }}
 
-void produceSplat(int index) {
+void produceSplat(int _index) {
     {{ STATEMENTS }}
 }
 

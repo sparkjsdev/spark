@@ -35,8 +35,12 @@ export class PagedSplats implements SplatSource {
   withCredentials?: boolean;
   fileBytes?: Uint8Array;
   fileType?: SplatFileType;
+
   numSh: number;
   maxSh: number;
+  sh1Codes?: Uint32Array;
+  sh2Codes?: Uint32Array;
+  sh3Codes?: Uint32Array | [Uint32Array, Uint32Array];
 
   numSplats: number;
   splatEncoding?: SplatEncoding;
@@ -94,8 +98,10 @@ export class PagedSplats implements SplatSource {
   }
 
   dispose() {
-    this.dynoIndices.value.dispose();
-    this.dynoIndices.value = SplatPager.emptyIndicesTexture;
+    if (this.dynoIndices.value !== SplatPager.emptyIndicesTexture) {
+      this.dynoIndices.value.dispose();
+      this.dynoIndices.value = SplatPager.emptyIndicesTexture;
+    }
   }
 
   setMaxSh(maxSh: number) {
@@ -233,6 +239,9 @@ export class PagedSplats implements SplatSource {
         const result = (await worker.call("loadPackedSplats", {
           fileBytes: decodeBytes,
           pathName: this.chunkUrl(chunk),
+          sh1Codes: this.sh1Codes?.slice(),
+          sh2Codes: this.sh2Codes?.slice(),
+          sh3Codes: this.sh3Codes?.slice(),
         })) as { lodSplats: PackedResult };
         const lodSplats = result.lodSplats;
         if (!this.splatEncoding) {
@@ -261,12 +270,21 @@ export class PagedSplats implements SplatSource {
             this.splatEncoding.sh3Max ?? 1.0,
           );
         }
+        this.sh1Codes = lodSplats.extra.sh1Codes ?? this.sh1Codes;
+        this.sh2Codes = lodSplats.extra.sh2Codes ?? this.sh2Codes;
+        this.sh3Codes = lodSplats.extra.sh3Codes ?? this.sh3Codes;
         return lodSplats;
       }
 
+      const sh3Codes = this.sh3Codes as [Uint32Array, Uint32Array] | undefined;
       const result = (await worker.call("loadExtSplats", {
         fileBytes: decodeBytes,
         pathName: this.chunkUrl(chunk),
+        sh1Codes: this.sh1Codes?.slice(),
+        sh2Codes: this.sh2Codes?.slice(),
+        sh3Codes: sh3Codes
+          ? [sh3Codes[0].slice(), sh3Codes[1].slice()]
+          : undefined,
       })) as { lodSplats: ExtResult };
       const lodSplats = result.lodSplats;
       if (!this.splatEncoding) {
@@ -280,6 +298,9 @@ export class PagedSplats implements SplatSource {
                 ? 1
                 : 0;
       }
+      this.sh1Codes = lodSplats.extra.sh1Codes ?? this.sh1Codes;
+      this.sh2Codes = lodSplats.extra.sh2Codes ?? this.sh2Codes;
+      this.sh3Codes = lodSplats.extra.sh3Codes ?? this.sh3Codes;
       return lodSplats;
     });
   }
