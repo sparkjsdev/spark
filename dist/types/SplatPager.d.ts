@@ -20,6 +20,9 @@ export declare class PagedSplats implements SplatSource {
     fileType?: SplatFileType;
     numSh: number;
     maxSh: number;
+    sh1Codes?: Uint32Array;
+    sh2Codes?: Uint32Array;
+    sh3Codes?: Uint32Array | [Uint32Array, Uint32Array];
     numSplats: number;
     splatEncoding?: SplatEncoding;
     radMetaPromise?: Promise<{

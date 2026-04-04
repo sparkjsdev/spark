@@ -49,6 +49,7 @@ export interface SparkXrControllers {
     fastMultiplier?: number;
     slowMultiplier?: number;
     moveHeading?: boolean;
+    moveDirection?: boolean;
     getMove?: (gamepads: XrGamepads, sparkXr: SparkXr) => THREE.Vector3;
     getRotate?: (gamepads: XrGamepads, sparkXr: SparkXr) => THREE.Vector3;
     getFast?: (gamepads: XrGamepads, sparkXr: SparkXr) => boolean;

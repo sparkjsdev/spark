@@ -11,6 +11,11 @@ export interface SparkRendererOptions {
      */
     renderer: THREE.WebGLRenderer;
     /**
+     * Callback function to be called when SparkRenderer needs to re-render,
+     * for example when splat sort order or LoD updates complete.
+     */
+    onDirty?: () => void;
+    /**
      * Whether to use premultiplied alpha when accumulating splat RGB
      * @default true
      */
@@ -75,6 +80,11 @@ export interface SparkRendererOptions {
      * @default false
      */
     enable2DGS?: boolean;
+    /**
+     * Enable alternative ray-splat max response evaluation, used by 3DGUT (unscented transform),
+     * 3DGRT, and HTGS.
+     * @default false
+     */
     /**
      * Scalar value to add to 2D splat covariance diagonal, effectively blurring +
      * enlarging splats. In scenes trained without the Gsplat anti-aliasing tweak
@@ -161,6 +171,11 @@ export interface SparkRendererOptions {
      */
     lodRenderScale?: number;
     /**
+     * Inflate LoD splats to ensure opacity stays <= 1.0, producing a softer appearance.
+     * @default false
+     */
+    lodInflate?: boolean;
+    /**
      * Whether to use extended Gsplat encoding for paged splats, useful for eliminating
      * quantization artifacts from splat scenes with large internal position coordinates.
      * @default false
@@ -182,6 +197,8 @@ export interface SparkRendererOptions {
     coneFov?: number;
     coneFoveate?: number;
     behindFoveate?: number;
+    lodRaycast?: number;
+    lodRaycastIntervalMs?: number;
     target?: {
         /**
          * Width of the render target in pixels.
@@ -205,7 +222,7 @@ export interface SparkRendererOptions {
          * @default 1
          */
         superXY?: number;
-    };
+    } & THREE.RenderTargetOptions;
     extraUniforms?: Record<string, unknown>;
     vertexShader?: string;
     fragmentShader?: string;
@@ -243,6 +260,8 @@ export declare class SparkRenderer extends THREE.Mesh {
     time?: number;
     lastFrame: number;
     updateTimeoutId: number;
+    onDirty?: () => void;
+    dirty: boolean;
     orderingTexture: THREE.DataTexture | null;
     maxSplats: number;
     activeSplats: number;
@@ -262,14 +281,17 @@ export declare class SparkRenderer extends THREE.Mesh {
     lodSplatCount?: number;
     lodSplatScale: number;
     lodRenderScale: number;
+    lodInflate: boolean;
     pagedExtSplats: boolean;
     maxPagedSplats: number;
     numLodFetchers: number;
-    outsideFoveate: number;
     behindFoveate: number;
     coneFov0: number;
     coneFov: number;
     coneFoveate: number;
+    lodRaycast?: number;
+    lodRaycastIntervalMs: number;
+    lastLodRaycastTime: number;
     lodWorker: SplatWorker | null;
     lodMeshes: {
         mesh: SplatMesh;
@@ -286,8 +308,6 @@ export declare class SparkRenderer extends THREE.Mesh {
     lastLod?: {
         pos: THREE.Vector3;
         quat: THREE.Quaternion;
-        fovXdegrees: number;
-        fovYdegrees: number;
         pixelScaleLimit: number;
         maxSplats: number;
         timestamp: number;
@@ -357,6 +377,9 @@ export declare class SparkRenderer extends THREE.Mesh {
         enable2DGS: {
             value: boolean;
         };
+        lodInflate: {
+            value: boolean;
+        };
         preBlurAmount: {
             value: number;
         };
@@ -410,6 +433,7 @@ export declare class SparkRenderer extends THREE.Mesh {
         };
     };
     dispose(): void;
+    setDirty(): void;
     onBeforeRender(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera): void;
     update({ scene, camera, }: {
         scene: THREE.Scene;
