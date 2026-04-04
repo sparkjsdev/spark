@@ -11,3 +11,6 @@ repository.workspace = true
 anyhow.workspace = true
 serde_json.workspace = true
 spark-lib = { path = "../spark-lib" }
+wgpu.workspace = true
+pollster.workspace = true
+bytemuck.workspace = true

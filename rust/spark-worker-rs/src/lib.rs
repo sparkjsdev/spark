@@ -1,6 +1,6 @@
 
 use std::cell::RefCell;
-use js_sys::{Object, Reflect, Uint8Array, Uint16Array, Uint32Array};
+use js_sys::{Array, Object, Reflect, Uint8Array, Uint16Array, Uint32Array};
 use spark_lib::decoder::{ChunkReceiver, MultiDecoder, SplatEncoding, SplatFileType, SplatGetter};
 use spark_lib::gsplat::GsplatArray as GsplatArrayInner;
 use spark_lib::csplat::CsplatArray as CsplatArrayInner;
@@ -93,7 +93,10 @@ pub fn sort32_splats(
 }
 
 #[wasm_bindgen]
-pub fn decode_to_packedsplats(file_type: Option<String>, path_name: Option<String>, encoding: JsValue) -> Result<ChunkDecoder, JsValue> {
+pub fn decode_to_packedsplats(
+    file_type: Option<String>, path_name: Option<String>, encoding: JsValue,
+    sh1_codes: Option<Uint32Array>, sh2_codes: Option<Uint32Array>, sh3_codes: Option<Uint32Array>,
+) -> Result<ChunkDecoder, JsValue> {
     let encoding = if encoding.is_falsy() {
         SplatEncoding::default()
     } else {
@@ -109,7 +112,9 @@ pub fn decode_to_packedsplats(file_type: Option<String>, path_name: Option<Strin
         None
     };
 
-    let splats = PackedSplatsData::new(encoding);
+    let mut splats = PackedSplatsData::new(encoding);
+    splats.set_sh_codes(sh1_codes, sh2_codes, sh3_codes);
+
     let decoder = MultiDecoder::new(splats, file_type, path_name.as_deref());
     let on_finish = |receiver: Box<dyn ChunkReceiver>| {
         let decoder: Box<MultiDecoder<PackedSplatsData>> = receiver.into_any().downcast().unwrap();
@@ -124,7 +129,10 @@ pub fn decode_to_packedsplats(file_type: Option<String>, path_name: Option<Strin
 }
 
 #[wasm_bindgen]
-pub fn decode_to_extsplats(file_type: Option<String>, path_name: Option<String>) -> Result<ChunkDecoder, JsValue> {
+pub fn decode_to_extsplats(
+    file_type: Option<String>, path_name: Option<String>,
+    sh1_codes: Option<Uint32Array>, sh2_codes: Option<Uint32Array>, sh3_codes: Option<Array>,
+) -> Result<ChunkDecoder, JsValue> {
     let file_type = if let Some(file_type) = file_type {
         match SplatFileType::from_enum_str(&file_type) {
             Ok(file_type) => Some(file_type),
@@ -134,7 +142,9 @@ pub fn decode_to_extsplats(file_type: Option<String>, path_name: Option<String>)
         None
     };
 
-    let splats = ExtSplatsData::new();
+    let mut splats = ExtSplatsData::new();
+    splats.set_sh_codes(sh1_codes, sh2_codes, sh3_codes);
+
     let decoder = MultiDecoder::new(splats, file_type, path_name.as_deref());
     let on_finish = |receiver: Box<dyn ChunkReceiver>| {
         let decoder: Box<MultiDecoder<ExtSplatsData>> = receiver.into_any().downcast().unwrap();

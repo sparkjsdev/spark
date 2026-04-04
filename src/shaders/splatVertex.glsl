@@ -27,6 +27,7 @@ uniform float deltaTime;
 uniform bool debugFlag;
 uniform float minAlpha;
 uniform bool enable2DGS;
+uniform bool lodInflate;
 uniform float blurAmount;
 uniform float preBlurAmount;
 uniform float focalDistance;
@@ -113,6 +114,15 @@ void main() {
     if (rgba.a > 1.0) {
         // Stretch 1..2 to 1..5
         rgba.a = min(rgba.a * 4.0 - 3.0, 5.0);
+
+        if (lodInflate) {
+            // Adjust size to componsate for loss of opacity
+            float opacity = exp((rgba.a * rgba.a - 1.0) / 2.718281828459045);
+            float rescale = pow(opacity, 1.0 / 3.0);
+            scales *= rescale;
+            rgba.a = 1.0;
+        }
+
         // Expand the maximum std dev to approximately cover the larger range
         adjustedStdDev = maxStdDev + 0.7 * (rgba.a - 1.0);
     }

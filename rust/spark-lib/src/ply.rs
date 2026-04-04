@@ -1107,13 +1107,25 @@ fn f_rest_name(max_sh_degree: usize, degree: usize, k: usize, d: usize) -> Strin
 pub struct PlyEncoder<T: SplatGetter> {
     getter: T,
     max_sh_out: Option<u8>,
+    compatibility: bool,
 }
 
 impl<T: SplatGetter> PlyEncoder<T> {
-    pub fn new(getter: T) -> Self { Self { getter, max_sh_out: None } }
+    pub fn new(getter: T) -> Self {
+        Self {
+            getter,
+            max_sh_out: None,
+            compatibility: false,
+        }
+    }
 
     pub fn with_max_sh(mut self, max_sh: u8) -> Self {
         self.max_sh_out = Some(max_sh.min(3));
+        self
+    }
+
+    pub fn with_compatibility(mut self, compatibility: bool) -> Self {
+        self.compatibility = compatibility;
         self
     }
 
@@ -1130,6 +1142,11 @@ impl<T: SplatGetter> PlyEncoder<T> {
         header.push_str("property float x\n");
         header.push_str("property float y\n");
         header.push_str("property float z\n");
+        if self.compatibility {
+            header.push_str("property float nx\n");
+            header.push_str("property float ny\n");
+            header.push_str("property float nz\n");
+        }
         header.push_str("property float scale_0\n");
         header.push_str("property float scale_1\n");
         header.push_str("property float scale_2\n");
@@ -1196,6 +1213,12 @@ impl<T: SplatGetter> PlyEncoder<T> {
                 write_f32_le(centers[i3 + 0])?;
                 write_f32_le(centers[i3 + 1])?;
                 write_f32_le(centers[i3 + 2])?;
+
+                if self.compatibility {
+                    write_f32_le(0.0)?;
+                    write_f32_le(0.0)?;
+                    write_f32_le(0.0)?;
+                }
 
                 // ln scales
                 write_f32_le(scales[i3 + 0].ln())?;

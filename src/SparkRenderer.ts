@@ -31,6 +31,11 @@ export interface SparkRendererOptions {
    */
   renderer: THREE.WebGLRenderer;
   /**
+   * Callback function to be called when SparkRenderer needs to re-render,
+   * for example when splat sort order or LoD updates complete.
+   */
+  onDirty?: () => void;
+  /**
    * Whether to use premultiplied alpha when accumulating splat RGB
    * @default true
    */
@@ -100,6 +105,12 @@ export interface SparkRendererOptions {
    * @default false
    */
   enable2DGS?: boolean;
+  /**
+   * Enable alternative ray-splat max response evaluation, used by 3DGUT (unscented transform),
+   * 3DGRT, and HTGS.
+   * @default false
+   */
+  // enableRayEval?: boolean;
   /**
    * Scalar value to add to 2D splat covariance diagonal, effectively blurring +
    * enlarging splats. In scenes trained without the Gsplat anti-aliasing tweak
@@ -189,6 +200,11 @@ export interface SparkRendererOptions {
    */
   lodRenderScale?: number;
   /**
+   * Inflate LoD splats to ensure opacity stays <= 1.0, producing a softer appearance.
+   * @default false
+   */
+  lodInflate?: boolean;
+  /**
    * Whether to use extended Gsplat encoding for paged splats, useful for eliminating
    * quantization artifacts from splat scenes with large internal position coordinates.
    * @default false
@@ -229,6 +245,11 @@ export interface SparkRendererOptions {
    * @default 0.2
    */
   behindFoveate?: number;
+  /* How many LoD splats to generate for raycasting
+   * @default 10000-25000 iff default canvas target is used
+   */
+  lodRaycast?: number;
+  lodRaycastIntervalMs?: number;
   /* Configures an offline render target for the SparkRenderer (as opposed to
    * rendering to the canvas). This is useful for rendering environment maps,
    * additional viewpoints, or video frame rendering.
@@ -257,7 +278,7 @@ export interface SparkRendererOptions {
      * @default 1
      */
     superXY?: number;
-  };
+  } & THREE.RenderTargetOptions;
   /* Extra uniform values to pass to the shader.
    * @default undefined = no extra uniforms
    */
@@ -307,6 +328,7 @@ export class SparkRenderer extends THREE.Mesh {
   covSplats: boolean;
   minAlpha: number;
   enable2DGS: boolean;
+  // enableRayEval: boolean;
   preBlurAmount: number;
   blurAmount: number;
   focalDistance: number;
@@ -323,6 +345,8 @@ export class SparkRenderer extends THREE.Mesh {
   time?: number;
   lastFrame = -1;
   updateTimeoutId = -1;
+  onDirty?: () => void;
+  dirty: boolean;
 
   orderingTexture: THREE.DataTexture | null = null;
   maxSplats = 0;
@@ -346,14 +370,18 @@ export class SparkRenderer extends THREE.Mesh {
   lodSplatCount?: number;
   lodSplatScale: number;
   lodRenderScale: number;
+  lodInflate: boolean;
   pagedExtSplats: boolean;
   maxPagedSplats: number;
   numLodFetchers: number;
-  outsideFoveate: number;
   behindFoveate: number;
   coneFov0: number;
   coneFov: number;
   coneFoveate: number;
+
+  lodRaycast?: number;
+  lodRaycastIntervalMs: number;
+  lastLodRaycastTime = 0;
 
   lodWorker: SplatWorker | null = null;
   lodMeshes: { mesh: SplatMesh; version: number }[] = [];
@@ -368,8 +396,6 @@ export class SparkRenderer extends THREE.Mesh {
   lastLod?: {
     pos: THREE.Vector3;
     quat: THREE.Quaternion;
-    fovXdegrees: number;
-    fovYdegrees: number;
     pixelScaleLimit: number;
     maxSplats: number;
     timestamp: number;
@@ -448,6 +474,8 @@ export class SparkRenderer extends THREE.Mesh {
 
     // sparkRendererInstance = this;
     this.renderer = options.renderer;
+    this.onDirty = options.onDirty;
+    this.dirty = true;
     this.premultipliedAlpha = premultipliedAlpha;
     this.autoUpdate = options.autoUpdate ?? true;
     this.preUpdate = options.preUpdate ?? true;
@@ -459,6 +487,7 @@ export class SparkRenderer extends THREE.Mesh {
     this.covSplats = options.covSplats ?? false;
     this.minAlpha = options.minAlpha ?? 0.5 * (1.0 / 255.0);
     this.enable2DGS = options.enable2DGS ?? false;
+    // this.enableRayEval = options.enableRayEval ?? false;
     this.preBlurAmount = options.preBlurAmount ?? 0.0;
     this.blurAmount = options.blurAmount ?? 0.3;
     this.focalDistance = options.focalDistance ?? 0.0;
@@ -477,15 +506,23 @@ export class SparkRenderer extends THREE.Mesh {
     this.lodSplatCount = options.lodSplatCount;
     this.lodSplatScale = options.lodSplatScale ?? 1.0;
     this.lodRenderScale = options.lodRenderScale ?? 1.0;
+    this.lodInflate = options.lodInflate ?? false;
     this.pagedExtSplats = options.pagedExtSplats ?? false;
     const defaultPages = isMobile() ? (isIos() ? 96 : 128) : 256;
     this.maxPagedSplats = options.maxPagedSplats ?? defaultPages * 65536;
     this.numLodFetchers = options.numLodFetchers ?? 3;
-    this.outsideFoveate = 1.0;
     this.behindFoveate = options.behindFoveate ?? 0.2;
     this.coneFov0 = options.coneFov0 ?? 90.0;
     this.coneFov = options.coneFov ?? 120.0;
     this.coneFoveate = options.coneFoveate ?? 0.4;
+
+    this.lodRaycast =
+      options.lodRaycast === undefined
+        ? isMobile()
+          ? 10000
+          : 25000
+        : options.lodRaycast;
+    this.lodRaycastIntervalMs = options.lodRaycastIntervalMs ?? 500;
 
     this.clock = options.clock ? cloneClock(options.clock) : new THREE.Clock();
 
@@ -499,8 +536,14 @@ export class SparkRenderer extends THREE.Mesh {
     this.accumulators.push(new SplatAccumulator(accumulatorOptions));
 
     if (options.target) {
-      const { width, height, doubleBuffer } = options.target;
-      const superXY = Math.max(1, Math.min(4, options.target.superXY ?? 1));
+      const {
+        width,
+        height,
+        doubleBuffer,
+        superXY: origSuperXY,
+        ...origTargetOptions
+      } = options.target;
+      const superXY = Math.max(1, Math.min(4, origSuperXY ?? 1));
       if (width * superXY > 8192 || height * superXY > 8192) {
         throw new Error("Target size too large");
       }
@@ -512,6 +555,7 @@ export class SparkRenderer extends THREE.Mesh {
         format: THREE.RGBAFormat,
         type: THREE.UnsignedByteType,
         colorSpace: THREE.SRGBColorSpace,
+        ...origTargetOptions,
       };
 
       this.target = new THREE.WebGLRenderTarget(
@@ -555,6 +599,10 @@ export class SparkRenderer extends THREE.Mesh {
       minAlpha: { value: 0.5 * (1.0 / 255.0) },
       // Enable interpreting 0-thickness Gsplats as 2DGS
       enable2DGS: { value: false },
+      // Enable ray-splat max response evaluation
+      // enableRayEval: { value: false },
+      // Inflate LoD splats so that opacity <= 1.0
+      lodInflate: { value: false },
       // Add to projected 2D splat covariance diagonal (thickens and brightens)
       preBlurAmount: { value: 0.0 },
       // Add to 2D splat covariance diagonal and adjust opacity (anti-aliasing)
@@ -633,6 +681,13 @@ export class SparkRenderer extends THREE.Mesh {
     }
   }
 
+  setDirty() {
+    if (!this.dirty) {
+      this.dirty = true;
+      this.onDirty?.();
+    }
+  }
+
   onBeforeRender(
     renderer: THREE.WebGLRenderer,
     scene: THREE.Scene,
@@ -691,6 +746,8 @@ export class SparkRenderer extends THREE.Mesh {
     this.uniforms.maxPixelRadius.value = spark.maxPixelRadius;
     this.uniforms.minAlpha.value = spark.minAlpha;
     this.uniforms.enable2DGS.value = spark.enable2DGS;
+    // this.uniforms.enableRayEval.value = spark.enableRayEval;
+    this.uniforms.lodInflate.value = spark.lodInflate;
     this.uniforms.preBlurAmount.value = spark.preBlurAmount;
     this.uniforms.blurAmount.value = spark.blurAmount;
     this.uniforms.focalDistance.value = spark.focalDistance;
@@ -743,6 +800,8 @@ export class SparkRenderer extends THREE.Mesh {
         }
       }
     }
+
+    spark.dirty = false;
   }
 
   async update({
@@ -810,7 +869,7 @@ export class SparkRenderer extends THREE.Mesh {
         "Next accumulator is the same as the current accumulator",
       );
     }
-    const { version, mappingVersion, visibleGenerators, generate, readback } =
+    const { version, mappingVersion, visibleGenerators, generate } =
       next.prepareGenerate({
         renderer,
         scene,
@@ -862,6 +921,7 @@ export class SparkRenderer extends THREE.Mesh {
 
       this.current = next;
       this.sortDirty = true;
+      this.setDirty();
     }
 
     if (this.enableDriveLod) {
@@ -933,7 +993,7 @@ export class SparkRenderer extends THREE.Mesh {
       readback,
       ordering,
     })) as {
-      readback: Uint16Array | Uint32Array;
+      readback: Uint32Array<ArrayBuffer>;
       ordering: Uint32Array;
       activeSplats: number;
     };
@@ -942,7 +1002,7 @@ export class SparkRenderer extends THREE.Mesh {
       await new Promise((resolve) => setTimeout(resolve, this.sortDelay));
     }
 
-    this.readback32 = result.readback as Uint32Array<ArrayBuffer>;
+    this.readback32 = result.readback;
 
     this.activeSplats = result.activeSplats;
 
@@ -1007,6 +1067,7 @@ export class SparkRenderer extends THREE.Mesh {
       }
     }
     this.sorting = false;
+    this.setDirty();
 
     this.driveSort();
   }
@@ -1044,15 +1105,19 @@ export class SparkRenderer extends THREE.Mesh {
     const maxSplats = splatCount * this.lodSplatScale;
 
     let pixelScaleLimit = 0.0;
-    let fovXdegrees = Number.POSITIVE_INFINITY;
-    let fovYdegrees = Number.POSITIVE_INFINITY;
     if (camera instanceof THREE.PerspectiveCamera) {
       const tanYfov = Math.tan((0.5 * camera.fov * Math.PI) / 180);
       pixelScaleLimit = (2.0 * tanYfov) / this.renderSize.y;
-      fovYdegrees = camera.fov;
-      fovXdegrees =
-        ((Math.atan(tanYfov * camera.aspect) * 180) / Math.PI) * 2.0;
+    } else if (camera instanceof THREE.OrthographicCamera) {
+      // Effective visible size after zoom
+      const viewHeight = (camera.top - camera.bottom) / camera.zoom;
+      const viewWidth = (camera.right - camera.left) / camera.zoom;
+      // World/view units per pixel (constant with depth for ortho)
+      const pxY = viewHeight / Math.max(1, this.renderSize.y);
+      const pxX = viewWidth / Math.max(1, this.renderSize.x);
+      pixelScaleLimit = Math.min(pxX, pxY);
     }
+
     pixelScaleLimit *= this.lodRenderScale;
 
     const viewPos = new THREE.Vector3();
@@ -1061,13 +1126,18 @@ export class SparkRenderer extends THREE.Mesh {
 
     if (this.lastLod) {
       if (
-        viewPos.distanceTo(this.lastLod.pos) > 0.001 ||
-        viewQuat.dot(this.lastLod.quat) < 0.999 ||
-        this.lastLod.fovXdegrees !== fovXdegrees ||
-        this.lastLod.fovYdegrees !== fovYdegrees ||
         this.lastLod.pixelScaleLimit !== pixelScaleLimit ||
         this.lastLod.maxSplats !== maxSplats
       ) {
+        this.lodDirty = true;
+      }
+
+      const distance = viewPos.distanceTo(this.lastLod.pos);
+      const distanceRamp = Math.max(0.0, 1.0 - distance / 1.0);
+      const dot = viewQuat.dot(this.lastLod.quat);
+      const quatRamp = Math.max(0.0, 1.0 - (1.0 - dot) / 0.01);
+      const similarity = distanceRamp * quatRamp;
+      if (similarity < 0.999) {
         this.lodDirty = true;
       }
     }
@@ -1189,10 +1259,10 @@ export class SparkRenderer extends THREE.Mesh {
       }
 
       if (this.lodDirty) {
+        const now = performance.now();
         const deltaPred = new THREE.Vector3();
         if (this.lastLod) {
-          const now = performance.now();
-          const deltaTime = now - this.lastLod.timestamp;
+          const deltaTime = Math.max(1, now - this.lastLod.timestamp);
           deltaPred
             .copy(viewPos)
             .sub(this.lastLod.pos)
@@ -1201,8 +1271,6 @@ export class SparkRenderer extends THREE.Mesh {
         this.lastLod = {
           pos: viewPos,
           quat: viewQuat,
-          fovXdegrees,
-          fovYdegrees,
           pixelScaleLimit,
           maxSplats,
           timestamp: now,
@@ -1217,9 +1285,8 @@ export class SparkRenderer extends THREE.Mesh {
           scene,
           maxSplats,
           pixelScaleLimit,
-          fovXdegrees,
-          fovYdegrees,
         );
+        this.setDirty();
       }
 
       await this.cleanupLodTrees(worker);
@@ -1258,8 +1325,6 @@ export class SparkRenderer extends THREE.Mesh {
     scene: THREE.Scene,
     maxSplats: number,
     pixelScaleLimit: number,
-    fovXdegrees: number,
-    fovYdegrees: number,
   ) {
     const uuidToMesh: Map<string, SplatMesh> = new Map();
 
@@ -1288,11 +1353,11 @@ export class SparkRenderer extends THREE.Mesh {
         }
 
         instances[mesh.uuid] = {
+          instanceId: mesh.uuid,
           lodId: record.lodId,
           rootPage: record.rootPage,
           viewToObjectCols: viewToObject.elements,
           lodScale: mesh.lodScale,
-          outsideFoveate: mesh.outsideFoveate ?? this.outsideFoveate,
           behindFoveate: mesh.behindFoveate ?? this.behindFoveate,
           coneFov0: mesh.coneFov0 ?? this.coneFov0,
           coneFov: mesh.coneFov ?? this.coneFov,
@@ -1303,11 +1368,11 @@ export class SparkRenderer extends THREE.Mesh {
       {} as Record<
         string,
         {
+          instanceId: string;
           lodId: number;
           rootPage?: number;
           viewToObjectCols: number[];
           lodScale: number;
-          outsideFoveate: number;
           behindFoveate: number;
           coneFov0: number;
           coneFov: number;
@@ -1317,17 +1382,12 @@ export class SparkRenderer extends THREE.Mesh {
     );
 
     const traverseStart = performance.now();
-    const { keyIndices, chunks, pixelLimit } = (await worker.call(
-      "traverseLodTrees",
-      {
-        maxSplats,
-        pixelScaleLimit,
-        lastPixelLimit: this.lastPixelLimit,
-        fovXdegrees,
-        fovYdegrees,
-        instances,
-      },
-    )) as {
+    const result = (await worker.call("traverseLodTrees", {
+      maxSplats,
+      pixelScaleLimit,
+      lastPixelLimit: this.lastPixelLimit,
+      instances,
+    })) as {
       keyIndices: Record<
         string,
         { lodId: number; numSplats: number; indices: Uint32Array }
@@ -1336,6 +1396,8 @@ export class SparkRenderer extends THREE.Mesh {
       pixelLimit?: number;
     };
     this.lastTraverseTime = performance.now() - traverseStart;
+
+    const { keyIndices, chunks, pixelLimit } = result;
     this.lastPixelLimit = pixelLimit;
     const totalLodSplats = Object.values(keyIndices).reduce(
       (sum, { numSplats }) => sum + numSplats,
@@ -1389,6 +1451,37 @@ export class SparkRenderer extends THREE.Mesh {
       }
 
       this.pager.driveFetchers();
+    }
+
+    if (
+      this.lodRaycast &&
+      performance.now() - this.lastLodRaycastTime >= this.lodRaycastIntervalMs
+    ) {
+      this.lastLodRaycastTime = performance.now();
+      const traverseStart = performance.now();
+      const result = (await worker.call("traverseLodTrees", {
+        maxSplats: Math.min(this.lodRaycast, Math.round(totalLodSplats * 0.1)),
+        pixelScaleLimit,
+        instances,
+      })) as {
+        keyIndices: Record<
+          string,
+          { lodId: number; numSplats: number; indices: Uint32Array }
+        >;
+      };
+      const raycastTraverseTime = performance.now() - traverseStart;
+
+      const { keyIndices } = result;
+      const totalRaycastSplats = Object.values(keyIndices).reduce(
+        (sum, { numSplats }) => sum + numSplats,
+        0,
+      );
+      for (const [uuid, countIndices] of Object.entries(keyIndices)) {
+        const mesh = uuidToMesh.get(uuid) as SplatMesh;
+        mesh.raycastIndices = countIndices;
+        // console.log("Set raycast indices", uuid, countIndices.numSplats, countIndices.indices.length);
+      }
+      // console.log(`raycast traverse in ${raycastTraverseTime} ms, totalRaycastSplats=${totalRaycastSplats}`);
     }
   }
 
@@ -1467,7 +1560,7 @@ export class SparkRenderer extends THREE.Mesh {
           this.lodInstances.set(mesh, instance);
         } else {
           instance.numSplats = numSplats;
-          instance.indices.set(indices.subarray(0, numSplats));
+          // instance.indices.set(indices.subarray(0, numSplats));
 
           const renderer = this.renderer;
           const gl = renderer.getContext() as WebGL2RenderingContext;
