@@ -16,6 +16,7 @@ pub mod decoder;
 pub mod splat_encode;
 pub mod ordering;
 pub mod chunk_tree;
+pub mod sh_clustering;
 
 #[cfg(test)]
 mod tests {

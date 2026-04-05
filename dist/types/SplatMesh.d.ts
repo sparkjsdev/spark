@@ -122,12 +122,15 @@ export declare class SplatMesh extends SplatGenerator {
     editable: boolean;
     raycastable: boolean;
     minRaycastOpacity: number;
+    raycastIndices?: {
+        numSplats: number;
+        indices: Uint32Array;
+    };
     rgbaDisplaceEdits: SplatEdits | null;
     splatRgba: RgbaArray | null;
     maxSh: number;
     enableLod?: boolean;
     lodScale: number;
-    outsideFoveate?: number;
     behindFoveate?: number;
     coneFov0?: number;
     coneFov?: number;

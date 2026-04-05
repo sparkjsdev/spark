@@ -19,7 +19,7 @@ js-sys.workspace = true
 ordered-float.workspace = true
 smallvec.workspace = true
 wasm-bindgen.workspace = true
-web-sys.workspace = true
+web-sys = { workspace = true, features = ["Window", "Performance"] }
 spark-lib = { path = "../spark-lib" }
 serde-wasm-bindgen.workspace = true
 serde_json.workspace = true

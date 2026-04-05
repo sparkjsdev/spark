@@ -20,7 +20,7 @@ out vec4 target;
 
 {{ GLOBALS }}
 
-void computeReadback(int index) {
+void computeReadback(int _index) {
     {{ STATEMENTS }}
 }
 

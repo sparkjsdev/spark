@@ -769,7 +769,7 @@ export class PackedSplats implements SplatSource {
       // Create a program from the template and graph
       program = new DynoProgram({
         graph,
-        inputs: { index: "index" },
+        inputs: { index: "_index" },
         outputs: { output: "target" },
         template: PackedSplats.programTemplate,
       });

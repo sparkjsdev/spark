@@ -56,7 +56,7 @@
       "imports": {
         "three": "../js/vendor/three/build/three.module.js",
         "three/addons/": "/examples/js/vendor/three/examples/jsm/",
-        "@sparkjsdev/spark": "../../dist/spark.module.js",
+        "@sparkjsdev/spark": "/dist/spark.module.js",
         "lil-gui": "/examples/js/vendor/lil-gui/dist/lil-gui.esm.js"
       }
     }
@@ -106,6 +106,7 @@
       }),
     });
     grid.opacity = 0;
+    grid.visible = false;
     scene.add(grid);
 
     const stats = new Stats();
@@ -135,18 +136,21 @@
       loadFiles([...event.target.files]);
     };
 
+    let instructions = null;
     const guiOptions = {
       highDevicePixel: !isMobile(),
       stats: false,
       resetOnLoad: true,
       loadOffset: 0,
-      openCv: true,
+      coordSystem: "OpenGL",
       autoRotate: true,
       orbit: false,
       reversePointerDir: false,
       reversePointerSlide: false,
       backgroundColor: "#000000",
       viewBoundingBox: false,
+      showCones: false,
+      splatCount: "-",
       openFiles: () => {
         fileInput.click();
       },
@@ -172,10 +176,15 @@
     };
 
     function resetFrameQuaternion() {
-      if (guiOptions.openCv) {
+      if (guiOptions.coordSystem === "OpenCV") {
         frame.quaternion.set(1, 0, 0, 0);
-      } else {
+      } else if (guiOptions.coordSystem === "OpenGL") {
         frame.quaternion.set(0, 0, 0, 1);
+      } else if (guiOptions.coordSystem === "Z-up") {
+        frame.quaternion.set(-1, 0, 0, 1).normalize();
+      }
+      if (instructions) {
+        instructions.quaternion.copy(frame.quaternion).invert();
       }
     }
 
@@ -346,12 +355,12 @@
         for (const child of toRemove) {
           frame.remove(child);
         }
+        instructions = null;
         // Clear original file bytes when resetting
         inputs.length = 0;
         splatsFolder.foldersRecursive().forEach((child) => child.destroy());
       }
 
-      // guiOptions.openCv = true;
       guiOptions.autoRotate = false;
       resetFrameQuaternion();
       // writeOptions.filename = "";
@@ -447,7 +456,7 @@
     secondGui.add(guiOptions, "loadFromTextAction").name("Load from URL(s)");
 
     cameraFolder.add(guiOptions, "resetPose").name("Reset pose");
-    cameraFolder.add(guiOptions, "openCv").name("OpenCV coordinates")
+    cameraFolder.add(guiOptions, "coordSystem", ["OpenCV", "OpenGL", "Z-up"]).name("Coordinate system")
       .listen()
       .onChange(resetFrameQuaternion);
     cameraFolder.add(guiOptions, "autoRotate").name("Auto rotate")
@@ -490,12 +499,84 @@
     const splatExtra = {
       extSplats: true,
       lod: false,
-      // lodAbove: 0,
     };
 
-    gui.add(splatExtra, "lod").name("Create Level-of-Detail on load")
-    // gui.add(splatExtra, "lodAbove", 0, 100000000, 100000).name("LoD min splat count");
-    gui.add(spark, "lodSplatScale", 0.001, 3.0, 0.001).name("LoD splat scale").listen();
+    function makeConeMesh(fov0) {
+      const radius = 10;
+      const height = 10;
+      const segments = 32;
+      const geometry = new THREE.ConeGeometry(radius, height, segments, 1, true);
+      geometry.translate(0, -height / 2, 0);
+      geometry.rotateX(Math.PI / 2); // Now faces -Z
+
+      const edges = new THREE.EdgesGeometry(geometry);
+      return new THREE.LineSegments(
+        edges,
+        new THREE.LineBasicMaterial({ color: fov0 ? 0xffcc00 : 0x00ccff })
+      );
+    }
+
+    function makeConeCircles(fov0) {
+      const group = new THREE.Group();
+      const segments = 32;
+      const color = fov0 ? 0xffcc00 : 0x00ccff;
+      const material = new THREE.LineBasicMaterial({ color });
+
+      for (const z of [0.0625, 0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0]) {
+        const geometry = new THREE.BufferGeometry();
+        const vertices = [];
+
+        for (let j = 0; j <= segments; ++j) {
+          const theta = (j / segments) * 2 * Math.PI;
+          const x = Math.cos(theta) * z;
+          const y = Math.sin(theta) * z;
+          vertices.push(x, y, -z);
+        }
+
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+        const line = new THREE.Line(geometry, material);
+        group.add(line);
+      }
+
+      group.add(makeConeMesh(fov0));
+      return group;
+    }
+
+    const cone0Mesh = makeConeCircles(true);
+    cone0Mesh.visible = false;
+    scene.add(cone0Mesh);
+
+    const coneMesh = makeConeCircles(false);
+    coneMesh.visible = false;
+    scene.add(coneMesh);
+
+    function updateConeMeshes() {
+      const tan0 = Math.tan(0.5 * spark.coneFov0 * Math.PI / 180);
+      cone0Mesh.scale.set(tan0, tan0, 1);
+      const tan = Math.tan(0.5 * spark.coneFov * Math.PI / 180);
+      coneMesh.scale.set(tan, tan, 1);
+    }
+
+    const lodFolder = gui.addFolder("Level-of-Detail").close();
+    lodFolder.add(splatExtra, "lod").name("Create Level-of-Detail on load")
+    lodFolder.add(spark, "lodSplatScale", 0.001, 3.0, 0.001).name("LoD splat scale").listen();
+    lodFolder.add(guiOptions, "splatCount").name("Current splat count").listen();
+    lodFolder.add(spark, "coneFov0", 0.0, 170.0, 1.0).name("Cone Fov0").listen().onChange(updateConeMeshes);
+    lodFolder.add(spark, "coneFov", 0.0, 170.0, 1.0).name("Cone Fov").listen().onChange(updateConeMeshes);
+    lodFolder.add(guiOptions, "showCones").name("Show FOV cones").listen().onChange((show) => {
+      cone0Mesh.visible = show;
+      coneMesh.visible = show;
+    });
+    updateConeMeshes();
+    lodFolder.add(spark, "coneFoveate", 0.0, 1.0, 0.01).name("Cone Foveate").listen();
+    lodFolder.add(spark, "behindFoveate", 0.0, 1.0, 0.01).name("Behind Foveate").listen();
+    lodFolder.add(spark, "enableDriveLod").name("Enable LoD updates").listen();
+    lodFolder.add(spark, "lodInflate").name("Soften LoD splats").listen();
+
+    const pageColoring = dyno.dynoBool(false);
+    lodFolder.add(pageColoring, "value").name("Page Coloring").listen().onChange(() => {
+      updateFrameSplats();
+    });
 
     gui.add(guiOptions, "highDevicePixel").name("High DPI").onChange((value) => {
       setHighDpi(value);
@@ -504,7 +585,10 @@
       stats.dom.style.display = value ? "block" : "none";
     });
     gui.add(spark, "sortRadial").name("Radial sort").listen();
-    gui.add(grid, "opacity", 0, 1, 0.01).name("Grid opacity").listen();
+    // gui.add(spark, "enableRayEval").name("3DGUT/3DRT/HTGS").listen();
+    gui.add(grid, "opacity", 0, 1, 0.01).name("Grid opacity").listen().onChange((value) => {
+      grid.visible = value > 0;
+    });
     gui.add({
       logFocalDistance: 0.0,
     }, "logFocalDistance", -2, 2, 0.01).name("Ln(Focal distance)").onChange((value) => {
@@ -610,7 +694,7 @@
       return dyno.dynoBlock({ gsplat: dyno.Gsplat }, { gsplat: dyno.Gsplat }, ({ gsplat }) => {
         // Color by world normal if it's enabled
         let worldNormal = dyno.gsplatNormal(gsplat);
-        let { rgb, center, opacity } = dyno.splitGsplat(gsplat).outputs;
+        let { index, rgb, center, opacity } = dyno.splitGsplat(gsplat).outputs;
         // Compute vector from view to object coordinate in gsplat
         const worldToView = context.worldToView;
         const viewGsplat = worldToView.applyGsplat(gsplat);
@@ -621,6 +705,11 @@
         normal = dyno.select(sameDir, dyno.neg(worldNormal), worldNormal);
         const normalRgb = dyno.add(dyno.mul(normal, dyno.dynoConst("float", 0.5)), dyno.dynoConst("float", 0.5));
         rgb = dyno.select(normalColor, normalRgb, rgb);
+
+        const page = dyno.shr(index, dyno.dynoConst("int", 16));
+        let debugColor = dyno.debugColorHue(page);
+        debugColor = dyno.mul(debugColor, rgb)
+        rgb = dyno.mix(rgb, debugColor, dyno.float(pageColoring));
 
         // Zero out opacity if outside clip bounds
         const { x, y, z } = dyno.split(center).outputs;
@@ -700,14 +789,14 @@
         fontSize: 64,
         objectScale: 0.1 / 64,
       });
-      instructions.quaternion.set(1, 0, 0, 0);
+      instructions.quaternion.copy(frame.quaternion).invert();
       instructions.enableWorldToView = true;
       instructions.worldModifier = makeWorldModifier(instructions);
       instructions.updateGenerator();
       return instructions;
     }
 
-    const instructions = makeInstructions();
+    instructions = makeInstructions();
     addBoundingBoxHelper(instructions);
     frame.add(instructions);
 
@@ -800,7 +889,13 @@
       stats.begin();
 
       if (guiOptions.autoRotate) {
-        frame.rotation.y += deltaTime / 5000;
+        if (guiOptions.coordSystem === "OpenCV") {
+          frame.rotation.y = time / 5000;
+        } else if (guiOptions.coordSystem === "OpenGL") {
+          frame.rotation.y = -time / 5000;
+        } else if (guiOptions.coordSystem === "Z-up") {
+          frame.rotation.z = -time / 5000;
+        }
       }
 
       if (guiOptions.orbit) {
@@ -809,7 +904,15 @@
         controls.update(camera);
       }
 
+      const lodPos = spark.lastLod?.pos ?? new THREE.Vector3().copy(camera.position);
+      const lodQuat = spark.lastLod?.quat ?? new THREE.Quaternion().copy(camera.quaternion);
+      cone0Mesh.position.copy(lodPos);
+      cone0Mesh.quaternion.copy(lodQuat);
+      coneMesh.position.copy(lodPos);
+      coneMesh.quaternion.copy(lodQuat);
+
       renderer.render(scene, camera);
+      guiOptions.splatCount = `${spark.display.numSplats}`;
 
       stats.end();
     });

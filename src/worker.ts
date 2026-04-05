@@ -37,6 +37,7 @@ const rpcHandlers = {
   updateLodTrees,
   traverseLodTrees,
   getLodTreeLevel,
+  nextChunk,
 };
 
 async function onMessage(event: MessageEvent) {
@@ -130,8 +131,8 @@ async function decodeBytesUrl({
   url,
   requestHeader,
   withCredentials,
-  stream,
-  streamLength,
+  chunked,
+  chunkedLength,
   sendStatus,
 }: {
   decoder: ChunkDecoder;
@@ -139,8 +140,8 @@ async function decodeBytesUrl({
   url?: string;
   requestHeader?: Record<string, string>;
   withCredentials?: boolean;
-  stream?: ReadableStream;
-  streamLength?: number;
+  chunked?: boolean;
+  chunkedLength?: number;
   sendStatus: (data: unknown) => void;
 }) {
   if (fileBytes) {
@@ -150,44 +151,56 @@ async function decodeBytesUrl({
         fileBytes.subarray(i, Math.min(i + CHUNK_SIZE, fileBytes.length)),
       );
     }
-  } else if (url || stream) {
-    let readStream: ReadableStreamDefaultReader<Uint8Array>;
-    let total = 0;
+  } else if (url) {
+    const request = new Request(url, {
+      headers: requestHeader ? new Headers(requestHeader) : undefined,
+      credentials: withCredentials ? "include" : "same-origin",
+    });
 
-    if (url) {
-      const request = new Request(url, {
-        headers: requestHeader ? new Headers(requestHeader) : undefined,
-        credentials: withCredentials ? "include" : "same-origin",
-      });
-
-      const response = await fetch(request);
-      if (!response.ok || !response.body) {
-        throw new Error(
-          `Failed to fetch "${url}": ${response.status} ${response.statusText}`,
-        );
-      }
-      readStream = response.body.getReader();
-      const contentLength = Number.parseInt(
-        response.headers.get("Content-Length") || "0",
+    const response = await fetch(request);
+    if (!response.ok || !response.body) {
+      throw new Error(
+        `Failed to fetch "${url}": ${response.status} ${response.statusText}`,
       );
-      total = Number.isNaN(contentLength) ? 0 : contentLength;
-    } else if (stream) {
-      readStream = stream.getReader();
-      total = streamLength ?? 0;
-    } else {
-      throw new Error("No url or stream provided");
     }
+    const readStream = response.body.getReader();
+    const contentLength = Number.parseInt(
+      response.headers.get("Content-Length") || "0",
+    );
+    const total = Number.isNaN(contentLength) ? 0 : contentLength;
     let loaded = 0;
 
     while (true) {
       const { done, value } = await readStream.read();
       if (done) {
+        readStream.releaseLock();
         break;
       }
       loaded += value.length;
       sendStatus({ loaded, total });
 
       decoder.push(value);
+    }
+  } else if (chunked) {
+    let loaded = 0;
+    const total = chunkedLength ?? 0;
+    while (true) {
+      const readNextChunk: Promise<Uint8Array> = new Promise((resolve) => {
+        nextChunkWaiter = resolve;
+      });
+      sendStatus({ nextChunk: true });
+      const nextChunk = await readNextChunk;
+
+      if (nextChunk.length === 0) {
+        break;
+      }
+
+      decoder.push(nextChunk);
+      loaded += nextChunk.length;
+      sendStatus({ progress: { loaded, total } });
+    }
+    if (total === 0) {
+      sendStatus({ progress: { loaded, total: loaded } });
     }
   } else {
     throw new Error("No url or fileBytes provided");
@@ -203,6 +216,9 @@ type DecodedPackedResult = {
   sh1?: Uint32Array;
   sh2?: Uint32Array;
   sh3?: Uint32Array;
+  sh1Codes?: Uint32Array;
+  sh2Codes?: Uint32Array;
+  sh3Codes?: Uint32Array;
   lodTree?: Uint32Array;
   splatEncoding: SplatEncoding;
 };
@@ -215,6 +231,9 @@ function toPackedResult(packed: DecodedPackedResult): PackedResult {
       sh1: packed.sh1,
       sh2: packed.sh2,
       sh3: packed.sh3,
+      sh1Codes: packed.sh1Codes,
+      sh2Codes: packed.sh2Codes,
+      sh3Codes: packed.sh3Codes,
       lodTree: packed.lodTree,
     },
     splatEncoding: packed.splatEncoding,
@@ -229,13 +248,16 @@ async function loadPackedSplats(
     fileBytes,
     fileType,
     pathName,
-    stream,
-    streamLength,
+    chunked,
+    chunkedLength,
     encoding,
     lod,
     lodBase,
     lodAbove,
     nonLod,
+    sh1Codes,
+    sh2Codes,
+    sh3Codes,
   }: {
     url?: string;
     requestHeader?: Record<string, string>;
@@ -243,13 +265,16 @@ async function loadPackedSplats(
     fileBytes?: Uint8Array;
     fileType?: string;
     pathName?: string;
-    stream?: ReadableStream;
-    streamLength?: number;
+    chunked?: boolean;
+    chunkedLength?: number;
     encoding?: SplatEncoding;
     lod?: boolean | "quality";
     lodBase?: number;
     lodAbove?: number;
     nonLod?: boolean;
+    sh1Codes?: Uint32Array;
+    sh2Codes?: Uint32Array;
+    sh3Codes?: Uint32Array;
   },
   {
     sendStatus,
@@ -259,15 +284,22 @@ async function loadPackedSplats(
 ) {
   // console.log("loadPackedSplats", { url, requestHeader, withCredentials, fileBytes, fileType, pathName, stream, streamLength, encoding, lod, lodBase, lodAbove, nonLod });
   if (!lod) {
-    const decoder = decode_to_packedsplats(fileType, pathName ?? url, encoding);
+    const decoder = decode_to_packedsplats(
+      fileType,
+      pathName ?? url,
+      encoding,
+      sh1Codes,
+      sh2Codes,
+      sh3Codes,
+    );
     const decoded = await decodeBytesUrl({
       decoder,
       fileBytes,
       url,
       requestHeader,
       withCredentials,
-      stream,
-      streamLength,
+      chunked,
+      chunkedLength,
       sendStatus,
     });
     const result = toPackedResult(decoded as DecodedPackedResult);
@@ -284,8 +316,8 @@ async function loadPackedSplats(
     url,
     requestHeader,
     withCredentials,
-    stream,
-    streamLength,
+    chunked,
+    chunkedLength,
     sendStatus,
   });
 
@@ -317,6 +349,10 @@ async function loadPackedSplats(
   }
 
   const initialSplats = decoded.len();
+  const lodName = lod === "quality" ? "Bhatt" : "Tiny";
+  console.log(
+    `Loaded ${initialSplats} splats. Starting ${lodName} LoD build...`,
+  );
 
   const lodStart = performance.now();
   if (lod === "quality") {
@@ -329,7 +365,7 @@ async function loadPackedSplats(
   const lodDuration = performance.now() - lodStart;
 
   console.log(
-    `${lod === "quality" ? "Bhatt" : "Tiny"} LoD: ${initialSplats} -> ${decoded.len()} (${lodDuration} ms)`,
+    `${lodName} LoD: ${initialSplats} -> ${decoded.len()} (${lodDuration} ms)`,
   );
 
   const lodPacked = decoded.to_packedsplats_lod();
@@ -345,6 +381,9 @@ type DecodedExtResult = {
   sh2?: Uint32Array;
   sh3a?: Uint32Array;
   sh3b?: Uint32Array;
+  sh1Codes?: Uint32Array;
+  sh2Codes?: Uint32Array;
+  sh3Codes?: [Uint32Array, Uint32Array];
   lodTree?: Uint32Array;
 };
 
@@ -357,6 +396,9 @@ function toExtResult(packed: DecodedExtResult): ExtResult {
       sh2: packed.sh2,
       sh3a: packed.sh3a,
       sh3b: packed.sh3b,
+      sh1Codes: packed.sh1Codes,
+      sh2Codes: packed.sh2Codes,
+      sh3Codes: packed.sh3Codes,
       lodTree: packed.lodTree,
     },
   };
@@ -370,12 +412,15 @@ async function loadExtSplats(
     fileBytes,
     fileType,
     pathName,
-    stream,
-    streamLength,
+    chunked,
+    chunkedLength,
     lod,
     lodBase,
     lodAbove,
     nonLod,
+    sh1Codes,
+    sh2Codes,
+    sh3Codes,
   }: {
     url?: string;
     requestHeader?: Record<string, string>;
@@ -383,12 +428,15 @@ async function loadExtSplats(
     fileBytes?: Uint8Array;
     fileType?: string;
     pathName?: string;
-    stream?: ReadableStream;
-    streamLength?: number;
+    chunked?: boolean;
+    chunkedLength?: number;
     lod?: boolean | "quality";
     lodBase?: number;
     lodAbove?: number;
     nonLod?: boolean;
+    sh1Codes?: Uint32Array;
+    sh2Codes?: Uint32Array;
+    sh3Codes?: [Uint32Array, Uint32Array];
   },
   {
     sendStatus,
@@ -398,15 +446,21 @@ async function loadExtSplats(
 ) {
   // console.log("loadExtSplats", { url, requestHeader, withCredentials, fileBytes, fileType, pathName, stream, streamLength, lod, lodBase, lodAbove, nonLod });
   if (!lod) {
-    const decoder = decode_to_extsplats(fileType, pathName ?? url);
+    const decoder = decode_to_extsplats(
+      fileType,
+      pathName ?? url,
+      sh1Codes,
+      sh2Codes,
+      sh3Codes,
+    );
     const decoded = await decodeBytesUrl({
       decoder,
       fileBytes,
       url,
       requestHeader,
       withCredentials,
-      stream,
-      streamLength,
+      chunked,
+      chunkedLength,
       sendStatus,
     });
     const result = toExtResult(decoded as DecodedExtResult);
@@ -423,8 +477,8 @@ async function loadExtSplats(
     url,
     requestHeader,
     withCredentials,
-    stream,
-    streamLength,
+    chunked,
+    chunkedLength,
     sendStatus,
   });
 
@@ -452,6 +506,10 @@ async function loadExtSplats(
   }
 
   const initialSplats = decoded.len();
+  const lodName = lod === "quality" ? "Bhatt" : "Tiny";
+  console.log(
+    `Loaded ${initialSplats} splats. Starting ${lodName} LoD build...`,
+  );
 
   const lodStart = performance.now();
   if (lod === "quality") {
@@ -464,7 +522,7 @@ async function loadExtSplats(
   const lodDuration = performance.now() - lodStart;
 
   console.log(
-    `${lod === "quality" ? "Bhatt" : "Tiny"} LoD: ${initialSplats} -> ${decoded.len()} (${lodDuration} ms)`,
+    `${lodName} LoD: ${initialSplats} -> ${decoded.len()} (${lodDuration} ms)`,
   );
 
   const lodPacked = decoded.to_extsplats_lod();
@@ -674,23 +732,19 @@ function traverseLodTrees({
   maxSplats,
   pixelScaleLimit,
   lastPixelLimit,
-  fovXdegrees,
-  fovYdegrees,
   instances,
 }: {
   maxSplats: number;
   pixelScaleLimit: number;
   lastPixelLimit?: number;
-  fovXdegrees: number;
-  fovYdegrees: number;
   instances: Record<
     string,
     {
+      instanceId: string;
       lodId: number;
       rootPage?: number;
       viewToObjectCols: number[];
       lodScale: number;
-      outsideFoveate: number;
       behindFoveate: number;
       coneFov0: number;
       coneFov: number;
@@ -716,9 +770,6 @@ function traverseLodTrees({
   const lodScales = new Float32Array(
     keyInstances.map(([_key, instance]) => instance.lodScale),
   );
-  const outsideFoveates = new Float32Array(
-    keyInstances.map(([_key, instance]) => instance.outsideFoveate),
-  );
   const behindFoveates = new Float32Array(
     keyInstances.map(([_key, instance]) => instance.behindFoveate),
   );
@@ -732,30 +783,6 @@ function traverseLodTrees({
     keyInstances.map(([_key, instance]) => instance.coneFoveate),
   );
 
-  // console.log(`traverseLodTrees: maxSplats=${maxSplats}, pixelScaleLimit=${pixelScaleLimit}, fovXdegrees=${fovXdegrees}, fovYdegrees=${fovYdegrees}, outsideFoveate=${outsideFoveate}, behindFoveate=${behindFoveate}, lodIds=${lodIds.length}, viewToObjects=${viewToObjects.length}`);
-  // const { instanceIndices, chunks } = traverse_lod_trees(
-  //   maxSplats,
-  //   pixelScaleLimit,
-  //   fovXdegrees,
-  //   fovYdegrees,
-  //   lodIds,
-  //   rootPages,
-  //   viewToObjects,
-  //   lodScales,
-  //   outsideFoveates,
-  //   behindFoveates,
-  //   coneFov0s,
-  //   coneFovs,
-  //   coneFoveates,
-  // ) as {
-  //   instanceIndices: {
-  //     lodId: number;
-  //     numSplats: number;
-  //     indices: Uint32Array;
-  //   }[];
-  //   chunks: [number, number][];
-  // };
-  // const pixelLimit = undefined;
   const result = new_traverse_lod_trees(
     maxSplats,
     pixelScaleLimit,
@@ -793,7 +820,6 @@ function traverseLodTrees({
   // console.log(`traverseLodTrees: chunks=${chunks.length}`, JSON.stringify(chunks));
   return {
     keyIndices: indices,
-    // chunks: chunks.map(([instIndex, chunk]) => [keyInstances[instIndex][0], chunk]),
     chunks,
     pixelLimit,
   };
@@ -809,6 +835,12 @@ function getLodTreeLevel({
   return get_lod_tree_level(lodId, level) as { indices: Uint32Array };
 }
 
+let nextChunkWaiter = (_chunk: Uint8Array) => {};
+
+async function nextChunk({ chunk }: { chunk: Uint8Array }) {
+  nextChunkWaiter(chunk);
+}
+
 // Recursively finds all ArrayBuffers in an object and returns them as an array
 // to use as transferable objects to send between workers.
 function getTransferable(ctx: unknown): Transferable[] {
@@ -820,11 +852,6 @@ function getTransferable(ctx: unknown): Transferable[] {
       seen.add(obj);
 
       if (obj instanceof ArrayBuffer) {
-        buffers.push(obj);
-      } else if (
-        obj instanceof ReadableStream ||
-        obj instanceof WritableStream
-      ) {
         buffers.push(obj);
       } else if (ArrayBuffer.isView(obj)) {
         // Handles TypedArrays and DataView

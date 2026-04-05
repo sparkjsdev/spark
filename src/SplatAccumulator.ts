@@ -329,7 +329,7 @@ export class SplatAccumulator {
       );
       program = new DynoProgram({
         graph,
-        inputs: { index: "index" },
+        inputs: { index: "_index" },
         outputs: {},
         template: this.extSplats
           ? SplatAccumulator.programExtTemplate

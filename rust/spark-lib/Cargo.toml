@@ -20,3 +20,6 @@ itertools.workspace = true
 serde_json.workspace = true
 zip.workspace = true
 image.workspace = true
+hnsw.workspace = true
+rand_pcg.workspace = true
+space.workspace = true

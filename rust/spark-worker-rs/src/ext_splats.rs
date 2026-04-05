@@ -1,6 +1,6 @@
 use std::array;
 
-use js_sys::{Object, Reflect, Uint32Array};
+use js_sys::{Array, Object, Reflect, Uint32Array};
 use spark_lib::{
     decoder::{SetSplatEncoding, SplatEncoding, SplatGetter, SplatInit, SplatProps, SplatPropsMut, SplatReceiver, copy_getter_to_receiver},
     gsplat::GsplatArray,
@@ -21,6 +21,12 @@ pub struct ExtSplatsData {
     pub sh2: Option<Uint32Array>,
     pub sh3a: Option<Uint32Array>,
     pub sh3b: Option<Uint32Array>,
+    pub sh1_codes_out: Option<Uint32Array>,
+    pub sh2_codes_out: Option<Uint32Array>,
+    pub sh3_codes_out: Option<[Uint32Array; 2]>,
+    sh1_codes: Vec<u32>,
+    sh2_codes: Vec<u32>,
+    sh3_codes: [Vec<u32>; 2],
     pub lod_tree: Option<Uint32Array>,
     child_counts: Option<Vec<u16>>,
     child_starts: Option<Vec<u32>>,
@@ -42,6 +48,12 @@ impl ExtSplatsData {
             sh2: None,
             sh3a: None,
             sh3b: None,
+            sh1_codes_out: None,
+            sh2_codes_out: None,
+            sh3_codes_out: None,
+            sh1_codes: Vec::new(),
+            sh2_codes: Vec::new(),
+            sh3_codes: [Vec::new(), Vec::new()],
             lod_tree: None,
             child_counts: None,
             child_starts: None,
@@ -71,6 +83,18 @@ impl ExtSplatsData {
         }
         if let Some(sh3b) = self.sh3b.as_ref() {
             Reflect::set(&object, &JsValue::from_str("sh3b"), &JsValue::from(sh3b)).unwrap();
+        }
+        if let Some(sh1_codes) = self.sh1_codes_out.as_ref() {
+            Reflect::set(&object, &JsValue::from_str("sh1Codes"), &JsValue::from(sh1_codes)).unwrap();
+        }
+        if let Some(sh2_codes) = self.sh2_codes_out.as_ref() {
+            Reflect::set(&object, &JsValue::from_str("sh2Codes"), &JsValue::from(sh2_codes)).unwrap();
+        }
+        if let Some(sh3_codes) = self.sh3_codes_out.as_ref() {
+            let pair = Array::new();
+            pair.push(&JsValue::from(&sh3_codes[0]));
+            pair.push(&JsValue::from(&sh3_codes[1]));
+            Reflect::set(&object, &JsValue::from_str("sh3Codes"), &JsValue::from(pair)).unwrap();
         }
         if let Some(lod_tree) = self.lod_tree.as_ref() {
             Reflect::set(&object, &JsValue::from_str("lodTree"), &JsValue::from(lod_tree)).unwrap();
@@ -316,6 +340,22 @@ impl ExtSplatsData {
             let sub = lod.subarray((base * 4) as u32, ((base + count) * 4) as u32);
             sub.copy_to(out);
         })
+    }
+
+    pub fn set_sh_codes(&mut self, sh1_codes: Option<Uint32Array>, sh2_codes: Option<Uint32Array>, sh3_codes: Option<Array>) {
+        if let Some(sh1_codes) = sh1_codes {
+            self.sh1_codes = sh1_codes.to_vec();
+        }
+        if let Some(sh2_codes) = sh2_codes {
+            self.sh2_codes = sh2_codes.to_vec();
+        }
+        if let Some(sh3_codes) = sh3_codes {
+            // It's [Uint32Array, Uint32Array]
+            self.sh3_codes = [
+                Uint32Array::from(sh3_codes.get(0)).to_vec(),
+                Uint32Array::from(sh3_codes.get(1)).to_vec(),
+            ];
+        }
     }
 }
 
@@ -578,6 +618,202 @@ impl SplatReceiver for ExtSplatsData {
                 }
                 packed_sh3a.subarray((base * 4) as u32, ((base + count) * 4) as u32).copy_from(&self.buffer_a);
                 packed_sh3b.subarray((base * 4) as u32, ((base + count) * 4) as u32).copy_from(&self.buffer_b);
+            }
+        }
+    }
+
+    fn set_sh1_codes(&mut self, base: usize, count: usize, sh1_codes: &[f32]) {
+        let size = (base + count) * 4;
+        let current_len = self.sh1_codes_out.as_ref().map(|array| array.length()).unwrap_or(0);
+        if size > current_len as usize {
+            let new_array = Uint32Array::new_with_length(size as u32);
+            if let Some(packed_sh1) = self.sh1_codes_out.as_ref() {
+                new_array.set(packed_sh1, 0);
+            }
+            self.sh1_codes_out = Some(new_array);
+        }
+
+        self.invalidate_buffers();
+        self.ensure_buffer_a(count);
+        if let Some(packed_sh1) = self.sh1_codes_out.as_ref() {
+            let buffer = &mut self.buffer_a[0..count * 4];
+            for i in 0..count {
+                let [i3, i4] = [i * 3, i * 4];
+                for k in 0..3 {
+                    let k3 = (i3 + k) * 3;
+                    buffer[i4 + k] = encode_ext_rgb([sh1_codes[k3], sh1_codes[k3 + 1], sh1_codes[k3 + 2]]);
+                }
+            }
+            packed_sh1.subarray((base * 4) as u32, ((base + count) * 4) as u32).copy_from(buffer);
+
+            if (base + count) * 4 > self.sh1_codes.len() {
+                self.sh1_codes.resize((base + count) * 4, 0);
+            }
+            let base4 = base * 4;
+            for i in 0..count {
+                let i4 = i * 4;
+                for k in 0..4 {
+                    self.sh1_codes[base4 + i4 + k] = buffer[i4 + k];
+                }
+            }
+        }
+    }
+
+    fn set_sh2_codes(&mut self, base: usize, count: usize, sh2_codes: &[f32]) {
+        let size = (base + count) * 4;
+        let current_len = self.sh2_codes_out.as_ref().map(|array| array.length()).unwrap_or(0);
+        if size > current_len as usize {
+            let new_array = Uint32Array::new_with_length(size as u32);
+            if let Some(packed_sh2) = self.sh2_codes_out.as_ref() {
+                new_array.set(packed_sh2, 0);
+            }
+            self.sh2_codes_out = Some(new_array);
+        }
+
+        self.invalidate_buffers();
+        self.ensure_buffers(count);
+        if let Some(packed_sh1) = self.sh1_codes_out.as_ref() {
+            if let Some(packed_sh2) = self.sh2_codes_out.as_ref() {
+                let buffer_a = &mut self.buffer_a[0..count * 4];
+                let buffer_b = &mut self.buffer_b[0..count * 4];
+                packed_sh1.subarray((base * 4) as u32, ((base + count) * 4) as u32).copy_to(buffer_a);
+                for i in 0..count {
+                    let [i4, i5] = [i * 4, i * 5];
+                    let k3 = i5 * 3;
+                    buffer_a[i4 + 3] = encode_ext_rgb([sh2_codes[k3], sh2_codes[k3 + 1], sh2_codes[k3 + 2]]);
+                    for k in 1..5 {
+                        let k3 = (i5 + k) * 3;
+                        buffer_b[i4 + (k - 1)] = encode_ext_rgb([sh2_codes[k3], sh2_codes[k3 + 1], sh2_codes[k3 + 2]]);
+                    }
+                }
+                packed_sh1.subarray((base * 4) as u32, ((base + count) * 4) as u32).copy_from(buffer_a);
+                packed_sh2.subarray((base * 4) as u32, ((base + count) * 4) as u32).copy_from(buffer_b);
+
+                if (base + count) * 4 > self.sh2_codes.len() {
+                    self.sh2_codes.resize((base + count) * 4, 0);
+                }
+                let base4 = base * 4;
+                for i in 0..count {
+                    let i4 = i * 4;
+                    self.sh1_codes[base4 + i4 + 3] = buffer_a[i4 + 3];
+                    for k in 1..5 {
+                        self.sh2_codes[base + i4 + (k - 1)] = buffer_b[i4 + (k - 1)];
+                    }
+                }
+            }
+        }
+    }
+
+    fn set_sh3_codes(&mut self, base: usize, count: usize, sh3_codes: &[f32]) {
+        let size = (base + count) * 4;
+        let current_len = self.sh3_codes_out.as_ref().map(|arrays| arrays[0].length()).unwrap_or(0);
+        if size > current_len as usize {
+            let new_arrays = [
+                Uint32Array::new_with_length(size as u32),
+                Uint32Array::new_with_length(size as u32),
+            ];
+            if let Some([packed_sh3a, packed_sh3b]) = self.sh3_codes_out.as_ref() {
+                new_arrays[0].set(packed_sh3a, 0);
+                new_arrays[1].set(packed_sh3b, 0);
+            }
+            self.sh3_codes_out = Some(new_arrays);
+        }
+
+        self.invalidate_buffers();
+        self.ensure_buffers(count);
+        if let Some([packed_sh3a, packed_sh3b]) = self.sh3_codes_out.as_ref() {
+            let buffer_a = &mut self.buffer_a[0..count * 4];
+            let buffer_b = &mut self.buffer_b[0..count * 4];
+            for i in 0..count {
+                let [i4, i7] = [i * 4, i * 7];
+                for k in 0..4 {
+                    let k3 = (i7 + k) * 3;
+                    buffer_a[i4 + k] = encode_ext_rgb([sh3_codes[k3], sh3_codes[k3 + 1], sh3_codes[k3 + 2]]);
+                }
+                for k in 4..7 {
+                    let k3 = (i7 + k) * 3;
+                    buffer_b[i4 + (k - 4)] = encode_ext_rgb([sh3_codes[k3], sh3_codes[k3 + 1], sh3_codes[k3 + 2]]);
+                }
+            }
+            packed_sh3a.subarray((base * 4) as u32, ((base + count) * 4) as u32).copy_from(buffer_a);
+            packed_sh3b.subarray((base * 4) as u32, ((base + count) * 4) as u32).copy_from(buffer_b);
+
+            if (base + count) * 4 > self.sh3_codes[0].len() {
+                self.sh3_codes[0].resize((base + count) * 4, 0);
+                self.sh3_codes[1].resize((base + count) * 4, 0);
+            }
+            let base4 = base * 4;
+            for i in 0..count {
+                let i4 = i * 4;
+                for k in 0..4 {
+                    self.sh3_codes[0][base4 + i4 + k] = buffer_a[i4 + k];
+                }
+                for k in 4..7 {
+                    self.sh3_codes[1][base4 + i4 + (k - 4)] = buffer_b[i4 + (k - 4)];
+                }
+            }
+        }
+    }
+
+    fn set_sh_labels(&mut self, base: usize, count: usize, sh_labels: &[u32]) {
+        if self.max_sh_degree == 0 {
+            return;
+        }
+        self.invalidate_buffers();
+        self.ensure_buffers(count);
+
+        if let Some(packed_sh1) = self.sh1.as_ref() {
+            let buffer_a = &mut self.buffer_a[0..count * 4];
+            for i in 0..count {
+                let label = sh_labels[i] as usize;
+                let i4 = i * 4;
+                let l4 = label * 4;
+                for k in 0..4 {
+                    buffer_a[i4 + k] = self.sh1_codes[l4 + k];
+                }
+            }
+
+            if self.max_sh_degree == 1 {
+                packed_sh1.subarray((base * 4) as u32, ((base + count) * 4) as u32).copy_from(buffer_a);
+                return;
+            }
+
+            if let Some(packed_sh2) = self.sh2.as_ref() {
+                let buffer_b = &mut self.buffer_b[0..count * 4];
+                for i in 0..count {
+                    let label = sh_labels[i] as usize;
+                    let i4 = i * 4;
+                    let l4 = label * 4;
+                    buffer_a[i4 + 3] = self.sh2_codes[l4 + 0];
+                    for k in 1..5 {
+                        buffer_b[i4 + (k - 1)] = self.sh2_codes[l4 + (k - 1)];
+                    }
+                }
+
+                packed_sh1.subarray((base * 4) as u32, ((base + count) * 4) as u32).copy_from(buffer_a);
+                packed_sh2.subarray((base * 4) as u32, ((base + count) * 4) as u32).copy_from(buffer_b);
+                
+                if self.max_sh_degree == 2 {
+                    return;
+                }
+
+                if let Some(packed_sh3a) = self.sh3a.as_ref() {
+                    if let Some(packed_sh3b) = self.sh3b.as_ref() {
+                        for i in 0..count {
+                            let label = sh_labels[i] as usize;
+                            let i4 = i * 4;
+                            let l4 = label * 4;
+                            for k in 0..4 {
+                                buffer_a[i4 + k] = self.sh3_codes[0][l4 + k];
+                            }
+                            for k in 4..7 {
+                                buffer_b[i4 + (k - 4)] = self.sh3_codes[1][l4 + (k - 4)];
+                            }
+                        }
+                        packed_sh3a.subarray((base * 4) as u32, ((base + count) * 4) as u32).copy_from(buffer_a);
+                        packed_sh3b.subarray((base * 4) as u32, ((base + count) * 4) as u32).copy_from(buffer_b);
+                    }
+                }
             }
         }
     }

@@ -160,6 +160,11 @@ pub trait SplatReceiver: 'static {
     fn set_sh2(&mut self, base: usize, count: usize, sh2: &[f32]) {}
     fn set_sh3(&mut self, base: usize, count: usize, sh3: &[f32]) {}
 
+    fn set_sh1_codes(&mut self, base: usize, count: usize, sh1_codes: &[f32]) {}
+    fn set_sh2_codes(&mut self, base: usize, count: usize, sh2_codes: &[f32]) {}
+    fn set_sh3_codes(&mut self, base: usize, count: usize, sh3_codes: &[f32]) {}
+    fn set_sh_labels(&mut self, base: usize, count: usize, sh_labels: &[u32]) {}
+
     fn set_child_count(&mut self, base: usize, count: usize, child_count: &[u16]) {}
     fn set_child_start(&mut self, base: usize, count: usize, child_start: &[usize]) {}
 }

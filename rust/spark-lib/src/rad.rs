@@ -18,6 +18,7 @@ use miniz_oxide::inflate::decompress_to_vec;
 // }
 
 use crate::decoder::{ChunkReceiver, SetSplatEncoding, SplatEncoding, SplatGetter, SplatInit, SplatReceiver};
+use crate::sh_clustering::ShClusters;
 use crate::splat_encode::{self, decode_scale8, encode_scale8_zero};
 
 pub const RAD_MAGIC: u32 = 0x30444152; // 'RAD0'
@@ -36,6 +37,8 @@ pub struct RadEncoder<T: SplatGetter> {
     pub scales_encoding: RadScalesEncoding,
     pub orientation_encoding: RadOrientationEncoding,
     pub sh_encoding: RadShEncoding,
+    pub sh_label_encoding: RadShLabelEncoding,
+    pub sh_clusters: Option<ShClusters>,
     pub comment: Option<String>,
 }
 
@@ -96,6 +99,14 @@ pub enum RadShEncoding {
     S8Delta,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RadShLabelEncoding {
+    #[default]
+    Auto,
+    U16,
+    U32,
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct RadChunkRange {
     offset: u64,
@@ -125,6 +136,8 @@ pub struct RadMeta {
     chunks: Vec<RadChunkRange>,
     #[serde(rename = "splatEncoding", skip_serializing_if = "Option::is_none")]
     splat_encoding: Option<SetSplatEncoding>,
+    #[serde(rename = "shCodeCount", skip_serializing_if = "Option::is_none")]
+    sh_code_count: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     comment: Option<String>,
 }
@@ -188,6 +201,14 @@ pub enum RadChunkPropertyName {
     ChildCount,
     #[serde(rename = "child_start")]
     ChildStart,
+    #[serde(rename = "sh1_code")]
+    Sh1Code,
+    #[serde(rename = "sh2_code")]
+    Sh2Code,
+    #[serde(rename = "sh3_code")]
+    Sh3Code,
+    #[serde(rename = "sh_label")]
+    ShLabel,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -239,6 +260,8 @@ impl<T: SplatGetter> RadEncoder<T> {
             scales_encoding: RadScalesEncoding::default(),
             orientation_encoding: RadOrientationEncoding::default(),
             sh_encoding: RadShEncoding::default(),
+            sh_label_encoding: RadShLabelEncoding::default(),
+            sh_clusters: None,
             comment: None,
         }
     }
@@ -458,6 +481,19 @@ impl<T: SplatGetter> RadEncoder<T> {
         self.sh_encoding = RadShEncoding::S8;
     }
 
+    pub fn resolve_sh_label_encoding(&mut self) {
+        if self.sh_label_encoding != RadShLabelEncoding::Auto {
+            return;
+        }
+        if let Some(clusters) = self.sh_clusters.as_ref() {
+            if clusters.num_clusters > 65536 {
+                self.sh_label_encoding = RadShLabelEncoding::U32;
+            } else {
+                self.sh_label_encoding = RadShLabelEncoding::U16;
+            }
+        }
+    }
+
     pub fn resolve_encoding(&mut self) {
         self.resolve_center_encoding();
         self.resolve_alpha_encoding();
@@ -465,6 +501,12 @@ impl<T: SplatGetter> RadEncoder<T> {
         self.resolve_scales_encoding();
         self.resolve_orientation_encoding();
         self.resolve_sh_encoding();
+        self.resolve_sh_label_encoding();
+    }
+
+    pub fn with_sh_clusters(mut self, clusters: ShClusters) -> Self {
+        self.sh_clusters = Some(clusters);
+        self
     }
 
     pub fn encode<W: Write>(&mut self, writer: &mut W) -> anyhow::Result<()> {
@@ -531,6 +573,7 @@ impl<T: SplatGetter> RadEncoder<T> {
             all_chunk_bytes: all_chunk_bytes,
             chunks: chunk_ranges,
             splat_encoding: None,
+            sh_code_count: self.sh_clusters.as_ref().map(|c| c.num_clusters as u32),
             comment: self.comment.clone(),
         };
         if let Some(mut encoding) = self.encoding.clone().or_else(|| self.getter.get_encoding()) {
@@ -690,20 +733,42 @@ impl<T: SplatGetter> RadEncoder<T> {
 
     fn encode_chunk_sh(&mut self, base: usize, count: usize, buffer: &mut Vec<f32>, encoding: &SplatEncoding, property: RadChunkPropertyName) -> (RadChunkProperty, Vec<u8>) {
         let (elements, sh_max) = match property {
-            RadChunkPropertyName::Sh1 => (9, encoding.sh1_max),
-            RadChunkPropertyName::Sh2 => (15, encoding.sh2_max),
-            RadChunkPropertyName::Sh3 => (21, encoding.sh3_max),
+            RadChunkPropertyName::Sh1 | RadChunkPropertyName::Sh1Code => (9, encoding.sh1_max),
+            RadChunkPropertyName::Sh2 | RadChunkPropertyName::Sh2Code => (15, encoding.sh2_max),
+            RadChunkPropertyName::Sh3 | RadChunkPropertyName::Sh3Code => (21, encoding.sh3_max),
             _ => unreachable!(),
         };
         if buffer.len() < count * elements {
             buffer.resize(count * elements, 0.0);
         }
-        match property {
-            RadChunkPropertyName::Sh1 => self.getter.get_sh1(base, count, &mut buffer[..count * elements]),
-            RadChunkPropertyName::Sh2 => self.getter.get_sh2(base, count, &mut buffer[..count * elements]),
-            RadChunkPropertyName::Sh3 => self.getter.get_sh3(base, count, &mut buffer[..count * elements]),
-            _ => unreachable!(),
-        };
+
+        if let Some(clusters) = self.sh_clusters.as_ref() {
+            match property {
+                RadChunkPropertyName::Sh1Code => {
+                    for (i, &value) in clusters.sh1.iter().flatten().enumerate() {
+                        buffer[i] = value;
+                    }
+                },
+                RadChunkPropertyName::Sh2Code => {
+                    for (i, &value) in clusters.sh2.iter().flatten().enumerate() {
+                        buffer[i] = value;
+                    }
+                },
+                RadChunkPropertyName::Sh3Code => {
+                    for (i, &value) in clusters.sh3.iter().flatten().enumerate() {
+                        buffer[i] = value;
+                    }
+                },
+                _ => unreachable!(),
+            }
+        } else {
+            match property {
+                RadChunkPropertyName::Sh1 => self.getter.get_sh1(base, count, &mut buffer[..count * elements]),
+                RadChunkPropertyName::Sh2 => self.getter.get_sh2(base, count, &mut buffer[..count * elements]),
+                RadChunkPropertyName::Sh3 => self.getter.get_sh3(base, count, &mut buffer[..count * elements]),
+                _ => unreachable!(),
+            }    
+        }
 
         let (encoding, bytes, min, max) = match self.sh_encoding {
             RadShEncoding::F32 => (RadChunkPropertyEncoding::F32, encode_f32(&buffer, elements, count), None, None),
@@ -718,6 +783,32 @@ impl<T: SplatGetter> RadEncoder<T> {
             compression: Some(RadChunkPropertyCompression::Gz),
             min,
             max,
+            ..Default::default()
+        };
+        (meta, compress_to_vec(&bytes, GZ_LEVEL))
+    }
+
+    fn encode_chunk_sh_label(&mut self, base: usize, count: usize, buffer: &mut Vec<usize>) -> (RadChunkProperty, Vec<u8>) {
+        let Some(clusters) = self.sh_clusters.as_ref() else {
+            panic!("sh_clusters not set");
+        };
+
+        if buffer.len() < count {
+            buffer.resize(count, 0);
+        }
+        for i in 0..count {
+            buffer[i] = clusters.labels[base + i];
+        }
+
+        let (encoding, bytes) = match self.sh_label_encoding {
+            RadShLabelEncoding::U16 => (RadChunkPropertyEncoding::U16, encode_usize_as_u16(&buffer, 1, count)),
+            RadShLabelEncoding::U32 => (RadChunkPropertyEncoding::U32, encode_usize_as_u32(&buffer, 1, count)),
+            _ => unreachable!(),
+        };
+        let meta = RadChunkProperty {
+            property: RadChunkPropertyName::ShLabel,
+            encoding,
+            compression: Some(RadChunkPropertyCompression::Gz),
             ..Default::default()
         };
         (meta, compress_to_vec(&bytes, GZ_LEVEL))
@@ -769,16 +860,32 @@ impl<T: SplatGetter> RadEncoder<T> {
             self.encode_chunk_orientation(base, count, buffer),
         ];
 
-        if max_sh >= 1 {
-            props.push(self.encode_chunk_sh(base, count, buffer, encoding, RadChunkPropertyName::Sh1));
-        };
-
-        if max_sh >= 2 {
-            props.push(self.encode_chunk_sh(base, count, buffer, encoding, RadChunkPropertyName::Sh2));
-        }
-
-        if max_sh >= 3 {
-            props.push(self.encode_chunk_sh(base, count, buffer, encoding, RadChunkPropertyName::Sh3));
+        let num_clusters = self.sh_clusters.as_ref().map(|c| c.num_clusters);
+        if let Some(num_clusters) = num_clusters {
+            if base == 0 {
+                if max_sh >= 1 {
+                    props.push(self.encode_chunk_sh(0, num_clusters, buffer, encoding, RadChunkPropertyName::Sh1Code));
+                }
+                if max_sh >= 2 {
+                    props.push(self.encode_chunk_sh(0, num_clusters, buffer, encoding, RadChunkPropertyName::Sh2Code));
+                }
+                if max_sh >= 3 {
+                    props.push(self.encode_chunk_sh(0, num_clusters, buffer, encoding, RadChunkPropertyName::Sh3Code));
+                }
+            }
+            if max_sh >= 1 {
+                props.push(self.encode_chunk_sh_label(base, count, buffer_usize));
+            }
+        } else {
+            if max_sh >= 1 {
+                props.push(self.encode_chunk_sh(base, count, buffer, encoding, RadChunkPropertyName::Sh1));
+            };
+            if max_sh >= 2 {
+                props.push(self.encode_chunk_sh(base, count, buffer, encoding, RadChunkPropertyName::Sh2));
+            }
+            if max_sh >= 3 {
+                props.push(self.encode_chunk_sh(base, count, buffer, encoding, RadChunkPropertyName::Sh3));
+            }
         }
 
         if self.getter.has_lod_tree() {
@@ -1150,7 +1257,47 @@ fn encode_u16(data: &[u16], dims: usize, count: usize) -> Vec<u8> {
 fn decode_u16(data: &[u8], dims: usize, count: usize) -> Vec<u16> {
     let mut result = Vec::with_capacity(dims * count);
     for i in 0..count {
-        result.push(u16::from_le_bytes([data[i * 2], data[i * 2 + 1]]));
+        let mut index = i * 2;
+        for _ in 0..dims {
+            result.push(u16::from_le_bytes([data[index], data[index + 1]]));
+            index += count * 2;
+        }
+    }
+    result
+}
+
+fn decode_u16_as_u32(data: &[u8], dims: usize, count: usize) -> Vec<u32> {
+    let mut result = Vec::with_capacity(dims * count);
+    for i in 0..count {
+        let mut index = i * 2;
+        for _ in 0..dims {
+            result.push(u16::from_le_bytes([data[index], data[index + 1]]) as u32);
+            index += count * 2;
+        }
+    }
+    result
+}
+
+fn encode_u32(data: &[u32], dims: usize, count: usize) -> Vec<u8> {
+    let mut result = Vec::with_capacity(4 * dims * count);
+    for d in 0..dims {
+        let mut index = d;
+        for _ in 0..count {
+            result.extend(data[index].to_le_bytes());
+            index += dims;
+        }
+    }
+    result
+}
+
+fn decode_u32(data: &[u8], dims: usize, count: usize) -> Vec<u32> {
+    let mut result = Vec::with_capacity(dims * count);
+    for i in 0..count {
+        let mut index = i * 4;
+        for _ in 0..dims {
+            result.push(u32::from_le_bytes([data[index], data[index + 1], data[index + 2], data[index + 3]]));
+            index += count * 4;
+        }
     }
     result
 }
@@ -1170,7 +1317,35 @@ fn encode_usize_as_u32(data: &[usize], dims: usize, count: usize) -> Vec<u8> {
 fn decode_u32_as_usize(data: &[u8], dims: usize, count: usize) -> Vec<usize> {
     let mut result = Vec::with_capacity(dims * count);
     for i in 0..count {
-        result.push(u32::from_le_bytes(data[i * 4..i * 4 + 4].try_into().unwrap()) as usize);
+        let mut index = i * 4;
+        for _ in 0..dims {
+            result.push(u32::from_le_bytes([data[index], data[index + 1], data[index + 2], data[index + 3]]) as usize);
+            index += count * 4;
+        }
+    }
+    result
+}
+
+fn encode_usize_as_u16(data: &[usize], dims: usize, count: usize) -> Vec<u8> {
+    let mut result = Vec::with_capacity(2 * dims * count);
+    for d in 0..dims {
+        let mut index = d;
+        for _ in 0..count {
+            result.extend((data[index] as u16).to_le_bytes());
+            index += dims;
+        }
+    }
+    result
+}
+
+fn decode_u16_as_usize(data: &[u8], dims: usize, count: usize) -> Vec<usize> {
+    let mut result = Vec::with_capacity(dims * count);
+    for i in 0..count {
+        let mut index = i * 2;
+        for _ in 0..dims {
+            result.push(u16::from_le_bytes([data[index], data[index + 1]]) as usize);
+            index += count * 2;
+        }
     }
     result
 }
@@ -1534,11 +1709,12 @@ impl<T: SplatReceiver> RadDecoder<T> {
                     };
                     self.splats.set_quat(self.base, self.count, &quaternions);
                 },
-                RadChunkPropertyName::Sh1 | RadChunkPropertyName::Sh2 | RadChunkPropertyName::Sh3 => {
+                RadChunkPropertyName::Sh1 | RadChunkPropertyName::Sh2 | RadChunkPropertyName::Sh3 |
+                RadChunkPropertyName::Sh1Code | RadChunkPropertyName::Sh2Code | RadChunkPropertyName::Sh3Code => {
                     let elements = match prop.property {
-                        RadChunkPropertyName::Sh1 => 9,
-                        RadChunkPropertyName::Sh2 => 15,
-                        RadChunkPropertyName::Sh3 => 21,
+                        RadChunkPropertyName::Sh1 | RadChunkPropertyName::Sh1Code => 9,
+                        RadChunkPropertyName::Sh2 | RadChunkPropertyName::Sh2Code => 15,
+                        RadChunkPropertyName::Sh3 | RadChunkPropertyName::Sh3Code => 21,
                         _ => unreachable!()
                     };
                     let shs = match prop.encoding {
@@ -1573,8 +1749,19 @@ impl<T: SplatReceiver> RadDecoder<T> {
                         RadChunkPropertyName::Sh1 => self.splats.set_sh1(self.base, self.count, &shs),
                         RadChunkPropertyName::Sh2 => self.splats.set_sh2(self.base, self.count, &shs),
                         RadChunkPropertyName::Sh3 => self.splats.set_sh3(self.base, self.count, &shs),
+                        RadChunkPropertyName::Sh1Code => self.splats.set_sh1_codes(self.base, self.count, &shs),
+                        RadChunkPropertyName::Sh2Code => self.splats.set_sh2_codes(self.base, self.count, &shs),
+                        RadChunkPropertyName::Sh3Code => self.splats.set_sh3_codes(self.base, self.count, &shs),
                         _ => unreachable!()
                     }
+                },
+                RadChunkPropertyName::ShLabel => {
+                    let sh_labels = match prop.encoding {
+                        RadChunkPropertyEncoding::U16 => decode_u16_as_u32(data, 1, self.count),
+                        RadChunkPropertyEncoding::U32 => decode_u32(data, 1, self.count),
+                        _ => return Err(anyhow::anyhow!("Unsupported sh label encoding: {:?}", prop.encoding)),
+                    };
+                    self.splats.set_sh_labels(self.base, self.count, &sh_labels);
                 },
                 RadChunkPropertyName::ChildCount => {
                     if prop.encoding != RadChunkPropertyEncoding::U16 {

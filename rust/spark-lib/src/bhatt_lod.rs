@@ -1,7 +1,7 @@
 use std::collections::BinaryHeap;
 
 use ahash::AHashMap;
-use glam::IVec3;
+use glam::I64Vec3;
 use ordered_float::OrderedFloat;
 use smallvec::{SmallVec, smallvec};
 
@@ -32,7 +32,7 @@ pub fn compute_lod_tree<TA: TsplatArray>(splats: &mut TA, lod_base: f32, logger:
     let mut level = level_min;
     let mut frontier = 0;
     let mut active = BinaryHeap::new();
-    let mut cells = AHashMap::<[i32; 3], SmallVec<[usize; 8]>>::new();
+    let mut cells = AHashMap::<I64Vec3, SmallVec<[usize; 8]>>::new();
 
     loop {
         let step = MERGE_BASE.powf(level as f32);
@@ -55,11 +55,11 @@ pub fn compute_lod_tree<TA: TsplatArray>(splats: &mut TA, lod_base: f32, logger:
         logger(&format!("Level: {}, step: {}, frontier: {} / {}, # active: {}, # splats: {}", level, step, frontier, initial_len, active.len(), splats.len()));
 
         cells.clear();
-        let mut grid_min_max = [IVec3::splat(i32::MAX), IVec3::splat(i32::MIN)];
+        let mut grid_min_max = [I64Vec3::splat(i64::MAX), I64Vec3::splat(i64::MIN)];
 
         for &(OrderedFloat(_neg_size), index) in active.iter() {
             let splat = splats.get(index);
-            let grid = splat.grid_i32(step);
+            let grid = splat.grid(step);
             cells.entry(grid).or_default().push(index);
         }
 
@@ -70,20 +70,21 @@ pub fn compute_lod_tree<TA: TsplatArray>(splats: &mut TA, lod_base: f32, logger:
                 continue;
             }
 
-            let grid = splats.get(index).grid_i32(step);
-            grid_min_max = [grid_min_max[0].min(IVec3::from_array(grid)), grid_min_max[1].max(IVec3::from_array(grid))];
+            let grid = splats.get(index).grid(step);
+            grid_min_max = [grid_min_max[0].min(grid), grid_min_max[1].max(grid)];
 
-            let mut best = (usize::MAX, -f32::INFINITY, [i32::MAX, i32::MAX, i32::MAX]);
+            let mut best = (usize::MAX, -f32::INFINITY, I64Vec3::splat(i64::MAX));
 
             for z in (grid[2] - 1)..=(grid[2] + 1) {
                 for y in (grid[1] - 1)..=(grid[1] + 1) {
                     for x in (grid[0] - 1)..=(grid[0] + 1) {
-                        if let Some(neighbors) = cells.get(&[x, y, z]) {
+                        let g = I64Vec3::new(x, y, z);
+                        if let Some(neighbors) = cells.get(&g) {
                             for &neighbor in neighbors.iter() {
                                 if is_active[neighbor] && neighbor != index {
                                     let metric = splats.similarity(index, neighbor);
                                     if metric > best.1 {
-                                        best = (neighbor, metric, [x, y, z]);
+                                        best = (neighbor, metric, g);
                                     }
                                 }
                             }
@@ -113,7 +114,7 @@ pub fn compute_lod_tree<TA: TsplatArray>(splats: &mut TA, lod_base: f32, logger:
                 if feature_size > step {
                     next_active.push((OrderedFloat(-feature_size), merged));
                 } else {
-                    let merged_grid = splats.get(merged).grid_i32(step);
+                    let merged_grid = splats.get(merged).grid(step);
                     cells.entry(merged_grid).or_default().push(merged);
 
                     active.push((OrderedFloat(-feature_size), merged));
@@ -225,7 +226,7 @@ pub fn compute_lod_tree<TA: TsplatArray>(splats: &mut TA, lod_base: f32, logger:
     let mut frontier = vec![root_index];
 
     loop {
-        logger(&format!("Chunking from limit_size={}, # frontier={}", limit_size, frontier.len()));
+        logger(&format!("Pruning from limit_size={}, # frontier={}", limit_size, frontier.len()));
         let mut next_frontier = Vec::new();
         for index in frontier.drain(..) {
             recurse_indices(splats, index, &to_output, &mut indices, limit_size, &mut next_frontier);

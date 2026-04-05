@@ -304,11 +304,6 @@ export function getTransferable(ctx: unknown): Transferable[] {
 
       if (obj instanceof ArrayBuffer) {
         buffers.push(obj);
-      } else if (
-        obj instanceof ReadableStream ||
-        obj instanceof WritableStream
-      ) {
-        buffers.push(obj);
       } else if (ArrayBuffer.isView(obj)) {
         // Handles TypedArrays and DataView
         buffers.push(obj.buffer as ArrayBuffer);
