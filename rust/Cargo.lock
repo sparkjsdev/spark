@@ -110,6 +110,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytemuck",
+ "half",
  "pollster",
  "serde_json",
  "spark-lib",
