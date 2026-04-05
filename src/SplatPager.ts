@@ -1252,14 +1252,26 @@ export class SplatPager {
 
       if (numPages < this.maxPages && this.fetchers.length < this.numFetchers) {
         numPages += 1;
-        const promise = splats.fetchDecodeChunk(chunk).then((data) => {
-          // Place data in ready queue and remove self from active fetchers list
-          this.fetched.push({ splats, chunk, data });
-          this.fetchers = this.fetchers.filter(
-            ({ splats: s, chunk: c }) => splats !== s || chunk !== c,
-          );
-          this.processFetched();
-        });
+        const promise = splats
+          .fetchDecodeChunk(chunk)
+          .then((data) => {
+            // Place data in ready queue and remove self from active fetchers list
+            this.fetched.push({ splats, chunk, data });
+            this.fetchers = this.fetchers.filter(
+              ({ splats: s, chunk: c }) => splats !== s || chunk !== c,
+            );
+            this.processFetched();
+          })
+          .catch(async (error) => {
+            console.warn(error);
+            const backoff = 250 + 500 * Math.random();
+            await new Promise((resolve) => setTimeout(resolve, backoff));
+
+            this.fetchers = this.fetchers.filter(
+              ({ splats: s, chunk: c }) => splats !== s || chunk !== c,
+            );
+            this.processFetched();
+          });
         // Add self to active fetchers list
         this.fetchers.push({ splats, chunk, promise });
 
