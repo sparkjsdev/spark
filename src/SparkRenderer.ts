@@ -728,9 +728,7 @@ export class SparkRenderer extends THREE.Mesh {
     geometry.instanceCount = spark.activeSplats;
 
     const accumToWorld = new THREE.Matrix4();
-    if (!this.display.extSplats) {
-      accumToWorld.makeTranslation(spark.display.viewOrigin);
-    }
+    accumToWorld.makeTranslation(spark.display.viewOrigin);
     const cameraToWorld = camera.matrixWorld.clone();
     const worldToCamera = cameraToWorld.invert();
     const accumToCamera = worldToCamera.multiply(accumToWorld);
