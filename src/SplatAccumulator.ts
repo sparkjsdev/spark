@@ -23,6 +23,7 @@ import {
   DynoUsampler2DArray,
   type DynoVal,
   DynoVec3,
+  Gsplat,
   combineCovSplat,
   combineGsplat,
   dynoBlock,
@@ -35,6 +36,7 @@ import {
   outputExtendedSplat,
   outputPackedSplat,
   outputSplatDepth,
+  select,
   splitCovSplat,
   splitGsplat,
   sub,
@@ -64,6 +66,7 @@ export class SplatAccumulator {
   static viewCenterUniform = new DynoVec3({ value: new THREE.Vector3() });
   static viewDirUniform = new DynoVec3({ value: new THREE.Vector3() });
   static sortRadialUniform = new DynoBool({ value: true });
+  static sourceRelativeUniform = new DynoBool({ value: false });
   maxSplats = 0;
   numSplats = 0;
   target: THREE.WebGLArrayRenderTarget | null = null;
@@ -94,8 +97,10 @@ export class SplatAccumulator {
     }
   }
 
-  // Returns a THREE.DataArrayTexture representing the NewSplatAccumulator
-  // content as 2 x Uint32x4 data array textures (2048 x 2048 x 2048 in size)
+  // Returns accumulator backing textures.
+  // Center coordinates stored in these textures are relative to viewOrigin,
+  // not absolute world-space positions. External consumers that decode centers
+  // directly must add display.viewOrigin to reconstruct world-space positions.
   getTextures(): THREE.DataArrayTexture[] {
     if (this.target) {
       return this.target.textures;
@@ -221,6 +226,14 @@ export class SplatAccumulator {
         { index: "int" },
         {},
         ({ index }, _outputs, { roots }) => {
+          let depthGsplat: DynoVal<typeof Gsplat> | undefined;
+          let depthCovSplat: DynoVal<typeof CovSplat> | undefined;
+          const centerOrigin = select(
+            SplatAccumulator.sourceRelativeUniform,
+            dynoConst("vec3", [0, 0, 0]),
+            SplatAccumulator.viewCenterUniform,
+          );
+
           if (generator) {
             generator.inputs.index = index;
           }
@@ -231,18 +244,46 @@ export class SplatAccumulator {
           if (this.extSplats) {
             if (!this.covSplats) {
               if (generator) {
-                const output = outputExtendedSplat(generator.outputs.gsplat);
+                const centerSubView = sub(
+                  splitGsplat(generator.outputs.gsplat).outputs.center,
+                  centerOrigin,
+                );
+                const gsplat = combineGsplat({
+                  gsplat: generator.outputs.gsplat,
+                  center: centerSubView,
+                });
+                depthGsplat = gsplat;
+                const output = outputExtendedSplat(gsplat);
                 roots.push(output);
               } else {
                 throw new Error("Generator must be provided");
               }
             } else {
               if (covGenerator) {
-                const output = outputExtCovSplat(covGenerator.outputs.covsplat);
+                const centerSubView = sub(
+                  splitCovSplat(covGenerator.outputs.covsplat).outputs.center,
+                  centerOrigin,
+                );
+                const covsplat = combineCovSplat({
+                  covsplat: covGenerator.outputs.covsplat,
+                  center: centerSubView,
+                });
+                depthCovSplat = covsplat;
+                const output = outputExtCovSplat(covsplat);
                 roots.push(output);
               } else if (generator) {
                 const covsplat = gsplatToCovSplat(generator.outputs.gsplat);
-                const output = outputExtCovSplat(covsplat);
+                const centerSubView = sub(
+                  splitCovSplat(covsplat).outputs.center,
+                  centerOrigin,
+                );
+                depthCovSplat = combineCovSplat({
+                  covsplat,
+                  center: centerSubView,
+                });
+                const output = outputExtCovSplat(
+                  depthCovSplat,
+                );
                 roots.push(output);
               } else {
                 throw new Error("Generator must be provided");
@@ -253,7 +294,7 @@ export class SplatAccumulator {
               if (generator) {
                 const centerSubView = sub(
                   splitGsplat(generator.outputs.gsplat).outputs.center,
-                  SplatAccumulator.viewCenterUniform,
+                  centerOrigin,
                 );
                 // Use expanded LoD opacity encoding
                 const halfAlpha = mul(
@@ -265,6 +306,7 @@ export class SplatAccumulator {
                   center: centerSubView,
                   opacity: halfAlpha,
                 });
+                depthGsplat = gsplat;
                 const output = outputPackedSplat(
                   gsplat,
                   dynoConst("vec4", [0, 1, LN_SCALE_MIN, LN_SCALE_MAX]),
@@ -284,7 +326,7 @@ export class SplatAccumulator {
               }
               const centerSubView = sub(
                 splitCovSplat(covsplat).outputs.center,
-                SplatAccumulator.viewCenterUniform,
+                centerOrigin,
               );
               const halfAlpha = mul(
                 splitCovSplat(covsplat).outputs.opacity,
@@ -295,6 +337,7 @@ export class SplatAccumulator {
                 center: centerSubView,
                 opacity: halfAlpha,
               });
+              depthCovSplat = covsplat;
               const output = outputCovSplat(
                 covsplat,
                 dynoConst("vec4", [0, 1, LN_SCALE_MIN, LN_SCALE_MAX]),
@@ -305,19 +348,19 @@ export class SplatAccumulator {
               throw new Error("Generator must be provided");
             }
           }
-          if (generator) {
+          if (depthGsplat) {
             const outputDepth = outputSplatDepth(
-              generator.outputs.gsplat,
-              SplatAccumulator.viewCenterUniform,
+              depthGsplat,
+              dynoConst('vec3', [0, 0, 0]),
               SplatAccumulator.viewDirUniform,
               SplatAccumulator.sortRadialUniform,
             );
             roots.push(outputDepth);
           }
-          if (covGenerator) {
+          if (depthCovSplat) {
             const outputDepth = outputCovSplatDepth(
-              covGenerator.outputs.covsplat,
-              SplatAccumulator.viewCenterUniform,
+              depthCovSplat,
+              dynoConst('vec3', [0, 0, 0]),
               SplatAccumulator.viewDirUniform,
               SplatAccumulator.sortRadialUniform,
             );
@@ -366,12 +409,14 @@ export class SplatAccumulator {
   generate({
     generator,
     covGenerator,
+    relativeToView,
     base,
     count,
     renderer,
   }: {
     generator?: GsplatGenerator;
     covGenerator?: CovSplatGenerator;
+    relativeToView?: boolean;
     base: number;
     count: number;
     renderer: THREE.WebGLRenderer;
@@ -387,6 +432,7 @@ export class SplatAccumulator {
       generator,
       covGenerator,
     );
+    SplatAccumulator.sourceRelativeUniform.value = relativeToView ?? false;
     program.update();
 
     const renderState = this.saveRenderState(renderer);
@@ -572,10 +618,20 @@ export class SplatAccumulator {
         for (const { node, base, count } of this.mapping) {
           const { generator, covGenerator } = node;
           if ((generator || covGenerator) && count > 0) {
-            this.generate({ generator, covGenerator, base, count, renderer });
+            this.generate({
+              generator,
+              covGenerator,
+              relativeToView: node.generateRelativeToView,
+              base,
+              count,
+              renderer,
+            });
           }
         }
       },
+      // Read back the accumulator contents in their stored representation.
+      // As with getTextures(), decoded centers are relative to this viewOrigin
+      // and must be rebased by callers that need absolute world-space centers.
       readback: async () => {
         const textures = this.getTextures();
         if (this.readbackSplats.length === 0) {

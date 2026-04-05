@@ -271,6 +271,7 @@ export class SplatGenerator extends THREE.Object3D {
   frameUpdate?: (context: FrameUpdateContext) => void;
   version: number;
   mappingVersion: number;
+  generateRelativeToView: boolean;
 
   constructor({
     numSplats,
@@ -298,6 +299,7 @@ export class SplatGenerator extends THREE.Object3D {
     this.frameUpdate = update;
     this.version = 0;
     this.mappingVersion = 0;
+    this.generateRelativeToView = false;
 
     if (construct) {
       const constructed = construct(this);
