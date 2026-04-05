@@ -367,13 +367,20 @@ export class PointerControls {
   doublePressLimitMs: number;
   // Distance limit for double press (default DOUBLE_PRESS_DISTANCE)
   doublePressDistance: number;
+  // Speed of movement on double press (default: DEFAULT_MOVEMENT_SPEED)
+  doublePressMoveSpeed: number;
+  doublePressed?: number;
+  triplePressed: boolean;
   // Last pointer up event (default: null)
   lastUp: { position: THREE.Vector2; time: number } | null;
+  lastLastUp: { position: THREE.Vector2; time: number } | null;
 
   // Pointer state for currently active rotating pointer
   rotating: PointerState | null;
   // Pointer state for currently active sliding pointer
   sliding: PointerState | null;
+  // Pointer state for last pointer that downed
+  lastDown: PointerState | null;
   // Whether we pressed two pointers at the same time
   dualPress: boolean;
   // Cumulative scroll movement
@@ -412,6 +419,8 @@ export class PointerControls {
     pointerRollScale,
     // Callback for double press events (default: () => {})
     doublePress,
+    // Speed of movement on double press (default: DEFAULT_MOVEMENT_SPEED)
+    doublePressMoveSpeed,
   }: {
     canvas: HTMLCanvasElement;
     rotateSpeed?: number;
@@ -429,6 +438,7 @@ export class PointerControls {
       position,
       intervalMs,
     }: { position: THREE.Vector2; intervalMs: number }) => void;
+    doublePressMoveSpeed?: number;
   }) {
     this.canvas = canvas;
     this.rotateSpeed = rotateSpeed ?? DEFAULT_ROTATE_SPEED;
@@ -446,10 +456,15 @@ export class PointerControls {
     this.doublePress = doublePress ?? (() => {});
     this.doublePressLimitMs = DOUBLE_PRESS_LIMIT_MS;
     this.doublePressDistance = DOUBLE_PRESS_DISTANCE;
+    this.doublePressMoveSpeed = doublePressMoveSpeed ?? DEFAULT_MOVEMENT_SPEED;
+    this.doublePressed = undefined;
+    this.triplePressed = false;
     this.lastUp = null;
+    this.lastLastUp = null;
 
     this.rotating = null;
     this.sliding = null;
+    this.lastDown = null;
     this.dualPress = false;
     this.scroll = new THREE.Vector3();
 
@@ -476,6 +491,7 @@ export class PointerControls {
 
       if (isRotate) {
         this.rotating = { initial, last, position, pointerId, timeStamp };
+        this.lastDown = this.rotating;
         // Capture the pointer so events continue to be delivered even if it leaves the canvas.
         canvas.setPointerCapture(event.pointerId);
 
@@ -492,6 +508,7 @@ export class PointerControls {
           button,
           timeStamp,
         };
+        this.lastDown = this.sliding;
         // Capture the pointer so events continue to be delivered even if it leaves the canvas.
         canvas.setPointerCapture(event.pointerId);
 
@@ -499,6 +516,31 @@ export class PointerControls {
         this.dualPress =
           this.rotating != null &&
           timeStamp - this.rotating.timeStamp < DUAL_PRESS_MS;
+      }
+
+      if (this.lastUp) {
+        const distance = this.lastUp.position.distanceTo(position);
+        const intervalMs = event.timeStamp - this.lastUp.time;
+        if (
+          distance < this.doublePressDistance &&
+          intervalMs < this.doublePressLimitMs
+        ) {
+          this.doublePressed = performance.now();
+          this.triplePressed = false;
+
+          if (this.lastLastUp) {
+            const lastDistance = this.lastLastUp.position.distanceTo(
+              this.lastUp.position,
+            );
+            const lastIntervalMs = this.lastUp.time - this.lastLastUp.time;
+            if (
+              lastDistance < this.doublePressDistance &&
+              lastIntervalMs < this.doublePressLimitMs
+            ) {
+              this.triplePressed = true;
+            }
+          }
+        }
       }
     });
 
@@ -519,16 +561,21 @@ export class PointerControls {
         }
       }
 
+      this.doublePressed = undefined;
+      this.triplePressed = false;
+
       const position = this.getPointerPosition(event);
       const lastUp = this.lastUp;
+      this.lastLastUp = this.lastUp;
       this.lastUp = { position, time: event.timeStamp };
+
       if (lastUp) {
         const distance = lastUp.position.distanceTo(position);
         if (distance < this.doublePressDistance) {
           const intervalMs = event.timeStamp - lastUp.time;
           if (intervalMs < this.doublePressLimitMs) {
             // We pressed and release twice within the time and distance limits
-            this.lastUp = null;
+            // this.lastUp = null;
             this.doublePress({ position, intervalMs });
           }
         }
@@ -689,10 +736,36 @@ export class PointerControls {
         // Update movement velocity from last delta
         this.moveVelocity = slide.clone().multiplyScalar(1 / deltaTime);
       } else {
+        const target = new THREE.Vector3();
+        if (this.doublePressed) {
+          const point = this.lastDown?.last ?? new THREE.Vector2();
+          target.set(0, 0, -1);
+
+          const theCamera =
+            camera ?? (control instanceof THREE.Camera ? control : undefined);
+          if (theCamera) {
+            const ndcPoint = new THREE.Vector2(
+              (point.x / this.canvas.clientWidth) * 2 - 1,
+              -(point.y / this.canvas.clientHeight) * 2 + 1,
+            );
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(ndcPoint, theCamera);
+            target.copy(raycaster.ray.direction).normalize();
+          }
+
+          let intensity = Math.min(
+            1,
+            (performance.now() - this.doublePressed) / 1000,
+          );
+          if (this.triplePressed) {
+            intensity *= 5.0;
+          }
+
+          target.multiplyScalar(this.doublePressMoveSpeed * intensity);
+        }
         // Continue to move with inertia
-        this.moveVelocity.multiplyScalar(
-          Math.exp(-deltaTime / this.moveInertia),
-        );
+        const s = Math.exp(-deltaTime / this.moveInertia);
+        this.moveVelocity.lerpVectors(target, this.moveVelocity, s);
         control.position.addScaledVector(this.moveVelocity, deltaTime);
       }
     }
