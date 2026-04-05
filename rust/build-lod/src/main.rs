@@ -64,6 +64,7 @@ struct BuildLodOptions {
     inflate: bool,
     cluster_sh: Option<usize>,
     cluster_sh_cpu: bool,
+    cluster_sh_f16: Option<bool>,
 }
 
 fn read_file_chunks(filename: &str, decoder: &mut impl ChunkReceiver) -> anyhow::Result<()> {
@@ -247,25 +248,32 @@ fn process_file_lod_tsplat<TS: SplatReceiver + TsplatArray + SplatGetter>(filena
             let start_time = std::time::Instant::now();
 
             if !options.cluster_sh_cpu {
-                match sh_clustering::compute_sh_clusters::<GpuFindNearestClusters, _>(
-                    &splats,
-                    num_sh,
-                    num_clusters,
-                    num_iterations,
-                    |s| println!("{}", s),
-                ) {
-                    Ok(clusters) => {
-                        sh_clusters = Some(clusters);
-                    },
-                    Err(e) => {
-                        println!("Error GPU SH clustering: {}", e);
-                    },
+                if let Ok(mut fnc) = GpuFindNearestClusters::new_with_f16(options.cluster_sh_f16) {
+                    match sh_clustering::compute_sh_clusters(
+                        &splats,
+                        &mut fnc,
+                        num_sh,
+                        num_clusters,
+                        num_iterations,
+                        |s| println!("{}", s),
+                    ) {
+                        Ok(clusters) => {
+                            sh_clusters = Some(clusters);
+                        },
+                        Err(e) => {
+                            println!("Error in GPU SH clustering: {}", e);
+                        },
+                    }
+                } else {
+                    println!("GPU SH clustering unavailable");
                 }
             }
 
             if sh_clusters.is_none() {
-                let clusters = sh_clustering::compute_sh_clusters::<sh_clustering::CpuFindNearestClusters, _>(
+                let mut fnc = sh_clustering::CpuFindNearestClusters::new();
+                let clusters = sh_clustering::compute_sh_clusters(
                     &splats,
+                    &mut fnc,
                     num_sh,
                     num_clusters,
                     num_iterations,
@@ -401,6 +409,7 @@ fn show_usage_exit() {
     eprintln!("  [--inflate]                                     // Inflate scales to output normal splat opacity 0..1");
     eprintln!("  [--cluster-sh[=<iterations>]]                   // Cluster SH coefficients into <=64K codebook (default 10 iterations)");
     eprintln!("  [--cluster-sh-cpu[=<iterations>]]               // Cluster SH coefficients using CPU");
+    eprintln!("  [--cluster-sh-f16[=auto,true,false]]            // Force GPU SH coefficients to use float16 (default if available)");
     eprintln!("  <file.ply|file.spz|file.compressed.ply|file.splat|file.ksplat|file.sog|file.rad> [...] // Multiple input files and wildcards allowed");
     std::process::exit(1);
 }
@@ -566,6 +575,24 @@ fn main() {
                 println!("Using --cluster-sh-cpu with default 10 iterations");
             }
             continue;
+        }
+        if let Some(rest) = arg.strip_prefix("--cluster-sh-f16") {
+            if let Some(rest) = rest.strip_prefix("=") {
+                match rest {
+                    "auto" => { options.cluster_sh_f16 = None; },
+                    "true" => { options.cluster_sh_f16 = Some(true); },
+                    "false" => { options.cluster_sh_f16 = Some(false); },
+                    _ => {
+                        eprintln!("Invalid --cluster-sh-f16 value: {}", rest);
+                        show_usage_exit();
+                    }
+                }
+            }
+            println!("Using --cluster-sh-f16={}", match options.cluster_sh_f16 {
+                Some(true) => "true",
+                Some(false) => "false",
+                None => "auto",
+            });
         }
         if let Some(rest) = arg.strip_prefix("--cluster-sh") {
             if let Some(rest) = rest.strip_prefix("=") {

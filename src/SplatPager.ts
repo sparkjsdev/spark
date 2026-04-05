@@ -1254,19 +1254,18 @@ export class SplatPager {
         numPages += 1;
         const promise = splats
           .fetchDecodeChunk(chunk)
-          .then((data) => {
-            // Place data in ready queue and remove self from active fetchers list
-            this.fetched.push({ splats, chunk, data });
-            this.fetchers = this.fetchers.filter(
-              ({ splats: s, chunk: c }) => splats !== s || chunk !== c,
-            );
-            this.processFetched();
-          })
-          .catch(async (error) => {
-            console.warn(error);
-            const backoff = 250 + 500 * Math.random();
-            await new Promise((resolve) => setTimeout(resolve, backoff));
-
+          .then(
+            (data) => {
+              // Place data in ready queue and remove self from active fetchers list
+              this.fetched.push({ splats, chunk, data });
+            },
+            async (error) => {
+              console.warn(error);
+              const backoff = 250 + 500 * Math.random();
+              await new Promise((resolve) => setTimeout(resolve, backoff));
+            },
+          )
+          .finally(() => {
             this.fetchers = this.fetchers.filter(
               ({ splats: s, chunk: c }) => splats !== s || chunk !== c,
             );

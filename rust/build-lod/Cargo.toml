@@ -14,3 +14,4 @@ spark-lib = { path = "../spark-lib" }
 wgpu.workspace = true
 pollster.workspace = true
 bytemuck.workspace = true
+half.workspace = true

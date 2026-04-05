@@ -20,6 +20,7 @@ const CHUNK_SIZE: usize = 65536;
 
 pub fn compute_sh_clusters<FNC: FindNearestClusters, TA: TsplatArray>(
     splats: &TA,
+    fnc: &mut FNC,
     num_sh: usize,
     num_clusters: usize,
     num_iterations: usize,
@@ -35,7 +36,7 @@ pub fn compute_sh_clusters<FNC: FindNearestClusters, TA: TsplatArray>(
         _ => unreachable!(),
     };
 
-    let mut fnc = FNC::create_fnc(dims, num_clusters, CHUNK_SIZE)?;
+    fnc.init_fnc(dims, num_clusters, CHUNK_SIZE)?;
 
     let mut clusters = Vec::with_capacity(dims * num_clusters);
     let mut next_clusters = vec![0.0; dims * num_clusters];
@@ -172,7 +173,7 @@ pub fn compute_sh_clusters<FNC: FindNearestClusters, TA: TsplatArray>(
 }
 
 pub trait FindNearestClusters: Sized {
-    fn create_fnc(max_dims: usize, max_clusters: usize, max_splats: usize) -> anyhow::Result<Self>;
+    fn init_fnc(&mut self, max_dims: usize, max_clusters: usize, max_splats: usize) -> anyhow::Result<()>;
     fn set_clusters(&mut self, dims: usize, clusters: &[f32]) -> anyhow::Result<()>;
     fn find_nearest_clusters(&mut self, dims: usize, splats: &[f32]) -> anyhow::Result<Vec<(u32, f32)>>;
 }
@@ -182,13 +183,21 @@ pub struct CpuFindNearestClusters {
     ann_searcher: Searcher<u32>,
 }
 
-impl FindNearestClusters for CpuFindNearestClusters {
-    fn create_fnc(_max_dims: usize, _max_clusters: usize, _max_splats: usize) -> anyhow::Result<Self> {
-        println!("CPU SH clustering initialized");
-        Ok(Self {
+impl CpuFindNearestClusters {
+    pub fn new() -> Self {
+        Self {
             ann: Hnsw::new(SquaredEuclidean),
             ann_searcher: Searcher::default(),
-        })
+        }
+    }
+}
+
+impl FindNearestClusters for CpuFindNearestClusters {
+    fn init_fnc(&mut self, _max_dims: usize, _max_clusters: usize, _max_splats: usize) -> anyhow::Result<()> {
+        self.ann = Hnsw::new(SquaredEuclidean);
+        self.ann_searcher = Searcher::default();
+        println!("CPU SH clustering initialized");
+        Ok(())
     }
 
     fn set_clusters(&mut self, dims: usize, clusters: &[f32]) -> anyhow::Result<()> {
