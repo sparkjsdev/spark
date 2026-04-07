@@ -17,7 +17,6 @@ import init_wasm, {
   tiny_lod_extsplats,
   bhatt_lod_extsplats,
   get_lod_tree_level,
-  new_traverse_lod_trees,
 } from "spark-worker-rs";
 import type { ExtResult, PackedResult, SplatEncoding } from "./defines";
 
@@ -783,7 +782,7 @@ function traverseLodTrees({
     keyInstances.map(([_key, instance]) => instance.coneFoveate),
   );
 
-  const result = new_traverse_lod_trees(
+  const result = traverse_lod_trees(
     maxSplats,
     pixelScaleLimit,
     lastPixelLimit,

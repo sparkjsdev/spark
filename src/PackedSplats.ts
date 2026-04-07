@@ -91,7 +91,7 @@ export type PackedSplatsOptions = {
   // otherwise the default 1.5 is used. When loading a file without pre-computed
   // LoD it will use the "quick lod" algorithm to generate one on-the-fly with
   // the selected LoD level base. (default: undefined=false)
-  lod?: boolean | number;
+  lod?: boolean | "quality";
   // Keep the original PackedSplats data before creating LoD version. (default: false)
   nonLod?: boolean;
   // Only create LoD if the input splat acount is above this
@@ -114,7 +114,7 @@ export class PackedSplats implements SplatSource {
   extra: Record<string, unknown>;
   maxSh = 3;
   splatEncoding?: SplatEncoding;
-  lod?: boolean | number;
+  lod?: boolean | "quality";
   nonLod?: boolean;
   lodSplats?: PackedSplats;
 
@@ -920,9 +920,7 @@ export class PackedSplats implements SplatSource {
 
     this.lodSplats = lodSplats;
     this.nonLod = true;
-    if (!this.lod) {
-      this.lod = lodBase;
-    }
+    this.lod = quality ? "quality" : true;
   }
 
   extractSplats(indices: Uint32Array, pageColoring: boolean) {

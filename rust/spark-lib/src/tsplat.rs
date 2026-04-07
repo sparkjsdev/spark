@@ -80,6 +80,17 @@ pub trait TsplatArray {
     fn get_child_count_start(&self, index: usize) -> (usize, usize);
     fn clear_children(&mut self);
 
+    fn encode_lod_opacity(&mut self) {
+        for i in 0..self.len() {
+            let mut splat = self.get_mut(i);
+            if splat.opacity() > 1.0 {
+                let d = splat.lod_opacity();
+                // Map 1..5 LOD-encoded opacity to 1..2 opacity
+                splat.set_opacity((0.25 * (d - 1.0) + 1.0).clamp(1.0, 2.0));
+            }
+        }
+    }
+
     fn get_sh1(&self, index: usize) -> [f32; 9];
     fn get_sh2(&self, index: usize) -> [f32; 15];
     fn get_sh3(&self, index: usize) -> [f32; 21];

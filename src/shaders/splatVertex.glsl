@@ -253,7 +253,8 @@ void main() {
     float eigen1 = eigenAvg + eigenDelta;
     float eigen2 = eigenAvg - eigenDelta;
 
-    vec2 eigenVec1 = normalize(vec2((abs(b) < 0.001) ? 1.0 : b, eigen1 - a));
+    vec2 eigenVec1 = (abs(b) > 0.001) ? normalize(vec2(b, eigen1 - a))
+        : ((a >= d) ? vec2(1.0, 0.0) : vec2(0.0, 1.0));
     vec2 eigenVec2 = vec2(eigenVec1.y, -eigenVec1.x);
 
     float scale1 = min(maxPixelRadius, adjustedStdDev * sqrt(eigen1));

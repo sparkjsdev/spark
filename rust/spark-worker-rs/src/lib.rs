@@ -196,6 +196,7 @@ impl GsplatArray {
         let log = |_s: &str| {};
         self.inner.remove_invalid();
         spark_lib::tiny_lod::compute_lod_tree(&mut self.inner, lod_base, merge_filter, log);
+        self.inner.encode_lod_opacity();
         spark_lib::chunk_tree::chunk_tree(&mut self.inner, 0, log);
     }
 
@@ -204,6 +205,7 @@ impl GsplatArray {
         let log = |_s: &str| {};
         self.inner.remove_invalid();
         spark_lib::bhatt_lod::compute_lod_tree(&mut self.inner, lod_base, log);
+        self.inner.encode_lod_opacity();
         spark_lib::chunk_tree::chunk_tree(&mut self.inner, 0, log);
     }
 
@@ -324,14 +326,16 @@ impl CsplatArray {
         let log = |_s: &str| {};
         self.inner.remove_invalid();
         spark_lib::tiny_lod::compute_lod_tree(&mut self.inner, lod_base, merge_filter, log);
+        self.inner.encode_lod_opacity();
         spark_lib::chunk_tree::chunk_tree(&mut self.inner, 0, log);
     }
 
     pub fn bhatt_lod(&mut self, lod_base: f32) {
-        let log = |s: &str| web_sys::console::log_1(&JsValue::from(s));
-        // let log = |_s: &str| {};
+        // let log = |s: &str| web_sys::console::log_1(&JsValue::from(s));
+        let log = |_s: &str| {};
         self.inner.remove_invalid();
         spark_lib::bhatt_lod::compute_lod_tree(&mut self.inner, lod_base, log);
+        self.inner.encode_lod_opacity();
         spark_lib::chunk_tree::chunk_tree(&mut self.inner, 0, log);
     }
 
