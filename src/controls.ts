@@ -15,13 +15,17 @@ const DEFAULT_STICK_THRESHOLD = 0.1;
 const DEFAULT_FPS_ROTATE_SPEED = 2.0;
 // const DEFAULT_POINTER_ROLL_SCALE = 1.0;
 const DEFAULT_POINTER_ROLL_SCALE = 0.0;
+const DEFAULT_PRESS_MOVE_DELAY_MS = 500;
+const DEFAULT_PRESS_MOVE_ACCEL_MS = 500;
 
 // Time limit for double-finger press (pinch etc)
 const DUAL_PRESS_MS = 200;
 // Time limit for double-click/double-tap
 const DOUBLE_PRESS_LIMIT_MS = 400;
 // Distance limit for double-click.
-const DOUBLE_PRESS_DISTANCE = 50;
+const DOUBLE_PRESS_DISTANCE = 25;
+
+const MOVEMENT_THRESHOLD = 1.0e-4;
 
 // Standard WASD movement keys with R+F for up/down
 const WASD_KEYCODE_MOVE = {
@@ -29,8 +33,8 @@ const WASD_KEYCODE_MOVE = {
   KeyS: new THREE.Vector3(0, 0, 1),
   KeyA: new THREE.Vector3(-1, 0, 0),
   KeyD: new THREE.Vector3(1, 0, 0),
-  KeyR: new THREE.Vector3(0, 1, 0),
-  KeyF: new THREE.Vector3(0, -1, 0),
+  KeyE: new THREE.Vector3(0, 1, 0),
+  KeyQ: new THREE.Vector3(0, -1, 0),
 };
 
 // Arrow key movement with PageUp/PageDown
@@ -76,8 +80,11 @@ export class SparkControls {
     const deltaTime = (time - (this.lastTime || time)) / 1000;
     this.lastTime = time;
 
-    this.fpsMovement.update(deltaTime, control);
-    this.pointerControls.update(deltaTime, control, camera);
+    let updated = this.fpsMovement.update(deltaTime, control);
+    if (this.pointerControls.update(deltaTime, control, camera)) {
+      updated = true;
+    }
+    return updated;
   }
 }
 
@@ -138,7 +145,7 @@ export class FpsMovement {
     // (default {...WASD_KEYCODE_MOVE, ...ARROW_KEYCODE_MOVE})
     keycodeMoveMapping?: { [key: string]: THREE.Vector3 };
     // Maps keyboard keys to rotation directions
-    // (default {...QE_KEYCODE_ROTATE, ...ARROW_KEYCODE_ROTATE})
+    // (default { ...ARROW_KEYCODE_ROTATE})
     keycodeRotateMapping?: { [key: string]: THREE.Vector3 };
     // Maps gamepad buttons to control actions
     // (default {4: "rollLeft", 5: "rollRight", 6: "ctrl", 7: "shift"})
@@ -163,7 +170,7 @@ export class FpsMovement {
       ...ARROW_KEYCODE_MOVE,
     };
     this.keycodeRotateMapping = keycodeRotateMapping ?? {
-      ...QE_KEYCODE_ROTATE,
+      // ...QE_KEYCODE_ROTATE,
       ...ARROW_KEYCODE_ROTATE,
     };
     this.gamepadMapping = gamepadMapping ?? {
@@ -200,7 +207,7 @@ export class FpsMovement {
   // in seconds since the last update.
   update(deltaTime: number, control: THREE.Object3D) {
     if (!this.enable) {
-      return;
+      return false;
     }
 
     // Update gamepad / XR controllers
@@ -275,6 +282,8 @@ export class FpsMovement {
       new THREE.Vector3(this.rotateSpeed, this.rotateSpeed, this.rollSpeed),
     );
 
+    let updated = rotate.length() > MOVEMENT_THRESHOLD;
+
     if (rotate.manhattanLength() > 0.0) {
       rotate.multiplyScalar(deltaTime);
       const eulers = new THREE.Euler().setFromQuaternion(
@@ -323,11 +332,17 @@ export class FpsMovement {
       }
     }
 
+    if (moveVector.length() > MOVEMENT_THRESHOLD) {
+      updated = true;
+    }
+
     // Apply movement in view direction
     moveVector.applyQuaternion(control.quaternion);
     control.position.add(
       moveVector.multiplyScalar(this.moveSpeed * speedMultiplier * deltaTime),
     );
+
+    return updated;
   }
 }
 
@@ -367,13 +382,23 @@ export class PointerControls {
   doublePressLimitMs: number;
   // Distance limit for double press (default DOUBLE_PRESS_DISTANCE)
   doublePressDistance: number;
-  // Speed of movement on double press (default: DEFAULT_MOVEMENT_SPEED)
+
+  // Time delay in ms for press move to start
+  pressMoveDelayMs: number;
+  // Time in ms for press move to accelerate
+  pressMoveAccelMs: number;
+  // Speed of movement on press (default: DEFAULT_MOVEMENT_SPEED)
+  pressMoveSpeed: number;
+  // Speed of movement on double press (default: DEFAULT_MOVEMENT_SPEED * 5.0)
   doublePressMoveSpeed: number;
+  // Speed of movement on triple press (default: DEFAULT_MOVEMENT_SPEED * 25.0)
+  triplePressMoveSpeed: number;
+  pressHeld?: boolean;
   doublePressed?: number;
   triplePressed: boolean;
   // Last pointer up event (default: null)
-  lastUp: { position: THREE.Vector2; time: number } | null;
-  lastLastUp: { position: THREE.Vector2; time: number } | null;
+  lastUp: { position: THREE.Vector2; timeStamp: number } | null;
+  lastLastUp: { position: THREE.Vector2; timeStamp: number } | null;
 
   // Pointer state for currently active rotating pointer
   rotating: PointerState | null;
@@ -419,8 +444,16 @@ export class PointerControls {
     pointerRollScale,
     // Callback for double press events (default: () => {})
     doublePress,
-    // Speed of movement on double press (default: DEFAULT_MOVEMENT_SPEED)
+    // Time delay in ms for press move to start (default: DEFAULT_PRESS_MOVE_DELAY_MS)
+    pressMoveDelayMs,
+    // Time in ms for press move to accelerate (default: DEFAULT_PRESS_MOVE_ACCEL_MS)
+    pressMoveAccelMs,
+    // Speed of movement on press (default: DEFAULT_MOVEMENT_SPEED)
+    pressMoveSpeed,
+    // Speed of movement on double press (default: DEFAULT_MOVEMENT_SPEED * 5.0)
     doublePressMoveSpeed,
+    // Speed of movement on triple press (default: DEFAULT_MOVEMENT_SPEED * 25.0)
+    triplePressMoveSpeed,
   }: {
     canvas: HTMLCanvasElement;
     rotateSpeed?: number;
@@ -438,7 +471,11 @@ export class PointerControls {
       position,
       intervalMs,
     }: { position: THREE.Vector2; intervalMs: number }) => void;
+    pressMoveDelayMs?: number;
+    pressMoveAccelMs?: number;
+    pressMoveSpeed?: number;
     doublePressMoveSpeed?: number;
+    triplePressMoveSpeed?: number;
   }) {
     this.canvas = canvas;
     this.rotateSpeed = rotateSpeed ?? DEFAULT_ROTATE_SPEED;
@@ -456,7 +493,14 @@ export class PointerControls {
     this.doublePress = doublePress ?? (() => {});
     this.doublePressLimitMs = DOUBLE_PRESS_LIMIT_MS;
     this.doublePressDistance = DOUBLE_PRESS_DISTANCE;
-    this.doublePressMoveSpeed = doublePressMoveSpeed ?? DEFAULT_MOVEMENT_SPEED;
+
+    this.pressMoveDelayMs = pressMoveDelayMs ?? DEFAULT_PRESS_MOVE_DELAY_MS;
+    this.pressMoveAccelMs = pressMoveAccelMs ?? DEFAULT_PRESS_MOVE_ACCEL_MS;
+    this.pressMoveSpeed = pressMoveSpeed ?? DEFAULT_MOVEMENT_SPEED;
+    this.doublePressMoveSpeed =
+      doublePressMoveSpeed ?? DEFAULT_MOVEMENT_SPEED * 5.0;
+    this.triplePressMoveSpeed =
+      triplePressMoveSpeed ?? DEFAULT_MOVEMENT_SPEED * 25.0;
     this.doublePressed = undefined;
     this.triplePressed = false;
     this.lastUp = null;
@@ -487,7 +531,8 @@ export class PointerControls {
           (event.pointerType !== "mouse" || event.button === 1));
       // const isRotate =
       //   !this.rotating && (event.pointerType !== "mouse" || event.button === 0);
-      const { pointerId, timeStamp } = event;
+      const { pointerId } = event;
+      const timeStamp = performance.now();
 
       if (isRotate) {
         this.rotating = { initial, last, position, pointerId, timeStamp };
@@ -520,7 +565,7 @@ export class PointerControls {
 
       if (this.lastUp) {
         const distance = this.lastUp.position.distanceTo(position);
-        const intervalMs = event.timeStamp - this.lastUp.time;
+        const intervalMs = timeStamp - this.lastUp.timeStamp;
         if (
           distance < this.doublePressDistance &&
           intervalMs < this.doublePressLimitMs
@@ -532,7 +577,8 @@ export class PointerControls {
             const lastDistance = this.lastLastUp.position.distanceTo(
               this.lastUp.position,
             );
-            const lastIntervalMs = this.lastUp.time - this.lastLastUp.time;
+            const lastIntervalMs =
+              this.lastUp.timeStamp - this.lastLastUp.timeStamp;
             if (
               lastDistance < this.doublePressDistance &&
               lastIntervalMs < this.doublePressLimitMs
@@ -567,12 +613,13 @@ export class PointerControls {
       const position = this.getPointerPosition(event);
       const lastUp = this.lastUp;
       this.lastLastUp = this.lastUp;
-      this.lastUp = { position, time: event.timeStamp };
+      const timeStamp = performance.now();
+      this.lastUp = { position, timeStamp };
 
       if (lastUp) {
         const distance = lastUp.position.distanceTo(position);
         if (distance < this.doublePressDistance) {
-          const intervalMs = event.timeStamp - lastUp.time;
+          const intervalMs = timeStamp - lastUp.timeStamp;
           if (intervalMs < this.doublePressLimitMs) {
             // We pressed and release twice within the time and distance limits
             // this.lastUp = null;
@@ -616,8 +663,11 @@ export class PointerControls {
 
   update(deltaTime: number, control: THREE.Object3D, camera?: THREE.Camera) {
     if (!this.enable) {
-      return;
+      return false;
     }
+
+    const now = performance.now();
+    let updated = false;
 
     if (this.dualPress && this.rotating && this.sliding) {
       // We pressed both pointers at the same time, either pinching or sliding
@@ -635,6 +685,10 @@ export class PointerControls {
         slide.applyQuaternion(control.quaternion);
         control.position.add(slide);
         this.moveVelocity = slide.clone().multiplyScalar(1 / deltaTime);
+
+        if (slide.length() > MOVEMENT_THRESHOLD) {
+          updated = true;
+        }
       } else if (coincidence <= -0.2) {
         // Opposite directions so either pinch or roll motion
         const deltaDir = this.sliding.last.clone().sub(this.rotating.last);
@@ -667,6 +721,10 @@ export class PointerControls {
         control.position.add(slide);
         this.moveVelocity = slide.clone().multiplyScalar(1 / deltaTime);
 
+        if (slide.length() > MOVEMENT_THRESHOLD) {
+          updated = true;
+        }
+
         // Rolling motion
         // Calculate angle of orthogonal motion change over distance deltaDist/2
         // motionOrtho[0] and 1 are already in float distance
@@ -684,6 +742,10 @@ export class PointerControls {
           Math.min(Math.PI, eulers.z + 0.5 * rotate),
         );
         control.quaternion.setFromEuler(eulers);
+
+        if (Math.abs(rotate) > MOVEMENT_THRESHOLD) {
+          updated = true;
+        }
       }
 
       this.rotating.last.copy(this.rotating.position);
@@ -699,12 +761,20 @@ export class PointerControls {
         rotate.multiplyScalar(this.rotateSpeed * (this.reverseRotate ? -1 : 1));
         // Update rotation velocity from last delta
         this.rotateVelocity = rotate.clone().multiplyScalar(1 / deltaTime);
+
+        if (rotate.length() > MOVEMENT_THRESHOLD) {
+          updated = true;
+        }
       } else {
         // Continue to rotate with inertia
         this.rotateVelocity.multiplyScalar(
           Math.exp(-deltaTime / this.rotateInertia),
         );
         rotate.addScaledVector(this.rotateVelocity, deltaTime);
+
+        if (this.rotateVelocity.length() * 0.1 > MOVEMENT_THRESHOLD) {
+          updated = true;
+        }
       }
 
       // Apply rotation in Euler angles space
@@ -735,12 +805,14 @@ export class PointerControls {
         control.position.add(slide);
         // Update movement velocity from last delta
         this.moveVelocity = slide.clone().multiplyScalar(1 / deltaTime);
+
+        if (slide.length() > MOVEMENT_THRESHOLD) {
+          updated = true;
+        }
       } else {
         const target = new THREE.Vector3();
-        if (this.doublePressed) {
+        if (this.sliding || this.rotating) {
           const point = this.lastDown?.last ?? new THREE.Vector2();
-          target.set(0, 0, -1);
-
           const theCamera =
             camera ?? (control instanceof THREE.Camera ? control : undefined);
           if (theCamera) {
@@ -753,20 +825,58 @@ export class PointerControls {
             target.copy(raycaster.ray.direction).normalize();
           }
 
-          let intensity = Math.min(
-            1,
-            (performance.now() - this.doublePressed) / 1000,
-          );
-          if (this.triplePressed) {
-            intensity *= 5.0;
-          }
+          if (!this.doublePressed) {
+            let intensity = 0;
+            if (this.lastDown) {
+              intensity =
+                (now -
+                  (this.lastDown?.timeStamp ?? now) -
+                  this.pressMoveDelayMs) /
+                this.pressMoveAccelMs;
 
-          target.multiplyScalar(this.doublePressMoveSpeed * intensity);
+              if (
+                this.lastDown.position.distanceTo(this.lastDown.initial) <
+                this.doublePressDistance
+              ) {
+                if (this.pressHeld === undefined) {
+                  if (intensity > 0) {
+                    this.pressHeld = true;
+                  }
+                }
+              } else if (this.pressHeld === undefined) {
+                this.pressHeld = false;
+              }
+            }
+
+            if (this.pressHeld) {
+              target.multiplyScalar(
+                this.pressMoveSpeed * Math.max(0, Math.min(1, intensity)),
+              );
+            } else {
+              target.set(0, 0, 0);
+            }
+          } else {
+            this.pressHeld = false;
+            let intensity =
+              (performance.now() - this.doublePressed) / this.pressMoveAccelMs;
+            intensity = Math.max(0, Math.min(1, intensity));
+            target.multiplyScalar(
+              (this.triplePressed
+                ? this.triplePressMoveSpeed
+                : this.doublePressMoveSpeed) * intensity,
+            );
+          }
+        } else {
+          this.pressHeld = undefined;
         }
         // Continue to move with inertia
         const s = Math.exp(-deltaTime / this.moveInertia);
         this.moveVelocity.lerpVectors(target, this.moveVelocity, s);
         control.position.addScaledVector(this.moveVelocity, deltaTime);
+
+        if (this.moveVelocity.length() * 0.1 > MOVEMENT_THRESHOLD) {
+          updated = true;
+        }
       }
     }
 
@@ -777,6 +887,12 @@ export class PointerControls {
     }
     scroll.applyQuaternion(control.quaternion);
     control.position.add(scroll);
+
+    if (scroll.length() > MOVEMENT_THRESHOLD) {
+      updated = true;
+    }
     this.scroll.set(0, 0, 0);
+
+    return updated;
   }
 }

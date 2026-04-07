@@ -502,8 +502,8 @@
     };
 
     function makeConeMesh(fov0) {
-      const radius = 10;
-      const height = 10;
+      const radius = 32;
+      const height = 32;
       const segments = 32;
       const geometry = new THREE.ConeGeometry(radius, height, segments, 1, true);
       geometry.translate(0, -height / 2, 0);
@@ -522,7 +522,7 @@
       const color = fov0 ? 0xffcc00 : 0x00ccff;
       const material = new THREE.LineBasicMaterial({ color });
 
-      for (const z of [0.0625, 0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0]) {
+      for (const z of [0.0625, 0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0]) {
         const geometry = new THREE.BufferGeometry();
         const vertices = [];
 
@@ -904,8 +904,8 @@
         controls.update(camera);
       }
 
-      const lodPos = spark.lastLod?.pos ?? new THREE.Vector3().copy(camera.position);
-      const lodQuat = spark.lastLod?.quat ?? new THREE.Quaternion().copy(camera.quaternion);
+      const lodPos = spark.currentLod?.pos ?? new THREE.Vector3().copy(camera.position);
+      const lodQuat = spark.currentLod?.quat ?? new THREE.Quaternion().copy(camera.quaternion);
       cone0Mesh.position.copy(lodPos);
       cone0Mesh.quaternion.copy(lodQuat);
       coneMesh.position.copy(lodPos);

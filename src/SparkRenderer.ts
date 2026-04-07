@@ -400,6 +400,15 @@ export class SparkRenderer extends THREE.Mesh {
     maxSplats: number;
     timestamp: number;
   };
+  currentLod?: {
+    pos: THREE.Vector3;
+    quat: THREE.Quaternion;
+    pixelScaleLimit: number;
+    maxSplats: number;
+    timestamp: number;
+  };
+  lodPosOverride?: THREE.Vector3;
+  lodQuatOverride?: THREE.Quaternion;
   lodInstances: Map<
     SplatMesh,
     {
@@ -1079,6 +1088,18 @@ export class SparkRenderer extends THREE.Mesh {
     return this.lodWorker;
   }
 
+  defaultSplatTarget() {
+    return isOculus()
+      ? 500000
+      : isVisionPro()
+        ? 750000
+        : isAndroid()
+          ? 1000000
+          : isIos()
+            ? 1500000
+            : 2500000;
+  }
+
   private driveLod({
     visibleGenerators,
     camera: inputCamera,
@@ -1092,15 +1113,7 @@ export class SparkRenderer extends THREE.Mesh {
     // Make a copy of the camera so it can't change underneath us
     const camera = inputCamera.clone();
 
-    const defaultSplatCount = isOculus()
-      ? 500000
-      : isVisionPro()
-        ? 750000
-        : isAndroid()
-          ? 1000000
-          : isIos()
-            ? 1500000
-            : 2500000;
+    const defaultSplatCount = this.defaultSplatTarget();
     const splatCount = this.lodSplatCount ?? defaultSplatCount;
     const maxSplats = splatCount * this.lodSplatScale;
 
@@ -1123,6 +1136,13 @@ export class SparkRenderer extends THREE.Mesh {
     const viewPos = new THREE.Vector3();
     const viewQuat = new THREE.Quaternion();
     this.current.viewToWorld.decompose(viewPos, viewQuat, new THREE.Vector3());
+
+    if (this.lodPosOverride) {
+      viewPos.copy(this.lodPosOverride);
+    }
+    if (this.lodQuatOverride) {
+      viewQuat.copy(this.lodQuatOverride).normalize();
+    }
 
     if (this.lastLod) {
       if (
@@ -1286,6 +1306,7 @@ export class SparkRenderer extends THREE.Mesh {
           maxSplats,
           pixelScaleLimit,
         );
+        this.currentLod = this.lastLod;
         this.setDirty();
       }
 

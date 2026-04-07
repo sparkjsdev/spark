@@ -287,23 +287,20 @@ fn process_file_lod_tsplat<TS: SplatReceiver + TsplatArray + SplatGetter>(filena
         }
     }
 
-    for i in 0..splats.len() {
-        let mut splat = splats.get_mut(i);
-        
-        if splat.opacity() > 1.0 {
-            if !options.inflate {
-                let d = splat.lod_opacity();
-                // // Map 1..5 LOD-encoded opacity to 1..2 opacity
-                splat.set_opacity((0.25 * (d - 1.0) + 1.0).clamp(1.0, 2.0));
-            } else {
-                let rescale = splat.opacity().powf(1.0 / 3.0);
+    splats.encode_lod_opacity();
+
+    if options.inflate {
+        for i in 0..splats.len() {
+            let mut splat = splats.get_mut(i);        
+            if splat.opacity() > 1.0 {
+                let d = splat.opacity() * 4.0 - 3.0;
+                let opacity = ((d * d - 1.0) / std::f32::consts::E).exp();
+                let rescale = opacity.powf(1.0 / 3.0);
                 splat.set_scales(splat.scales() * rescale);
                 splat.set_opacity(1.0);
             }
         }
-    }
 
-    if options.inflate {
         description.insert("inflate_scale".to_string(), serde_json::Value::Bool(true));
     }
 

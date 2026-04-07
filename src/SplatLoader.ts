@@ -85,7 +85,7 @@ export class SplatLoader extends Loader {
     onLoad?: (decoded: PackedSplats | ExtSplats) => void;
     onProgress?: (event: ProgressEvent) => void;
     onError?: (error: unknown) => void;
-    lod?: boolean;
+    lod?: boolean | "quality";
     nonLod?: boolean;
     lodAbove?: number;
     lodBase?: number;
@@ -107,11 +107,7 @@ export class SplatLoader extends Loader {
         // If LoD is set and not falsey
         const splatsLod = packedSplats?.lod ?? extSplats?.lod;
         if (splatsLod) {
-          lod = true;
-          if (typeof splatsLod === "number") {
-            // Limit LoD base to 1.1-2.0
-            lodBase = Math.max(1.1, Math.min(2.0, splatsLod));
-          }
+          lod = splatsLod;
         }
         const splatsNonLod = packedSplats?.nonLod ?? extSplats?.nonLod;
         if (splatsNonLod !== undefined) {

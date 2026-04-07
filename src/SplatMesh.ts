@@ -124,7 +124,7 @@ export type SplatMeshOptions = {
   // otherwise the default 1.5 is used. When loading a file without pre-computed
   // LoD it will use the "quick lod" algorithm to generate one on-the-fly with
   // the selected LoD level base. (default: undefined=false)
-  lod?: boolean | number;
+  lod?: boolean | "quality";
   // Only create LoD if the input splat acount is above this (default: undefined=0)
   lodAbove?: number;
   // Keep the original PackedSplats data before creating LoD version. (default: false)
