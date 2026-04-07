@@ -20,7 +20,7 @@ export type PackedSplatsOptions = {
     onProgress?: (event: ProgressEvent) => void;
     extra?: Record<string, unknown>;
     splatEncoding?: SplatEncoding;
-    lod?: boolean | number;
+    lod?: boolean | "quality";
     nonLod?: boolean;
     lodAbove?: number;
     lodSplats?: PackedSplats;
@@ -32,7 +32,7 @@ export declare class PackedSplats implements SplatSource {
     extra: Record<string, unknown>;
     maxSh: number;
     splatEncoding?: SplatEncoding;
-    lod?: boolean | number;
+    lod?: boolean | "quality";
     nonLod?: boolean;
     lodSplats?: PackedSplats;
     initialized: Promise<PackedSplats>;

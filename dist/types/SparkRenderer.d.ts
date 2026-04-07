@@ -312,6 +312,15 @@ export declare class SparkRenderer extends THREE.Mesh {
         maxSplats: number;
         timestamp: number;
     };
+    currentLod?: {
+        pos: THREE.Vector3;
+        quat: THREE.Quaternion;
+        pixelScaleLimit: number;
+        maxSplats: number;
+        timestamp: number;
+    };
+    lodPosOverride?: THREE.Vector3;
+    lodQuatOverride?: THREE.Quaternion;
     lodInstances: Map<SplatMesh, {
         lodId: number;
         numSplats: number;
@@ -442,6 +451,7 @@ export declare class SparkRenderer extends THREE.Mesh {
     private updateInternal;
     private driveSort;
     private ensureLodWorker;
+    defaultSplatTarget(): 500000 | 750000 | 1000000 | 1500000 | 2500000;
     private driveLod;
     private initLodTree;
     private pageSizeWarning;

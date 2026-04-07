@@ -38,7 +38,7 @@ export type SplatMeshOptions = {
     splatEncoding?: SplatEncoding;
     extSplats?: boolean | ExtSplats;
     covSplats?: boolean;
-    lod?: boolean | number;
+    lod?: boolean | "quality";
     lodAbove?: number;
     nonLod?: boolean;
     enableLod?: boolean;

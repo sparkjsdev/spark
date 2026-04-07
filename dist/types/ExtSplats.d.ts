@@ -16,7 +16,7 @@ export type ExtSplatsOptions = {
     construct?: (splats: ExtSplats) => Promise<void> | void;
     onProgress?: (event: ProgressEvent) => void;
     extra?: Record<string, unknown>;
-    lod?: boolean | number;
+    lod?: boolean | "quality";
     nonLod?: boolean;
     lodAbove?: number;
     lodSplats?: ExtSplats;
@@ -27,7 +27,7 @@ export declare class ExtSplats implements SplatSource {
     extArrays: [Uint32Array, Uint32Array];
     extra: Record<string, unknown>;
     maxSh: number;
-    lod?: boolean | number;
+    lod?: boolean | "quality";
     nonLod?: boolean;
     lodSplats?: ExtSplats;
     initialized: Promise<ExtSplats>;

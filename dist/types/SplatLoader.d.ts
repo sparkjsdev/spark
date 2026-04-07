@@ -21,7 +21,7 @@ export declare class SplatLoader extends Loader {
         onLoad?: (decoded: PackedSplats | ExtSplats) => void;
         onProgress?: (event: ProgressEvent) => void;
         onError?: (error: unknown) => void;
-        lod?: boolean;
+        lod?: boolean | "quality";
         nonLod?: boolean;
         lodAbove?: number;
         lodBase?: number;
