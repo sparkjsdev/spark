@@ -20,6 +20,7 @@ import {
   DynoInt,
   DynoProgram,
   DynoProgramTemplate,
+  type DynoType,
   DynoUniform,
   DynoUsampler2DArray,
   type DynoVal,
@@ -42,7 +43,7 @@ import {
   splatTexCoord,
   splitGsplat,
 } from "./dyno/splats";
-import computeUvec4Template from "./shaders/computeUvec4.glsl";
+import { getShaders } from "./shaders";
 import { getTextureSize, setPackedSplat, unpackSplat } from "./utils";
 
 // Initialize a PackedSplats collection from source data via
@@ -272,12 +273,33 @@ export class PackedSplats implements SplatSource {
   dispose() {
     if (this.target) {
       this.target.dispose();
+      this.target.texture.source.data = null;
       this.target = null;
     }
     if (this.source) {
       this.source.dispose();
+      this.source.source.data = null;
       this.source = null;
     }
+
+    this.packedArray = null;
+
+    for (const key in this.extra) {
+      const dyno = this.extra[key] as DynoUniform<
+        DynoType,
+        string,
+        THREE.Texture
+      >;
+      if (dyno instanceof DynoUniform) {
+        const texture = dyno.value;
+        if (texture?.isTexture) {
+          texture.dispose();
+          texture.source.data = null;
+        }
+      }
+    }
+    this.extra = {};
+
     this.disposeLodSplats();
   }
 
@@ -616,7 +638,9 @@ export class PackedSplats implements SplatSource {
     if (this.target && (maxSplats ?? 1) <= this.maxSplats) {
       return false;
     }
-    this.dispose();
+    if (this.target) {
+      this.target.dispose();
+    }
 
     const textureSize = getTextureSize(maxSplats ?? 1);
     const { width, height, depth } = textureSize;
@@ -648,7 +672,7 @@ export class PackedSplats implements SplatSource {
     let maxSplats = 0;
     const mapping = splatCounts.map((numSplats) => {
       const base = maxSplats;
-      // Generation happens in horizonal row chunks, so round up to full width
+      // Generation happens in horizontal row chunks, so round up to full width
       const rounded = Math.ceil(numSplats / SPLAT_TEX_WIDTH) * SPLAT_TEX_WIDTH;
       maxSplats += rounded;
       return { base, count: numSplats };
@@ -753,7 +777,7 @@ export class PackedSplats implements SplatSource {
       );
       if (!PackedSplats.programTemplate) {
         PackedSplats.programTemplate = new DynoProgramTemplate(
-          computeUvec4Template,
+          getShaders().computeUvec4Template,
         );
       }
       // Create a program from the template and graph
@@ -947,7 +971,7 @@ export class PackedSplats implements SplatSource {
   static programTemplate: DynoProgramTemplate | null = null;
 
   // Cache for GsplatGenerator programs
-  static generatorProgram = new Map<GsplatGenerator, DynoProgram>();
+  static generatorProgram = new WeakMap<GsplatGenerator, DynoProgram>();
 
   // Static full-screen quad for pseudo-compute shader rendering
   static fullScreenQuad = new FullScreenQuad(

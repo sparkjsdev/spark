@@ -4,7 +4,7 @@ import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 import { SPLAT_TEX_HEIGHT, SPLAT_TEX_WIDTH } from "./defines";
 import { type Dyno, OutputRgba8, dynoBlock } from "./dyno";
 import { DynoProgram, DynoProgramTemplate } from "./dyno/program";
-import computeVec4Template from "./shaders/computeVec4.glsl";
+import { getShaders } from "./shaders";
 import { getTextureSize } from "./utils";
 
 // Readback can be used to run a Dyno program that maps an index to a 32-bit
@@ -112,7 +112,9 @@ export class Readback {
         },
       );
       if (!Readback.programTemplate) {
-        Readback.programTemplate = new DynoProgramTemplate(computeVec4Template);
+        Readback.programTemplate = new DynoProgramTemplate(
+          getShaders().computeVec4Template,
+        );
       }
       // Create a program from the template and graph
       program = new DynoProgram({
@@ -338,7 +340,7 @@ export class Readback {
   static programTemplate: DynoProgramTemplate | null = null;
 
   // Cache for Rgba8Readback programs
-  static readbackProgram = new Map<Rgba8Readback, DynoProgram>();
+  static readbackProgram = new WeakMap<Rgba8Readback, DynoProgram>();
 
   // Static full-screen quad for pseudo-compute shader rendering
   static fullScreenQuad = new FullScreenQuad(

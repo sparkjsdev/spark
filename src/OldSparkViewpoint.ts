@@ -303,7 +303,9 @@ export class OldSparkViewpoint {
     while (update ?? true) {
       // Force an update, possibly with origin centered at this camera
       // to yield the best quality output.
-      const originToWorld = forceOrigin ? this.viewToWorld : undefined;
+      const originToWorld = forceOrigin
+        ? this.viewToWorld
+        : this.spark.matrixWorld;
       const updated = this.spark.updateInternal({ scene, originToWorld });
       if (updated) {
         break;
@@ -313,10 +315,11 @@ export class OldSparkViewpoint {
     }
 
     const accumulator = this.spark.active;
-    if (accumulator !== this.display?.accumulator) {
-      this.spark.active.refCount += 1;
-    }
+    // Hold reference to accumulator while sorting
+    accumulator.refCount += 1;
     await this.sortUpdate({ accumulator, viewToWorld: this.viewToWorld });
+    // Release accumulator reference
+    this.spark.releaseAccumulator(accumulator);
   }
 
   // Render out the viewpoint to the view target RGBA buffer.
@@ -481,9 +484,15 @@ export class OldSparkViewpoint {
         // Splat mapping has not changed, so reuse the existing sorted
         // geometry to show updates faster. We will still fire off
         // a re-sort if necessary. First release old accumulator.
+        accumulator.refCount += 1;
         this.spark.releaseAccumulator(this.display.accumulator);
         this.display.accumulator = accumulator;
+        this.display.viewToWorld.copy(this.viewToWorld);
         displayed = true;
+
+        if (this.spark.viewpoint === this) {
+          this.spark.prepareViewpoint(this);
+        }
       }
     }
 
@@ -511,15 +520,11 @@ export class OldSparkViewpoint {
     }
 
     if (accumulator) {
-      // Hold a reference to the accumulator so it isn't released
+      // Hold a reference to the accumulator for sorting
       accumulator.refCount += 1;
     }
 
-    if (
-      accumulator &&
-      this.pending?.accumulator &&
-      this.pending.accumulator !== this.display?.accumulator
-    ) {
+    if (this.pending?.accumulator) {
       this.spark.releaseAccumulator(this.pending.accumulator);
     }
     this.pending = { accumulator, viewToWorld: this.viewToWorld, displayed };
@@ -535,9 +540,10 @@ export class OldSparkViewpoint {
       }
 
       const { viewToWorld, displayed } = this.pending;
-      let accumulator = this.pending.accumulator ?? this.display?.accumulator;
+      let accumulator = this.pending.accumulator;
       if (!accumulator) {
-        accumulator = this.spark.active;
+        // Hold a reference to the accumulator while sorting
+        accumulator = this.display?.accumulator ?? this.spark.active;
         accumulator.refCount += 1;
       }
       this.pending = null;
@@ -548,6 +554,10 @@ export class OldSparkViewpoint {
       this.sorting = { viewToWorld };
       await this.sortUpdate({ accumulator, viewToWorld, displayed });
       this.sorting = null;
+
+      // Release the reference to the accumulator
+      this.spark.releaseAccumulator(accumulator);
+
       // Continue in loop with any queued sort
     }
   }
@@ -670,6 +680,8 @@ export class OldSparkViewpoint {
     displayed?: boolean;
   }) {
     if (!this.display) {
+      // Hold a reference to the accumulator while part of display
+      accumulator.refCount += 1;
       this.display = {
         accumulator,
         viewToWorld,
@@ -677,6 +689,9 @@ export class OldSparkViewpoint {
       };
     } else {
       if (!displayed && accumulator !== this.display.accumulator) {
+        // Hold a reference to the new accumulator being displayed
+        accumulator.refCount += 1;
+        // Release the reference to the previously displayed accumulator
         this.spark.releaseAccumulator(this.display.accumulator);
         this.display.accumulator = accumulator;
       }

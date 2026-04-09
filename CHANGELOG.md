@@ -1,3 +1,24 @@
+### 0.1.10 (Oct 24, 2025)
+
+[SOG v2](https://blog.playcanvas.com/playcanvas-open-sources-sog-format-for-gaussian-splatting/) support, new examples and bug fixes
+
+### Enhancements
+
+- SOGSv2 (SOG) compression format support (#179) (@mrxz)
+- Use DecompressionStream for decompressing .spz files for faster loading times (#181) (@mrxz)
+- Make WASD default control for viewer (#6d7d801) (@dmarcos)
+- Add `minPixelRadius` property to discard splats during vertex shader (#184) (@mrxz)
+- Docs enhancements (@querielo)
+- Interactive holes example (#189) (@kali-shade)
+- Interactive ripples effect (#194) (@kali-shade)
+- Support logarithmic depth buffer (#199) (@Philipp-M)
+
+### Bug fixes
+
+- Issue preventing the splats from being updated when they should. (#191) (@mrxz)
+- Make bash script conform to "standard" (#197) (@Philipp-M)
+- Fix issue with splats rendered at incorrect position for a few frames (#200) (fix #192, #193) (@mrxz)
+
 ### 0.1.9 (Sep 22, 2025)
 
 Performance improvements, SPZ v3 support, new splat transition and reveal effects, brush painting / erasing splat example.
