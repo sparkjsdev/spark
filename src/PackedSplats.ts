@@ -20,7 +20,6 @@ import {
   DynoInt,
   DynoProgram,
   DynoProgramTemplate,
-  DynoSampler2D,
   type DynoType,
   DynoUniform,
   DynoUsampler2DArray,
@@ -44,7 +43,7 @@ import {
   splatTexCoord,
   splitGsplat,
 } from "./dyno/splats";
-import computeUvec4Template from "./shaders/computeUvec4.glsl";
+import { getShaders } from "./shaders";
 import { getTextureSize, setPackedSplat, unpackSplat } from "./utils";
 
 // Initialize a PackedSplats collection from source data via
@@ -282,6 +281,25 @@ export class PackedSplats implements SplatSource {
       this.source.source.data = null;
       this.source = null;
     }
+
+    this.packedArray = null;
+
+    for (const key in this.extra) {
+      const dyno = this.extra[key] as DynoUniform<
+        DynoType,
+        string,
+        THREE.Texture
+      >;
+      if (dyno instanceof DynoUniform) {
+        const texture = dyno.value;
+        if (texture?.isTexture) {
+          texture.dispose();
+          texture.source.data = null;
+        }
+      }
+    }
+    this.extra = {};
+
     this.disposeLodSplats();
   }
 

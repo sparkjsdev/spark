@@ -284,8 +284,8 @@ export function readRgbaArray(
     globals: () => [defineRgbaArray],
     statements: ({ inputs, outputs }) =>
       unindentLines(`
-        if ((index >= 0) && (index < ${inputs.rgba}.count)) {
-          ${outputs.rgba} = texelFetch(${inputs.rgba}.texture, splatTexCoord(index), 0);
+        if ((${inputs.index} >= 0) && (${inputs.index} < ${inputs.rgba}.count)) {
+          ${outputs.rgba} = texelFetch(${inputs.rgba}.texture, splatTexCoord(${inputs.index}), 0);
         } else {
           ${outputs.rgba} = vec4(0.0, 0.0, 0.0, 0.0);
         }

@@ -40,8 +40,7 @@ import {
   sub,
   unindentLines,
 } from "./dyno";
-import computeUvec4Vec4Template from "./shaders/computeUvec4_Vec4.glsl";
-import computeUvec4x2Vec4Template from "./shaders/computeUvec4x2_Vec4.glsl";
+import { getShaders } from "./shaders";
 import { getTextureSize, threeMrtArray } from "./utils";
 
 // A GeneratorMapping describes a Gsplat range that was generated, including
@@ -351,10 +350,12 @@ export class SplatAccumulator {
   }
 
   static programExtTemplate = new DynoProgramTemplate(
-    computeUvec4x2Vec4Template,
+    getShaders().computeUvec4x2Vec4Template,
   );
-  static programTemplate = new DynoProgramTemplate(computeUvec4Vec4Template);
-  static generatorProgram = new Map<
+  static programTemplate = new DynoProgramTemplate(
+    getShaders().computeUvec4Vec4Template,
+  );
+  static generatorProgram = new WeakMap<
     GsplatGenerator | CovSplatGenerator,
     DynoProgram
   >();

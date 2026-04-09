@@ -340,7 +340,7 @@ export class Readback {
   static programTemplate: DynoProgramTemplate | null = null;
 
   // Cache for Rgba8Readback programs
-  static readbackProgram = new Map<Rgba8Readback, DynoProgram>();
+  static readbackProgram = new WeakMap<Rgba8Readback, DynoProgram>();
 
   // Static full-screen quad for pseudo-compute shader rendering
   static fullScreenQuad = new FullScreenQuad(

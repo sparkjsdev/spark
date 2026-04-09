@@ -7,6 +7,7 @@ import { SPLAT_TEX_WIDTH, type SplatFileType } from "./defines";
 import {
   Dyno,
   DynoInt,
+  type DynoType,
   DynoUniform,
   DynoUsampler2DArray,
   type DynoVal,
@@ -16,7 +17,6 @@ import {
   combineGsplat,
   defineExtSplats,
   normalize,
-  pagedSplatTexCoord,
   readExtSplat,
   splatTexCoord,
   splitGsplat,
@@ -211,12 +211,33 @@ export class ExtSplats implements SplatSource {
   dispose() {
     if (this.textures[0] !== ExtSplats.emptyTexture) {
       this.textures[0].dispose();
+      this.textures[0].source.data = null;
       this.textures[0] = ExtSplats.emptyTexture;
     }
     if (this.textures[1] !== ExtSplats.emptyTexture) {
       this.textures[1].dispose();
+      this.textures[1].source.data = null;
       this.textures[1] = ExtSplats.emptyTexture;
     }
+
+    this.extArrays = [new Uint32Array(0), new Uint32Array(0)];
+
+    for (const key in this.extra) {
+      const dyno = this.extra[key] as DynoUniform<
+        DynoType,
+        string,
+        THREE.Texture
+      >;
+      if (dyno instanceof DynoUniform) {
+        const texture = dyno.value;
+        if (texture?.isTexture) {
+          texture.dispose();
+          texture.source.data = null;
+        }
+      }
+    }
+    this.extra = {};
+
     this.disposeLodSplats();
   }
 

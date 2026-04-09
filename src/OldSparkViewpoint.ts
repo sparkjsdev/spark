@@ -525,7 +525,6 @@ export class OldSparkViewpoint {
     }
 
     if (this.pending?.accumulator) {
-      // Release the reference of the pending accumulator
       this.spark.releaseAccumulator(this.pending.accumulator);
     }
     this.pending = { accumulator, viewToWorld: this.viewToWorld, displayed };

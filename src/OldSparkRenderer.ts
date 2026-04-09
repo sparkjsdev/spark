@@ -319,6 +319,7 @@ export class OldSparkRenderer extends THREE.Mesh {
     this.splatEncoding = options.splatEncoding ?? { ...DEFAULT_SPLAT_ENCODING };
 
     this.active = new OldSplatAccumulator();
+    this.active.refCount = 1;
     this.accumulatorCount = 1;
     this.freeAccumulators = [];
     // Start with the minimum of 2 total accumulators
@@ -773,7 +774,7 @@ export class OldSparkRenderer extends THREE.Mesh {
       // minimum co-orientation (dot product of quaternions)
       const originChanged = !withinCoorientDist({
         matrix1: originToWorld,
-        matrix2: this.active.toWorld,
+        matrix2: accumulator.toWorld,
         maxDistance: 0.00001,
         minCoorient: 0.99999,
       });
