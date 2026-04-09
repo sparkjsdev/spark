@@ -11,6 +11,18 @@ export {
   SparkRenderer,
   type SparkRendererOptions,
 } from "./SparkRenderer";
+export type {
+  ILodTraverser,
+  LodInstance,
+  LodTraverseResult,
+} from "./ILodTraverser";
+export {
+  DropIfBusyLodScheduler,
+  type ILodScheduler,
+} from "./ILodScheduler";
+export { WorkerLodTraverser } from "./WorkerLodTraverser";
+export type { ISortProvider } from "./ISortProvider";
+export { WorkerSortProvider } from "./WorkerSortProvider";
 export { SplatAccumulator, type GeneratorMapping } from "./SplatAccumulator";
 
 export * as dyno from "./dyno";

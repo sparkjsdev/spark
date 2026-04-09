@@ -1,6 +1,8 @@
 import { ExtSplats, PackedSplats, PagedSplats, SplatMesh, SplatPager } from '.';
+import { ILodScheduler } from './ILodScheduler';
+import { ILodTraverser } from './ILodTraverser';
+import { ISortProvider } from './ISortProvider';
 import { SplatAccumulator } from './SplatAccumulator';
-import { SplatWorker } from './SplatWorker';
 import * as THREE from "three";
 export interface SparkRendererOptions {
     /**
@@ -199,6 +201,15 @@ export interface SparkRendererOptions {
     behindFoveate?: number;
     lodRaycast?: number;
     lodRaycastIntervalMs?: number;
+    /** Injected LOD traverser implementation. When provided, SparkRenderer
+     * uses this for LOD tree traversal instead of the built-in WASM worker. */
+    lodTraverser?: ILodTraverser;
+    /** Injected LOD scheduler implementation. When provided, SparkRenderer
+     * uses this to decide how overlapping LOD update requests are handled. */
+    lodScheduler?: ILodScheduler;
+    /** Injected sort provider implementation. When provided, SparkRenderer
+     * uses this for depth sorting instead of the built-in WASM worker. */
+    sortProvider?: ISortProvider;
     target?: {
         /**
          * Width of the render target in pixels.
@@ -271,7 +282,6 @@ export declare class SparkRenderer extends THREE.Mesh {
     sorting: boolean;
     sortDirty: boolean;
     lastSortTime: number;
-    sortWorker: SplatWorker | null;
     sortTimeoutId: number;
     sortedCenter: THREE.Vector3;
     sortedDir: THREE.Vector3;
@@ -292,7 +302,9 @@ export declare class SparkRenderer extends THREE.Mesh {
     lodRaycast?: number;
     lodRaycastIntervalMs: number;
     lastLodRaycastTime: number;
-    lodWorker: SplatWorker | null;
+    lodTraverser: ILodTraverser;
+    lodScheduler: ILodScheduler;
+    sortProvider: ISortProvider;
     lodMeshes: {
         mesh: SplatMesh;
         version: number;
@@ -450,7 +462,6 @@ export declare class SparkRenderer extends THREE.Mesh {
     }): Promise<void>;
     private updateInternal;
     private driveSort;
-    private ensureLodWorker;
     defaultSplatTarget(): 500000 | 750000 | 1000000 | 1500000 | 2500000;
     private driveLod;
     private initLodTree;

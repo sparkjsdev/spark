@@ -8,6 +8,7 @@ import {
   SplatMesh,
   SplatPager,
 } from ".";
+import { DropIfBusyLodScheduler, type ILodScheduler } from "./ILodScheduler";
 import type {
   ILodTraverser,
   LodInstance,
@@ -260,6 +261,9 @@ export interface SparkRendererOptions {
   /** Injected LOD traverser implementation. When provided, SparkRenderer
    * uses this for LOD tree traversal instead of the built-in WASM worker. */
   lodTraverser?: ILodTraverser;
+  /** Injected LOD scheduler implementation. When provided, SparkRenderer
+   * uses this to decide how overlapping LOD update requests are handled. */
+  lodScheduler?: ILodScheduler;
   /** Injected sort provider implementation. When provided, SparkRenderer
    * uses this for depth sorting instead of the built-in WASM worker. */
   sortProvider?: ISortProvider;
@@ -397,6 +401,7 @@ export class SparkRenderer extends THREE.Mesh {
   lastLodRaycastTime = 0;
 
   lodTraverser: ILodTraverser;
+  lodScheduler: ILodScheduler;
   sortProvider: ISortProvider;
   lodMeshes: { mesh: SplatMesh; version: number }[] = [];
   lodDirty = false;
@@ -541,6 +546,7 @@ export class SparkRenderer extends THREE.Mesh {
 
     // Initialize plugin providers (defaults to worker-based implementations)
     this.lodTraverser = options.lodTraverser ?? new WorkerLodTraverser();
+    this.lodScheduler = options.lodScheduler ?? new DropIfBusyLodScheduler();
     this.sortProvider = options.sortProvider ?? new WorkerSortProvider();
     this.lodTraverser.init();
     this.sortProvider.init();
@@ -697,6 +703,7 @@ export class SparkRenderer extends THREE.Mesh {
     }
 
     this.sortProvider.dispose();
+    this.lodScheduler.dispose();
     this.lodTraverser.dispose();
     if (this.pager) {
       this.pager.dispose();
@@ -1212,100 +1219,104 @@ export class SparkRenderer extends THREE.Mesh {
       }
     }
 
-    (async () => {
-      if (hasPaged && !this.pager) {
-        this.pager = new SplatPager({
-          renderer: this.renderer,
-          extSplats: this.pagedExtSplats,
-          maxSplats: this.maxPagedSplats,
-          numFetchers: this.numLodFetchers,
-        });
+    void this.lodScheduler
+      .schedule(async () => {
+        if (hasPaged && !this.pager) {
+          this.pager = new SplatPager({
+            renderer: this.renderer,
+            extSplats: this.pagedExtSplats,
+            maxSplats: this.maxPagedSplats,
+            numFetchers: this.numLodFetchers,
+          });
 
-        this.pagerId = await this.lodTraverser.newTree(this.pager.maxSplats);
-      }
-
-      // Assign pager to any new meshes that don't have one yet
-      // (must run every frame, not just when pager is first created)
-      if (this.pager) {
-        for (const { mesh } of this.lodMeshes) {
-          if (mesh.paged && !mesh.paged.pager) {
-            mesh.paged.pager = this.pager;
-          }
+          this.pagerId = await this.lodTraverser.newTree(this.pager.maxSplats);
         }
-      }
 
-      if (this.lodInitQueue.length > 0) {
-        const lodInitQueue = this.lodInitQueue;
-        this.lodInitQueue = [];
-        while (lodInitQueue.length > 0) {
-          const splats = lodInitQueue.shift();
-          if (splats) {
-            await this.initLodTree(splats);
-            this.lodDirty = true;
-          }
-        }
-      }
-
-      if (this.pager) {
-        const updates = this.pager.consumeLodTreeUpdates();
-
-        for (const { splats, page, chunk, numSplats, lodTree } of updates) {
-          const record = this.lodIds.get(splats);
-          if (record) {
-            if (lodTree && chunk === 0) {
-              record.rootPage = page;
+        // Assign pager to any new meshes that don't have one yet
+        // (must run every frame, not just when pager is first created)
+        if (this.pager) {
+          for (const { mesh } of this.lodMeshes) {
+            if (mesh.paged && !mesh.paged.pager) {
+              mesh.paged.pager = this.pager;
             }
-            this.lodUpdates.push({
-              lodId: record.lodId,
-              pageBase: page * this.pager.pageSplats,
-              chunkBase: chunk * this.pager.pageSplats,
-              count: numSplats,
-              lodTreeData: lodTree,
-            });
           }
         }
-      }
 
-      if (this.lodUpdates.length > 0) {
-        const lodUpdates = this.lodUpdates;
-        this.lodUpdates = [];
-        await this.lodTraverser.updateTrees(lodUpdates);
-        this.lodDirty = true;
-      }
-
-      if (this.lodDirty) {
-        const now = performance.now();
-        const deltaPred = new THREE.Vector3();
-        if (this.lastLod) {
-          const deltaTime = Math.max(1, now - this.lastLod.timestamp);
-          deltaPred
-            .copy(viewPos)
-            .sub(this.lastLod.pos)
-            .multiplyScalar(this.lastTraverseTime / deltaTime);
+        if (this.lodInitQueue.length > 0) {
+          const lodInitQueue = this.lodInitQueue;
+          this.lodInitQueue = [];
+          while (lodInitQueue.length > 0) {
+            const splats = lodInitQueue.shift();
+            if (splats) {
+              await this.initLodTree(splats);
+              this.lodDirty = true;
+            }
+          }
         }
-        this.lastLod = {
-          pos: viewPos,
-          quat: viewQuat,
-          pixelScaleLimit,
-          maxSplats,
-          timestamp: now,
-        };
-        this.lodDirty = false;
 
-        await this.updateLodInstances(
-          camera,
-          deltaPred,
-          lodMeshes,
-          scene,
-          maxSplats,
-          pixelScaleLimit,
-        );
-        this.currentLod = this.lastLod;
-        this.setDirty();
-      }
+        if (this.pager) {
+          const updates = this.pager.consumeLodTreeUpdates();
 
-      await this.cleanupLodTrees();
-    })();
+          for (const { splats, page, chunk, numSplats, lodTree } of updates) {
+            const record = this.lodIds.get(splats);
+            if (record) {
+              if (lodTree && chunk === 0) {
+                record.rootPage = page;
+              }
+              this.lodUpdates.push({
+                lodId: record.lodId,
+                pageBase: page * this.pager.pageSplats,
+                chunkBase: chunk * this.pager.pageSplats,
+                count: numSplats,
+                lodTreeData: lodTree,
+              });
+            }
+          }
+        }
+
+        if (this.lodUpdates.length > 0) {
+          const lodUpdates = this.lodUpdates;
+          this.lodUpdates = [];
+          await this.lodTraverser.updateTrees(lodUpdates);
+          this.lodDirty = true;
+        }
+
+        if (this.lodDirty) {
+          const now = performance.now();
+          const deltaPred = new THREE.Vector3();
+          if (this.lastLod) {
+            const deltaTime = Math.max(1, now - this.lastLod.timestamp);
+            deltaPred
+              .copy(viewPos)
+              .sub(this.lastLod.pos)
+              .multiplyScalar(this.lastTraverseTime / deltaTime);
+          }
+          this.lastLod = {
+            pos: viewPos,
+            quat: viewQuat,
+            pixelScaleLimit,
+            maxSplats,
+            timestamp: now,
+          };
+          this.lodDirty = false;
+
+          await this.updateLodInstances(
+            camera,
+            deltaPred,
+            lodMeshes,
+            scene,
+            maxSplats,
+            pixelScaleLimit,
+          );
+          this.currentLod = this.lastLod;
+          this.setDirty();
+        }
+
+        await this.cleanupLodTrees();
+      })
+      .catch((error) => {
+        console.warn("SparkRenderer lodScheduler task failed:", error);
+      });
   }
 
   private async initLodTree(splats: PackedSplats | ExtSplats | PagedSplats) {
