@@ -7,6 +7,7 @@ import { SplatLoader } from "./SplatLoader";
 import type { SplatSource } from "./SplatMesh";
 import { workerPool } from "./SplatWorker";
 import {
+  DEFAULT_SPLAT_ENCODING,
   LN_SCALE_MAX,
   LN_SCALE_MIN,
   SPLAT_TEX_HEIGHT,
@@ -897,7 +898,7 @@ export class PackedSplats implements SplatSource {
           extra,
           lodBase,
           rgba,
-          encoding: this.splatEncoding,
+          encoding: this.splatEncoding ?? DEFAULT_SPLAT_ENCODING,
         },
       )) as {
         numSplats: number;

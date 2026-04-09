@@ -477,13 +477,16 @@ export class SplatPager {
 
   autoDrive: boolean;
   numFetchers: number;
+  fetchPause = 0;
 
   splatsChunkToPage: Map<
     PagedSplats,
     ({ page: number; lru: number } | undefined)[]
   > = new Map();
-  pageToSplatsChunk: ({ splats: PagedSplats; chunk: number } | undefined)[] =
-    [];
+  pageToSplatsChunk: (
+    | { splats: PagedSplats; chunk: number; time: number }
+    | undefined
+  )[] = [];
   pageFreelist: number[];
   pageLru: Set<{ page: number; lru: number }>;
   freeablePages: number[];
@@ -983,7 +986,7 @@ export class SplatPager {
     chunks[chunk] = pageLru;
     this.pageLru.add(pageLru);
 
-    this.pageToSplatsChunk[page] = { splats, chunk };
+    this.pageToSplatsChunk[page] = { splats, chunk, time: performance.now() };
     return this.pageToSplatsChunk[page];
   }
 
@@ -1255,9 +1258,14 @@ export class SplatPager {
         const promise = splats
           .fetchDecodeChunk(chunk)
           .then(
-            (data) => {
+            async (data) => {
               // Place data in ready queue and remove self from active fetchers list
               this.fetched.push({ splats, chunk, data });
+              if (this.fetchPause > 0) {
+                await new Promise((resolve) =>
+                  setTimeout(resolve, this.fetchPause),
+                );
+              }
             },
             async (error) => {
               console.warn(error);
