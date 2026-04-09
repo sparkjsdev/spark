@@ -480,6 +480,7 @@ export class SparkRenderer extends THREE.Mesh {
     // Disable frustum culling because we want to always draw them all
     // and cull Gsplats individually in the shader
     this.frustumCulled = false;
+    this.layers.enableAll();
 
     // sparkRendererInstance = this;
     this.renderer = options.renderer;
@@ -811,6 +812,12 @@ export class SparkRenderer extends THREE.Mesh {
     }
 
     spark.dirty = false;
+  }
+
+  clearSplats() {
+    this.activeSplats = 0;
+    this.display.numSplats = 0;
+    this.setDirty();
   }
 
   async update({
@@ -1304,6 +1311,8 @@ export class SparkRenderer extends THREE.Mesh {
           lodMeshes,
           scene,
           maxSplats,
+          viewPos,
+          viewQuat,
           pixelScaleLimit,
         );
         this.currentLod = this.lastLod;
@@ -1345,9 +1354,16 @@ export class SparkRenderer extends THREE.Mesh {
     lodMeshes: SplatMesh[],
     scene: THREE.Scene,
     maxSplats: number,
+    viewPos: THREE.Vector3,
+    viewQuat: THREE.Quaternion,
     pixelScaleLimit: number,
   ) {
     const uuidToMesh: Map<string, SplatMesh> = new Map();
+    const cameraToWorld = new THREE.Matrix4().compose(
+      viewPos,
+      viewQuat,
+      new THREE.Vector3().setScalar(1),
+    );
 
     const instances = lodMeshes.reduce(
       (instances, mesh) => {
@@ -1355,7 +1371,7 @@ export class SparkRenderer extends THREE.Mesh {
         const viewToObject = mesh.matrixWorld
           .clone()
           .invert()
-          .multiply(camera.matrixWorld);
+          .multiply(cameraToWorld);
 
         const splats =
           mesh.packedSplats?.lodSplats ??
@@ -1434,7 +1450,6 @@ export class SparkRenderer extends THREE.Mesh {
     if (this.pager) {
       this.pager.processUploads();
 
-      const cameraPosition = camera.getWorldPosition(new THREE.Vector3());
       const pagedMeshes = lodMeshes
         .map((mesh) => {
           if (!mesh.paged || !this.pager) {
@@ -1443,7 +1458,7 @@ export class SparkRenderer extends THREE.Mesh {
           const meshPosition = mesh.getWorldPosition(new THREE.Vector3());
           return {
             splats: mesh.paged,
-            distance: meshPosition.distanceTo(cameraPosition),
+            distance: meshPosition.distanceTo(viewPos),
           };
         })
         .filter((result) => result !== null);
