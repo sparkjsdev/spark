@@ -1,15 +1,63 @@
 [
   { "title": "Spark", "path": "", "thumb_filename": "spark.png" },
-  { "title": "Reveals", "path": "splat-reveal", "thumb_filename": "splat-reveal.jpg" },
-  { "title": "Transitions", "path": "splat-transitions", "thumb_filename": "splat-transitions.jpg" },
-  { "title": "GLSL Effects", "path": "splat-shader", "thumb_filename": "splat-shader.jpg" },
-  { "title": "Matrix", "path": "splat-matrix", "thumb_filename": "splat-matrix.jpg" },
-  { "title": "Portal", "path": "splat-portal", "thumb_filename": "splat-portal.jpg" },
-  { "title": "Shatter", "path": "splat-shatter", "thumb_filename": "splat-shatter.jpg" },
-  { "title": "Disintegration", "path": "splat-disintegration", "thumb_filename": "splat-disintegration.jpg" },
-  { "title": "Splat Ninja demo", "path": "splat-ninja", "thumb_filename": "splat-ninja.jpg" },
-  { "title": "Interactive Ripples", "path": "interactive-ripples", "thumb_filename": "interactive-ripples.jpg" },
-  { "title": "Interactive Deform", "path": "interactive-deform", "thumb_filename": "interactive-deform.jpg" },
-  { "title": "Interactive Holes", "path": "interactive-holes", "thumb_filename": "interactive-holes.jpg" },
-  { "title": "Interactive Assembly", "path": "interactive-assembly", "thumb_filename": "interactive-assembly.jpg" }
+  {
+    "title": "Reveals",
+    "path": "splat-reveal",
+    "thumb_filename": "splat-reveal.jpg"
+  },
+  {
+    "title": "Transitions",
+    "path": "splat-transitions",
+    "thumb_filename": "splat-transitions.jpg"
+  },
+  {
+    "title": "GLSL Effects",
+    "path": "splat-shader",
+    "thumb_filename": "splat-shader.jpg"
+  },
+  {
+    "title": "Matrix",
+    "path": "splat-matrix",
+    "thumb_filename": "splat-matrix.jpg"
+  },
+  {
+    "title": "Portal",
+    "path": "splat-portal",
+    "thumb_filename": "splat-portal.jpg"
+  },
+  {
+    "title": "Shatter",
+    "path": "splat-shatter",
+    "thumb_filename": "splat-shatter.jpg"
+  },
+  {
+    "title": "Disintegration",
+    "path": "splat-disintegration",
+    "thumb_filename": "splat-disintegration.jpg"
+  },
+  {
+    "title": "Splat Ninja demo",
+    "path": "splat-ninja",
+    "thumb_filename": "splat-ninja.jpg"
+  },
+  {
+    "title": "Interactive Ripples",
+    "path": "interactive-ripples",
+    "thumb_filename": "interactive-ripples.jpg"
+  },
+  {
+    "title": "Interactive Deform",
+    "path": "interactive-deform",
+    "thumb_filename": "interactive-deform.jpg"
+  },
+  {
+    "title": "Interactive Holes",
+    "path": "interactive-holes",
+    "thumb_filename": "interactive-holes.jpg"
+  },
+  {
+    "title": "Interactive Assembly",
+    "path": "interactive-assembly",
+    "thumb_filename": "interactive-assembly.jpg"
+  }
 ]
