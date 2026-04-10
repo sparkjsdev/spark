@@ -342,7 +342,7 @@ impl SplatFileType {
         match self {
             Self::PLY => "ply",
             Self::SPZ => "spz",
-            Self::ANTISPLAT => "antisplat",
+            Self::ANTISPLAT => "splat",
             Self::KSPLAT => "ksplat",
             Self::SOGS => "pcsogszip",
             Self::RAD => "rad",
@@ -353,7 +353,7 @@ impl SplatFileType {
         match enum_str {
             "ply" => Ok(Self::PLY),
             "spz" => Ok(Self::SPZ),
-            "antisplat" => Ok(Self::ANTISPLAT),
+            "splat" => Ok(Self::ANTISPLAT),
             "ksplat" => Ok(Self::KSPLAT),
             "pcsogszip" => Ok(Self::SOGS),
             "rad" => Ok(Self::RAD),
