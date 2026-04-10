@@ -344,7 +344,7 @@ impl SplatFileType {
             Self::SPZ => "spz",
             Self::ANTISPLAT => "antisplat",
             Self::KSPLAT => "ksplat",
-            Self::SOGS => "sogs",
+            Self::SOGS => "pcsogszip",
             Self::RAD => "rad",
         }
     }
@@ -355,7 +355,7 @@ impl SplatFileType {
             "spz" => Ok(Self::SPZ),
             "antisplat" => Ok(Self::ANTISPLAT),
             "ksplat" => Ok(Self::KSPLAT),
-            "sogs" => Ok(Self::SOGS),
+            "pcsogszip" => Ok(Self::SOGS),
             "rad" => Ok(Self::RAD),
             _ => Err(anyhow::anyhow!("Invalid file type: {}", enum_str)),
         }
