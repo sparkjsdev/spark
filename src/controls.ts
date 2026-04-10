@@ -387,11 +387,11 @@ export class PointerControls {
   pressMoveDelayMs: number;
   // Time in ms for press move to accelerate
   pressMoveAccelMs: number;
-  // Speed of movement on press (default: DEFAULT_MOVEMENT_SPEED)
+  // Speed of movement on press (default: 0)
   pressMoveSpeed: number;
-  // Speed of movement on double press (default: DEFAULT_MOVEMENT_SPEED * 5.0)
+  // Speed of movement on double press (default: pressMoveSpeed * 5.0)
   doublePressMoveSpeed: number;
-  // Speed of movement on triple press (default: DEFAULT_MOVEMENT_SPEED * 25.0)
+  // Speed of movement on triple press (default: doublePressMoveSpeed * 5.0)
   triplePressMoveSpeed: number;
   pressHeld?: boolean;
   doublePressed?: number;
@@ -448,11 +448,11 @@ export class PointerControls {
     pressMoveDelayMs,
     // Time in ms for press move to accelerate (default: DEFAULT_PRESS_MOVE_ACCEL_MS)
     pressMoveAccelMs,
-    // Speed of movement on press (default: DEFAULT_MOVEMENT_SPEED)
+    // Speed of movement on press (default: 0)
     pressMoveSpeed,
-    // Speed of movement on double press (default: DEFAULT_MOVEMENT_SPEED * 5.0)
+    // Speed of movement on double press (default: pressMoveSpeed * 5.0)
     doublePressMoveSpeed,
-    // Speed of movement on triple press (default: DEFAULT_MOVEMENT_SPEED * 25.0)
+    // Speed of movement on triple press (default: doublePressMoveSpeed * 5.0)
     triplePressMoveSpeed,
   }: {
     canvas: HTMLCanvasElement;
@@ -496,11 +496,11 @@ export class PointerControls {
 
     this.pressMoveDelayMs = pressMoveDelayMs ?? DEFAULT_PRESS_MOVE_DELAY_MS;
     this.pressMoveAccelMs = pressMoveAccelMs ?? DEFAULT_PRESS_MOVE_ACCEL_MS;
-    this.pressMoveSpeed = pressMoveSpeed ?? DEFAULT_MOVEMENT_SPEED;
+    this.pressMoveSpeed = pressMoveSpeed ?? 0;
     this.doublePressMoveSpeed =
-      doublePressMoveSpeed ?? DEFAULT_MOVEMENT_SPEED * 5.0;
+      doublePressMoveSpeed ?? this.pressMoveSpeed * 5.0;
     this.triplePressMoveSpeed =
-      triplePressMoveSpeed ?? DEFAULT_MOVEMENT_SPEED * 25.0;
+      triplePressMoveSpeed ?? this.doublePressMoveSpeed * 5.0;
     this.doublePressed = undefined;
     this.triplePressed = false;
     this.lastUp = null;
