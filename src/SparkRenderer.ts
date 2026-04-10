@@ -1109,17 +1109,13 @@ export class SparkRenderer extends THREE.Mesh {
 
   private driveLod({
     visibleGenerators,
-    camera: inputCamera,
+    camera,
     scene,
   }: {
     visibleGenerators: SplatGenerator[];
     camera: THREE.Camera;
     scene: THREE.Scene;
   }) {
-    inputCamera.updateMatrixWorld(true);
-    // Make a copy of the camera so it can't change underneath us
-    const camera = inputCamera.clone();
-
     const defaultSplatCount = this.defaultSplatTarget();
     const splatCount = this.lodSplatCount ?? defaultSplatCount;
     const maxSplats = splatCount * this.lodSplatScale;
@@ -1306,10 +1302,8 @@ export class SparkRenderer extends THREE.Mesh {
 
         await this.updateLodInstances(
           worker,
-          camera,
           deltaPred,
           lodMeshes,
-          scene,
           maxSplats,
           viewPos,
           viewQuat,
@@ -1349,15 +1343,16 @@ export class SparkRenderer extends THREE.Mesh {
 
   private async updateLodInstances(
     worker: SplatWorker,
-    camera: THREE.Camera,
     deltaPred: THREE.Vector3,
     lodMeshes: SplatMesh[],
-    scene: THREE.Scene,
     maxSplats: number,
     viewPos: THREE.Vector3,
     viewQuat: THREE.Quaternion,
     pixelScaleLimit: number,
   ) {
+    // Commented out because it makes LoDing less stable
+    // viewPos.add(deltaPred);
+
     const uuidToMesh: Map<string, SplatMesh> = new Map();
     const cameraToWorld = new THREE.Matrix4().compose(
       viewPos,
