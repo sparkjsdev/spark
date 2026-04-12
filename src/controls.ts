@@ -114,6 +114,7 @@ export class FpsMovement {
   xr?: THREE.WebXRManager;
   // Enable/disable controls updates
   enable = true;
+  extraMove = new THREE.Vector3();
 
   // Currently active event.key values
   keydown: { [key: string]: boolean };
@@ -302,6 +303,7 @@ export class FpsMovement {
     // Movement
 
     const moveVector = new THREE.Vector3(sticks[0].x, 0, sticks[0].y);
+    moveVector.add(this.extraMove);
 
     for (const [keycode, move] of Object.entries(this.keycodeMoveMapping)) {
       if (this.keycode[keycode]) {
