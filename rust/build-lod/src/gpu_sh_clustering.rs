@@ -208,7 +208,12 @@ impl FindNearestClusters for GpuFindNearestClusters {
         buffers.num_clusters = num_clusters;
 
         if self.f16 {
-            let clusters_f16: Vec<u16> = clusters.iter().copied().map(|x| half::f16::from_f32(x).to_bits()).collect();
+            // Round up count to align with nearest 4-byte boundary
+            let mut clusters_f16: Vec<u16> = Vec::with_capacity(clusters.len().div_ceil(2) * 2);
+            clusters_f16.extend(clusters.iter().copied().map(|x| half::f16::from_f32(x).to_bits()));
+            if clusters.len() % 2 != 0 {
+                clusters_f16.push(0);
+            }
             self.queue.write_buffer(&buffers.clusters_buf, 0, bytemuck::cast_slice(&clusters_f16));
         } else {
             self.queue.write_buffer(&buffers.clusters_buf, 0, bytemuck::cast_slice(clusters));
@@ -224,7 +229,12 @@ impl FindNearestClusters for GpuFindNearestClusters {
         assert_eq!(num_splats * dims, splats.len());
 
         if self.f16 {
-            let splats_f16: Vec<u16> = splats.iter().copied().map(|x| half::f16::from_f32(x).to_bits()).collect();
+            // Round up count to align with nearest 4-byte boundary
+            let mut splats_f16: Vec<u16> = Vec::with_capacity(splats.len().div_ceil(2) * 2);
+            splats_f16.extend(splats.iter().copied().map(|x| half::f16::from_f32(x).to_bits()));
+            if splats.len() % 2 != 0 {
+                splats_f16.push(0);
+            }
             self.queue.write_buffer(&buffers.points_buf, 0, bytemuck::cast_slice(&splats_f16));
         } else {
             self.queue.write_buffer(&buffers.points_buf, 0, bytemuck::cast_slice(splats));

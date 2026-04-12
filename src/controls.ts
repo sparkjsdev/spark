@@ -393,6 +393,8 @@ export class PointerControls {
   doublePressMoveSpeed: number;
   // Speed of movement on triple press (default: doublePressMoveSpeed * 5.0)
   triplePressMoveSpeed: number;
+  // Whether to move toward the screen center or finger when pressing to move
+  pressMoveCenter: boolean;
   pressHeld?: boolean;
   doublePressed?: number;
   triplePressed: boolean;
@@ -454,6 +456,8 @@ export class PointerControls {
     doublePressMoveSpeed,
     // Speed of movement on triple press (default: doublePressMoveSpeed * 5.0)
     triplePressMoveSpeed,
+    // Whether to move toward the screen center or finger when pressing to move (default: true)
+    pressMoveCenter,
   }: {
     canvas: HTMLCanvasElement;
     rotateSpeed?: number;
@@ -476,6 +480,7 @@ export class PointerControls {
     pressMoveSpeed?: number;
     doublePressMoveSpeed?: number;
     triplePressMoveSpeed?: number;
+    pressMoveCenter?: boolean;
   }) {
     this.canvas = canvas;
     this.rotateSpeed = rotateSpeed ?? DEFAULT_ROTATE_SPEED;
@@ -501,6 +506,7 @@ export class PointerControls {
       doublePressMoveSpeed ?? this.pressMoveSpeed * 5.0;
     this.triplePressMoveSpeed =
       triplePressMoveSpeed ?? this.doublePressMoveSpeed * 5.0;
+    this.pressMoveCenter = pressMoveCenter ?? true;
     this.doublePressed = undefined;
     this.triplePressed = false;
     this.lastUp = null;
@@ -816,10 +822,12 @@ export class PointerControls {
           const theCamera =
             camera ?? (control instanceof THREE.Camera ? control : undefined);
           if (theCamera) {
-            const ndcPoint = new THREE.Vector2(
-              (point.x / this.canvas.clientWidth) * 2 - 1,
-              -(point.y / this.canvas.clientHeight) * 2 + 1,
-            );
+            const ndcPoint = this.pressMoveCenter
+              ? new THREE.Vector2(0, 0)
+              : new THREE.Vector2(
+                  (point.x / this.canvas.clientWidth) * 2 - 1,
+                  -(point.y / this.canvas.clientHeight) * 2 + 1,
+                );
             const raycaster = new THREE.Raycaster();
             raycaster.setFromCamera(ndcPoint, theCamera);
             target.copy(raycaster.ray.direction).normalize();

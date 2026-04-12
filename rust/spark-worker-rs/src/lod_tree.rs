@@ -6,7 +6,6 @@ use half::f16;
 use itertools::izip;
 use js_sys::{Array, Object, Reflect, Uint32Array};
 use ordered_float::OrderedFloat;
-use smallvec::SmallVec;
 use wasm_bindgen::prelude::*;
 
 const MAX_SPLAT_CHUNK: usize = 65536;
@@ -184,7 +183,7 @@ thread_local! {
     static STATE: RefCell<LodState> = RefCell::new(LodState::new());
 }
 
-fn set_lod_tree_data(state: &mut LodState, lod_id: u32, page_base: u32, chunk_base: u32, count: u32, lod_tree_data: &Uint32Array) {
+fn set_lod_tree_data(state: &mut LodState, lod_id: u32, page_base: u32, _chunk_base: u32, count: u32, lod_tree_data: &Uint32Array) {
     let lod_tree = state.lod_trees.get(&lod_id).unwrap();
     let mut splats = lod_tree.splats.borrow_mut();
 
@@ -329,6 +328,7 @@ pub fn update_lod_trees(lod_ids: &[u32], page_bases: &[u32], chunk_bases: &[u32]
     })
 }
 
+#[allow(dead_code)]
 struct LodInstance<'a> {
     lod_id: u32,
     splats: Ref<'a, Vec<LodSplat>>,
@@ -347,6 +347,7 @@ struct LodInstance<'a> {
     cone_foveate: f32,
 }
 
+#[allow(dead_code)]
 fn children_resident(child_count: u16, child_start: u32, instance: &LodInstance) -> bool {
     // Check endpoints, okay since child_count <= 65535
     for child in [child_start, child_start + child_count as u32 - 1] {
@@ -357,6 +358,7 @@ fn children_resident(child_count: u16, child_start: u32, instance: &LodInstance)
     true
 }
 
+#[allow(dead_code)]
 fn is_resident(index: u32, instance: &LodInstance) -> bool {
     let chunk = (index >> 16) as usize;
     if chunk >= instance.chunk_to_page.len() {
@@ -408,7 +410,7 @@ pub fn get_lod_tree_level(lod_id: u32, level: u32) -> anyhow::Result<Object, JsV
 
 #[wasm_bindgen]
 pub fn traverse_lod_trees(
-    max_splats: u32, pixel_scale_limit: f32, last_pixel_limit: Option<f32>,
+    max_splats: u32, pixel_scale_limit: f32, _last_pixel_limit: Option<f32>,
     lod_ids: &[u32], root_pages: &[u32],
     view_to_objects: &[f32], lod_scales: &[f32],
     behind_foveates: &[f32], cone_foveates: &[f32],

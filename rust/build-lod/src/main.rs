@@ -14,8 +14,10 @@ use spark_lib::{
     spz::SpzEncoder,
 };
 
+#[cfg(feature = "gpu")]
 use crate::gpu_sh_clustering::GpuFindNearestClusters;
 
+#[cfg(feature = "gpu")]
 mod gpu_sh_clustering;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -247,6 +249,7 @@ fn process_file_lod_tsplat<TS: SplatReceiver + TsplatArray + SplatGetter>(filena
             let num_clusters = splats.len().min(65536);
             let start_time = std::time::Instant::now();
 
+            #[cfg(feature = "gpu")]
             if !options.cluster_sh_cpu {
                 if let Ok(mut fnc) = GpuFindNearestClusters::new_with_f16(options.cluster_sh_f16) {
                     match sh_clustering::compute_sh_clusters(
@@ -267,6 +270,11 @@ fn process_file_lod_tsplat<TS: SplatReceiver + TsplatArray + SplatGetter>(filena
                 } else {
                     println!("GPU SH clustering unavailable");
                 }
+            }
+
+            #[cfg(not(feature = "gpu"))]
+            if !options.cluster_sh_cpu {
+                println!("GPU SH clustering disabled at compile time");
             }
 
             if sh_clusters.is_none() {

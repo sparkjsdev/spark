@@ -6,8 +6,8 @@ use smallvec::{SmallVec, smallvec};
 
 use crate::{ordering::{morton_coord16_to_index, morton_coord24_to_index}, tsplat::{Tsplat, TsplatArray}};
 
-const ROOT_SIZE: usize = 65536;
-const CHUNK_SIZE: usize = 65536;
+// const ROOT_SIZE: usize = 65536;
+// const CHUNK_SIZE: usize = 65536;
 const BATCH_SIZE: usize = 64 * 1024;
 const MIN_BATCH_SIZE: usize = 8 * 1024;
 const STD_DEVS: f32 = 1.5;
@@ -139,12 +139,14 @@ impl Aabb {
 //     subtree_children[index] = total;
 // }
 
+#[allow(dead_code)]
 fn max_child_size<TA: TsplatArray>(splats: &TA, parent: usize) -> f32 {
     let children = splats.get_children(parent);
     let max = children.iter().map(|&child| OrderedFloat(splats.get(child).feature_size())).max();
     max.map(|x| x.0).unwrap_or(0.0)
 }
 
+#[allow(dead_code)]
 fn subtree_count_above_size<TA: TsplatArray>(splats: &TA, parent: usize, size_limit: f32) -> usize {
     if splats.get_child_count_start(parent).0 == 0 {
         return 0;
@@ -160,10 +162,12 @@ fn subtree_count_above_size<TA: TsplatArray>(splats: &TA, parent: usize, size_li
     total
 }
 
+#[allow(dead_code)]
 fn subtree_count_above_size_total<TA: TsplatArray>(splats: &TA, parents: &[usize], size_limit: f32) -> usize {
     parents.iter().map(|&parent| subtree_count_above_size(splats, parent, size_limit)).sum()
 }
 
+#[allow(dead_code)]
 fn subtree_above_size<TA: TsplatArray>(
     splats: &TA, parent: usize, size_limit: f32,
 ) -> (SmallVec<[SmallVec<[usize; 8]>; 4]>, SmallVec<[usize; 8]>) {
@@ -192,6 +196,7 @@ fn subtree_above_size<TA: TsplatArray>(
     (levels, below)
 }
 
+#[allow(dead_code)]
 fn subtree_above_size_all<TA: TsplatArray>(
     splats: &TA, parents: &[usize], size_limit: f32,
 ) -> (Vec<Vec<usize>>, Vec<usize>) {
@@ -212,6 +217,7 @@ fn subtree_above_size_all<TA: TsplatArray>(
     (levels, below)
 }
 
+#[allow(dead_code)]
 fn old_make_batches<TA: TsplatArray>(
     splats: &TA, parents: Vec<usize>, size_limit: f32,
 ) -> (Vec<Vec<usize>>, Vec<usize>) {

@@ -307,11 +307,13 @@ impl PackedSplatsData {
         Ok(receiver)
     }
 
+    #[allow(dead_code)]
     pub fn get_packed_array(&self, base: usize, count: usize, out: &mut [u32]) {
         let sub = self.packed.subarray((base * 4) as u32, ((base + count) * 4) as u32);
         sub.copy_to(out);
     }
 
+    #[allow(dead_code)]
     pub fn get_lod_tree_array(&self, base: usize, count: usize, out: &mut [u32]) -> Option<()> {
         self.lod_tree.as_ref().map(|lod| {
             let sub = lod.subarray((base * 4) as u32, ((base + count) * 4) as u32);
