@@ -179,6 +179,11 @@ export interface SparkRendererOptions {
    */
   enableDriveLod?: boolean;
   /**
+   * Whether to enable page fetching for LoD.
+   * @default true
+   */
+  enableLodFetching?: boolean;
+  /**
    * Set the target # splats for LoD. If this isn't set then default base LoD splat
    * counts will apply: 500K-750K for WebXR, 1-1.5M for mobile, and 2.5M for desktop.
    * @default 500K-2500K depending on platform
@@ -367,6 +372,7 @@ export class SparkRenderer extends THREE.Mesh {
 
   enableLod: boolean;
   enableDriveLod: boolean;
+  enableLodFetching: boolean;
   lodSplatCount?: number;
   lodSplatScale: number;
   lodRenderScale: number;
@@ -513,6 +519,7 @@ export class SparkRenderer extends THREE.Mesh {
     this.enableLod = options.enableLod ?? true;
     // enableDriveLod defaults to true if enableLod is true, false otherwise
     this.enableDriveLod = options.enableDriveLod ?? this.enableLod;
+    this.enableLodFetching = options.enableLodFetching ?? true;
     this.lodSplatCount = options.lodSplatCount;
     this.lodSplatScale = options.lodSplatScale ?? 1.0;
     this.lodRenderScale = options.lodRenderScale ?? 1.0;
@@ -1481,7 +1488,10 @@ export class SparkRenderer extends THREE.Mesh {
         }
       }
 
-      this.pager.driveFetchers();
+      this.pager.autoDrive = this.enableLodFetching;
+      if (this.enableLodFetching) {
+        this.pager.driveFetchers();
+      }
     }
 
     if (
