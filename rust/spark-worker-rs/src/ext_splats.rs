@@ -152,6 +152,7 @@ impl ExtSplatsData {
         self.buffer_a.resize(count * 4, 0);
     }
 
+    #[allow(dead_code)]
     fn ensure_buffer_b(&mut self, count: usize) {
         self.buffer_b.resize(count * 4, 0);
     }
@@ -322,12 +323,14 @@ impl ExtSplatsData {
         Ok(out)
     }
 
+    #[allow(dead_code)]
     pub fn to_csplat_array(&mut self) -> anyhow::Result<CsplatArray> {
         let mut out = CsplatArray::new();
         copy_getter_to_receiver(self, &mut out)?;
         Ok(out)
     }
 
+    #[allow(dead_code)]
     pub fn get_ext_arrays(&self, base: usize, count: usize, out: [&mut [u32]; 2]) {
         let sub = self.ext_arrays[0].subarray((base * 4) as u32, ((base + count) * 4) as u32);
         sub.copy_to(out[0]);
@@ -335,6 +338,7 @@ impl ExtSplatsData {
         sub.copy_to(out[1]);
     }
 
+    #[allow(dead_code)]
     pub fn get_lod_tree_array(&self, base: usize, count: usize, out: &mut [u32]) -> Option<()> {
         self.lod_tree.as_ref().map(|lod| {
             let sub = lod.subarray((base * 4) as u32, ((base + count) * 4) as u32);

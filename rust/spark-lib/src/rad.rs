@@ -1278,6 +1278,7 @@ fn decode_u16_as_u32(data: &[u8], dims: usize, count: usize) -> Vec<u32> {
     result
 }
 
+#[allow(dead_code)]
 fn encode_u32(data: &[u32], dims: usize, count: usize) -> Vec<u8> {
     let mut result = Vec::with_capacity(4 * dims * count);
     for d in 0..dims {
@@ -1338,6 +1339,7 @@ fn encode_usize_as_u16(data: &[usize], dims: usize, count: usize) -> Vec<u8> {
     result
 }
 
+#[allow(dead_code)]
 fn decode_u16_as_usize(data: &[u8], dims: usize, count: usize) -> Vec<usize> {
     let mut result = Vec::with_capacity(dims * count);
     for i in 0..count {
