@@ -486,7 +486,9 @@ export class SparkRenderer extends THREE.Mesh {
     // Disable frustum culling because we want to always draw them all
     // and cull Gsplats individually in the shader
     this.frustumCulled = false;
-    this.layers.enableAll();
+
+    // By default SparkRenderer will only render for layer 0
+    // this.layers.enableAll();
 
     // sparkRendererInstance = this;
     this.renderer = options.renderer;
