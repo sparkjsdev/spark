@@ -1,15 +1,5 @@
 # Getting Started
 
-> ## Spark 2.0 Preview
->
-> Spark 2.0 Developer Preview is now available! Expect continued updates to documentation and minor code changes and fixes, but the core functionality and API should be stable enough for development.
->
-> Read about the new features on the [New Features in 2.0](new-features-2.0/) page. Learn how to use the new Level-of-Detail system on the [Spark Level-of-Detail](lod-getting-started/) page.
->
-> v2.0.* is mostly backwards compatible with v0.1.*, with breaking changes described in [1.0 → 2.0 Migration Guide](0.1-2.0-migration-guide/).
->
-> The source is on GitHub under the [`v2.0.0-preview` branch](https://github.com/sparkjsdev/spark/tree/v2.0.0-preview) of the `sparkjsdev/spark` repository.
-
 ## Quick Start
 
 Copy and paste code below in an `index.html` file or remix in the [Web Playground](https://stackblitz.com/edit/spark?file=index.html)
