@@ -1,3 +1,7 @@
+### 2.0.0 (Apr 14, 2026)
+
+LOD System (details coming soon)
+
 ### 0.1.10 (Oct 24, 2025)
 
 [SOG v2](https://blog.playcanvas.com/playcanvas-open-sources-sog-format-for-gaussian-splatting/) support, new examples and bug fixes
