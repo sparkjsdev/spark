@@ -11,8 +11,7 @@ Each `SparkRenderer` has a default `SparkViewpoint` that reads back a list of al
 Finally, on the next THREE.js render() call, `SparkRenderer` invokes a single instanced geometry draw call to draw all the scene's splats in the correct back-to-front order, merging with other opaque THREE.js geometry using the Z buffer. The sort order lags the render by at least one frame, but possibly more on older devices, but is not usually perceptible.
 
 ```typescript
-// Optionally add a SparkRenderer to the scene to manage SplatMesh rendering.
-// If none is created, Spark will create one for you automatically.
+// Add a SparkRenderer to the scene to manage SplatMesh rendering.
 const spark = new SparkRenderer({ renderer: webGlRenderer });
 scene.add(spark);
 ```

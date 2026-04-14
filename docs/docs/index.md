@@ -16,13 +16,16 @@ Copy and paste code below in an `index.html` file or remix in the [Web Playgroun
 </script>
 <script type="module">
   import * as THREE from "three";
-  import { SplatMesh } from "@sparkjsdev/spark";
+  import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 1000);
   const renderer = new THREE.WebGLRenderer();
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement)
+
+  const spark = new SparkRenderer({ renderer });
+  scene.add(spark);
 
   const splatURL = "https://sparkjs.dev/assets/splats/butterfly.spz";
   const butterfly = new SplatMesh({ url: splatURL });
@@ -40,13 +43,14 @@ Copy and paste code below in an `index.html` file or remix in the [Web Playgroun
 ## Install with NPM
 
 ```shell
-npm install sparkjsdev/spark#v2.0.0-preview
+npm install @sparkjsdev/spark
 ```
 ## Develop and contribute to Spark
 
 Build Spark (It requires [Rust](https://www.rust-lang.org/tools/install) installed in your machine)
 ```
 npm install
+npm run build:wasm
 npm run dev
 ```
 

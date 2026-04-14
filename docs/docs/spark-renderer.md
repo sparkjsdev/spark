@@ -1,6 +1,6 @@
 # SparkRenderer
 
-Spark internally uses a `SparkRenderer` object in your `THREE.Scene` to perform splat rendering. Spark will automatically create a `SparkRenderer` and add it to your scene if you don't create one yourself. For more advanced use cases such as multiple viewpoints, rendering environment maps, or tuning rendering parameters such as Level-of-Detail (LoD), you can create your own `SparkRenderer` and add it anywhere in the scene, for example at the root:
+Spark internally uses a `SparkRenderer` object in your `THREE.Scene` to perform splat rendering. Create a `SparkRenderer` and add it anywhere to your scene (for example at the root), and use it to adjust rendering parameters such as Level-of-Detail (LoD):
 ```typescript
 const spark = new SparkRenderer({
   renderer: myThreeJsWebGlRenderer,
@@ -13,16 +13,10 @@ scene.add(spark);
 
 ```typescript
 const spark = new SparkRenderer({
-  // Commonly used parameters
   renderer: THREE.WebGLRenderer;
   maxStdDev?: number;
-  focalDistance?: number;
-  apertureAngle?: number;
-  falloff?: number;
-  focalAdjustment?: number;
   sortRadial?: boolean;
   lodSplatScale?: number;
-
   pagedExtSplats?: boolean;
   target?: { width: number; height: number; doubleBuffer?: boolean },
 });
