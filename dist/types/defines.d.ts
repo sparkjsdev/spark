@@ -17,3 +17,71 @@ export declare const SPLAT_TEX_HEIGHT_MASK: number;
 export declare const SPLAT_TEX_DEPTH_MASK: number;
 export declare const WASM_SPLAT_SORT = true;
 export declare const USE_COMPILED_PARSER_FUNCTION = true;
+export declare enum SplatFileType {
+    PLY = "ply",
+    SPZ = "spz",
+    SPLAT = "splat",
+    KSPLAT = "ksplat",
+    PCSOGS = "pcsogs",
+    PCSOGSZIP = "pcsogszip",
+    RAD = "rad"
+}
+export type SplatEncoding = {
+    rgbMin?: number;
+    rgbMax?: number;
+    lnScaleMin?: number;
+    lnScaleMax?: number;
+    sh1Max?: number;
+    sh2Max?: number;
+    sh3Max?: number;
+    lodOpacity?: boolean;
+};
+export declare const DEFAULT_SPLAT_ENCODING: SplatEncoding;
+export type RadMeta = {
+    version: number;
+    type: string;
+    count: number;
+    maxSh?: number;
+    lodTree?: boolean;
+    chunkSize?: number;
+    chunks: {
+        offset: number;
+        bytes: number;
+        base?: number;
+        count?: number;
+        filename?: string;
+    }[];
+    splatEncoding?: SplatEncoding;
+};
+export type PackedExtra = {
+    sh1?: Uint32Array;
+    sh2?: Uint32Array;
+    sh3?: Uint32Array;
+    sh1Codes?: Uint32Array;
+    sh2Codes?: Uint32Array;
+    sh3Codes?: Uint32Array;
+    lodTree?: Uint32Array;
+    radMeta?: RadMeta;
+};
+export type PackedResult = {
+    numSplats: number;
+    packedArray: Uint32Array;
+    extra: PackedExtra;
+    splatEncoding: SplatEncoding;
+};
+export type ExtExtra = {
+    sh1?: Uint32Array;
+    sh2?: Uint32Array;
+    sh3a?: Uint32Array;
+    sh3b?: Uint32Array;
+    sh1Codes?: Uint32Array;
+    sh2Codes?: Uint32Array;
+    sh3Codes?: [Uint32Array, Uint32Array];
+    lodTree?: Uint32Array;
+    radMeta?: RadMeta;
+};
+export type ExtResult = {
+    numSplats: number;
+    extArrays: [Uint32Array, Uint32Array];
+    extra: ExtExtra;
+};

@@ -1,4 +1,6 @@
 import * as THREE from "three";
+export declare const threeRevision: number;
+export declare const threeMrtArray: boolean;
 export declare function normalize(vec: number[]): number[];
 export declare function floatBitsToUint(f: number): number;
 export declare function uintBitsToFloat(u: number): number;
@@ -13,19 +15,24 @@ export declare function Sint8ToFloat(v: number): number;
 export declare class DataCache {
     maxItems: number;
     asyncFetch: (key: string) => Promise<unknown>;
+    dispose?: (data: unknown) => void;
     items: {
         key: string;
         data: unknown;
     }[];
-    constructor({ asyncFetch, maxItems, }: {
+    pending: Map<string, Promise<unknown>>;
+    constructor({ asyncFetch, dispose, maxItems, }: {
         asyncFetch: (key: string) => Promise<unknown>;
+        dispose?: (data: unknown) => void;
         maxItems?: number;
     });
+    has(key: string): boolean;
+    getImmediate(key: string): unknown | undefined;
     getFetch(key: string): Promise<unknown>;
 }
 export declare function mapObject(obj: Record<string, unknown>, fn: (value: unknown, key: string) => unknown): Record<string, unknown>;
 export declare function mapFilterObject(obj: Record<string, unknown>, fn: (value: unknown, key: string) => unknown): Record<string, unknown>;
-export declare function getArrayBuffers(ctx: unknown): Transferable[];
+export declare function getTransferable(ctx: unknown): Transferable[];
 export declare function newArray<T>(n: number, initFunction: (index: number) => T): T[];
 export declare class FreeList<T, Args> {
     items: T[];
@@ -41,11 +48,20 @@ export declare class FreeList<T, Args> {
     free(item: T): void;
     disposeAll(): void;
 }
+export declare function encodeExtSplat(extArrays: [Uint32Array, Uint32Array], index: number, x: number, y: number, z: number, scaleX: number, scaleY: number, scaleZ: number, quatX: number, quatY: number, quatZ: number, quatW: number, opacity: number, r: number, g: number, b: number): void;
+export declare function decodeExtSplat(extArrays: [Uint32Array, Uint32Array], index: number): {
+    center: THREE.Vector3;
+    scales: THREE.Vector3;
+    quaternion: THREE.Quaternion;
+    color: THREE.Color;
+    opacity: number;
+};
 export declare function setPackedSplat(packedSplats: Uint32Array, index: number, x: number, y: number, z: number, scaleX: number, scaleY: number, scaleZ: number, quatX: number, quatY: number, quatZ: number, quatW: number, opacity: number, r: number, g: number, b: number, encoding?: {
     rgbMin?: number;
     rgbMax?: number;
     lnScaleMin?: number;
     lnScaleMax?: number;
+    lodOpacity?: boolean;
 }): void;
 export declare function setPackedSplatCenter(packedSplats: Uint32Array, index: number, x: number, y: number, z: number): void;
 export declare function setPackedSplatScales(packedSplats: Uint32Array, index: number, scaleX: number, scaleY: number, scaleZ: number, encoding?: {
@@ -56,6 +72,7 @@ export declare function setPackedSplatQuat(packedSplats: Uint32Array, index: num
 export declare function setPackedSplatRgba(packedSplats: Uint32Array, index: number, r: number, g: number, b: number, a: number, encoding?: {
     rgbMin?: number;
     rgbMax?: number;
+    lodOpacity?: boolean;
 }): void;
 export declare function setPackedSplatRgb(packedSplats: Uint32Array, index: number, r: number, g: number, b: number, encoding?: {
     rgbMin?: number;
@@ -67,6 +84,7 @@ export declare function unpackSplat(packedSplats: Uint32Array, index: number, en
     rgbMax?: number;
     lnScaleMin?: number;
     lnScaleMax?: number;
+    lodOpacity?: boolean;
 }): {
     center: THREE.Vector3;
     scales: THREE.Vector3;
@@ -84,6 +102,9 @@ export declare function computeMaxSplats(numSplats: number): number;
 export declare function isMobile(): boolean;
 export declare function isAndroid(): boolean;
 export declare function isOculus(): boolean;
+export declare function isQuest2(): boolean;
+export declare function isIos(): boolean;
+export declare function isVisionPro(): boolean;
 export declare function flipPixels(pixels: Uint8Array, width: number, height: number): Uint8Array;
 export declare function pixelsToPngUrl(pixels: Uint8Array, width: number, height: number): string;
 export declare function cloneClock(clock: THREE.Clock): THREE.Clock;
@@ -153,18 +174,22 @@ export declare function encodeQuatEulerXyz888(q: THREE.Quaternion): number;
  * and then converting them back to Euler angles in [-π, π] and to a quaternion.
  */
 export declare function decodeQuatEulerXyz888(encoded: number, out: THREE.Quaternion): THREE.Quaternion;
+export declare function encodeQuatOctXy1010R12(qx: number, qy: number, qz: number, qw: number): number;
+export declare function decodeQuatOctXy1010R12(encoded: number, out: THREE.Quaternion): THREE.Quaternion;
 export declare function encodeSh1Rgb(sh1Array: Uint32Array, index: number, sh1Rgb: Float32Array, encoding?: {
-    sh1Min?: number;
     sh1Max?: number;
 }): void;
 export declare function encodeSh2Rgb(sh2Array: Uint32Array, index: number, sh2Rgb: Float32Array, encoding?: {
-    sh2Min?: number;
     sh2Max?: number;
 }): void;
 export declare function encodeSh3Rgb(sh3Array: Uint32Array, index: number, sh3Rgb: Float32Array, encoding?: {
-    sh3Min?: number;
     sh3Max?: number;
 }): void;
+export declare function encodeExtRgb(r: number, g: number, b: number): number;
+export declare function decodeExtRgb(encoded: number): THREE.Color;
+export declare function encodeExtSh1Rgb(sh1Array: Uint32Array, index: number, sh1Rgb: Float32Array): void;
+export declare function encodeExtSh12Rgb(sh1Array: Uint32Array, sh2Array: Uint32Array, index: number, sh1Rgb: Float32Array, sh2Rgb: Float32Array): void;
+export declare function encodeExt3Rgb(sh3ArrayA: Uint32Array, sh3ArrayB: Uint32Array, index: number, sh3Rgb: Float32Array): void;
 export declare function decompressPartialGzip(fileBytes: Uint8Array, numBytes: number): Uint8Array;
 export declare class GunzipReader {
     fileBytes: Uint8Array;
@@ -173,7 +198,7 @@ export declare class GunzipReader {
     totalBytes: number;
     reader: ReadableStreamDefaultReader;
     constructor({ fileBytes, chunkBytes, }: {
-        fileBytes: Uint8Array;
+        fileBytes: Uint8Array<ArrayBuffer>;
         chunkBytes?: number;
     });
     read(numBytes: number): Promise<Uint8Array>;

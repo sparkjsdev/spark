@@ -5,6 +5,8 @@ export declare const and: <T extends "bool" | AllIntTypes>(a: DynoVal<T>, b: Dyn
 export declare const or: <T extends "bool" | AllIntTypes>(a: DynoVal<T>, b: DynoVal<T>) => DynoVal<T>;
 export declare const xor: <T extends "bool" | AllIntTypes>(a: DynoVal<T>, b: DynoVal<T>) => DynoVal<T>;
 export declare const not: <T extends BoolTypes | AllIntTypes>(a: DynoVal<T>) => DynoVal<T>;
+export declare const shr: <T extends IntTypes>(a: DynoVal<T>, b: DynoVal<T>) => DynoVal<T>;
+export declare const shl: <T extends IntTypes>(a: DynoVal<T>, b: DynoVal<T>) => DynoVal<T>;
 export declare const lessThan: <T extends ValueTypes>(a: DynoVal<T>, b: DynoVal<T>) => DynoVal<CompareOutput<T>>;
 export declare const lessThanEqual: <T extends ValueTypes>(a: DynoVal<T>, b: DynoVal<T>) => DynoVal<CompareOutput<T>>;
 export declare const greaterThan: <T extends ValueTypes>(a: DynoVal<T>, b: DynoVal<T>) => DynoVal<CompareOutput<T>>;
@@ -98,6 +100,18 @@ type CompXorOutput<A extends BoolTypes | AllIntTypes> = A extends BoolTypes ? "b
 export declare class CompXor<T extends BoolTypes | AllIntTypes> extends UnaryOp<T, CompXorOutput<T>, "compXor"> {
     constructor({ a }: {
         a: DynoVal<T>;
+    });
+}
+export declare class Shr<T extends IntTypes> extends BinaryOp<T, T, T, "shr"> {
+    constructor({ a, b }: {
+        a: DynoVal<T>;
+        b: DynoVal<T>;
+    });
+}
+export declare class Shl<T extends IntTypes> extends BinaryOp<T, T, T, "shl"> {
+    constructor({ a, b }: {
+        a: DynoVal<T>;
+        b: DynoVal<T>;
     });
 }
 export {};

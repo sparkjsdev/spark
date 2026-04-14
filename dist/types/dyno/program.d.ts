@@ -8,11 +8,12 @@ export declare class DynoProgram {
     shader: string;
     uniforms: Record<string, THREE.IUniform>;
     updaters: (() => void)[];
-    constructor({ graph, inputs, outputs, template, }: {
+    constructor({ graph, inputs, outputs, template, consoleLog, }: {
         graph: Dyno<IOTypes, IOTypes>;
         inputs?: Record<string, string>;
         outputs?: Record<string, string>;
         template: DynoProgramTemplate;
+        consoleLog?: boolean;
     });
     prepareMaterial(): THREE.RawShaderMaterial;
     update(): void;

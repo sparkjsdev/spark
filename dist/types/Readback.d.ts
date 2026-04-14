@@ -7,7 +7,7 @@ export type Rgba8Readback = Dyno<{
 }, {
     rgba8: "vec4";
 }>;
-export type ReadbackBuffer = ArrayBuffer | Uint8Array | Int8Array | Uint16Array | Int16Array | Uint32Array | Int32Array | Float32Array;
+export type ReadbackBuffer = ArrayBuffer | Uint8Array | Uint8ClampedArray | Int8Array | Uint16Array | Int16Array | Uint32Array | Int32Array | Float32Array;
 export declare class Readback {
     renderer?: THREE.WebGLRenderer;
     target?: THREE.WebGLArrayRenderTarget;
@@ -17,6 +17,7 @@ export declare class Readback {
         renderer?: THREE.WebGLRenderer;
     });
     dispose(): void;
+    static ensureBuffer<B extends ReadbackBuffer>(count: number, buffer: B): B;
     ensureBuffer<B extends ReadbackBuffer>(count: number, buffer: B): B;
     ensureCapacity(capacity: number): void;
     prepareProgramMaterial(reader: Rgba8Readback): {
@@ -43,6 +44,6 @@ export declare class Readback {
     }): Promise<B>;
     getTexture(): THREE.DataArrayTexture | undefined;
     static programTemplate: DynoProgramTemplate | null;
-    static readbackProgram: Map<Rgba8Readback, DynoProgram>;
+    static readbackProgram: WeakMap<Rgba8Readback, DynoProgram>;
     static fullScreenQuad: FullScreenQuad;
 }

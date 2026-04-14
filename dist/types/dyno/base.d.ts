@@ -76,7 +76,7 @@ export type DynoBlockType<InTypes extends IOTypes, OutTypes extends IOTypes> = (
 }, outputs: {
     [K in keyof OutTypes]?: DynoVal<OutTypes[K]>;
 }, { roots }: {
-    roots: Dyno<InTypes, OutTypes>[];
+    roots: Dyno<IOTypes, IOTypes>[];
 }) => {
     [K in keyof OutTypes]?: DynoVal<OutTypes[K]>;
 } | undefined;

@@ -9,6 +9,7 @@ export declare class SpzReader {
     fractionalBits: number;
     flags: number;
     flagAntiAlias: boolean;
+    flagLod: boolean;
     reserved: number;
     headerParsed: boolean;
     parsed: boolean;
@@ -16,7 +17,10 @@ export declare class SpzReader {
         fileBytes: Uint8Array | ArrayBuffer;
     });
     parseHeader(): Promise<void>;
-    parseSplats(centerCallback?: (index: number, x: number, y: number, z: number) => void, alphaCallback?: (index: number, alpha: number) => void, rgbCallback?: (index: number, r: number, g: number, b: number) => void, scalesCallback?: (index: number, scaleX: number, scaleY: number, scaleZ: number) => void, quatCallback?: (index: number, quatX: number, quatY: number, quatZ: number, quatW: number) => void, shCallback?: (index: number, sh1: Float32Array, sh2?: Float32Array, sh3?: Float32Array) => void): Promise<void>;
+    parseSplats(centerCallback?: (index: number, x: number, y: number, z: number) => void, alphaCallback?: (index: number, alpha: number) => void, rgbCallback?: (index: number, r: number, g: number, b: number) => void, scalesCallback?: (index: number, scaleX: number, scaleY: number, scaleZ: number) => void, quatCallback?: (index: number, quatX: number, quatY: number, quatZ: number, quatW: number) => void, shCallback?: (index: number, sh1: Float32Array, sh2?: Float32Array, sh3?: Float32Array) => void, { childCounts, childStarts, }?: {
+        childCounts?: (index: number, count: number) => void;
+        childStarts?: (index: number, start: number) => void;
+    }): Promise<void>;
 }
 export declare const SPZ_MAGIC = 1347635022;
 export declare const SPZ_VERSION = 3;
