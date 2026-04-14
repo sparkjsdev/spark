@@ -26,6 +26,8 @@
     </picture>
   </a>
 
+Built by [World Labs](https://www.worldlabs.ai).
+
 ## Features
 
 - Integrates with THREE.js rendering pipeline to fuse splat and mesh-based objects
