@@ -4,7 +4,6 @@ precision highp int;
 precision highp usampler2DArray;
 
 #include <splatDefines>
-#include <logdepthbuf_pars_vertex>
 
 out vec4 vRgba;
 out vec2 vSplatUv;
@@ -45,12 +44,6 @@ bool isPerspectiveMatrix( mat4 m ) {
 }
 
 #include <logdepthbuf_pars_vertex>
-
-#ifdef USE_LOGDEPTHBUF
-    bool isPerspectiveMatrix( mat4 m ) {
-      return m[ 2 ][ 3 ] == - 1.0;
-    }
-#endif
 
 void main() {
     // Default to outside the frustum so it's discarded if we return early
@@ -273,5 +266,6 @@ void main() {
 
     vNdc = ndc;
     gl_Position = vec4(ndc.xy * clipCenter.w, clipCenter.zw);
+
     #include <logdepthbuf_vertex>
 }
