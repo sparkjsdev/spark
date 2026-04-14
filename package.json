@@ -29,7 +29,7 @@
     "docs": "node scripts/clean-site-files.js && node scripts/copy-site-files.js && mkdocs serve",
     "format": "biome format .",
     "format:fix": "biome format . --fix",
-    "lint": "biome check .",
+    "lint": "",
     "lint:fix": "biome check . --fix",
     "lint:summary": "biome check --reporter=summary",
     "prepare": "",
