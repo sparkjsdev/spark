@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark • CAVE 5-Screen Off-axis</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background-color: #000;
+      color: #fff;
+      font-family: sans-serif;
+    }
+
+    #info {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      pointer-events: none;
+      background: rgba(0, 0, 0, 0.5);
+      padding: 10px;
+      border-radius: 5px;
+      font-size: 12px;
+    }
+
+    canvas {
+      display: block;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="info">
+    <b>CAVE 5-Screen System</b><br>
+    WASD: Roam Cave (Horizontal)<br>
+    QE: Roam Cave (Up/Down)<br>
+    Arrow Keys: Move Eyepoint (Front/Back/Left/Right)<br>
+    R: Reset Eyepoint
+  </div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "../js/vendor/three/build/three.module.js",
+        "three/addons/": "/examples/js/vendor/three/examples/jsm/",
+        "@sparkjsdev/spark": "../../dist/spark.module.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
+    import { getAssetFileURL } from "../js/get-asset-url.js";
+
+    // --- Configuration ---
+    const CAVE_W = 2.0;
+    const CAVE_H = CAVE_W * (9 / 16); // 16:9 Wall height
+    const NEAR = 0.1;
+    const FAR = 1000;
+    const EYE_SPEED = 0.02;
+    const CAVE_SPEED = 0.05;
+    const CAVE_ROT_SPEED = 0.02;
+
+    const scene = new THREE.Scene();
+    const renderer = new THREE.WebGLRenderer({ antialias: false });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setScissorTest(true);
+    document.body.appendChild(renderer.domElement);
+
+    // --- CAVE Structure ---
+    const caveGroup = new THREE.Group();
+    scene.add(caveGroup);
+
+    const eyepoint = new THREE.Object3D();
+    eyepoint.position.set(0, 0, 0);
+    caveGroup.add(eyepoint);
+
+    // --- Screens Definition ---
+    const hw = CAVE_W / 2;
+    const hh = CAVE_H / 2;
+
+    // Screens: pa=bottom-left, pb=bottom-right, pc=top-left
+    const screens = [
+      { name: 'Left', aspect: 16 / 9, pa: [-hw, -hh, hw], pb: [-hw, -hh, -hw], pc: [-hw, hh, hw], row: 0, col: 0 },
+      { name: 'Front', aspect: 16 / 9, pa: [-hw, -hh, -hw], pb: [hw, -hh, -hw], pc: [-hw, hh, -hw], row: 0, col: 1 },
+      { name: 'Right', aspect: 16 / 9, pa: [hw, -hh, -hw], pb: [hw, -hh, hw], pc: [hw, hh, -hw], row: 0, col: 2 },
+      { name: 'Back', aspect: 16 / 9, pa: [hw, -hh, hw], pb: [-hw, -hh, hw], pc: [hw, hh, hw], row: 0, col: 3 },
+      { name: 'Bottom', aspect: 1 / 1, pa: [-hw, -hh, hw], pb: [hw, -hh, hw], pc: [-hw, -hh, -hw], row: 1, col: 1 }
+    ];
+
+    const splatURL = "https://storage.googleapis.com/forge-dev-public/asundqui/rad/260219/tijerin_w6_hobbiton-lod.rad";
+    screens.forEach((s, i) => {
+      s.camera = new THREE.PerspectiveCamera(90, 1, NEAR, FAR);
+      s.camera.layers.set(i + 1);
+      s.camera.layers.enable(0);
+
+      s.spark = new SparkRenderer({ renderer, pagedExtSplats: true });
+      s.spark.layers.set(i + 1);
+      scene.add(s.spark);
+
+
+      s.valley = new SplatMesh({ url: splatURL, paged: true });
+      s.valley.position.set(0, 0, 0);
+      s.valley.quaternion.set(1, 0, 0, 0).normalize();
+      s.valley.layers.set(i + 1);
+      scene.add(s.valley);
+
+      s.paV = new THREE.Vector3(...s.pa);
+      s.pbV = new THREE.Vector3(...s.pb);
+      s.pcV = new THREE.Vector3(...s.pc);
+    });
+
+    // --- Off-axis Projection Algorithm ---
+    function updateOffAxisCamera(screen, eyeWorldPos) {
+      const { camera, paV, pbV, pcV } = screen;
+
+      // Convert screen corners to world space
+      const pa = paV.clone().applyMatrix4(caveGroup.matrixWorld);
+      const pb = pbV.clone().applyMatrix4(caveGroup.matrixWorld);
+      const pc = pcV.clone().applyMatrix4(caveGroup.matrixWorld);
+      const pe = eyeWorldPos;
+
+      const vr = new THREE.Vector3().subVectors(pb, pa).normalize();
+      const vu = new THREE.Vector3().subVectors(pc, pa).normalize();
+      const vn = new THREE.Vector3().crossVectors(vr, vu).normalize();
+
+      const va = new THREE.Vector3().subVectors(pa, pe);
+      const vb = new THREE.Vector3().subVectors(pb, pe);
+      const vc = new THREE.Vector3().subVectors(pc, pe);
+
+      const d = -va.dot(vn);
+      const nd = NEAR / d;
+
+      const left = vr.dot(va) * nd;
+      const right = vr.dot(vb) * nd;
+      const bottom = vu.dot(va) * nd;
+      const top = vu.dot(vc) * nd;
+
+      camera.projectionMatrix.makePerspective(left, right, top, bottom, NEAR, FAR);
+
+      // Update camera pose: position at eye, orientation matching screen
+      camera.up.copy(vu);
+      camera.position.copy(pe);
+      const lookTarget = pe.clone().add(vn.clone().negate());
+      camera.lookAt(lookTarget);
+
+      camera.updateMatrixWorld(true);
+    }
+
+    // --- Input Handling ---
+    const keys = {};
+    window.addEventListener('keydown', e => keys[e.code] = true);
+    window.addEventListener('keyup', e => keys[e.code] = false);
+
+    function updateInputs() {
+      // WASD: Roam Cave (Horizontal)
+      if (keys['KeyW']) caveGroup.translateZ(-CAVE_SPEED);
+      if (keys['KeyS']) caveGroup.translateZ(CAVE_SPEED);
+      if (keys['KeyA']) caveGroup.translateX(-CAVE_SPEED);
+      if (keys['KeyD']) caveGroup.translateX(CAVE_SPEED);
+
+      // QE: Roam Cave (Vertical - Inverted Y)
+      if (keys['KeyQ']) caveGroup.position.y -= CAVE_SPEED;
+      if (keys['KeyE']) caveGroup.position.y += CAVE_SPEED;
+
+      // Arrow Keys: Move Eyepoint inside (Front/Back/Left/Right)
+      if (keys['ArrowUp']) eyepoint.position.z -= EYE_SPEED;
+      if (keys['ArrowDown']) eyepoint.position.z += EYE_SPEED;
+      if (keys['ArrowLeft']) eyepoint.position.x -= EYE_SPEED;
+      if (keys['ArrowRight']) eyepoint.position.x += EYE_SPEED;
+
+      if (keys['KeyR']) eyepoint.position.set(0, 0, 0);
+
+      // Constrain eye within cave
+      eyepoint.position.x = THREE.MathUtils.clamp(eyepoint.position.x, -hw * 0.95, hw * 0.95);
+      eyepoint.position.y = THREE.MathUtils.clamp(eyepoint.position.y, -hh * 0.95, hh * 0.95);
+      eyepoint.position.z = THREE.MathUtils.clamp(eyepoint.position.z, -hw * 0.95, hw * 0.95);
+    }
+
+    // --- Animation Loop ---
+    function animate() {
+      requestAnimationFrame(animate);
+      updateInputs();
+
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+
+      // Calculate base unit based on width (4 columns)
+      const unitW = width / 4;
+      // We want Top row (16:9) and Bottom row (1:1).
+      // Total height = unitW * (9/16) + unitW.
+      // If this exceeds height, scale down.
+      let w = unitW;
+      if (w * (9 / 16 + 1) > height) {
+        w = height / (9 / 16 + 1);
+      }
+
+      const wallH = w * (9 / 16);
+      const floorH = w;
+      const offsetX = (width - 4 * w) / 2;
+      const offsetY = (height - (wallH + floorH)) / 2;
+
+      renderer.clear();
+
+      const eyeWorldPos = eyepoint.getWorldPosition(new THREE.Vector3());
+
+      screens.forEach(s => {
+        updateOffAxisCamera(s, eyeWorldPos);
+
+        let x, y, cw, ch;
+        if (s.row === 0) {
+          cw = w;
+          ch = wallH;
+          x = offsetX + s.col * w;
+          y = offsetY + floorH; // Above bottom row
+        } else {
+          cw = w;
+          ch = floorH;
+          x = offsetX + s.col * w;
+          y = offsetY;
+        }
+
+        renderer.setViewport(x, y, cw, ch);
+        renderer.setScissor(x, y, cw, ch);
+
+        renderer.render(scene, s.camera);
+      });
+    }
+
+    animate();
+
+    window.addEventListener('resize', () => {
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+  </script>
+</body>
+
+</html>
