@@ -371,7 +371,7 @@ export async function unpackPcSogsZip(
           if (err) {
             reject(err);
           } else {
-            resolve(files);
+            resolve(files as unknown as Record<string, ArrayBuffer>);
           }
         },
       );
