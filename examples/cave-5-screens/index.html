@@ -25,9 +25,10 @@
       box-shadow: 0 0 20px rgba(0, 255, 200, 0.1);
       backdrop-filter: blur(10px);
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      z-index: 1000;
+      z-index: 9999;
       width: 320px;
-      display: none; /* Default hidden, shown only on screen 0 */
+      display: none;
+      /* Default hidden, enabled by JS if mobile */
       color: #00ffcc;
     }
 
@@ -52,7 +53,9 @@
       color: #88ffeb;
     }
 
-    .form-group input, .form-group textarea, .form-group select {
+    .form-group input,
+    .form-group textarea,
+    .form-group select {
       background: rgba(0, 0, 0, 0.5);
       border: 1px solid rgba(0, 255, 200, 0.4);
       color: #fff;
@@ -62,7 +65,9 @@
       outline: none;
     }
 
-    .form-group input:focus, .form-group textarea:focus, .form-group select:focus {
+    .form-group input:focus,
+    .form-group textarea:focus,
+    .form-group select:focus {
       border-color: #00ffcc;
       box-shadow: 0 0 8px rgba(0, 255, 200, 0.4);
     }
@@ -86,7 +91,7 @@
       color: #000;
       box-shadow: 0 0 15px rgba(0, 255, 200, 0.6);
     }
-    
+
     button:disabled {
       background: rgba(100, 100, 100, 0.3);
       border-color: #555;
@@ -106,21 +111,26 @@
 
 <body>
   <div id="master-ui">
-    <h2>World Generator</h2>
-    <div class="form-group">
-      <label>History & Default</label>
-      <select id="ui-history"></select>
+    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(0, 255, 200, 0.2); margin-bottom: 15px; padding-bottom: 8px;">
+        <h2 style="margin: 0; border: none; padding: 0;">World Generator</h2>
+        <button id="ui-toggle-btn" style="padding: 2px 8px; font-size: 16px; background: none; border: none; cursor: pointer; color: #00ffcc;">🔽</button>
     </div>
-    <div class="form-group">
-      <label>API Key</label>
-      <input type="password" id="ui-apikey" placeholder="WLT-ApiKey..." />
+    <div id="ui-content-wrapper">
+      <div class="form-group">
+        <label>History & Default</label>
+        <select id="ui-history"></select>
+      </div>
+      <div class="form-group">
+        <label>API Key</label>
+        <input type="password" id="ui-apikey" placeholder="WLT-ApiKey..." />
+      </div>
+      <div class="form-group">
+        <label>Text Prompt</label>
+        <textarea id="ui-prompt" rows="3" placeholder="A futuristic sci-fi ruin..."></textarea>
+      </div>
+      <button id="ui-generate">Generate World</button>
+      <div id="status-text">Ready</div>
     </div>
-    <div class="form-group">
-      <label>Text Prompt</label>
-      <textarea id="ui-prompt" rows="3" placeholder="A futuristic sci-fi ruin..."></textarea>
-    </div>
-    <button id="ui-generate">Generate World</button>
-    <div id="status-text">Ready</div>
   </div>
   <script type="importmap">
     {
@@ -133,7 +143,7 @@
   </script>
   <script type="module">
     import * as THREE from "three";
-    import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
+    import { SparkRenderer, SplatMesh, dyno, SparkControls } from "@sparkjsdev/spark";
     import { getAssetFileURL } from "../js/get-asset-url.js";
 
     // --- Configuration ---
@@ -149,7 +159,6 @@
     const renderer = new THREE.WebGLRenderer({ antialias: false });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setScissorTest(true);
-    document.body.appendChild(renderer.domElement);
 
     // --- CAVE Structure ---
     const caveGroup = new THREE.Group();
@@ -163,7 +172,6 @@
     const hw = CAVE_W / 2;
     const hh = CAVE_H / 2;
 
-    // Screens: pa=bottom-left, pb=bottom-right, pc=top-left
     const screens = [
       { name: 'Left', aspect: 16 / 9, pa: [-hw, -hh, hw], pb: [-hw, -hh, -hw], pc: [-hw, hh, hw], row: 0, col: 0 },
       { name: 'Front', aspect: 16 / 9, pa: [-hw, -hh, -hw], pb: [hw, -hh, -hw], pc: [-hw, hh, -hw], row: 0, col: 1 },
@@ -174,60 +182,129 @@
 
     const urlParams = new URLSearchParams(window.location.search);
     const screenIndexParam = urlParams.get('screen');
+    const isMobileMode = screenIndexParam === 'mobile';
 
-    const activeScreens = screenIndexParam !== null
-      ? [screens[parseInt(screenIndexParam)]]
-      : screens;
+    const activeScreens = [];
+    const uiPanel = document.getElementById('master-ui');
+    let mobileControls = null;
 
-    activeScreens.forEach((s, i) => {
-      s.camera = new THREE.PerspectiveCamera(90, 1, NEAR, FAR);
-      s.camera.layers.set(i + 1);
-      s.camera.layers.enable(0);
+    // --- Render Separation Setup ---
+    if (isMobileMode) {
+      uiPanel.style.display = 'block';
+      const mCam = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 100);
+      mCam.position.set(0, 0, 0);
+      activeScreens.push({ name: 'Mobile', camera: mCam, index: 0 });
+    } else {
+      screens.forEach((s, i) => {
+        if (screenIndexParam !== null && parseInt(screenIndexParam) !== i) return;
+        s.index = i;
+        s.camera = new THREE.PerspectiveCamera(90, 1, NEAR, FAR);
+        s.camera.layers.set(i + 1);
+        s.camera.layers.enable(0);
+        s.paV = new THREE.Vector3(...s.pa);
+        s.pbV = new THREE.Vector3(...s.pb);
+        s.pcV = new THREE.Vector3(...s.pc);
+        activeScreens.push(s);
+      });
+    }
 
-      s.spark = new SparkRenderer({ renderer, pagedExtSplats: true });
-      s.spark.layers.set(i + 1);
-      scene.add(s.spark);
+    const animateT = dyno.dynoFloat(0);
 
-      s.paV = new THREE.Vector3(...s.pa);
-      s.pbV = new THREE.Vector3(...s.pb);
-      s.pcV = new THREE.Vector3(...s.pc);
-    });
+    function setupSpreadEffect(mesh) {
+      mesh.objectModifier = dyno.dynoBlock(
+        { gsplat: dyno.Gsplat },
+        { gsplat: dyno.Gsplat },
+        ({ gsplat }) => {
+          const d = new dyno.Dyno({
+            inTypes: { gsplat: dyno.Gsplat, t: "float" },
+            outTypes: { gsplat: dyno.Gsplat },
+            statements: ({ inputs, outputs }) => dyno.unindentLines(`
+              ${outputs.gsplat} = ${inputs.gsplat};
+              float t = ${inputs.t};
+              vec3 scales = ${inputs.gsplat}.scales;
+              
+              // Enhanced Spread Effect: Accelerates massively to cover huge scenes quickly
+              float tt = t*t*t*1.5 + t*4.0 + 0.5; // Cubic acceleration
+              vec3 localPos = ${inputs.gsplat}.center;
+              float l = length(localPos.xz);
+              
+              localPos.xz *= min(1., .3 + max(0., tt*.01));
+              ${outputs.gsplat}.center = localPos;
+              ${outputs.gsplat}.scales = max(mix(vec3(0.0),scales,min(tt-7.-l*0.5,1.)),mix(vec3(0.0),scales*.2,min(tt-1.-l*0.4,1.)));
+              ${outputs.gsplat}.rgba = mix(vec4(.3), ${inputs.gsplat}.rgba, clamp(tt - l*0.5 - 2., 0., 1.));
+            `),
+          });
 
-    window.loadSceneData = function(url, isPaged = false) {
+          gsplat = d.apply({
+            gsplat,
+            t: animateT
+          }).gsplat;
+
+          return { gsplat };
+        }
+      );
+      mesh.updateGenerator();
+    }
+
+    window.loadSceneData = async function (url, isPaged = false) {
+      let loadUrl = url;
+      if (!isPaged) {
+        try {
+          const res = await fetch(url);
+          const blob = await res.blob();
+          loadUrl = URL.createObjectURL(blob);
+        } catch (e) { console.error(e); }
+      }
+
       activeScreens.forEach((s, i) => {
         if (s.valley) {
           scene.remove(s.valley);
           if (s.valley.dispose) s.valley.dispose();
-          if (s.valley.material && s.valley.material.dispose) s.valley.material.dispose();
-          if (s.valley.geometry && s.valley.geometry.dispose) s.valley.geometry.dispose();
         }
-        
-        s.valley = new SplatMesh({ url: url, paged: isPaged });
+
+        s.valley = new SplatMesh({ url: loadUrl, paged: isPaged });
+        setupSpreadEffect(s.valley);
         s.valley.position.set(0, 0, 0);
         s.valley.quaternion.set(1, 0, 0, 0).normalize();
-        s.valley.layers.set(i + 1);
+        if (!isMobileMode) s.valley.layers.set(s.index + 1);
         scene.add(s.valley);
       });
-      console.log(`[Scene Loader] Swapped to: ${url} (Paged: ${isPaged})`);
+
+      animateT.value = 0;
     };
 
     const initialSplatURL = "https://storage.googleapis.com/forge-dev-public/asundqui/rad/260219/tijerin_w6_hobbiton-lod.rad";
     window.loadSceneData(initialSplatURL, true);
 
     // --- UI Control Logic ---
-    if (screenIndexParam === "0" || screenIndexParam === null) {
-      document.getElementById('master-ui').style.display = 'block';
-    }
-
     const apikeyInput = document.getElementById('ui-apikey');
     const promptInput = document.getElementById('ui-prompt');
     const historySelect = document.getElementById('ui-history');
     const generateBtn = document.getElementById('ui-generate');
     const statusText = document.getElementById('status-text');
 
+    const toggleBtn = document.getElementById('ui-toggle-btn');
+    const uiWrapper = document.getElementById('ui-content-wrapper');
+    const masterUi = document.getElementById('master-ui');
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', () => {
+            if (uiWrapper.style.display === 'none') {
+                uiWrapper.style.display = 'block';
+                toggleBtn.innerText = '🔽';
+                masterUi.style.background = 'rgba(10, 15, 25, 0.85)';
+                masterUi.style.border = '1px solid rgba(0, 255, 200, 0.3)';
+                masterUi.style.boxShadow = '0 0 20px rgba(0, 255, 200, 0.1)';
+            } else {
+                uiWrapper.style.display = 'none';
+                toggleBtn.innerText = '🔼';
+                masterUi.style.background = 'transparent';
+                masterUi.style.border = 'none';
+                masterUi.style.boxShadow = 'none';
+            }
+        });
+    }
+
     let historyData = JSON.parse(localStorage.getItem('wlt_history')) || [];
-    
-    // Default Hobbiton
     const defaultOption = { name: 'Hobbiton (Default)', url: initialSplatURL, isPaged: true };
 
     function renderHistory() {
@@ -236,228 +313,125 @@
       defOpt.value = '-1';
       defOpt.text = defaultOption.name;
       historySelect.appendChild(defOpt);
-      
       historyData.forEach((item, index) => {
         const opt = document.createElement('option');
         opt.value = index.toString();
         opt.text = item.name;
-        if (item.url === window._currentURL) {
-            opt.selected = true;
-        }
         historySelect.appendChild(opt);
       });
     }
     renderHistory();
 
-    historySelect.addEventListener('change', (e) => {
-      const idx = e.target.value;
-      let target = defaultOption;
-      if (idx !== '-1') {
-        target = historyData[idx];
+    async function remoteDispatch(targetUrl, isTargetPaged) {
+      if (isMobileMode) {
+        try {
+          await fetch(`http://${window.location.hostname}:3000/api/command`, {
+            method: 'POST',
+            body: JSON.stringify({ url: targetUrl, isPaged: isTargetPaged })
+          });
+        } catch (e) { console.error("Mobile Relay Error:", e); }
       }
+    }
+
+    historySelect.addEventListener('change', async (e) => {
+      const idx = e.target.value;
+      let target = idx === '-1' ? defaultOption : historyData[idx];
       window._currentURL = target.url;
-      window.loadSceneData(target.url, target.isPaged);
-      syncChannel.postMessage({ type: 'LOAD_SCENE', url: target.url, isPaged: target.isPaged });
+      const playUrl = (isMobileMode && target.spzUrls && target.spzUrls['100k']) ? target.spzUrls['100k'] : target.url;
+      window.loadSceneData(playUrl, target.isPaged);
+      remoteDispatch(target.url, target.isPaged);
     });
 
     apikeyInput.value = localStorage.getItem('wlt_apikey') || '';
-    apikeyInput.addEventListener('change', e => {
-      localStorage.setItem('wlt_apikey', e.target.value);
-    });
-
-    let currentPollingInterval = null;
+    apikeyInput.addEventListener('change', e => localStorage.setItem('wlt_apikey', e.target.value));
 
     async function pollOperation(opId, apiKey) {
-      statusText.innerText = `[1/3] Polling generation status...`;
-      let highestResLoaded = 'none';
-
-      currentPollingInterval = setInterval(async () => {
+      statusText.innerText = "Polling Generation Progress...";
+      let interval = setInterval(async () => {
         try {
-          const res = await fetch(`https://api.worldlabs.ai/marble/v1/operations/${opId}`, {
-            headers: { 'WLT-Api-Key': apiKey }
-          });
+          const res = await fetch(`https://api.worldlabs.ai/marble/v1/operations/${opId}`, { headers: { 'WLT-Api-Key': apiKey } });
           const op = await res.json();
-          
-          if (op.error) {
-             statusText.innerText = "Error: " + op.error;
-             clearInterval(currentPollingInterval);
-             generateBtn.disabled = false;
-             return;
-          }
-
-          if (op.metadata && op.metadata.world_id) {
-             const worldRes = await fetch(`https://api.worldlabs.ai/marble/v1/worlds/${op.metadata.world_id}`, {
-               headers: { 'WLT-Api-Key': apiKey }
-             });
-             const worldData = await worldRes.json();
-             const spzUrls = worldData.world?.assets?.splats?.spz_urls;
-             
-             if (spzUrls) {
-                // Progressive Loading
-                if (spzUrls['100k'] && highestResLoaded === 'none') {
-                   highestResLoaded = '100k';
-                   statusText.innerText = `[2/3] Preview loaded (100k)...`;
-                   window._currentURL = spzUrls['100k'];
-                   window.loadSceneData(spzUrls['100k'], false);
-                   syncChannel.postMessage({ type: 'LOAD_SCENE', url: spzUrls['100k'], isPaged: false });
-                }
-                if (spzUrls['500k'] && (highestResLoaded === 'none' || highestResLoaded === '100k')) {
-                   highestResLoaded = '500k';
-                   statusText.innerText = `[2/3] Detail loaded (500k)...`;
-                   window._currentURL = spzUrls['500k'];
-                   window.loadSceneData(spzUrls['500k'], false);
-                   syncChannel.postMessage({ type: 'LOAD_SCENE', url: spzUrls['500k'], isPaged: false });
-                }
-             }
-          }
-
           if (op.done) {
-            clearInterval(currentPollingInterval);
-            
-            const spzUrls = op.response?.assets?.splats?.spz_urls;
-            if (spzUrls && spzUrls['full_res']) {
-               const finalUrl = spzUrls['full_res'];
-               statusText.innerText = `[3/3] World fully generated!`;
-               window._currentURL = finalUrl;
-               window.loadSceneData(finalUrl, false);
-               syncChannel.postMessage({ type: 'LOAD_SCENE', url: finalUrl, isPaged: false });
-               
-               // Save to history
-               historyData.push({
-                 name: promptInput.value.substring(0, 30) + '...',
-                 url: finalUrl,
-                 isPaged: false
-               });
-               localStorage.setItem('wlt_history', JSON.stringify(historyData));
-               renderHistory();
+            clearInterval(interval);
+            const fullUrl = op.response?.assets?.splats?.spz_urls?.full_res || op.response?.assets?.splats?.spz_urls?.['500k'];
+            const mobileUrl = op.response?.assets?.splats?.spz_urls?.['100k'] || fullUrl;
+            if (fullUrl) {
+              window._currentURL = fullUrl;
+              window.loadSceneData(isMobileMode ? mobileUrl : fullUrl, false);
+              remoteDispatch(fullUrl, false);
+              
+              const historyName = promptInput.value.substring(0, 30) + '...';
+              historyData.push({ name: historyName, url: fullUrl, spzUrls: op.response?.assets?.splats?.spz_urls, isPaged: false });
+              localStorage.setItem('wlt_history', JSON.stringify(historyData));
+              renderHistory();
+              
+              historySelect.value = (historyData.length - 1).toString();
+              statusText.innerText = `World fully generated & Spreading!`;
             } else {
-               statusText.innerText = `Error: Missing full_res url`;
+              statusText.innerText = `Error: Missing spzUrls inside response.`;
             }
             generateBtn.disabled = false;
           }
-
-        } catch (e) {
+        } catch(e) {
           console.error(e);
         }
       }, 3000);
     }
 
     generateBtn.addEventListener('click', async () => {
-      const apiKey = apikeyInput.value;
-      const prompt = promptInput.value;
-      if (!apiKey || !prompt) {
-         statusText.innerText = "Please provide API Key and Prompt";
-         return;
-      }
-      
       generateBtn.disabled = true;
-      statusText.innerText = "Initiating Generation...";
-      
-      try {
-        const res = await fetch('https://api.worldlabs.ai/marble/v1/worlds:generate', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'WLT-Api-Key': apiKey
-          },
-          body: JSON.stringify({
-             display_name: "CAVE World",
-             model: "marble-1.1",
-             world_prompt: {
-               type: "text",
-               text_prompt: prompt
-             }
-          })
-        });
-        
-        const data = await res.json();
-        if (data.operation_id) {
-           pollOperation(data.operation_id, apiKey);
-        } else {
-           statusText.innerText = "Error parsing operation_id";
-           generateBtn.disabled = false;
-        }
-      } catch(e) {
-         statusText.innerText = "Network Error";
-         generateBtn.disabled = false;
-         console.error(e);
-      }
+      const res = await fetch('https://api.worldlabs.ai/marble/v1/worlds:generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'WLT-Api-Key': apikeyInput.value },
+        body: JSON.stringify({ world_prompt: { type: "text", text_prompt: promptInput.value } })
+      });
+      const data = await res.json();
+      if (data.operation_id) pollOperation(data.operation_id, apikeyInput.value);
     });
 
-    // --- Off-axis Projection Algorithm ---
     function updateOffAxisCamera(screen, eyeWorldPos) {
       const { camera, paV, pbV, pcV } = screen;
-
-      // Convert screen corners to world space
       const pa = paV.clone().applyMatrix4(caveGroup.matrixWorld);
       const pb = pbV.clone().applyMatrix4(caveGroup.matrixWorld);
       const pc = pcV.clone().applyMatrix4(caveGroup.matrixWorld);
       const pe = eyeWorldPos;
-
       const vr = new THREE.Vector3().subVectors(pb, pa).normalize();
       const vu = new THREE.Vector3().subVectors(pc, pa).normalize();
       const vn = new THREE.Vector3().crossVectors(vr, vu).normalize();
-
       const va = new THREE.Vector3().subVectors(pa, pe);
       const vb = new THREE.Vector3().subVectors(pb, pe);
       const vc = new THREE.Vector3().subVectors(pc, pe);
-
       const d = -va.dot(vn);
       const nd = NEAR / d;
-
-      const left = vr.dot(va) * nd;
-      const right = vr.dot(vb) * nd;
-      const bottom = vu.dot(va) * nd;
-      const top = vu.dot(vc) * nd;
-
-      camera.projectionMatrix.makePerspective(left, right, top, bottom, NEAR, FAR);
-
-      // Update camera pose: position at eye, orientation matching screen
+      camera.projectionMatrix.makePerspective(vr.dot(va) * nd, vr.dot(vb) * nd, vu.dot(vc) * nd, vu.dot(va) * nd, NEAR, FAR);
       camera.up.copy(vu);
       camera.position.copy(pe);
-      const lookTarget = pe.clone().add(vn.clone().negate());
-      camera.lookAt(lookTarget);
-
+      camera.lookAt(pe.clone().add(vn.clone().negate()));
       camera.updateMatrixWorld(true);
     }
 
-    // --- Input Handling ---
     const keys = {};
     window.addEventListener('keydown', e => keys[e.code] = true);
     window.addEventListener('keyup', e => keys[e.code] = false);
 
-    function updateInputs() {
-      // WASD: Roam Cave (Horizontal)
-      if (keys['KeyW']) caveGroup.translateZ(-CAVE_SPEED);
-      if (keys['KeyS']) caveGroup.translateZ(CAVE_SPEED);
-      if (keys['KeyA']) caveGroup.translateX(-CAVE_SPEED);
-      if (keys['KeyD']) caveGroup.translateX(CAVE_SPEED);
-
-      // QE: Roam Cave (Vertical - Inverted Y)
-      if (keys['KeyQ']) caveGroup.position.y -= CAVE_SPEED;
-      if (keys['KeyE']) caveGroup.position.y += CAVE_SPEED;
-
-      // Arrow Keys: Move Eyepoint inside (Front/Back/Left/Right)
-      if (keys['ArrowUp']) eyepoint.position.z -= EYE_SPEED;
-      if (keys['ArrowDown']) eyepoint.position.z += EYE_SPEED;
-      if (keys['ArrowLeft']) eyepoint.position.x -= EYE_SPEED;
-      if (keys['ArrowRight']) eyepoint.position.x += EYE_SPEED;
-
-      if (keys['KeyR']) eyepoint.position.set(0, 0, 0);
-
-      // Constrain eye within cave
-      eyepoint.position.x = THREE.MathUtils.clamp(eyepoint.position.x, -hw * 0.95, hw * 0.95);
-      eyepoint.position.y = THREE.MathUtils.clamp(eyepoint.position.y, -hh * 0.95, hh * 0.95);
-      eyepoint.position.z = THREE.MathUtils.clamp(eyepoint.position.z, -hw * 0.95, hw * 0.95);
-    }
-
-    // --- Synchronization Channel ---
     const syncChannel = new BroadcastChannel('cave-sync');
-    if (screenIndexParam !== null && screenIndexParam !== "0") {
+    if (!isMobileMode && (screenIndexParam === "0" || screenIndexParam === null)) {
+      let lastTimestamp = 0;
+      setInterval(async () => {
+        try {
+          const res = await fetch('http://localhost:3000/api/state');
+          const state = await res.json();
+          if (state && state.url && state.timestamp > lastTimestamp) {
+            lastTimestamp = state.timestamp;
+            syncChannel.postMessage({ type: 'LOAD_SCENE', url: state.url, isPaged: state.isPaged });
+            window.loadSceneData(state.url, state.isPaged);
+          }
+        } catch (e) { }
+      }, 1000);
+    } else if (screenIndexParam !== null && screenIndexParam !== "0") {
       syncChannel.onmessage = (e) => {
-        if (e.data.type === 'LOAD_SCENE') {
-          window.loadSceneData(e.data.url, e.data.isPaged);
-        } else if (e.data.type === 'SYNC_POS') {
+        if (e.data.type === 'LOAD_SCENE') window.loadSceneData(e.data.url, e.data.isPaged);
+        else if (e.data.type === 'SYNC_POS') {
           caveGroup.position.fromArray(e.data.cp);
           caveGroup.quaternion.fromArray(e.data.cq);
           eyepoint.position.fromArray(e.data.ep);
@@ -465,19 +439,44 @@
       };
     }
 
-    // --- Animation Loop ---
+    const spark = new SparkRenderer({ renderer });
+    scene.add(spark);
+    document.body.appendChild(renderer.domElement);
+    if (isMobileMode) mobileControls = new SparkControls({ canvas: renderer.domElement });
+
+    let lastTime = performance.now();
     function animate() {
       requestAnimationFrame(animate);
+      const now = performance.now();
+      const dt = (now - lastTime) / 1000;
+      lastTime = now;
+      animateT.value += dt * 1.5;
 
-      if (screenIndexParam === null || screenIndexParam === "0") {
-        updateInputs();
-        syncChannel.postMessage({
-          type: 'SYNC_POS',
-          cp: caveGroup.position.toArray(),
-          cq: caveGroup.quaternion.toArray(),
-          ep: eyepoint.position.toArray()
-        });
+      if (!isMobileMode && (screenIndexParam === null || screenIndexParam === "0")) {
+        if (keys['KeyW']) caveGroup.translateZ(-CAVE_SPEED);
+        if (keys['KeyS']) caveGroup.translateZ(CAVE_SPEED);
+        if (keys['KeyA']) caveGroup.translateX(-CAVE_SPEED);
+        if (keys['KeyD']) caveGroup.translateX(CAVE_SPEED);
+        if (keys['KeyQ']) caveGroup.position.y -= CAVE_SPEED;
+        if (keys['KeyE']) caveGroup.position.y += CAVE_SPEED;
+
+        if (keys['ArrowUp']) eyepoint.position.z -= EYE_SPEED;
+        if (keys['ArrowDown']) eyepoint.position.z += EYE_SPEED;
+        if (keys['ArrowLeft']) eyepoint.position.x -= EYE_SPEED;
+        if (keys['ArrowRight']) eyepoint.position.x += EYE_SPEED;
+
+        // Constrain eye within cave
+        eyepoint.position.x = THREE.MathUtils.clamp(eyepoint.position.x, -hw * 0.95, hw * 0.95);
+        eyepoint.position.y = THREE.MathUtils.clamp(eyepoint.position.y, -hh * 0.95, hh * 0.95);
+        eyepoint.position.z = THREE.MathUtils.clamp(eyepoint.position.z, -hw * 0.95, hw * 0.95);
+
+        syncChannel.postMessage({ type: 'SYNC_POS', cp: caveGroup.position.toArray(), cq: caveGroup.quaternion.toArray(), ep: eyepoint.position.toArray() });
       }
+
+      activeScreens.forEach(s => {
+        if (s.valley) s.valley.updateVersion();
+        if (isMobileMode && mobileControls) mobileControls.update(s.camera);
+      });
 
       const width = window.innerWidth;
       const height = window.innerHeight;
@@ -490,15 +489,19 @@
       const eyeWorldPos = eyepoint.getWorldPosition(new THREE.Vector3());
 
       activeScreens.forEach((s, i) => {
-        updateOffAxisCamera(s, eyeWorldPos);
+        if (!isMobileMode) {
+          updateOffAxisCamera(s, eyeWorldPos);
+        } else {
+          // Simply use the standard Aspect Ratio without Off-Axis logic for mobile preview
+          s.camera.aspect = width / height;
+          s.camera.updateProjectionMatrix();
+        }
 
         let x = i * w;
         let y = 0;
-        let cw = w;
-        let ch = h;
 
-        renderer.setViewport(x, y, cw, ch);
-        renderer.setScissor(x, y, cw, ch);
+        renderer.setViewport(x, y, w, h);
+        renderer.setScissor(x, y, w, h);
 
         renderer.render(scene, s.camera);
       });

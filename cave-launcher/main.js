@@ -1,4 +1,34 @@
 const { app, BrowserWindow } = require("electron");
+const path = require("node:path");
+const http = require("node:http");
+
+// ----- Bridge Server for Mobile remote -----
+let commandState = { url: null, isPaged: null, timestamp: 0 };
+http.createServer((req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") { res.writeHead(200); return res.end(); }
+
+  if (req.url === "/api/command" && req.method === "POST") {
+    let body = "";
+    req.on("data", chunk => body += chunk);
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body);
+        commandState = { url: payload.url, isPaged: payload.isPaged, timestamp: Date.now() };
+        console.log("[Bridge] Mobile dispatched scene:", commandState.url);
+      } catch (e) { }
+      res.writeHead(200); res.end("ok");
+    });
+  } else if (req.url === "/api/state") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(commandState));
+  } else {
+    res.writeHead(404); res.end();
+  }
+}).listen(3000, "0.0.0.0", () => console.log("CAVE Mobile Relay listening on port 3000"));
+// ------------------------------------------
 
 function createWindows() {
   const screenWidth = 3840 / 8;
