@@ -187,40 +187,21 @@
       const width = window.innerWidth;
       const height = window.innerHeight;
 
-      // Calculate base unit based on width (4 columns)
-      const unitW = width / 4;
-      // We want Top row (16:9) and Bottom row (1:1).
-      // Total height = unitW * (9/16) + unitW.
-      // If this exceeds height, scale down.
-      let w = unitW;
-      if (w * (9 / 16 + 1) > height) {
-        w = height / (9 / 16 + 1);
-      }
-
-      const wallH = w * (9 / 16);
-      const floorH = w;
-      const offsetX = (width - 4 * w) / 2;
-      const offsetY = (height - (wallH + floorH)) / 2;
+      // 横向平铺 5 个屏幕 (左、前、右、后、下)
+      const w = width / 5;
+      const h = height;
 
       renderer.clear();
 
       const eyeWorldPos = eyepoint.getWorldPosition(new THREE.Vector3());
 
-      screens.forEach(s => {
+      screens.forEach((s, i) => {
         updateOffAxisCamera(s, eyeWorldPos);
 
-        let x, y, cw, ch;
-        if (s.row === 0) {
-          cw = w;
-          ch = wallH;
-          x = offsetX + s.col * w;
-          y = offsetY + floorH; // Above bottom row
-        } else {
-          cw = w;
-          ch = floorH;
-          x = offsetX + s.col * w;
-          y = offsetY;
-        }
+        let x = i * w;
+        let y = 0;
+        let cw = w;
+        let ch = h;
 
         renderer.setViewport(x, y, cw, ch);
         renderer.setScissor(x, y, cw, ch);

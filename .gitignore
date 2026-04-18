@@ -8,3 +8,5 @@ site/
 site-repo/
 *.zip
 *.gltf
+dist/
+conductor/
