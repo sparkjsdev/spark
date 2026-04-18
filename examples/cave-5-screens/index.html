@@ -14,32 +14,114 @@
       font-family: sans-serif;
     }
 
-    #info {
+    #master-ui {
       position: absolute;
-      top: 10px;
-      left: 10px;
-      pointer-events: none;
-      background: rgba(0, 0, 0, 0.5);
-      padding: 10px;
-      border-radius: 5px;
-      font-size: 12px;
+      top: 20px;
+      left: 20px;
+      padding: 15px;
+      background: rgba(10, 15, 25, 0.85);
+      border: 1px solid rgba(0, 255, 200, 0.3);
+      border-radius: 8px;
+      box-shadow: 0 0 20px rgba(0, 255, 200, 0.1);
+      backdrop-filter: blur(10px);
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      z-index: 1000;
+      width: 320px;
+      display: none; /* Default hidden, shown only on screen 0 */
+      color: #00ffcc;
     }
 
-    canvas {
-      display: block;
+    #master-ui h2 {
+      margin: 0 0 15px 0;
+      font-size: 16px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      border-bottom: 1px solid rgba(0, 255, 200, 0.2);
+      padding-bottom: 8px;
+    }
+
+    .form-group {
+      margin-bottom: 12px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .form-group label {
+      font-size: 11px;
+      margin-bottom: 4px;
+      color: #88ffeb;
+    }
+
+    .form-group input, .form-group textarea, .form-group select {
+      background: rgba(0, 0, 0, 0.5);
+      border: 1px solid rgba(0, 255, 200, 0.4);
+      color: #fff;
+      padding: 8px;
+      border-radius: 4px;
+      font-family: inherit;
+      outline: none;
+    }
+
+    .form-group input:focus, .form-group textarea:focus, .form-group select:focus {
+      border-color: #00ffcc;
+      box-shadow: 0 0 8px rgba(0, 255, 200, 0.4);
+    }
+
+    button {
+      background: rgba(0, 255, 200, 0.2);
+      color: #00ffcc;
+      border: 1px solid #00ffcc;
+      padding: 10px;
+      width: 100%;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: bold;
+      text-transform: uppercase;
+      transition: all 0.2s;
+      margin-top: 5px;
+    }
+
+    button:hover:not(:disabled) {
+      background: #00ffcc;
+      color: #000;
+      box-shadow: 0 0 15px rgba(0, 255, 200, 0.6);
+    }
+    
+    button:disabled {
+      background: rgba(100, 100, 100, 0.3);
+      border-color: #555;
+      color: #777;
+      cursor: not-allowed;
+    }
+
+    #status-text {
+      margin-top: 10px;
+      font-size: 12px;
+      text-align: center;
+      color: #ffaa00;
+      min-height: 15px;
     }
   </style>
 </head>
 
 <body>
-  <div id="info">
-    <b>CAVE 5-Screen System</b><br>
-    WASD: Roam Cave (Horizontal)<br>
-    QE: Roam Cave (Up/Down)<br>
-    Arrow Keys: Move Eyepoint (Front/Back/Left/Right)<br>
-    R: Reset Eyepoint
+  <div id="master-ui">
+    <h2>World Generator</h2>
+    <div class="form-group">
+      <label>History & Default</label>
+      <select id="ui-history"></select>
+    </div>
+    <div class="form-group">
+      <label>API Key</label>
+      <input type="password" id="ui-apikey" placeholder="WLT-ApiKey..." />
+    </div>
+    <div class="form-group">
+      <label>Text Prompt</label>
+      <textarea id="ui-prompt" rows="3" placeholder="A futuristic sci-fi ruin..."></textarea>
+    </div>
+    <button id="ui-generate">Generate World</button>
+    <div id="status-text">Ready</div>
   </div>
-
   <script type="importmap">
     {
       "imports": {
@@ -90,8 +172,14 @@
       { name: 'Bottom', aspect: 1 / 1, pa: [-hw, -hh, hw], pb: [hw, -hh, hw], pc: [-hw, -hh, -hw], row: 1, col: 1 }
     ];
 
-    const splatURL = "https://storage.googleapis.com/forge-dev-public/asundqui/rad/260219/tijerin_w6_hobbiton-lod.rad";
-    screens.forEach((s, i) => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const screenIndexParam = urlParams.get('screen');
+
+    const activeScreens = screenIndexParam !== null
+      ? [screens[parseInt(screenIndexParam)]]
+      : screens;
+
+    activeScreens.forEach((s, i) => {
       s.camera = new THREE.PerspectiveCamera(90, 1, NEAR, FAR);
       s.camera.layers.set(i + 1);
       s.camera.layers.enable(0);
@@ -100,16 +188,200 @@
       s.spark.layers.set(i + 1);
       scene.add(s.spark);
 
-
-      s.valley = new SplatMesh({ url: splatURL, paged: true });
-      s.valley.position.set(0, 0, 0);
-      s.valley.quaternion.set(1, 0, 0, 0).normalize();
-      s.valley.layers.set(i + 1);
-      scene.add(s.valley);
-
       s.paV = new THREE.Vector3(...s.pa);
       s.pbV = new THREE.Vector3(...s.pb);
       s.pcV = new THREE.Vector3(...s.pc);
+    });
+
+    window.loadSceneData = function(url, isPaged = false) {
+      activeScreens.forEach((s, i) => {
+        if (s.valley) {
+          scene.remove(s.valley);
+          if (s.valley.dispose) s.valley.dispose();
+          if (s.valley.material && s.valley.material.dispose) s.valley.material.dispose();
+          if (s.valley.geometry && s.valley.geometry.dispose) s.valley.geometry.dispose();
+        }
+        
+        s.valley = new SplatMesh({ url: url, paged: isPaged });
+        s.valley.position.set(0, 0, 0);
+        s.valley.quaternion.set(1, 0, 0, 0).normalize();
+        s.valley.layers.set(i + 1);
+        scene.add(s.valley);
+      });
+      console.log(`[Scene Loader] Swapped to: ${url} (Paged: ${isPaged})`);
+    };
+
+    const initialSplatURL = "https://storage.googleapis.com/forge-dev-public/asundqui/rad/260219/tijerin_w6_hobbiton-lod.rad";
+    window.loadSceneData(initialSplatURL, true);
+
+    // --- UI Control Logic ---
+    if (screenIndexParam === "0" || screenIndexParam === null) {
+      document.getElementById('master-ui').style.display = 'block';
+    }
+
+    const apikeyInput = document.getElementById('ui-apikey');
+    const promptInput = document.getElementById('ui-prompt');
+    const historySelect = document.getElementById('ui-history');
+    const generateBtn = document.getElementById('ui-generate');
+    const statusText = document.getElementById('status-text');
+
+    let historyData = JSON.parse(localStorage.getItem('wlt_history')) || [];
+    
+    // Default Hobbiton
+    const defaultOption = { name: 'Hobbiton (Default)', url: initialSplatURL, isPaged: true };
+
+    function renderHistory() {
+      historySelect.innerHTML = '';
+      const defOpt = document.createElement('option');
+      defOpt.value = '-1';
+      defOpt.text = defaultOption.name;
+      historySelect.appendChild(defOpt);
+      
+      historyData.forEach((item, index) => {
+        const opt = document.createElement('option');
+        opt.value = index.toString();
+        opt.text = item.name;
+        if (item.url === window._currentURL) {
+            opt.selected = true;
+        }
+        historySelect.appendChild(opt);
+      });
+    }
+    renderHistory();
+
+    historySelect.addEventListener('change', (e) => {
+      const idx = e.target.value;
+      let target = defaultOption;
+      if (idx !== '-1') {
+        target = historyData[idx];
+      }
+      window._currentURL = target.url;
+      window.loadSceneData(target.url, target.isPaged);
+      syncChannel.postMessage({ type: 'LOAD_SCENE', url: target.url, isPaged: target.isPaged });
+    });
+
+    apikeyInput.value = localStorage.getItem('wlt_apikey') || '';
+    apikeyInput.addEventListener('change', e => {
+      localStorage.setItem('wlt_apikey', e.target.value);
+    });
+
+    let currentPollingInterval = null;
+
+    async function pollOperation(opId, apiKey) {
+      statusText.innerText = `[1/3] Polling generation status...`;
+      let highestResLoaded = 'none';
+
+      currentPollingInterval = setInterval(async () => {
+        try {
+          const res = await fetch(`https://api.worldlabs.ai/marble/v1/operations/${opId}`, {
+            headers: { 'WLT-Api-Key': apiKey }
+          });
+          const op = await res.json();
+          
+          if (op.error) {
+             statusText.innerText = "Error: " + op.error;
+             clearInterval(currentPollingInterval);
+             generateBtn.disabled = false;
+             return;
+          }
+
+          if (op.metadata && op.metadata.world_id) {
+             const worldRes = await fetch(`https://api.worldlabs.ai/marble/v1/worlds/${op.metadata.world_id}`, {
+               headers: { 'WLT-Api-Key': apiKey }
+             });
+             const worldData = await worldRes.json();
+             const spzUrls = worldData.world?.assets?.splats?.spz_urls;
+             
+             if (spzUrls) {
+                // Progressive Loading
+                if (spzUrls['100k'] && highestResLoaded === 'none') {
+                   highestResLoaded = '100k';
+                   statusText.innerText = `[2/3] Preview loaded (100k)...`;
+                   window._currentURL = spzUrls['100k'];
+                   window.loadSceneData(spzUrls['100k'], false);
+                   syncChannel.postMessage({ type: 'LOAD_SCENE', url: spzUrls['100k'], isPaged: false });
+                }
+                if (spzUrls['500k'] && (highestResLoaded === 'none' || highestResLoaded === '100k')) {
+                   highestResLoaded = '500k';
+                   statusText.innerText = `[2/3] Detail loaded (500k)...`;
+                   window._currentURL = spzUrls['500k'];
+                   window.loadSceneData(spzUrls['500k'], false);
+                   syncChannel.postMessage({ type: 'LOAD_SCENE', url: spzUrls['500k'], isPaged: false });
+                }
+             }
+          }
+
+          if (op.done) {
+            clearInterval(currentPollingInterval);
+            
+            const spzUrls = op.response?.assets?.splats?.spz_urls;
+            if (spzUrls && spzUrls['full_res']) {
+               const finalUrl = spzUrls['full_res'];
+               statusText.innerText = `[3/3] World fully generated!`;
+               window._currentURL = finalUrl;
+               window.loadSceneData(finalUrl, false);
+               syncChannel.postMessage({ type: 'LOAD_SCENE', url: finalUrl, isPaged: false });
+               
+               // Save to history
+               historyData.push({
+                 name: promptInput.value.substring(0, 30) + '...',
+                 url: finalUrl,
+                 isPaged: false
+               });
+               localStorage.setItem('wlt_history', JSON.stringify(historyData));
+               renderHistory();
+            } else {
+               statusText.innerText = `Error: Missing full_res url`;
+            }
+            generateBtn.disabled = false;
+          }
+
+        } catch (e) {
+          console.error(e);
+        }
+      }, 3000);
+    }
+
+    generateBtn.addEventListener('click', async () => {
+      const apiKey = apikeyInput.value;
+      const prompt = promptInput.value;
+      if (!apiKey || !prompt) {
+         statusText.innerText = "Please provide API Key and Prompt";
+         return;
+      }
+      
+      generateBtn.disabled = true;
+      statusText.innerText = "Initiating Generation...";
+      
+      try {
+        const res = await fetch('https://api.worldlabs.ai/marble/v1/worlds:generate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'WLT-Api-Key': apiKey
+          },
+          body: JSON.stringify({
+             display_name: "CAVE World",
+             model: "marble-1.1",
+             world_prompt: {
+               type: "text",
+               text_prompt: prompt
+             }
+          })
+        });
+        
+        const data = await res.json();
+        if (data.operation_id) {
+           pollOperation(data.operation_id, apiKey);
+        } else {
+           statusText.innerText = "Error parsing operation_id";
+           generateBtn.disabled = false;
+        }
+      } catch(e) {
+         statusText.innerText = "Network Error";
+         generateBtn.disabled = false;
+         console.error(e);
+      }
     });
 
     // --- Off-axis Projection Algorithm ---
@@ -179,23 +451,45 @@
       eyepoint.position.z = THREE.MathUtils.clamp(eyepoint.position.z, -hw * 0.95, hw * 0.95);
     }
 
+    // --- Synchronization Channel ---
+    const syncChannel = new BroadcastChannel('cave-sync');
+    if (screenIndexParam !== null && screenIndexParam !== "0") {
+      syncChannel.onmessage = (e) => {
+        if (e.data.type === 'LOAD_SCENE') {
+          window.loadSceneData(e.data.url, e.data.isPaged);
+        } else if (e.data.type === 'SYNC_POS') {
+          caveGroup.position.fromArray(e.data.cp);
+          caveGroup.quaternion.fromArray(e.data.cq);
+          eyepoint.position.fromArray(e.data.ep);
+        }
+      };
+    }
+
     // --- Animation Loop ---
     function animate() {
       requestAnimationFrame(animate);
-      updateInputs();
+
+      if (screenIndexParam === null || screenIndexParam === "0") {
+        updateInputs();
+        syncChannel.postMessage({
+          type: 'SYNC_POS',
+          cp: caveGroup.position.toArray(),
+          cq: caveGroup.quaternion.toArray(),
+          ep: eyepoint.position.toArray()
+        });
+      }
 
       const width = window.innerWidth;
       const height = window.innerHeight;
 
-      // 横向平铺 5 个屏幕 (左、前、右、后、下)
-      const w = width / 5;
+      const w = screenIndexParam !== null ? width : width / 5;
       const h = height;
 
       renderer.clear();
 
       const eyeWorldPos = eyepoint.getWorldPosition(new THREE.Vector3());
 
-      screens.forEach((s, i) => {
+      activeScreens.forEach((s, i) => {
         updateOffAxisCamera(s, eyeWorldPos);
 
         let x = i * w;
