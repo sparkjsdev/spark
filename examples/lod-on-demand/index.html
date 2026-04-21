@@ -68,7 +68,7 @@
 
     function newColors() {
       const modulate = new THREE.Color(Math.random(), Math.random(), Math.random());
-      const array = new Uint8ClampedArray(splats.numSplats * 4);
+      const array = new Uint8ClampedArray(splats.packedSplats.numSplats * 4);
       splats.forEachSplat((index, center, scales, quaternion, opacity, color) => {
         array[index * 4] = color.r * modulate.r * 255;
         array[index * 4 + 1] = color.g * modulate.g * 255;
@@ -101,7 +101,7 @@
         alert("Create LoD splats first!");
       }
     });
-    gui.add(spark, "lodSplatCount", 10000, 200000, 10000).name("LoD splat count");
+    gui.add(spark, "lodSplatCount", 10000, 600000, 10000).name("LoD splat count");
 
     const controls = new SparkControls({ canvas: renderer.domElement });
 
