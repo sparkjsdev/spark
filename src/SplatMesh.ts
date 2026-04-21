@@ -37,8 +37,10 @@ import {
   DynoInt,
   DynoUsampler2D,
   type DynoVal,
+  DynoVec3,
   DynoVec4,
   Gsplat,
+  add,
   combineCovSplat,
   combineGsplat,
   defineGsplat,
@@ -48,6 +50,7 @@ import {
   mul,
   splitCovSplat,
   splitGsplat,
+  sub,
   unindentLines,
 } from "./dyno";
 
@@ -295,6 +298,54 @@ export class SplatMesh extends SplatGenerator {
 
   showLodPage?: number;
   showLodPageDyno = new DynoInt({ value: 0 });
+  private viewOriginDyno = new DynoVec3({ value: new THREE.Vector3() });
+
+  private canGenerateRelativeToView({
+    hasEdits,
+  }: {
+    hasEdits: boolean;
+  }) {
+    return true;
+  }
+
+  private updateRelativeTransform(
+    transform: THREE.Matrix4,
+    viewToWorld: THREE.Matrix4,
+  ) {
+    const relativeTransform = transform.clone();
+    const relativePosition = new THREE.Vector3().setFromMatrixPosition(
+      relativeTransform,
+    );
+    relativePosition.sub(new THREE.Vector3().setFromMatrixPosition(viewToWorld));
+    relativeTransform.setPosition(relativePosition);
+    return relativeTransform;
+  }
+
+  private toWorldGsplat(gsplat: DynoVal<typeof Gsplat>) {
+    const center = add(splitGsplat(gsplat).outputs.center, this.viewOriginDyno);
+    return combineGsplat({ gsplat, center });
+  }
+
+  private fromWorldGsplat(gsplat: DynoVal<typeof Gsplat>) {
+    const center = sub(splitGsplat(gsplat).outputs.center, this.viewOriginDyno);
+    return combineGsplat({ gsplat, center });
+  }
+
+  private toWorldCovSplat(covsplat: DynoVal<typeof CovSplat>) {
+    const center = add(
+      splitCovSplat(covsplat).outputs.center,
+      this.viewOriginDyno,
+    );
+    return combineCovSplat({ covsplat, center });
+  }
+
+  private fromWorldCovSplat(covsplat: DynoVal<typeof CovSplat>) {
+    const center = sub(
+      splitCovSplat(covsplat).outputs.center,
+      this.viewOriginDyno,
+    );
+    return combineCovSplat({ covsplat, center });
+  }
 
   constructor(options: SplatMeshOptions = {}) {
     super({
@@ -707,6 +758,10 @@ export class SplatMesh extends SplatGenerator {
         // Transform from object to world-space
         gsplat = transform.applyGsplat(gsplat);
 
+        if (this.generateRelativeToView && (this.rgbaDisplaceEdits || this.worldModifiers)) {
+          gsplat = this.toWorldGsplat(gsplat);
+        }
+
         // Apply any global recoloring and opacity
         const recolorRgba = mul(recolor, splitGsplat(gsplat).outputs.rgba);
         gsplat = combineGsplat({ gsplat, rgba: recolorRgba });
@@ -721,6 +776,10 @@ export class SplatMesh extends SplatGenerator {
           for (const modifier of this.worldModifiers) {
             gsplat = modifier.apply({ gsplat }).gsplat;
           }
+        }
+
+        if (this.generateRelativeToView && (this.rgbaDisplaceEdits || this.worldModifiers)) {
+          gsplat = this.fromWorldGsplat(gsplat);
         }
 
         // We're done! Output resulting Gsplat
@@ -791,6 +850,10 @@ export class SplatMesh extends SplatGenerator {
         // Transform from object to world-space
         covsplat = covTransform.applyCovSplat(covsplat);
 
+        if (this.generateRelativeToView && (this.rgbaDisplaceEdits || this.covWorldModifiers)) {
+          covsplat = this.toWorldCovSplat(covsplat);
+        }
+
         // Apply any global recoloring and opacity
         const recolorRgba = mul(recolor, splitCovSplat(covsplat).outputs.rgba);
         covsplat = combineCovSplat({ covsplat, rgba: recolorRgba });
@@ -805,6 +868,10 @@ export class SplatMesh extends SplatGenerator {
           for (const modifier of this.covWorldModifiers) {
             covsplat = modifier.apply({ covsplat }).covsplat;
           }
+        }
+
+        if (this.generateRelativeToView && (this.rgbaDisplaceEdits || this.covWorldModifiers)) {
+          covsplat = this.fromWorldCovSplat(covsplat);
         }
 
         // We're done! Output resulting Gsplat
@@ -868,8 +935,25 @@ export class SplatMesh extends SplatGenerator {
       this.generatorDirty = true;
     }
 
+    const viewOrigin = new THREE.Vector3().setFromMatrixPosition(viewToWorld);
+    if (!viewOrigin.equals(this.viewOriginDyno.value)) {
+      this.viewOriginDyno.value.copy(viewOrigin);
+      updated = true;
+    }
+
+    const generateRelativeToView = this.canGenerateRelativeToView({
+      hasEdits: false,
+    });
+    if (this.generateRelativeToView !== generateRelativeToView) {
+      this.generateRelativeToView = generateRelativeToView;
+      updated = true;
+    }
+
     if (!this.covSplats) {
-      if (this.context.transform.update(this)) {
+      const transformMatrix = this.generateRelativeToView
+        ? this.updateRelativeTransform(this.matrixWorld, viewToWorld)
+        : this.matrixWorld;
+      if (this.context.transform.updateFromMatrix(transformMatrix)) {
         updated = true;
       }
 
@@ -887,12 +971,7 @@ export class SplatMesh extends SplatGenerator {
         updated = true;
       }
 
-      const objectToWorld = new THREE.Matrix4().compose(
-        this.context.transform.translate.value,
-        this.context.transform.rotate.value,
-        new THREE.Vector3().setScalar(this.context.transform.scale.value),
-      );
-      const worldToObject = objectToWorld.invert();
+      const worldToObject = this.matrixWorld.clone().invert();
       const viewToObjectMatrix = worldToObject.multiply(viewToWorld);
       if (
         this.context.viewToObject.updateFromMatrix(viewToObjectMatrix) &&
@@ -902,7 +981,10 @@ export class SplatMesh extends SplatGenerator {
         updated = true;
       }
     } else {
-      if (this.context.covTransform.update(this)) {
+      const covTransformMatrix = this.generateRelativeToView
+        ? this.updateRelativeTransform(this.matrixWorld, viewToWorld)
+        : this.matrixWorld;
+      if (this.context.covTransform.updateFromMatrix(covTransformMatrix)) {
         updated = true;
       }
 
