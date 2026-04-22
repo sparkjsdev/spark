@@ -33,7 +33,7 @@ scene.add(splats);
 
 Spark internally defaults to a compact 16 bytes/splat encoding `PackedSplats` to save memory and increase performance (through less memory bandwidth). However, splat center coordinates are stored as float16, which has 0.1% relative precision, meaning coordinates that are 1000 units away will only allow steps of 1 unit, which can cause striping or other quantization artifacts.
 
-Spark 2.0 supports a new `ExtSplats` extended splat encoding that uses 32 bytes/splat and stores center coordinates as float32 (along with other precision/range improvements). Because this can slightly reduce perforance, you should explicitly enable it where you need it:
+Spark 2.0 supports a new `ExtSplats` extended splat encoding that uses 32 bytes/splat and stores center coordinates as float32 (along with other precision/range improvements). Because this can slightly reduce performance, you should explicitly enable it where you need it:
 
 1. **Increased precision for loaded splats:** If the splat file itself has large coordinates, you can enable `ExtSplats` when creating the `SplatMesh`:
 ```javascript
@@ -42,7 +42,7 @@ new SplatMesh({ url: "./my-splats.spz", extSplats: true });
 This will decode the splat file into the extended encoding format.
 
 2. **Increased precision for streamed/pooled splats:** A `SplatMesh` loaded with the `paged` flag will use a shared pool of splat buffers. Choosing `ExtSplats` for this pool is controlled by `SparkRenderer` during construction:
-```
+```javascript
 const spark = new SparkRenderer({
     renderer,
     pagedExtSplats: true,
@@ -61,7 +61,7 @@ Spark's LoD system allows you to trade off between quality (more splats rendered
 
 There are two main parameters for adjusting the # splat selected by the LoD system and rendered to the screen:
 
-- `SparkRenderer.lodSplatCount`: Set the base nubmer of LoD splats to render. If not set, this will be automatically set based on the platform: 500K for Oculus, 750K for Vision Pro, 1M for Android, 1.5M for iOS, and 2.5M for desktop. It is recommended to leave this alone and use the next parameter instead, so your application scales automatically by platform.
+- `SparkRenderer.lodSplatCount`: Set the base number of LoD splats to render. If not set, this will be automatically set based on the platform: 500K for Oculus, 750K for Vision Pro, 1M for Android, 1.5M for iOS, and 2.5M for desktop. It is recommended to leave this alone and use the next parameter instead, so your application scales automatically by platform.
 
 - `SparkRenderer.lodSplatScale`: LoD splat count multiplier. By default this is 1.0, and setting it to 2.0 will result in 2x the `lodSplatCount` budget. Adjusting this is the easiest way to adjust detail vs. performance.
 
@@ -94,9 +94,9 @@ To pre-build an LoD tree for a splat file and output a `.RAD` that can be loaded
 npm run build-lod -- my-splats.ply more-splats.spz [..options]
 ```
 
-NOTE 1: The additional `--` in the options tells `npm` that the following options are for the `build-lod` program. This is necessary if you have additional options that start with `-`/`--`, which will confuse `npm.
+NOTE 1: The additional `--` in the options tells `npm` that the following options are for the `build-lod` program. This is necessary if you have additional options that start with `-`/`--`, which will confuse `npm`.
 
-NOTE 2: Building and running the `build-lod` tool requires Rust to be installed. The recommended approach is by installing `rustup` as described on the main Rust page: https://rust-lang.org/tools/install/
+NOTE 2: Building and running the `build-lod` tool requires Rust to be installed. The recommended approach is by installing `rustup` as described on the main Rust page: [https://rust-lang.org/tools/install/](https://rust-lang.org/tools/install/)
 
 Calling `npm run build-lod` invokes the Rust program in `rust/build-lod`, and you can build or run it directly:
 ```shell
