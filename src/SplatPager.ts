@@ -826,34 +826,46 @@ export class SplatPager {
     this.autoDrive = false;
     this.numFetchers = 0;
 
-    this.packedTexture.value.dispose();
+    const packedTexture = this.packedTexture.value;
+    packedTexture.dispose();
+    this.packedTexture.value = SplatPager.emptyPackedTexture;
+
     if (this.extTexture.value !== SplatPager.emptyExtTexture) {
       this.extTexture.value.dispose();
     }
+    this.extTexture.value = SplatPager.emptyExtTexture;
 
     if (!this.extSplats) {
       if (this.sh1Texture.value !== SplatPager.emptySh1Texture) {
         this.sh1Texture.value.dispose();
       }
+      this.sh1Texture.value = SplatPager.emptySh1Texture;
       if (this.sh2Texture.value !== SplatPager.emptySh2Texture) {
         this.sh2Texture.value.dispose();
       }
+      this.sh2Texture.value = SplatPager.emptySh2Texture;
       if (this.sh3Texture.value !== SplatPager.emptySh3Texture) {
         this.sh3Texture.value.dispose();
       }
+      this.sh3Texture.value = SplatPager.emptySh3Texture;
+      this.sh3TextureB.value = SplatPager.emptyExtSh3BTexture;
     } else {
       if (this.sh1Texture.value !== SplatPager.emptyExtSh1Texture) {
         this.sh1Texture.value.dispose();
       }
+      this.sh1Texture.value = SplatPager.emptyExtSh1Texture;
       if (this.sh2Texture.value !== SplatPager.emptyExtSh2Texture) {
         this.sh2Texture.value.dispose();
       }
+      this.sh2Texture.value = SplatPager.emptyExtSh2Texture;
       if (this.sh3Texture.value !== SplatPager.emptyExtSh3Texture) {
         this.sh3Texture.value.dispose();
       }
+      this.sh3Texture.value = SplatPager.emptyExtSh3Texture;
       if (this.sh3TextureB.value !== SplatPager.emptyExtSh3BTexture) {
         this.sh3TextureB.value.dispose();
       }
+      this.sh3TextureB.value = SplatPager.emptyExtSh3BTexture;
     }
   }
 
