@@ -61,13 +61,16 @@ Copy the following code into an `index.html` file.
 </script>
 <script type="module">
   import * as THREE from "three";
-  import { SplatMesh } from "@sparkjsdev/spark";
+  import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+  const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 1000);
   const renderer = new THREE.WebGLRenderer();
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement)
+
+  const spark = new SparkRenderer({ renderer });
+  scene.add(spark);
 
   const splatURL = "https://sparkjs.dev/assets/splats/butterfly.spz";
   const butterfly = new SplatMesh({ url: splatURL });
@@ -81,10 +84,6 @@ Copy the following code into an `index.html` file.
   });
 </script>
 ```
-
-### Web Editor
-
-Remix the [glitch starter template](https://glitch.com/edit/#!/sparkjs-dev)
 
 ### CDN
 
