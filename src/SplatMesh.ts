@@ -182,6 +182,17 @@ export interface SplatSource {
   }: { index: DynoVal<"int">; viewOrigin?: DynoVal<"vec3"> }): DynoVal<
     typeof Gsplat
   >;
+
+  forEachSplat(
+    callback: (
+      index: number,
+      center: THREE.Vector3,
+      scales: THREE.Vector3,
+      quaternion: THREE.Quaternion,
+      opacity: number,
+      color: THREE.Color,
+    ) => void,
+  ): void;
 }
 
 export class EmptySplatSource implements SplatSource {
@@ -213,6 +224,8 @@ export class EmptySplatSource implements SplatSource {
   fetchSplat({ index }: { index: DynoVal<"int"> }): DynoVal<typeof Gsplat> {
     return this.fetchDyno;
   }
+
+  forEachSplat() {}
 }
 
 export class SplatMesh extends SplatGenerator {
@@ -546,11 +559,7 @@ export class SplatMesh extends SplatGenerator {
       color: THREE.Color,
     ) => void,
   ) {
-    if (this.packedSplats) {
-      this.packedSplats.forEachSplat(callback);
-    } else if (this.extSplats) {
-      this.extSplats.forEachSplat(callback);
-    }
+    this.splats?.forEachSplat(callback);
   }
 
   // Call this when you are finished with the SplatMesh and want to free
@@ -582,9 +591,6 @@ export class SplatMesh extends SplatGenerator {
       throw new Error(
         "Cannot get bounding box before SplatMesh is initialized",
       );
-    }
-    if (!this.packedSplats && !this.extSplats) {
-      throw new Error("Bounding box requires PackedSplats or ExtSplats");
     }
     const minVec = new THREE.Vector3(
       Number.POSITIVE_INFINITY,
@@ -627,11 +633,7 @@ export class SplatMesh extends SplatGenerator {
       }
     }
 
-    if (this.packedSplats) {
-      this.packedSplats.forEachSplat(callback);
-    } else if (this.extSplats) {
-      this.extSplats.forEachSplat(callback);
-    }
+    this.splats?.forEachSplat(callback);
     const box = new THREE.Box3(minVec, maxVec);
     return box;
   }
