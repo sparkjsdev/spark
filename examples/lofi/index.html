@@ -42,7 +42,7 @@
   <script type="module">
     import * as THREE from "three";
     import GUI from "lil-gui";
-    import { SparkRenderer, OldSparkRenderer, PackedSplats, SplatMesh, SparkControls, SparkXr, JOINT_IDS, JOINT_TIPS, dyno, generators, isMobile, utils } from "@sparkjsdev/spark";
+    import { SparkRenderer, PackedSplats, SplatMesh, SparkControls, SparkXr, JOINT_IDS, JOINT_TIPS, dyno, generators, isMobile, utils } from "@sparkjsdev/spark";
     import { WORLDS, getWorldUrl, WORLD_RUSTLE, WORLD_EFFECT } from "./worlds.js";
     import { AUDIOS, getAudioUrl } from "./audio.js";
     import { shuffleArray } from "./util.js";
@@ -167,7 +167,6 @@
     scene.add(localFrame);
 
     const spark = new SparkRenderer({
-    // const spark = new OldSparkRenderer({
       renderer,
       // Lower the splat rendering width to sqrt(4) std devs for more performance
       maxStdDev: Math.sqrt(4),
