@@ -102,7 +102,7 @@ impl Sort32Buffers {
 }
 
 #[inline(always)]
-unsafe fn prefix_sum_exclusive(buckets: &mut [u32]) -> u32 {
+fn prefix_sum_exclusive(buckets: &mut [u32]) -> u32 {
     let mut sum = 0u32;
     for b in buckets.iter_mut() {
         let tmp = *b;
@@ -129,6 +129,7 @@ pub fn sort32_internal(
 
     // Split buckets
     let (b0, b1) = buckets.split_at_mut(RADIX_BASE);
+    let b1 = &mut b1[..RADIX_BASE];
 
     b0.fill(0);
     b1.fill(0);
@@ -146,7 +147,7 @@ pub fn sort32_internal(
                 let r1 = inv >> RADIX_BITS;
 
                 b0[r0 as usize] += valid;
-                b1[r1 as usize] += valid;
+                unsafe { *b1.get_unchecked_mut(r1 as usize) += valid };
             }};
         }
 
@@ -164,16 +165,13 @@ pub fn sort32_internal(
         let valid = (k < DEPTH_INFINITY_F32) as u32;
         let inv = !k;
         b0[(inv & RADIX_MASK) as usize] += valid;
-        b1[(inv >> RADIX_BITS) as usize] += valid;
+        unsafe { *b1.get_unchecked_mut((inv >> RADIX_BITS) as usize) += valid };
     }
 
-    // exclusive prefix‑sum → starting offsets
-    let active = unsafe { prefix_sum_exclusive(b0) } as usize;
-    unsafe {
-        prefix_sum_exclusive(b1);
-    }
+    let active = prefix_sum_exclusive(b0) as usize;
+    prefix_sum_exclusive(b1);
 
-    // pass 1: scatter into scratch 
+    // pass 1: scatter into scratch
     let mut chunks = keys.chunks_exact(8);
     let mut i = 0;
 
@@ -184,11 +182,11 @@ pub fn sort32_internal(
                 let inv = !$k;
 
                 let r0 = (inv & RADIX_MASK) as usize;
-                let pos = b0[r0] as usize;
+                let pos = unsafe { *b0.get_unchecked(r0) } as usize;
 
                 // Always write (branchless), but only advance if valid
-                scratch[pos] = ((inv as u64) << 32) | ($idx as u64);
-                b0[r0] += valid;
+                unsafe { *scratch.get_unchecked_mut(pos) = ((inv as u64) << 32) | ($idx as u64) };
+                unsafe { *b0.get_unchecked_mut(r0) += valid };
             }};
         }
 
@@ -209,10 +207,10 @@ pub fn sort32_internal(
         let inv = !k;
 
         let r0 = (inv & RADIX_MASK) as usize;
-        let pos = b0[r0] as usize;
+        let pos = unsafe { *b0.get_unchecked(r0) } as usize;
 
-        scratch[pos] = ((inv as u64) << 32) | (i as u64);
-        b0[r0] += valid;
+        unsafe { *scratch.get_unchecked_mut(pos) = ((inv as u64) << 32) | (i as u64) };
+        unsafe { *b0.get_unchecked_mut(r0) += valid };
 
         i += 1;
     }
@@ -224,10 +222,10 @@ pub fn sort32_internal(
         macro_rules! place2 {
             ($kv:expr) => {{
                 let r1 = (($kv >> 48) & RADIX_MASK as u64) as usize;
-                let pos = b1[r1] as usize;
+                let pos = unsafe { *b1.get_unchecked(r1) } as usize;
 
-                ordering[pos] = $kv as u32;
-                b1[r1] += 1;
+                unsafe { *ordering.get_unchecked_mut(pos) = $kv as u32 };
+                unsafe { *b1.get_unchecked_mut(r1) += 1 };
             }};
         }
 
@@ -243,17 +241,18 @@ pub fn sort32_internal(
 
     for &kv in chunks.remainder() {
         let r1 = ((kv >> 48) & RADIX_MASK as u64) as usize;
-        let pos = b1[r1] as usize;
+        let pos = unsafe { *b1.get_unchecked(r1) } as usize;
 
-        ordering[pos] = kv as u32;
-        b1[r1] += 1;
+        unsafe { *ordering.get_unchecked_mut(pos) = kv as u32 };
+        unsafe { *b1.get_unchecked_mut(r1) += 1 };
     }
 
     // sanity‑check: last bucket should have consumed all entries
     if b1[RADIX_BASE - 1] != active as u32 {
         return Err(format!(
             "Expected {} active splats but got {}",
-            active, b1[RADIX_BASE - 1]
+            active,
+            b1[RADIX_BASE - 1]
         ));
     }
 
