@@ -5,7 +5,22 @@ import {
   getSplatFileType,
   getSplatFileTypeFromPath,
 } from "./SplatLoader";
+import {
+  compress as zstdCompress,
+  decompress as zstdDecompress,
+  init as zstdInit,
+} from "@bokuweb/zstd-wasm";
 import { GunzipReader, fromHalf, normalize } from "./utils";
+
+// Lazy, idempotent initialization of the ZSTD WASM module. The first call
+// fetches/instantiates the WASM blob; subsequent calls return the cached promise.
+let zstdInitPromise: Promise<void> | null = null;
+function ensureZstdInit(): Promise<void> {
+  if (!zstdInitPromise) {
+    zstdInitPromise = zstdInit();
+  }
+  return zstdInitPromise;
+}
 
 import { decodeAntiSplat } from "./antisplat";
 import { SplatFileType } from "./defines";
@@ -16,7 +31,10 @@ import { PlyReader } from "./ply";
 
 export class SpzReader {
   fileBytes: Uint8Array;
-  reader: GunzipReader;
+  // null for v4 (ZSTD), set for v1-v3 (gzip)
+  reader: GunzipReader | null = null;
+  // Pre-decompressed attribute streams for v4: [positions, alphas, colors, scales, rotations, sh?]
+  v4Streams: Uint8Array[] | null = null;
 
   version = -1;
   numSplats = 0;
@@ -32,9 +50,19 @@ export class SpzReader {
   constructor({ fileBytes }: { fileBytes: Uint8Array | ArrayBuffer }) {
     this.fileBytes =
       fileBytes instanceof ArrayBuffer ? new Uint8Array(fileBytes) : fileBytes;
-    this.reader = new GunzipReader({
-      fileBytes: this.fileBytes as Uint8Array<ArrayBuffer>,
-    });
+    // V4 files start with NGSP magic directly; v1-v3 are gzip-compressed.
+    const b = this.fileBytes;
+    const isV4 =
+      b.length >= 4 &&
+      b[0] === 0x4e &&
+      b[1] === 0x47 &&
+      b[2] === 0x53 &&
+      b[3] === 0x50;
+    if (!isV4) {
+      this.reader = new GunzipReader({
+        fileBytes: this.fileBytes as Uint8Array<ArrayBuffer>,
+      });
+    }
   }
 
   async parseHeader() {
@@ -42,24 +70,85 @@ export class SpzReader {
       throw new Error("SPZ file header already parsed");
     }
 
-    const header = new DataView((await this.reader.read(16)).buffer);
-    if (header.getUint32(0, true) !== 0x5053474e) {
-      throw new Error("Invalid SPZ file");
-    }
-    this.version = header.getUint32(4, true);
-    if (this.version < 1 || this.version > 3) {
-      throw new Error(`Unsupported SPZ version: ${this.version}`);
+    if (this.reader === null) {
+      // V4: 32-byte NGSP header, attributes in separate ZSTD-compressed streams.
+      if (this.fileBytes.length < 32) {
+        throw new Error("SPZ v4 file too short");
+      }
+      const view = new DataView(
+        this.fileBytes.buffer,
+        this.fileBytes.byteOffset,
+        this.fileBytes.byteLength,
+      );
+      this.version = view.getUint32(4, true);
+      if (this.version !== 4) {
+        throw new Error(`Unsupported SPZ version: ${this.version}`);
+      }
+      this.numSplats = view.getUint32(8, true);
+      this.shDegree = view.getUint8(12);
+      this.fractionalBits = view.getUint8(13);
+      this.flags = view.getUint8(14);
+      this.flagAntiAlias = (this.flags & 0x01) !== 0;
+      this.flagLod = (this.flags & 0x80) !== 0;
+      this.reserved = 0;
+      const numStreams = view.getUint8(15);
+      const tocByteOffset = view.getUint32(16, true);
+      await ensureZstdInit();
+      this.v4Streams = this._loadV4Streams(numStreams, tocByteOffset, view);
+    } else {
+      // V1-V3: 16-byte NGSP header inside gzip stream.
+      const header = new DataView((await this.reader.read(16)).buffer);
+      if (header.getUint32(0, true) !== 0x5053474e) {
+        throw new Error("Invalid SPZ file");
+      }
+      this.version = header.getUint32(4, true);
+      if (this.version < 1 || this.version > 3) {
+        throw new Error(`Unsupported SPZ version: ${this.version}`);
+      }
+      this.numSplats = header.getUint32(8, true);
+      this.shDegree = header.getUint8(12);
+      this.fractionalBits = header.getUint8(13);
+      this.flags = header.getUint8(14);
+      this.flagAntiAlias = (this.flags & 0x01) !== 0;
+      this.flagLod = (this.flags & 0x80) !== 0;
+      this.reserved = header.getUint8(15);
     }
 
-    this.numSplats = header.getUint32(8, true);
-    this.shDegree = header.getUint8(12);
-    this.fractionalBits = header.getUint8(13);
-    this.flags = header.getUint8(14);
-    this.flagAntiAlias = (this.flags & 0x01) !== 0;
-    this.flagLod = (this.flags & 0x80) !== 0;
-    this.reserved = header.getUint8(15);
     this.headerParsed = true;
     this.parsed = false;
+  }
+
+  private _loadV4Streams(
+    numStreams: number,
+    tocByteOffset: number,
+    view: DataView,
+  ): Uint8Array[] {
+    // TOC layout: numStreams × 16 bytes, each entry = [compressedSize u64 LE][uncompressedSize u64 LE].
+    // Compressed streams follow immediately after the TOC in this order:
+    //   positions, alphas, colors, scales, rotations, SH (zero-size streams skipped)
+    const tocEntrySize = 16;
+    const tocEnd = tocByteOffset + numStreams * tocEntrySize;
+    if (tocEnd > this.fileBytes.byteLength) {
+      throw new Error("SPZ v4: TOC extends beyond file end");
+    }
+    const streams: Uint8Array[] = [];
+    let dataOffset = tocEnd;
+    for (let i = 0; i < numStreams; i++) {
+      const e = tocByteOffset + i * tocEntrySize;
+      const compressedSizeLo = view.getUint32(e, true);
+      const compressedSizeHi = view.getUint32(e + 4, true);
+      if (compressedSizeHi !== 0) {
+        throw new Error("SPZ v4: stream size exceeds 4GB");
+      }
+      const compressedSize = compressedSizeLo;
+      const compressed = this.fileBytes.subarray(
+        dataOffset,
+        dataOffset + compressedSize,
+      );
+      streams.push(zstdDecompress(compressed));
+      dataOffset += compressedSize;
+    }
+    return streams;
   }
 
   async parseSplats(
@@ -101,9 +190,19 @@ export class SpzReader {
     }
     this.parsed = true;
 
+    // Unified attribute reader: v4 returns pre-decompressed streams in order;
+    // v1-v3 reads sequentially from the gzip stream.
+    let streamIdx = 0;
+    const read =
+      this.v4Streams !== null
+        ? async (_n: number): Promise<Uint8Array> =>
+            this.v4Streams![streamIdx++]
+        : async (n: number): Promise<Uint8Array> =>
+            await this.reader!.read(n);
+
     if (this.version === 1) {
       // float16 centers
-      const centerBytes = await this.reader.read(this.numSplats * 3 * 2);
+      const centerBytes = await read(this.numSplats * 3 * 2);
       const centerUint16 = new Uint16Array(centerBytes.buffer);
       for (let i = 0; i < this.numSplats; i++) {
         const i3 = i * 3;
@@ -112,10 +211,10 @@ export class SpzReader {
         const z = fromHalf(centerUint16[i3 + 2]);
         centerCallback?.(i, x, y, z);
       }
-    } else if (this.version === 2 || this.version === 3) {
-      // 24-bit fixed-point centers
+    } else {
+      // 24-bit fixed-point centers (v2/v3/v4)
       const fixed = 1 << this.fractionalBits;
-      const centerBytes = await this.reader.read(this.numSplats * 3 * 3);
+      const centerBytes = await read(this.numSplats * 3 * 3);
       for (let i = 0; i < this.numSplats; i++) {
         const i9 = i * 9;
         const x =
@@ -138,18 +237,16 @@ export class SpzReader {
           fixed;
         centerCallback?.(i, x, y, z);
       }
-    } else {
-      throw new Error("Unreachable");
     }
 
     {
-      const bytes = await this.reader.read(this.numSplats);
+      const bytes = await read(this.numSplats);
       for (let i = 0; i < this.numSplats; i++) {
         alphaCallback?.(i, bytes[i] / 255);
       }
     }
     {
-      const rgbBytes = await this.reader.read(this.numSplats * 3);
+      const rgbBytes = await read(this.numSplats * 3);
       const scale = SH_C0 / 0.15;
       for (let i = 0; i < this.numSplats; i++) {
         const i3 = i * 3;
@@ -160,7 +257,7 @@ export class SpzReader {
       }
     }
     {
-      const scalesBytes = await this.reader.read(this.numSplats * 3);
+      const scalesBytes = await read(this.numSplats * 3);
       for (let i = 0; i < this.numSplats; i++) {
         const i3 = i * 3;
         const scaleX = Math.exp(scalesBytes[i3] / 16 - 10);
@@ -169,60 +266,37 @@ export class SpzReader {
         scalesCallback?.(i, scaleX, scaleY, scaleZ);
       }
     }
-    if (this.version === 3) {
-      // Version 3 uses a trick called "smallest three" to compress the rotation quaternions
-      // achieving better precision. "Optimizing orientation" section at https://gafferongames.com/post/snapshot_compression/ A quaternion length must be 1: x^2+y^2+z^2+w^2 = 1
-      // We can drop one component and reconstruct it with the identity above.
-      // Largest component is dropped for best numerical precision.
-      // Quaternion stored in 32 bits
-      // 10 bits singed integer for each of the 3 components + 2 bits indicating the index of dropped component.
-      // vs 8 bits for each component uncompressed (spz version < 3)
-      // Max Value after extracting largest component v is another component v
-      // (v,v,0,0)
-      // v^2 + v^2 = 1
-      // v = 1 / sqrt(2);
-      const maxValue = 1 / Math.sqrt(2); // 0.7071
-      const quatBytes = await this.reader.read(this.numSplats * 4);
+    if (this.version >= 3) {
+      // Smallest-three quaternion encoding (v3 and v4): drop the largest component and
+      // store the three smallest at 9-bit precision + 1-bit sign, plus 2-bit index of
+      // the dropped component, all packed into 32 bits.
+      const maxValue = 1 / Math.sqrt(2); // max magnitude of any non-largest component
+      const quatBytes = await read(this.numSplats * 4);
       for (let i = 0; i < this.numSplats; i++) {
-        const i3 = i * 4;
+        const i4 = i * 4;
         const quaternion = [0, 0, 0, 0];
-        const values = [
-          quatBytes[i3],
-          quatBytes[i3 + 1],
-          quatBytes[i3 + 2],
-          quatBytes[i3 + 3],
-        ];
-        // all values are packed in 32 bits (10 per each of 3 components + 2 bits of index of larged value)
         const combinedValues =
-          values[0] + (values[1] << 8) + (values[2] << 16) + (values[3] << 24);
-        // each component value is 9 bits + sign (1 bit)
+          quatBytes[i4] +
+          (quatBytes[i4 + 1] << 8) +
+          (quatBytes[i4 + 2] << 16) +
+          (quatBytes[i4 + 3] << 24);
         const valueMask = (1 << 9) - 1;
-        // extract index of the largest element. 2 top bits.
         const largestIndex = combinedValues >>> 30;
         let remainingValues = combinedValues;
         let sumSquares = 0;
 
-        for (let i = 3; i >= 0; --i) {
-          if (i !== largestIndex) {
-            // extract current value and sign.
+        for (let j = 3; j >= 0; --j) {
+          if (j !== largestIndex) {
             const value = remainingValues & valueMask;
             const sign = (remainingValues >>> 9) & 0x1;
-            // each value is represented as 10 bits. Shift to next one.
             remainingValues = remainingValues >>> 10;
-            // convert to range [0,1] and then to [0, 0.7071]
-            quaternion[i] = maxValue * (value / valueMask);
-            // apply sign.
-            quaternion[i] = sign === 0 ? quaternion[i] : -quaternion[i];
-            // accumulate the sum of squares
-            sumSquares += quaternion[i] * quaternion[i];
+            quaternion[j] = maxValue * (value / valueMask);
+            quaternion[j] = sign === 0 ? quaternion[j] : -quaternion[j];
+            sumSquares += quaternion[j] * quaternion[j];
           }
         }
 
-        // quartenion length must be 1 (x^2+y^2+z^2+w^2 = 1)
-        // so can reconstruct largest component from the other 3.
-        // w = sqrt(1 - x^2 - y^2 - z^2);
-        const square = 1 - sumSquares;
-        quaternion[largestIndex] = Math.sqrt(Math.max(square, 0));
+        quaternion[largestIndex] = Math.sqrt(Math.max(1 - sumSquares, 0));
 
         quatCallback?.(
           i,
@@ -233,7 +307,8 @@ export class SpzReader {
         );
       }
     } else {
-      const quatBytes = await this.reader.read(this.numSplats * 3);
+      // First-three quaternion encoding (v1/v2): store x/y/z as uint8, reconstruct w.
+      const quatBytes = await read(this.numSplats * 3);
       for (let i = 0; i < this.numSplats; i++) {
         const i3 = i * 3;
         const quatX = quatBytes[i3] / 127.5 - 1;
@@ -250,7 +325,7 @@ export class SpzReader {
       const sh1 = new Float32Array(3 * 3);
       const sh2 = this.shDegree >= 2 ? new Float32Array(5 * 3) : undefined;
       const sh3 = this.shDegree >= 3 ? new Float32Array(7 * 3) : undefined;
-      const shBytes = await this.reader.read(
+      const shBytes = await read(
         this.numSplats * SH_DEGREE_TO_VECS[this.shDegree] * 3,
       );
 
@@ -275,7 +350,8 @@ export class SpzReader {
         shCallback?.(i, sh1, sh2, sh3);
       }
     }
-    if (this.flagLod) {
+    // LOD extension is only present in gzip-based (v1-v3) files.
+    if (this.flagLod && this.reader !== null) {
       let bytes = await this.reader.read(this.numSplats * 2);
       for (let i = 0; i < this.numSplats; i++) {
         const i2 = i * 2;
@@ -301,12 +377,21 @@ const SH_DEGREE_TO_VECS: Record<number, number> = { 1: 3, 2: 8, 3: 15 };
 const SH_C0 = 0.28209479177387814;
 
 export const SPZ_MAGIC = 0x5053474e; // NGSP = Niantic gaussian splat
-export const SPZ_VERSION = 3;
+export const SPZ_VERSION = 4;
 export const FLAG_ANTIALIASED = 0x1;
+const NGSP_HEADER_SIZE = 32;
+const TOC_ENTRY_SIZE = 16; // [compressedSize u64 LE][uncompressedSize u64 LE]
+const ZSTD_COMPRESSION_LEVEL = 12;
 
+// SPZ v4 writer: each attribute lives in its own Uint8Array buffer; finalize() ZSTD-compresses
+// each one and assembles the [header | TOC | streams] file layout.
 export class SpzWriter {
-  buffer: ArrayBuffer;
-  view: DataView;
+  positions: Uint8Array; // 9 bytes per splat (24-bit signed fixed-point x,y,z)
+  alphas: Uint8Array; // 1 byte per splat
+  colors: Uint8Array; // 3 bytes per splat
+  scales: Uint8Array; // 3 bytes per splat (log-encoded)
+  rotations: Uint8Array; // 4 bytes per splat (smallest-three quaternion)
+  sh: Uint8Array; // SH_DEGREE_TO_VECS[shDegree] * 3 bytes per splat (length 0 if shDegree==0)
   numSplats: number;
   shDegree: number;
   fractionalBits: number;
@@ -325,69 +410,48 @@ export class SpzWriter {
     fractionalBits?: number;
     flagAntiAlias?: boolean;
   }) {
-    const splatSize =
-      9 + // Position
-      1 + // Opacity
-      3 + // Scale
-      3 + // DC-rgb
-      4 + // Rotation
-      (shDegree >= 1 ? 9 : 0) +
-      (shDegree >= 2 ? 15 : 0) +
-      (shDegree >= 3 ? 21 : 0);
-    const bufferSize = 16 + numSplats * splatSize;
-    this.buffer = new ArrayBuffer(bufferSize);
-    this.view = new DataView(this.buffer);
-
-    this.view.setUint32(0, SPZ_MAGIC, true); // NGSP
-    this.view.setUint32(4, SPZ_VERSION, true);
-    this.view.setUint32(8, numSplats, true);
-    this.view.setUint8(12, shDegree);
-    this.view.setUint8(13, fractionalBits);
-    this.view.setUint8(14, flagAntiAlias ? FLAG_ANTIALIASED : 0);
-    this.view.setUint8(15, 0); // Reserved
-
     this.numSplats = numSplats;
     this.shDegree = shDegree;
     this.fractionalBits = fractionalBits;
     this.fraction = 1 << fractionalBits;
     this.flagAntiAlias = flagAntiAlias;
+
+    this.positions = new Uint8Array(numSplats * 9);
+    this.alphas = new Uint8Array(numSplats);
+    this.colors = new Uint8Array(numSplats * 3);
+    this.scales = new Uint8Array(numSplats * 3);
+    this.rotations = new Uint8Array(numSplats * 4);
+    const shVecs = SH_DEGREE_TO_VECS[shDegree] || 0;
+    this.sh = new Uint8Array(numSplats * shVecs * 3);
   }
 
   setCenter(index: number, x: number, y: number, z: number) {
-    // Divide by this.fraction and round to nearest integer,
-    // then write as 3-bytes per x then y then z.
+    // Divide by this.fraction, round to nearest integer, write as 3 bytes per axis.
     const xRounded = Math.round(x * this.fraction);
     const xInt = Math.max(-0x7fffff, Math.min(0x7fffff, xRounded));
     const yRounded = Math.round(y * this.fraction);
     const yInt = Math.max(-0x7fffff, Math.min(0x7fffff, yRounded));
     const zRounded = Math.round(z * this.fraction);
     const zInt = Math.max(-0x7fffff, Math.min(0x7fffff, zRounded));
-    const clipped = xRounded !== xInt || yRounded !== yInt || zRounded !== zInt;
-    if (clipped) {
+    if (xRounded !== xInt || yRounded !== yInt || zRounded !== zInt) {
       this.clippedCount += 1;
-      // if (this.clippedCount < 10) {
-      //   // Write x y z also in hex
-      //   console.log(`Clipped ${index}: ${x}, ${y}, ${z} (0x${x.toString(16)}, 0x${y.toString(16)}, 0x${z.toString(16)}) -> ${xRounded}, ${yRounded}, ${zRounded} (0x${xRounded.toString(16)}, 0x${yRounded.toString(16)}, 0x${zRounded.toString(16)}) -> ${xInt}, ${yInt}, ${zInt} (0x${xInt.toString(16)}, 0x${yInt.toString(16)}, 0x${zInt.toString(16)})`);
-      // }
     }
-    const i9 = index * 9;
-    const base = 16 + i9;
-    this.view.setUint8(base, xInt & 0xff);
-    this.view.setUint8(base + 1, (xInt >> 8) & 0xff);
-    this.view.setUint8(base + 2, (xInt >> 16) & 0xff);
-    this.view.setUint8(base + 3, yInt & 0xff);
-    this.view.setUint8(base + 4, (yInt >> 8) & 0xff);
-    this.view.setUint8(base + 5, (yInt >> 16) & 0xff);
-    this.view.setUint8(base + 6, zInt & 0xff);
-    this.view.setUint8(base + 7, (zInt >> 8) & 0xff);
-    this.view.setUint8(base + 8, (zInt >> 16) & 0xff);
+    const base = index * 9;
+    this.positions[base] = xInt & 0xff;
+    this.positions[base + 1] = (xInt >> 8) & 0xff;
+    this.positions[base + 2] = (xInt >> 16) & 0xff;
+    this.positions[base + 3] = yInt & 0xff;
+    this.positions[base + 4] = (yInt >> 8) & 0xff;
+    this.positions[base + 5] = (yInt >> 16) & 0xff;
+    this.positions[base + 6] = zInt & 0xff;
+    this.positions[base + 7] = (zInt >> 8) & 0xff;
+    this.positions[base + 8] = (zInt >> 16) & 0xff;
   }
 
   setAlpha(index: number, alpha: number) {
-    const base = 16 + this.numSplats * 9 + index;
-    this.view.setUint8(
-      base,
-      Math.max(0, Math.min(255, Math.round(alpha * 255))),
+    this.alphas[index] = Math.max(
+      0,
+      Math.min(255, Math.round(alpha * 255)),
     );
   }
 
@@ -397,25 +461,25 @@ export class SpzWriter {
   }
 
   setRgb(index: number, r: number, g: number, b: number) {
-    const base = 16 + this.numSplats * 10 + index * 3;
-    this.view.setUint8(base, SpzWriter.scaleRgb(r));
-    this.view.setUint8(base + 1, SpzWriter.scaleRgb(g));
-    this.view.setUint8(base + 2, SpzWriter.scaleRgb(b));
+    const base = index * 3;
+    this.colors[base] = SpzWriter.scaleRgb(r);
+    this.colors[base + 1] = SpzWriter.scaleRgb(g);
+    this.colors[base + 2] = SpzWriter.scaleRgb(b);
   }
 
   setScale(index: number, scaleX: number, scaleY: number, scaleZ: number) {
-    const base = 16 + this.numSplats * 13 + index * 3;
-    this.view.setUint8(
-      base,
-      Math.max(0, Math.min(255, Math.round((Math.log(scaleX) + 10) * 16))),
+    const base = index * 3;
+    this.scales[base] = Math.max(
+      0,
+      Math.min(255, Math.round((Math.log(scaleX) + 10) * 16)),
     );
-    this.view.setUint8(
-      base + 1,
-      Math.max(0, Math.min(255, Math.round((Math.log(scaleY) + 10) * 16))),
+    this.scales[base + 1] = Math.max(
+      0,
+      Math.min(255, Math.round((Math.log(scaleY) + 10) * 16)),
     );
-    this.view.setUint8(
-      base + 2,
-      Math.max(0, Math.min(255, Math.round((Math.log(scaleZ) + 10) * 16))),
+    this.scales[base + 2] = Math.max(
+      0,
+      Math.min(255, Math.round((Math.log(scaleZ) + 10) * 16)),
     );
   }
 
@@ -423,23 +487,21 @@ export class SpzWriter {
     index: number,
     ...q: [number, number, number, number] // x, y, z, w
   ) {
-    const base = 16 + this.numSplats * 16 + index * 4;
-
+    const base = index * 4;
     const quat = normalize(q);
 
-    // Find largest component
+    // Smallest-three encoding: drop the largest component and reconstruct from |q|=1.
     let iLargest = 0;
     for (let i = 1; i < 4; ++i) {
       if (Math.abs(quat[i]) > Math.abs(quat[iLargest])) {
         iLargest = i;
       }
     }
-
-    // Since -quat represents the same rotation as quat, transform the quaternion so the largest element
-    // is positive. This avoids having to send its sign bit.
+    // -q represents the same rotation as q; flip so the largest element is positive
+    // and we can avoid sending its sign bit.
     const negate = quat[iLargest] < 0 ? 1 : 0;
 
-    // Do compression using sign bit and 9-bit precision per element.
+    // Pack: [2-bit iLargest][3 × (1-bit sign + 9-bit magnitude)] = 32 bits total.
     let comp = iLargest;
     for (let i = 0; i < 4; ++i) {
       if (i !== iLargest) {
@@ -451,10 +513,10 @@ export class SpzWriter {
       }
     }
 
-    this.view.setUint8(base, comp & 0xff);
-    this.view.setUint8(base + 1, (comp >> 8) & 0xff);
-    this.view.setUint8(base + 2, (comp >> 16) & 0xff);
-    this.view.setUint8(base + 3, (comp >>> 24) & 0xff);
+    this.rotations[base] = comp & 0xff;
+    this.rotations[base + 1] = (comp >> 8) & 0xff;
+    this.rotations[base + 2] = (comp >> 16) & 0xff;
+    this.rotations[base + 3] = (comp >>> 24) & 0xff;
   }
 
   static quantizeSh(sh: number, bits: number) {
@@ -472,43 +534,86 @@ export class SpzWriter {
     sh3?: Float32Array,
   ) {
     const shVecs = SH_DEGREE_TO_VECS[this.shDegree] || 0;
-    const base1 = 16 + this.numSplats * 20 + index * shVecs * 3;
+    const base1 = index * shVecs * 3;
     for (let j = 0; j < 9; ++j) {
-      this.view.setUint8(base1 + j, SpzWriter.quantizeSh(sh1[j], 5));
+      this.sh[base1 + j] = SpzWriter.quantizeSh(sh1[j], 5);
     }
     if (sh2) {
       const base2 = base1 + 9;
       for (let j = 0; j < 15; ++j) {
-        this.view.setUint8(base2 + j, SpzWriter.quantizeSh(sh2[j], 4));
+        this.sh[base2 + j] = SpzWriter.quantizeSh(sh2[j], 4);
       }
       if (sh3) {
         const base3 = base2 + 15;
         for (let j = 0; j < 21; ++j) {
-          this.view.setUint8(base3 + j, SpzWriter.quantizeSh(sh3[j], 4));
+          this.sh[base3 + j] = SpzWriter.quantizeSh(sh3[j], 4);
         }
       }
     }
   }
 
   async finalize(): Promise<Uint8Array> {
-    const input = new Uint8Array(this.buffer);
-    const stream = new ReadableStream({
-      async start(controller) {
-        controller.enqueue(input);
-        controller.close();
-      },
-    });
-    const compressed = stream.pipeThrough(new CompressionStream("gzip"));
-    const response = new Response(compressed);
-    const buffer = await response.arrayBuffer();
-    console.log(
-      "Compressed",
-      input.length,
-      "bytes to",
-      buffer.byteLength,
-      "bytes",
+    await ensureZstdInit();
+    // Stream order matches the C++ reference encoder: positions, alphas, colors,
+    // scales, rotations, sh. Zero-size streams are skipped.
+    const rawStreams: Uint8Array[] = [
+      this.positions,
+      this.alphas,
+      this.colors,
+      this.scales,
+      this.rotations,
+    ];
+    if (this.sh.length > 0) {
+      rawStreams.push(this.sh);
+    }
+
+    const compressed = rawStreams.map((s) =>
+      zstdCompress(s, ZSTD_COMPRESSION_LEVEL),
     );
-    return new Uint8Array(buffer);
+
+    const numStreams = rawStreams.length;
+    const tocByteOffset = NGSP_HEADER_SIZE;
+    const tocSize = numStreams * TOC_ENTRY_SIZE;
+    let totalCompressed = 0;
+    for (const c of compressed) totalCompressed += c.length;
+    const totalSize = tocByteOffset + tocSize + totalCompressed;
+
+    const out = new Uint8Array(totalSize);
+    const view = new DataView(out.buffer);
+
+    // 32-byte NGSP header
+    view.setUint32(0, SPZ_MAGIC, true);
+    view.setUint32(4, SPZ_VERSION, true); // 4
+    view.setUint32(8, this.numSplats, true);
+    view.setUint8(12, this.shDegree);
+    view.setUint8(13, this.fractionalBits);
+    view.setUint8(14, this.flagAntiAlias ? FLAG_ANTIALIASED : 0);
+    view.setUint8(15, numStreams);
+    view.setUint32(16, tocByteOffset, true);
+    // bytes 20-31: reserved (already zero-initialized)
+
+    // TOC: numStreams × 16 bytes, each [compressedSize u64 LE][uncompressedSize u64 LE]
+    for (let i = 0; i < numStreams; i++) {
+      const e = tocByteOffset + i * TOC_ENTRY_SIZE;
+      view.setUint32(e, compressed[i].length, true);
+      view.setUint32(e + 4, 0, true); // hi 32 bits of compressedSize
+      view.setUint32(e + 8, rawStreams[i].length, true);
+      view.setUint32(e + 12, 0, true); // hi 32 bits of uncompressedSize
+    }
+
+    // Concatenated compressed streams
+    let dataOffset = tocByteOffset + tocSize;
+    for (const c of compressed) {
+      out.set(c, dataOffset);
+      dataOffset += c.length;
+    }
+
+    let totalRaw = 0;
+    for (const s of rawStreams) totalRaw += s.length;
+    console.log(
+      `SPZ v4: ${this.numSplats} splats, ${totalRaw} bytes raw -> ${totalSize} bytes (header+TOC+ZSTD)`,
+    );
+    return out;
   }
 }
 
