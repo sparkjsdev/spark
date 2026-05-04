@@ -227,35 +227,41 @@ export interface SparkRendererOptions {
    * @default 3
    */
   numLodFetchers?: number;
-  /* Full-width angle in degrees of fixed foveation cone along the view direction
+  /**
+   * Full-width angle in degrees of fixed foveation cone along the view direction
    * with no foveation applied (full resolution, foveate=1.0). Set to 0 to disable.
    * @default 90.0
    */
   coneFov0?: number;
-  /* Full-width angle in degrees of fixed foveation cone along the view direction
+  /**
+   * Full-width angle in degrees of fixed foveation cone along the view direction
    * with reduced resolution specified by `coneFoveate`. Foveation will be applied
    * smoothly from 1.0 down to `coneFoveate` as you move outward from
    * `coneFov0` to `coneFov`. Set to 0 to disable.
    * @default 120.0
    */
   coneFov?: number;
-  /* Foveation scale to apply to LoD splats at the edge of coneFov. Foveation will
+  /**
+   * Foveation scale to apply to LoD splats at the edge of coneFov. Foveation will
    * be applied smoothly from `coneFoveate` down to `behindFoveate` as you move
    * outward from `coneFov` to 180 degrees (behind the viewer).
    * @default 0.4
    */
   coneFoveate?: number;
-  /* Foveation scale to apply to LoD splats behind the viewer. Setting this to 0.1
+  /**
+   * Foveation scale to apply to LoD splats behind the viewer. Setting this to 0.1
    * for example will result in splats 10x larger than inside the viewing frustum.
    * @default 0.2
    */
   behindFoveate?: number;
-  /* How many LoD splats to generate for raycasting
+  /**
+   * How many LoD splats to generate for raycasting
    * @default 10000-25000 iff default canvas target is used
    */
   lodRaycast?: number;
   lodRaycastIntervalMs?: number;
-  /* Configures an offline render target for the SparkRenderer (as opposed to
+  /**
+   * Configures an offline render target for the SparkRenderer (as opposed to
    * rendering to the canvas). This is useful for rendering environment maps,
    * additional viewpoints, or video frame rendering.
    * @default undefined
@@ -284,30 +290,36 @@ export interface SparkRendererOptions {
      */
     superXY?: number;
   } & THREE.RenderTargetOptions;
-  /* Extra uniform values to pass to the shader.
+  /**
+   * Extra uniform values to pass to the shader.
    * @default undefined = no extra uniforms
    */
   extraUniforms?: Record<string, unknown>;
-  /* Replace the default `splatVertex.glsl` splat shader with a custom one.
+  /**
+   * Replace the default `splatVertex.glsl` splat shader with a custom one.
    * @default undefined = use the default `splatVertex.glsl` shader
    */
   vertexShader?: string;
-  /* Replace the default `splatFragment.glsl` splat shader with a custom one.
+  /**
+   * Replace the default `splatFragment.glsl` splat shader with a custom one.
    * @default undefined = use the default `splatFragment.glsl` shader
    */
   fragmentShader?: string;
-  /* Set the splat shader material to be transparent which determines if the
+  /**
+   * Set the splat shader material to be transparent which determines if the
    * splats are rendered during the first opaque THREE.js render pass or the
    * second transparent render pass.
    * @default undefined = true
    */
   transparent?: boolean;
-  /* Set the splat shader material to enable depth testing which determines if the
+  /**
+   * Set the splat shader material to enable depth testing which determines if the
    * splats respect the Z depth buffer and blend with other opaque objects in the scene.
    * @default undefined = true
    */
   depthTest?: boolean;
-  /* Set the splat shader material to enable depth writing which determines if the
+  /**
+   * Set the splat shader material to enable depth writing which determines if the
    * splats write to the Z depth buffer. Note that enabling this may produce
    * undesirable results because most of the Gsplat is transparent.
    * @default undefined = false
@@ -316,10 +328,9 @@ export interface SparkRendererOptions {
 }
 
 export class SparkRenderer extends THREE.Mesh {
-  renderer: THREE.WebGLRenderer;
-  premultipliedAlpha: boolean;
-  material: THREE.ShaderMaterial;
-  uniforms: ReturnType<typeof SparkRenderer.makeUniforms>;
+  readonly renderer: THREE.WebGLRenderer;
+  readonly material: THREE.ShaderMaterial;
+  readonly uniforms: ReturnType<typeof SparkRenderer.makeUniforms>;
 
   autoUpdate: boolean;
   preUpdate: boolean;
@@ -494,7 +505,6 @@ export class SparkRenderer extends THREE.Mesh {
     this.renderer = options.renderer;
     this.onDirty = options.onDirty;
     this.dirty = true;
-    this.premultipliedAlpha = premultipliedAlpha;
     this.autoUpdate = options.autoUpdate ?? true;
     this.preUpdate = options.preUpdate ?? true;
 
@@ -2066,5 +2076,16 @@ export class SparkRenderer extends THREE.Mesh {
     throw new Error(
       "Only LoD-enabled PackedSplats and ExtSplats are supported",
     );
+  }
+
+  get premultipliedAlpha(): boolean {
+    return this.material.premultipliedAlpha;
+  }
+
+  set premultipliedAlpha(value: boolean) {
+    if (this.material.premultipliedAlpha !== value) {
+      this.material.premultipliedAlpha = value;
+      this.material.needsUpdate = true;
+    }
   }
 }
