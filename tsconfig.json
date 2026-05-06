@@ -13,7 +13,11 @@
     "sourceMap": true,
     "outDir": "./dist",
     "rootDir": "./src",
-    "types": ["vite/client", "vite-plugin-glsl/ext"]
+    "types": [
+      "vite/client",
+      "vite-plugin-glsl/ext",
+      "vite-plugin-arraybuffer/types"
+    ]
   },
   "ts-node": {
     "experimentalSpecifierResolution": "node",

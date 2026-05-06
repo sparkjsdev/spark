@@ -1,7 +1,6 @@
 [workspace]
 members = [
     "build-lod",
-    "spark-worker-rs",
     "spark-rs",
     "spark-lib",
 ]

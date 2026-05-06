@@ -1,4 +1,5 @@
 import { getTransferable } from "./utils";
+import { WASM_MODULE } from "./wasm";
 import BundledWorker from "./worker?worker&inline";
 
 type PromiseRecord = {
@@ -16,6 +17,9 @@ export class SplatWorker {
   constructor() {
     this.worker = new BundledWorker();
     this.worker.onmessage = (event) => this.onMessage(event);
+    WASM_MODULE.then((module) => {
+      this.worker.postMessage({ name: "init-wasm", module });
+    });
   }
 
   onMessage(event: MessageEvent) {
