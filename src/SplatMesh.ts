@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-import init_wasm, {
+import {
   get_raycast_buffer,
   get_raycast_buffer2,
   raycast_ext_buffers,
@@ -9,7 +9,6 @@ import init_wasm, {
 import { ExtSplats } from "./ExtSplats";
 import { PackedSplats } from "./PackedSplats";
 import { type RgbaArray, TRgbaArray } from "./RgbaArray";
-import { SparkRenderer } from "./SparkRenderer";
 import { SplatEdit, SplatEditSdf, SplatEdits } from "./SplatEdit";
 import {
   type CovSplatModifier,
@@ -49,6 +48,7 @@ import {
   splitGsplat,
   unindentLines,
 } from "./dyno";
+import * as wasm from "./wasm";
 
 export type SplatMeshOptions = {
   // URL to fetch a Gaussian splat file from(supports .ply, .splat, .ksplat,
@@ -497,15 +497,7 @@ export class SplatMesh extends SplatGenerator {
     }
   }
 
-  static staticInitialized = SplatMesh.staticInitialize();
-  static isStaticInitialized = false;
-
   static dynoTime = new DynoFloat({ value: 0 });
-
-  static async staticInitialize() {
-    await init_wasm();
-    SplatMesh.isStaticInitialized = true;
-  }
 
   // Creates a new Gsplat with the provided parameters (all values in "float" space,
   // i.e. 0-1 for opacity and color) and adds it to the end of the packedSplats,
@@ -1010,7 +1002,7 @@ export class SplatMesh extends SplatGenerator {
     }[],
   ) {
     if (
-      !SplatMesh.isStaticInitialized ||
+      !wasm.isInitialized() ||
       !this.raycastable ||
       (!this.packedSplats && !this.extSplats && !this.paged)
     ) {

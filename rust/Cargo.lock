@@ -1065,18 +1065,6 @@ dependencies = [
 name = "spark-rs"
 version = "0.1.0"
 dependencies = [
- "console_error_panic_hook",
- "half",
- "js-sys",
- "serde-wasm-bindgen",
- "spark-lib",
- "wasm-bindgen",
-]
-
-[[package]]
-name = "spark-worker-rs"
-version = "0.1.0"
-dependencies = [
  "ahash 0.8.12",
  "anyhow",
  "console_error_panic_hook",

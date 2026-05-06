@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-import init_wasm, { decode_rad_header } from "spark-rs";
+import { decode_rad_header } from "spark-rs";
 import { LN_SCALE_MAX, LN_SCALE_MIN, dyno } from ".";
 import { evaluateExtSH } from "./ExtSplats";
 import { evaluatePackedSH } from "./PackedSplats";
@@ -17,6 +17,7 @@ import {
 } from "./defines";
 import { pagedSplatTexCoord } from "./dyno";
 import { getTextureSize } from "./utils";
+import * as wasm from "./wasm";
 
 export interface PagedSplatsOptions {
   pager?: SplatPager;
@@ -114,7 +115,7 @@ export class PagedSplats implements SplatSource {
     }
 
     this.radMetaPromise = (async () => {
-      await wasmInitialized;
+      await wasm.initialization;
 
       if (this.fileBytes) {
         // Shouldn't be more than 1 MB, so don't send more data than that.
@@ -1472,8 +1473,6 @@ function getGlTexture(
   }
   return glTexture;
 }
-
-const wasmInitialized = init_wasm();
 
 async function fetchRange({
   url,
