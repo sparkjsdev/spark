@@ -1,8 +1,38 @@
-### 2.0.0 (Apr 14, 2026)
+## 2.0.0 (Apr 14, 2026)
 
-LOD System (details coming soon)
+Spark 2.0 is a major release that adds a Level-of-Detail (LoD) system for 3DGS, enabling huge worlds to be rendered on the web on any device, with progressive streaming, virtual splat paging, and higher precision storage. It remains mostly backward compatible with 0.1 apps.
 
-### 0.1.10 (Oct 24, 2025)
+### New features
+
+- New `SparkRenderer` that supports rendering multiple LoD splat trees computed according to max splat counts, minimum screen-space size, and camera foveation. Also supports rendering splats from a virtual paging system, extended precision encoding. New options for custom render targets and overriding material properties including custom shaders and uniforms.
+- Tunable LoD rendering: max splat count tunable with `SparkRenderer.lodSplatCount` and `.lodSplatScale`, minimum detail with `.lodRenderScale`, foveation parameters using `.coneFov0`, `.coneFov`, `.coneFoveate`, and `.behindFoveate`. Individual meshes tunable using `SplatMesh.lodScale`, `.coneFov(0)`, `.coneFoveate`, and `.behindFoveate`.
+- New splat file format `.RAD` (RADiance field) that supports custom field encoding, columnar storage and compression, and chunked random access, enabling progressive loading and streaming of huge 3DGS scenes.
+- Two 3DGS downsampling algorithms: `tiny-lod` for generating LoD splat trees on-demand in the browser after loading, and `bhatt-lod` for higher-quality LoD splat tree generation in an offline setting. Both algorithms can be run in the browser or from the `build-lod` cmdline tool.
+- On-demand LoD splat creation using `new SplatMesh({ lod: true })` and `SplatMesh.createLodSplats`, and instant toggling between LoD and non-LoD versions of the splats using `SplatMesh.enableLod`.
+- Virtual splat paging system `SplatPager` to preallocate GPU buffers shared across splat objects, loaded across the network in order prioritized by the viewpoint, managed in LRU fashion.
+- High-precision splat encoding in `ExtSplats` that mirrors `PackedSplats` and alleviates most precision issues. High precision usage selectable using `SplatMesh.extSplats`,`SparkRenderer.pagedExtSplats`, and `.accumExtSplats`.
+- Multiple viewport rendering using multiple `SparkRenderer`, generalizing viewport rendering to encompass different scenes, splats, and shader effects between renders.
+
+### Enhancements
+
+- Huge file loading support from `ReadableStream`, enabling multi-GB splat files from URLs or local drag-and-drop without first allocating a full `Uint8Array`.
+- Chainable splat Dyno modifiers using `SplatMesh.objectModifiers` and `.worldModifiers` arrays.
+- New `SparkXr` wrapper for AR / VR experiences
+
+### Breaking changes
+
+- Apps must now explicitly create a `SparkRenderer` and add it to the scene. Spark no longer automatically injects one because it would sometimes result in multiple renderers within the scene.
+- Multiple viewpoints now use multiple `SparkRenderer` instances instead of `spark.newViewpoint()`, and sorting options are configured directly on each renderer.
+- Spark 2.0 requires THREE.js r179 or newer, replaces `VRButton` with `SparkXr`, and replaces `SparkRenderer.getRgba()` / `.readRgba()` workflows with generator-based RGBA rendering.
+- `OldSparkRenderer` and related `Old*` classes are available as temporary fallbacks for code that still depends on the 0.1 renderer model.
+
+### Deprecations
+
+- Deprecated the experimental stochastic sort-free rendering mode.
+- Deprecated splat texture support for arbitrary per-splat RGBA texture profiles.
+
+
+## 0.1.10 (Oct 24, 2025)
 
 [SOG v2](https://blog.playcanvas.com/playcanvas-open-sources-sog-format-for-gaussian-splatting/) support, new examples and bug fixes
 
@@ -23,7 +53,7 @@ LOD System (details coming soon)
 - Make bash script conform to "standard" (#197) (@Philipp-M)
 - Fix issue with splats rendered at incorrect position for a few frames (#200) (fix #192, #193) (@mrxz)
 
-### 0.1.9 (Sep 22, 2025)
+## 0.1.9 (Sep 22, 2025)
 
 Performance improvements, SPZ v3 support, new splat transition and reveal effects, brush painting / erasing splat example.
 
@@ -43,7 +73,7 @@ Performance improvements, SPZ v3 support, new splat transition and reveal effect
 - Use native `Float16Array` to encode a number as a float16 if available. (#161) (@mrxz)
 - Splat brush painting / brush erasing example (#165) (@winnie1994)
 
-### 0.1.8 (July 31, 2025)
+## 0.1.8 (July 31, 2025)
 
 Bug fix + SplatMesh bounding box calculation.
 
@@ -52,7 +82,7 @@ Bug fix + SplatMesh bounding box calculation.
 - Fix SH encoding scale factors (#142) (@asundqui, @mrxz, @heimeii)
 - Calculate a SplatMesh's bounding box! `SplatMesh.getBoundingBox()` (#126) (@winnie1994)
 
-### 0.1.7 (July 30, 2025)
+## 0.1.7 (July 30, 2025)
 
 Image quality and performance improvements.
 
@@ -74,7 +104,7 @@ Image quality and performance improvements.
 - Remove `SparkRenderer` blending parameter. Rely instead on `THREE.js` built-in support for `premultipliedAlpha` that sets the right blending mode automatically (#136) (@mrxz)
 
 
-### 0.1.6 (July 11, 2025)
+## 0.1.6 (July 11, 2025)
 
 Visual quality improvements, .zip sogs file support, bug fixes.
 
@@ -94,7 +124,7 @@ Visual quality improvements, .zip sogs file support, bug fixes.
 - Prevent unintentional reuse of ArrayBuffer on concurrent file requests or hits to THREE.Cache. Replace use of THREE.FileLoader with fetch API (#94, #112) (fix #93) (@mrxz, @asundqui)
 
 
-### 0.1.5 (July 1, 2025)
+## 0.1.5 (July 1, 2025)
 
 Visual quality improvements and [SOGS](https://blog.playcanvas.com/playcanvas-adopts-sogs-for-20x-3dgs-compression/) support
 
@@ -111,7 +141,7 @@ Visual quality improvements and [SOGS](https://blog.playcanvas.com/playcanvas-ad
 - Visual quality, Fix incorrect calculation of renderer size. Especially improves rendering in high DPI displays (#71) (@mrxz)
 - Fix support of compressed .ply files exported from SuperSplat. Newer versions include min/max_r/g/b properties in the header that were not parsed (#82) (@asundqui)
 
-### 0.1.4 (June 24, 2025)
+## 0.1.4 (June 24, 2025)
 
 ### Enhancements
 
@@ -125,15 +155,15 @@ Visual quality improvements and [SOGS](https://blog.playcanvas.com/playcanvas-ad
 - Option to disable SparkControls camera roll for touch controls (fix #46) (#60) (@asundqui)
 - Fix sign in SH2 coefficient signs improving visual quality (#64)
 
-### 0.1.3 (June 11, 2025)
+## 0.1.3 (June 11, 2025)
 
 Fix types export in npm package.
 
-### 0.1.2 (June 10, 2025)
+## 0.1.2 (June 10, 2025)
 
 It removes unnecessary dependencies from npm package.
 
-### 0.1.1 (June 10, 2025)
+## 0.1.1 (June 10, 2025)
 
 ### Bug fixes
 
@@ -142,6 +172,6 @@ It removes unnecessary dependencies from npm package.
 - Fix SplatMesh not rendering when it's a child of an Object3D (#38) (@dmarcos)
 
 
-### 0.1.0 (June 2, 2025)
+## 0.1.0 (June 2, 2025)
 
 First release
