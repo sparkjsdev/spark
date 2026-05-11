@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FullScreenQuad } from "three/examples/jsm/postprocessing/Pass.js";
+import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 import { Readback } from "./Readback";
 import { SplatEdit } from "./SplatEdit";
 import {
