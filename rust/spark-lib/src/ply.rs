@@ -381,7 +381,7 @@ fn parse_header(header: &str) -> anyhow::Result<ParsedHeader> {
                     return Err(anyhow!("Unsupported PLY version: {}", fields[2]));
                 }
             },
-            "comment" => {
+            "comment" | "obj_info" => {
                 // ignore
             },
             "element" if fields.len() == 3 => {
