@@ -1,53 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
-import MagicString from "magic-string";
-import type { Plugin } from "vite";
 import { defineConfig } from "vite";
+import arraybuffer from "vite-plugin-arraybuffer";
 import dts from "vite-plugin-dts";
 import glsl from "vite-plugin-glsl";
-
-/**
- * Vite plugin to fix WASM data URL compatibility with webpack/Next.js.
- *
- * wasm-pack generates code like: new URL("data:...", import.meta.url)
- * The import.meta.url argument is unnecessary for data: URLs and causes
- * webpack/Vite to incorrectly try to rewrite the URL as a file path.
- *
- * This plugin transforms:
- *   new URL("data:...", import.meta.url) → new URL("data:...")
- *
- * Uses magic-string to ensure proper source map generation.
- *
- * See: https://github.com/sparkjsdev/spark/issues/95
- */
-function fixWasmDataUrl(): Plugin {
-  return {
-    name: "fix-wasm-data-url",
-    renderChunk(code) {
-      // Match: new URL("data:...", import.meta.url)
-      // The data URL can contain any characters including quotes (escaped)
-      const dataUrlPattern =
-        /new\s+URL\(\s*("data:[^"]*")\s*,\s*import\.meta\.url\s*\)/g;
-
-      const matches = [...code.matchAll(dataUrlPattern)];
-      if (matches.length === 0) return null;
-
-      const magicString = new MagicString(code);
-      for (const match of matches) {
-        if (match.index === undefined) continue;
-        const start = match.index;
-        const end = start + match[0].length;
-        const replacement = `new URL(${match[1]})`;
-        magicString.overwrite(start, end, replacement);
-      }
-
-      return {
-        code: magicString.toString(),
-        map: magicString.generateMap({ hires: true }),
-      };
-    },
-  };
-}
 
 const assetsDirectory = "examples/assets";
 const localAssetsDirectoryExist = fs.existsSync(assetsDirectory);
@@ -72,14 +28,13 @@ export default defineConfig(({ mode }) => {
     appType: "mpa",
 
     plugins: [
+      arraybuffer(),
       glsl({
         include: ["**/*.glsl"],
       }),
 
       dts({ outDir: "dist/types" }),
 
-      // Fix webpack/Next.js compatibility for WASM data URLs
-      fixWasmDataUrl(),
       {
         name: "serve-node-modules-alias",
         configureServer(server) {

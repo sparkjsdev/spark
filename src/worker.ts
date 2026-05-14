@@ -17,7 +17,7 @@ import init_wasm, {
   tiny_lod_extsplats,
   bhatt_lod_extsplats,
   get_lod_tree_level,
-} from "spark-worker-rs";
+} from "spark-rs";
 import type { ExtResult, PackedResult, SplatEncoding } from "./defines";
 
 const rpcHandlers = {
@@ -868,14 +868,25 @@ function getTransferable(ctx: unknown): Transferable[] {
 }
 
 async function initialize() {
+  let resolveWaitForModule: (value: WebAssembly.Module) => void;
+  const waitForModule = new Promise<WebAssembly.Module>((resolve) => {
+    resolveWaitForModule = resolve;
+  });
+
   // Hold any messages received while initializing
   const pending: MessageEvent[] = [];
   const bufferMessage = (event: MessageEvent) => {
+    // Handle module
+    if (event.data.name === "init-wasm") {
+      resolveWaitForModule(event.data.module as WebAssembly.Module);
+      return;
+    }
+
     pending.push(event);
   };
   self.addEventListener("message", bufferMessage);
 
-  await init_wasm();
+  await init_wasm({ module_or_path: await waitForModule });
 
   self.removeEventListener("message", bufferMessage);
   self.addEventListener("message", onMessage);

@@ -20,11 +20,6 @@ if (-not (Get-Command wasm-pack -ErrorAction SilentlyContinue)) {
 }
 
 # Change directory and build using wasm-pack with SIMD enabled
-Set-Location -Path "./spark-worker-rs"
-$env:RUSTFLAGS = "-C target-feature=+simd128,+bulk-memory"
-wasm-pack build --target web --release
-
-# Change directory and build using wasm-pack with SIMD enabled
-Set-Location -Path "../spark-rs"
+Set-Location -Path "./spark-rs"
 $env:RUSTFLAGS = "-C target-feature=+simd128,+bulk-memory"
 wasm-pack build --target web --release

@@ -10,10 +10,21 @@ repository.workspace = true
 [lib]
 crate-type = ["cdylib"]
 
+[package.metadata.wasm-pack.profile.release.wasm-bindgen]
+omit-default-module-path = true
+
 [dependencies]
+ahash.workspace = true
+anyhow.workspace = true
+glam.workspace = true
 half.workspace = true
 js-sys.workspace = true
+ordered-float.workspace = true
+smallvec.workspace = true
 wasm-bindgen.workspace = true
+web-sys = { workspace = true, features = ["Window", "Performance"] }
 spark-lib = { path = "../spark-lib" }
 serde-wasm-bindgen.workspace = true
+serde_json.workspace = true
+itertools.workspace = true
 console_error_panic_hook = "0.1"
