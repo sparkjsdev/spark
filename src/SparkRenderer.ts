@@ -209,6 +209,7 @@ export interface SparkRendererOptions {
    * @default false
    */
   lodInflate?: boolean;
+  lodTraverseMode?: "dynamic" | "standard";
   /**
    * Whether to use extended Gsplat encoding for paged splats, useful for eliminating
    * quantization artifacts from splat scenes with large internal position coordinates.
@@ -388,6 +389,7 @@ export class SparkRenderer extends THREE.Mesh {
   lodSplatScale: number;
   lodRenderScale: number;
   lodInflate: boolean;
+  lodTraverseMode: "dynamic" | "standard";
   pagedExtSplats: boolean;
   maxPagedSplats: number;
   numLodFetchers: number;
@@ -536,6 +538,7 @@ export class SparkRenderer extends THREE.Mesh {
     this.lodSplatScale = options.lodSplatScale ?? 1.0;
     this.lodRenderScale = options.lodRenderScale ?? 1.0;
     this.lodInflate = options.lodInflate ?? false;
+    this.lodTraverseMode = options.lodTraverseMode ?? "standard";
     this.pagedExtSplats = options.pagedExtSplats ?? false;
     const defaultPages = isMobile() ? (isIos() ? 96 : 128) : 256;
     this.maxPagedSplats = options.maxPagedSplats ?? defaultPages * 65536;
@@ -1438,6 +1441,7 @@ export class SparkRenderer extends THREE.Mesh {
       pixelScaleLimit,
       lastPixelLimit: this.lastPixelLimit,
       instances,
+      traverseMode: this.lodTraverseMode,
     })) as {
       keyIndices: Record<
         string,
@@ -1454,9 +1458,9 @@ export class SparkRenderer extends THREE.Mesh {
       (sum, { numSplats }) => sum + numSplats,
       0,
     );
-    // console.log(
-    //   `traverseLodTrees in ${this.lastTraverseTime} ms, pixelLimit=${pixelLimit}, totalLodSplats=${totalLodSplats}`,
-    // );
+    console.log(
+      `traverseLodTrees in ${this.lastTraverseTime} ms, pixelLimit=${pixelLimit}, totalLodSplats=${totalLodSplats}`,
+    );
 
     this.updateLodIndices(uuidToMesh, keyIndices);
     // console.log("chunks.length =", chunks.length);

@@ -9,6 +9,7 @@ import init_wasm, {
   init_lod_tree,
   dispose_lod_tree,
   traverse_lod_trees,
+  dynamic_traverse_lod_trees,
   type ChunkDecoder,
   tiny_lod_packedsplats,
   bhatt_lod_packedsplats,
@@ -732,6 +733,7 @@ function traverseLodTrees({
   pixelScaleLimit,
   lastPixelLimit,
   instances,
+  traverseMode,
 }: {
   maxSplats: number;
   pixelScaleLimit: number;
@@ -750,6 +752,7 @@ function traverseLodTrees({
       coneFoveate: number;
     }
   >;
+  traverseMode: "dynamic" | "standard";
 }) {
   const keyInstances = Object.entries(instances);
   const lodIds = new Uint32Array(
@@ -782,7 +785,11 @@ function traverseLodTrees({
     keyInstances.map(([_key, instance]) => instance.coneFoveate),
   );
 
-  const result = traverse_lod_trees(
+  const lodFunction =
+    traverseMode === "dynamic"
+      ? dynamic_traverse_lod_trees
+      : traverse_lod_trees;
+  const result = lodFunction(
     maxSplats,
     pixelScaleLimit,
     lastPixelLimit,
