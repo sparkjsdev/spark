@@ -560,6 +560,7 @@
     const lodFolder = gui.addFolder("Level-of-Detail").close();
     lodFolder.add(splatExtra, "lod").name("Create Level-of-Detail on load")
     lodFolder.add(spark, "lodSplatScale", 0.001, 3.0, 0.001).name("LoD splat scale").listen();
+    lodFolder.add(spark, "lodRenderScale", 0.1, 10.0, 0.1).name("Min LoD pixel size").listen();
     lodFolder.add(guiOptions, "splatCount").name("Current splat count").listen();
     lodFolder.add(spark, "coneFov0", 0.0, 170.0, 1.0).name("Cone Fov0").listen().onChange(updateConeMeshes);
     lodFolder.add(spark, "coneFov", 0.0, 170.0, 1.0).name("Cone Fov").listen().onChange(updateConeMeshes);
@@ -572,6 +573,7 @@
     lodFolder.add(spark, "behindFoveate", 0.0, 1.0, 0.01).name("Behind Foveate").listen();
     lodFolder.add(spark, "enableDriveLod").name("Enable LoD updates").listen();
     lodFolder.add(spark, "lodInflate").name("Soften LoD splats").listen();
+    lodFolder.add(spark, "lodTraverseMode", ["standard", "dynamic"]).name("LoD traverse mode").listen();
 
     const pageColoring = dyno.dynoBool(false);
     lodFolder.add(pageColoring, "value").name("Page Coloring").listen().onChange(() => {
