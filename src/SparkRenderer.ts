@@ -209,6 +209,7 @@ export interface SparkRendererOptions {
    * @default false
    */
   lodInflate?: boolean;
+  lodTraverseMode?: "dynamic" | "standard";
   /**
    * Whether to use extended Gsplat encoding for paged splats, useful for eliminating
    * quantization artifacts from splat scenes with large internal position coordinates.
@@ -388,6 +389,7 @@ export class SparkRenderer extends THREE.Mesh {
   lodSplatScale: number;
   lodRenderScale: number;
   lodInflate: boolean;
+  lodTraverseMode: "dynamic" | "standard";
   pagedExtSplats: boolean;
   maxPagedSplats: number;
   numLodFetchers: number;
@@ -536,6 +538,7 @@ export class SparkRenderer extends THREE.Mesh {
     this.lodSplatScale = options.lodSplatScale ?? 1.0;
     this.lodRenderScale = options.lodRenderScale ?? 1.0;
     this.lodInflate = options.lodInflate ?? false;
+    this.lodTraverseMode = options.lodTraverseMode ?? "standard";
     this.pagedExtSplats = options.pagedExtSplats ?? false;
     const defaultPages = isMobile() ? (isIos() ? 96 : 128) : 256;
     this.maxPagedSplats = options.maxPagedSplats ?? defaultPages * 65536;
@@ -1438,6 +1441,7 @@ export class SparkRenderer extends THREE.Mesh {
       pixelScaleLimit,
       lastPixelLimit: this.lastPixelLimit,
       instances,
+      traverseMode: this.lodTraverseMode,
     })) as {
       keyIndices: Record<
         string,
@@ -1544,6 +1548,16 @@ export class SparkRenderer extends THREE.Mesh {
 
     let oldest = null;
     for (const [splats, record] of this.lodIds.entries()) {
+      // Skip paged splats whose pages are still in the pager. Disposing
+      // the worker's LoD tree wipes its per-instance page<->chunk maps,
+      // and they can only be rebuilt by replaying update_lod_trees from
+      // the original lodTree data, which we don't retain JS-side after
+      // upload. Cached chunks emit no fetch event on reshow, so without
+      // this gate a hidden-then-shown mesh is permanently stuck with
+      // empty traversal. Pager presence is the real source of truth.
+      // if (this.pager?.splatsChunkToPage.has(splats as PagedSplats)) {
+      //   continue;
+      // }
       if (oldest == null || record.lastTouched < oldest.lastTouched) {
         oldest = {
           splats,
@@ -1564,6 +1578,10 @@ export class SparkRenderer extends THREE.Mesh {
         instance.texture.dispose();
         this.lodInstances.delete(mesh);
       }
+    }
+
+    if (oldest.splats instanceof PagedSplats) {
+      this.pager?.removeSplats(oldest.splats);
     }
 
     await worker.call("disposeLodTree", { lodId: oldest.lodId });

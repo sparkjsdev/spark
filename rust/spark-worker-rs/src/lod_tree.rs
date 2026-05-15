@@ -627,3 +627,237 @@ fn compute_pixel_scale<'a>(
     };
     foveate * pixel_scale
 }
+
+#[wasm_bindgen]
+pub fn dynamic_traverse_lod_trees(
+    max_splats: u32, pixel_scale_limit: f32, last_pixel_limit: Option<f32>,
+    // lod_instances: &Array,
+    lod_ids: &[u32], root_pages: &[u32],
+    view_to_objects: &[f32], lod_scales: &[f32],
+    behind_foveates: &[f32], cone_foveates: &[f32],
+    cone_fov0s: &[f32], cone_fovs: &[f32],
+    // readback: Uint32Array,
+    // flag: bool,
+) -> anyhow::Result<Object, JsValue> {
+
+    let max_splats = max_splats as usize;
+    let num_instances = lod_ids.len();
+    if view_to_objects.len() != num_instances * 16 {
+        return Err(JsValue::from_str("Invalid view_to_objects length"));
+    }
+    if lod_scales.len() != num_instances {
+        return Err(JsValue::from_str("Invalid lod_scales length"));
+    }
+    if behind_foveates.len() != num_instances {
+        return Err(JsValue::from_str("Invalid behind_foveates length"));
+    }
+    if cone_foveates.len() != num_instances {
+        return Err(JsValue::from_str("Invalid cone_foveates length"));
+    }
+    if cone_fov0s.len() != num_instances {
+        return Err(JsValue::from_str("Invalid cone_fov0s length"));
+    }
+    if cone_fovs.len() != num_instances {
+        return Err(JsValue::from_str("Invalid cone_fovs length"));
+    }
+
+    STATE.with_borrow_mut(|state| {
+        let performance = Reflect::get(&js_sys::global(), &JsValue::from_str("performance"))
+            .expect("globalThis.performance should exist")
+            .dyn_into::<web_sys::Performance>()
+            .expect("globalThis.performance should be a Performance object");
+
+        let LodState { lod_trees, output, .. } = state;
+        let instances: Vec<_> = lod_ids.iter().enumerate().map(|(index, &lod_id)| {
+            let lod_tree = lod_trees.get(&lod_id).unwrap();
+            let LodTree { splats, page_to_chunk, chunk_to_page } = &lod_tree;
+            let i16 = index * 16;
+            let forward = Vec3A::from_slice(&view_to_objects[(i16 + 8)..(i16 + 11)]).normalize().map(|x| -x);
+            let origin = Vec3A::from_slice(&view_to_objects[(i16 + 12)..(i16 + 15)]);
+            let lod_scale = lod_scales[index];
+            let behind_foveate = behind_foveates[index];
+            let cone_foveate = cone_foveates[index];
+            let cone_dot0 = if cone_fov0s[index] > 0.0 { (0.5 * cone_fov0s[index]).to_radians().cos() } else { 1.0 };
+            let cone_dot = if cone_fovs[index] > 0.0 { (0.5 * cone_fovs[index]).to_radians().cos() } else { 1.0 };
+            (lod_id, splats.borrow(), page_to_chunk, chunk_to_page, origin, forward, lod_scale, behind_foveate, cone_foveate, cone_dot0, cone_dot)
+        }).collect();
+
+        let mut lod_chunk_max: AHashMap<u32, Vec<f32>> = AHashMap::new();
+
+        let mut outputs = Vec::with_capacity(num_instances);
+        for (inst_index, instance) in instances.iter().enumerate() {
+            let (lod_id, splats, ..) = instance;
+            let root_page = root_pages[inst_index];
+            let root_page = if root_page == 0xFFFFFFFF { 0 } else { root_page };
+            let root_index = root_page << 16;
+            let root_scale = compute_pixel_scale(&splats[root_index as usize], instance);
+            let frontier = vec![(root_index, root_scale)];
+            let instance_output = Vec::with_capacity(1000);
+            outputs.push((instance_output, frontier));
+
+            let chunk_max = lod_chunk_max.entry(*lod_id).or_default();
+            if 0 >= chunk_max.len() {
+                chunk_max.resize(1, 0.0);
+            }
+            chunk_max[0] = f32::INFINITY;
+        }
+
+
+        let mut leaf_count = 0;
+        let mut finer_count = 0;
+        let mut missing_count = 0;
+        let mut min_pixel_scale = f32::INFINITY;
+
+        let mut current_scale = pixel_scale_limit * 100.0;
+        let limits = Array::new();
+
+        loop {
+            let iterator = instances.iter().zip(outputs).enumerate();
+            outputs = Vec::with_capacity(num_instances);
+
+            limits.push(&JsValue::from(current_scale));
+            let mut output_count = 0;
+
+            for (_inst_index, (instance, (mut instance_output, mut stack))) in iterator {
+                let (lod_id, splats, _, chunk_to_page, ..) = instance;
+                let chunk_max = lod_chunk_max.entry(*lod_id).or_default();
+                let mut frontier = Vec::with_capacity(stack.len());
+
+                while let Some((paged_index, pixel_scale)) = stack.pop() {
+                    min_pixel_scale = min_pixel_scale.min(pixel_scale);
+                    if pixel_scale <= current_scale {
+                        frontier.push((paged_index, pixel_scale));
+                        // finer_count += 1;
+                        continue;
+                    }
+
+                    let LodSplat { child_count, child_start, .. } = splats[paged_index as usize];
+                    if child_count == 0 {
+                        instance_output.push((paged_index, pixel_scale));
+                        leaf_count += 1;
+                        continue;
+                    }
+
+                    let first_chunk = child_start >> 16;
+                    let last_chunk = (child_start + child_count as u32 - 1) >> 16;
+
+                    if last_chunk as usize >= chunk_max.len() {
+                        chunk_max.resize(last_chunk as usize + 1, 0.0);
+                    }
+                    chunk_max[first_chunk as usize] = chunk_max[first_chunk as usize].max(pixel_scale);
+                    chunk_max[last_chunk as usize] = chunk_max[last_chunk as usize].max(pixel_scale);
+        
+                    if last_chunk as usize >= chunk_to_page.len() {
+                        instance_output.push((paged_index, pixel_scale));
+                        missing_count += 1;
+                        continue;
+                    }
+                    let first_page = chunk_to_page[first_chunk as usize];
+                    let last_page = chunk_to_page[last_chunk as usize];
+        
+                    if first_page == 0xFFFFFFFF || last_page == 0xFFFFFFFF {
+                        instance_output.push((paged_index, pixel_scale));
+                        missing_count += 1;
+                        continue;
+                    }
+        
+                    for child in child_start..child_start + child_count as u32 {
+                        let child_chunk = (child >> 16) as usize;
+                        let child_page = chunk_to_page[child_chunk];
+                        let paged_index = (child_page << 16) | (child & 0xffff);
+                        let pixel_scale = compute_pixel_scale(&splats[paged_index as usize], instance);
+                        if pixel_scale <= current_scale {
+                            if pixel_scale <= pixel_scale_limit {
+                                instance_output.push((paged_index, pixel_scale));
+                            } else {
+                                frontier.push((paged_index, pixel_scale));
+                            }
+                            // finer_count += 1;
+                        } else {
+                            stack.push((paged_index, pixel_scale));
+                        }
+                    }
+                }
+
+                output_count += instance_output.len() + frontier.len();
+                outputs.push((instance_output, frontier));
+            }
+
+            limits.push(&JsValue::from(output_count));
+
+            let ratio = output_count as f32 / max_splats as f32;
+            // let next_scale = (0.9 * current_scale * ratio.powf(1.0 / 1.5)).max(pixel_scale_limit);
+            let next_scale = 0.99 * current_scale * ratio.powf(1.0 / 2.0);
+            // let next_scale = (0.9 * current_scale).max(pixel_scale_limit);
+            let next_scale = next_scale.max(0.5 * current_scale);
+            let next_scale = next_scale.max(pixel_scale_limit);
+
+            let no_frontier = outputs.iter().all(|(_, frontier)| frontier.is_empty());
+
+            if no_frontier || (next_scale == current_scale) || output_count >= max_splats {
+                break;
+            }
+
+            current_scale = next_scale;
+            // loop
+        };
+
+        // let output_size = output.len();
+
+        let mut touched: Vec<_> = lod_chunk_max.into_iter().flat_map(|x| {
+            let (lod_id, chunk_max) = x;
+            chunk_max.into_iter().enumerate().filter_map(move |(chunk, max)| {
+                if max == 0.0 {
+                    None
+                } else {
+                    Some((OrderedFloat(-max), lod_id, chunk as u32))
+                }
+            })
+        }).collect();
+        touched.sort_unstable();
+
+        let test_start = performance.now();
+        let test_time = performance.now() - test_start;
+
+        let instance_indices = Array::new();
+        let mut output_size = 0;
+
+        for (inst_index, (mut instance_output, frontier)) in outputs.into_iter().enumerate() {
+            output_size += frontier.len();
+            instance_output.extend(frontier);
+            let rows = instance_output.len().div_ceil(16384);
+            let capacity = rows * 16384;
+            let output = Uint32Array::new_with_length(capacity as u32);
+            let output_u32: Vec<u32> = instance_output.into_iter().map(|(paged_index, _)| paged_index).collect();
+            output.subarray(0, output_u32.len() as u32).copy_from(&output_u32);
+
+            let result = Object::new();
+            let lod_id = instances[inst_index].0;
+            Reflect::set(&result, &JsValue::from_str("lodId"), &JsValue::from(lod_id)).unwrap();
+            Reflect::set(&result, &JsValue::from_str("numSplats"), &JsValue::from(output_u32.len() as u32)).unwrap();
+            Reflect::set(&result, &JsValue::from_str("indices"), &JsValue::from(output)).unwrap();
+            instance_indices.push(&JsValue::from(result));
+        }
+
+        let out_chunks = Array::new();
+
+        for &(_, lod_id, chunk) in touched.iter() {
+            let pair = Array::new();
+            pair.push(&JsValue::from(lod_id));
+            pair.push(&JsValue::from(chunk));
+            out_chunks.push(&JsValue::from(pair));
+        }
+
+        let result = Object::new();
+        Reflect::set(&result, &JsValue::from_str("pixelLimit"), &JsValue::from(min_pixel_scale)).unwrap();
+        Reflect::set(&result, &JsValue::from_str("instanceIndices"), &JsValue::from(instance_indices)).unwrap();
+        Reflect::set(&result, &JsValue::from_str("chunks"), &JsValue::from(out_chunks)).unwrap();
+        Reflect::set(&result, &JsValue::from_str("testTime"), &JsValue::from(test_time)).unwrap();
+        Reflect::set(&result, &JsValue::from_str("outputSize"), &JsValue::from(output_size)).unwrap();
+        Reflect::set(&result, &JsValue::from_str("leafCount"), &JsValue::from(leaf_count)).unwrap();
+        Reflect::set(&result, &JsValue::from_str("finerCount"), &JsValue::from(finer_count)).unwrap();
+        Reflect::set(&result, &JsValue::from_str("missingCount"), &JsValue::from(missing_count)).unwrap();
+        Reflect::set(&result, &JsValue::from_str("limits"), &JsValue::from(limits)).unwrap();
+        Ok(result)
+    })
+}
