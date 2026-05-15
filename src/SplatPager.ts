@@ -1035,6 +1035,29 @@ export class SplatPager {
     }
   }
 
+  removeSplats(splats: PagedSplats) {
+    const chunks = this.splatsChunkToPage.get(splats);
+    if (!chunks) {
+      return;
+    }
+
+    const freedPages = new Set<number>();
+
+    while (chunks.length > 0) {
+      const chunk = chunks.pop();
+      if (chunk) {
+        const { page } = chunk;
+        this.pageToSplatsChunk[page] = undefined;
+        freedPages.add(page);
+        this.pageFreelist.push(page);
+      }
+    }
+    this.splatsChunkToPage.delete(splats);
+    this.freeablePages = this.freeablePages.filter(
+      (page) => !freedPages.has(page),
+    );
+  }
+
   private uploadPage(
     page: number,
     packedArray: Uint32Array,
