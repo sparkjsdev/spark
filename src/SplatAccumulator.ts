@@ -186,6 +186,8 @@ export class SplatAccumulator {
   private saveRenderState(renderer: THREE.WebGLRenderer) {
     return {
       target: renderer.getRenderTarget(),
+      activeCubeFace: renderer.getActiveCubeFace(),
+      activeMipmapLevel: renderer.getActiveMipmapLevel(),
       xrEnabled: renderer.xr.enabled,
       autoClear: renderer.autoClear,
     };
@@ -195,11 +197,17 @@ export class SplatAccumulator {
     renderer: THREE.WebGLRenderer,
     state: {
       target: THREE.WebGLRenderTarget | null;
+      activeCubeFace: number;
+      activeMipmapLevel: number;
       xrEnabled: boolean;
       autoClear: boolean;
     },
   ) {
-    renderer.setRenderTarget(state.target);
+    renderer.setRenderTarget(
+      state.target,
+      state.activeCubeFace,
+      state.activeMipmapLevel,
+    );
     renderer.xr.enabled = state.xrEnabled;
     renderer.autoClear = state.autoClear;
   }
