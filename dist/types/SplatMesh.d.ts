@@ -77,6 +77,7 @@ export interface SplatSource {
         index: DynoVal<"int">;
         viewOrigin?: DynoVal<"vec3">;
     }): DynoVal<typeof Gsplat>;
+    forEachSplat(callback: (index: number, center: THREE.Vector3, scales: THREE.Vector3, quaternion: THREE.Quaternion, opacity: number, color: THREE.Color) => void): void;
 }
 export declare class EmptySplatSource implements SplatSource {
     fetchDyno: DynoVal<{
@@ -91,6 +92,7 @@ export declare class EmptySplatSource implements SplatSource {
     fetchSplat({ index }: {
         index: DynoVal<"int">;
     }): DynoVal<typeof Gsplat>;
+    forEachSplat(): void;
 }
 export declare class SplatMesh extends SplatGenerator {
     initialized: Promise<SplatMesh>;
