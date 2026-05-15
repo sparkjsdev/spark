@@ -4,6 +4,7 @@ use miniz_oxide::inflate::core::inflate_flags::{
     TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF,
 };
 use miniz_oxide::inflate::TINFLStatus;
+use std::io::Read;
 
 use crate::decoder::{ChunkReceiver, SetSplatEncoding, SplatGetter, SplatInit, SplatReceiver};
 use miniz_oxide::deflate::compress_to_vec;
@@ -11,19 +12,34 @@ use miniz_oxide::deflate::compress_to_vec;
 pub const SPZ_MAGIC: u32 = 0x5053474e; // "NGSP"
 const SH_C0: f32 = 0.28209479177387814;
 const MAX_SPLAT_CHUNK: usize = 65536;
+const NGSP_HEADER_SIZE: usize = 32;
+const TOC_ENTRY_SIZE: usize = 16; // [u64 compressedSize LE][u64 uncompressedSize LE]
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SpzDecoderStage { Centers, Alphas, Rgb, Scales, Quats, Sh, Extension, ChildCounts, ChildStarts, Done }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SpzFormat {
+    Unknown, // not yet detected (need at least 4 bytes)
+    Gzip,    // legacy v1-v3: header + payload all inside a gzip stream
+    Ngsp,    // v4: 32-byte NGSP header + TOC + ZSTD-compressed attribute streams
+}
+
 pub struct SpzDecoder<T: SplatReceiver> {
     splats: T,
+    format: SpzFormat,
+    // Gzip path state (v1-v3)
     decompressor: DecompressorOxide,
     compressed: Vec<u8>,
     decompressed: Vec<u8>,
-    buffer: Vec<u8>,
-    state: Option<SpzDecoderState>,
     gzip_header_done: bool,
     out_pos: usize,
+    // V4 path state — accumulate the entire file before processing
+    raw: Vec<u8>,
+    v4_decoded: bool,
+    // Shared: decompressed payload bytes feeding the section state machine
+    buffer: Vec<u8>,
+    state: Option<SpzDecoderState>,
     done: bool,
 }
 
@@ -31,6 +47,7 @@ impl<T: SplatReceiver> SpzDecoder<T> {
     pub fn new(splats: T) -> Self {
         Self {
             splats,
+            format: SpzFormat::Unknown,
             decompressor: DecompressorOxide::new(),
             compressed: Vec::new(),
             decompressed: vec![0u8; 128 * 1024],
@@ -39,6 +56,8 @@ impl<T: SplatReceiver> SpzDecoder<T> {
             gzip_header_done: false,
             out_pos: 0,
             done: false,
+            raw: Vec::new(),
+            v4_decoded: false,
         }
     }
 
@@ -67,8 +86,8 @@ impl<T: SplatReceiver> SpzDecoder<T> {
         }
 
         let version = read_u32_le(&self.buffer[4..8]);
-        if version < 1 || version > 3 {
-            return Err(anyhow::anyhow!("Unsupported SPZ version: {}", version));
+        if !(1..=3).contains(&version) {
+            return Err(anyhow::anyhow!("Unsupported legacy SPZ version: {}", version));
         }
 
         let num_splats = read_u32_le(&self.buffer[8..12]) as usize;
@@ -78,7 +97,19 @@ impl<T: SplatReceiver> SpzDecoder<T> {
         let _reserved = self.buffer[15];
 
         self.buffer.drain(..16);
-        let state = SpzDecoderState::new(version as u32, num_splats, sh_degree, fractional_bits, flags)?;
+        self.init_state(version, num_splats, sh_degree, fractional_bits, flags)?;
+        Ok(())
+    }
+
+    fn init_state(
+        &mut self,
+        version: u32,
+        num_splats: usize,
+        sh_degree: usize,
+        fractional_bits: u8,
+        flags: u8,
+    ) -> anyhow::Result<()> {
+        let state = SpzDecoderState::new(version, num_splats, sh_degree, fractional_bits, flags)?;
         self.state = Some(state);
 
         self.splats.init_splats(&SplatInit {
@@ -94,6 +125,91 @@ impl<T: SplatReceiver> SpzDecoder<T> {
             })?;
         }
 
+        Ok(())
+    }
+
+    /// Once we have the full v4 file in `self.raw`, parse the 32-byte NGSP header and TOC,
+    /// ZSTD-decompress every attribute stream, concatenate the decompressed bytes into
+    /// `self.buffer`, and run the existing section state machine. Idempotent — only runs once.
+    fn try_decode_v4(&mut self) -> anyhow::Result<()> {
+        if self.v4_decoded {
+            return Ok(());
+        }
+        if self.raw.len() < NGSP_HEADER_SIZE {
+            return Ok(());
+        }
+
+        let magic = read_u32_le(&self.raw[0..4]);
+        if magic != SPZ_MAGIC {
+            return Err(anyhow::anyhow!("Invalid v4 SPZ magic: 0x{:08x}", magic));
+        }
+        let version = read_u32_le(&self.raw[4..8]);
+        if version != 4 {
+            return Err(anyhow::anyhow!("Unsupported NGSP version: {}", version));
+        }
+        let num_splats = read_u32_le(&self.raw[8..12]) as usize;
+        let sh_degree = self.raw[12] as usize;
+        let fractional_bits = self.raw[13];
+        let flags = self.raw[14];
+        let num_streams = self.raw[15] as usize;
+        let toc_byte_offset = read_u32_le(&self.raw[16..20]) as usize;
+        // bytes 20..32 reserved
+
+        if toc_byte_offset < NGSP_HEADER_SIZE {
+            return Err(anyhow::anyhow!(
+                "Invalid v4 tocByteOffset: {} < {}",
+                toc_byte_offset, NGSP_HEADER_SIZE
+            ));
+        }
+        let toc_size = num_streams.checked_mul(TOC_ENTRY_SIZE)
+            .ok_or_else(|| anyhow::anyhow!("v4 TOC size overflow"))?;
+        let toc_end = toc_byte_offset.checked_add(toc_size)
+            .ok_or_else(|| anyhow::anyhow!("v4 TOC end overflow"))?;
+        if self.raw.len() < toc_end {
+            return Ok(()); // need more bytes
+        }
+
+        // Walk TOC to compute total expected file size; bail out and wait for more bytes if short.
+        let mut compressed_offsets: Vec<(usize, usize)> = Vec::with_capacity(num_streams);
+        let mut data_cursor = toc_end;
+        for i in 0..num_streams {
+            let e = toc_byte_offset + i * TOC_ENTRY_SIZE;
+            let cs_lo = read_u32_le(&self.raw[e..e + 4]) as u64;
+            let cs_hi = read_u32_le(&self.raw[e + 4..e + 8]) as u64;
+            let _us_lo = read_u32_le(&self.raw[e + 8..e + 12]) as u64;
+            let _us_hi = read_u32_le(&self.raw[e + 12..e + 16]) as u64;
+            let compressed_size = (cs_lo | (cs_hi << 32)) as usize;
+            if cs_hi != 0 || compressed_size > usize::MAX / 2 {
+                return Err(anyhow::anyhow!("v4 stream too large"));
+            }
+            compressed_offsets.push((data_cursor, compressed_size));
+            data_cursor = data_cursor
+                .checked_add(compressed_size)
+                .ok_or_else(|| anyhow::anyhow!("v4 stream offset overflow"))?;
+        }
+        if self.raw.len() < data_cursor {
+            return Ok(()); // need more bytes for the compressed streams
+        }
+        // We have everything required. Decompress every stream and concatenate into self.buffer.
+        self.buffer.clear();
+        for (offset, size) in &compressed_offsets {
+            let compressed = &self.raw[*offset..*offset + *size];
+            let mut decoder = ruzstd::StreamingDecoder::new(compressed)
+                .map_err(|e| anyhow::anyhow!("v4 ZSTD init failed: {}", e))?;
+            let pre_len = self.buffer.len();
+            decoder
+                .read_to_end(&mut self.buffer)
+                .map_err(|e| anyhow::anyhow!("v4 ZSTD decompress failed: {}", e))?;
+            let _ = pre_len; // (decompressed sizes already validated by ruzstd against frame headers)
+        }
+        self.v4_decoded = true;
+
+        // Initialize the section state machine with the parsed v4 metadata, then run it.
+        self.init_state(version, num_splats, sh_degree, fractional_bits, flags)?;
+        self.poll_sections()?;
+        // For v4 the gzip stream concept doesn't apply; mark "done" so finish() validates against
+        // section completion rather than against gzip stream-end.
+        self.done = true;
         Ok(())
     }
 
@@ -225,7 +341,7 @@ impl<T: SplatReceiver> SpzDecoder<T> {
                     }
                 }
                 SpzDecoderStage::Quats => {
-                    let bytes_per_item = if state.version == 3 { 4 } else { 3 };
+                    let bytes_per_item = if state.version >= 3 { 4 } else { 3 };
                     let avail_items = self.buffer.len() / bytes_per_item;
                     let remaining = state.num_splats - state.next_splat;
                     if (avail_items < remaining) && (avail_items < MAX_SPLAT_CHUNK) {
@@ -236,8 +352,8 @@ impl<T: SplatReceiver> SpzDecoder<T> {
                     if state.output.len() < chunk * 4 {
                         state.output.resize(chunk * 4, 0.0);
                     }
-                    if state.version == 3 {
-                        // Version 3 uses "smallest three" compression for quaternions (4 bytes per splat)
+                    if state.version >= 3 {
+                        // Version 3 and v4 use "smallest three" compression for quaternions (4 bytes per splat)
                         for i in 0..chunk {
                             let base = i * 4;
                             let comp = (self.buffer[base] as u32)
@@ -551,14 +667,65 @@ fn parse_gzip_header(buffer: &mut Vec<u8>) -> anyhow::Result<bool> {
 
 impl<T: SplatReceiver> ChunkReceiver for SpzDecoder<T> {
     fn push(&mut self, bytes: &[u8]) -> anyhow::Result<()> {
-        self.compressed.extend_from_slice(bytes);
-        self.poll_decompress()?;
+        // Detect format on first chunk by inspecting the first 4 bytes.
+        if self.format == SpzFormat::Unknown {
+            // Buffer bytes into raw until we can decide.
+            self.raw.extend_from_slice(bytes);
+            if self.raw.len() < 4 {
+                return Ok(());
+            }
+            let magic = read_u32_le(&self.raw[0..4]);
+            if magic == SPZ_MAGIC {
+                self.format = SpzFormat::Ngsp;
+                // Try to decode if we already have enough bytes.
+                self.try_decode_v4()?;
+                return Ok(());
+            } else if (magic & 0x00ffffff) == 0x00088b1f {
+                // Gzip — replay accumulated bytes through the gzip path.
+                self.format = SpzFormat::Gzip;
+                let buffered = std::mem::take(&mut self.raw);
+                self.compressed.extend_from_slice(&buffered);
+                self.poll_decompress()?;
+                return Ok(());
+            } else {
+                return Err(anyhow::anyhow!(
+                    "Unrecognized SPZ format: leading bytes 0x{:08x}", magic
+                ));
+            }
+        }
+        match self.format {
+            SpzFormat::Gzip => {
+                self.compressed.extend_from_slice(bytes);
+                self.poll_decompress()?;
+            }
+            SpzFormat::Ngsp => {
+                self.raw.extend_from_slice(bytes);
+                self.try_decode_v4()?;
+            }
+            SpzFormat::Unknown => unreachable!(),
+        }
         Ok(())
     }
 
     fn finish(&mut self) -> anyhow::Result<()> {
-        self.poll_decompress()?;
-        if !self.done { return Err(anyhow::anyhow!("Truncated gzip stream")); }
+        match self.format {
+            SpzFormat::Gzip => {
+                self.poll_decompress()?;
+                if !self.done {
+                    return Err(anyhow::anyhow!("Truncated gzip stream"));
+                }
+            }
+            SpzFormat::Ngsp => {
+                // Force a decode attempt; will error if file is truncated.
+                self.try_decode_v4()?;
+                if !self.v4_decoded {
+                    return Err(anyhow::anyhow!("Truncated SPZ v4 stream"));
+                }
+            }
+            SpzFormat::Unknown => {
+                return Err(anyhow::anyhow!("Empty SPZ stream"));
+            }
+        }
         if let Some(state) = &self.state {
             if state.stage != SpzDecoderStage::Done && !(state.sh_degree == 0 && state.stage == SpzDecoderStage::Sh) {
                 return Err(anyhow::anyhow!("Incomplete SPZ stream: stage = {:?}, sh_degree = {}", state.stage, state.sh_degree));

@@ -426,6 +426,10 @@ export function getSplatFileType(
     // Unknown PKZip file type
     return undefined;
   }
+  if (magic === 0x5053474e) {
+    // NGSP magic at file start — SPZ v4 (ZSTD multi-stream, not gzip-wrapped)
+    return SplatFileType.SPZ;
+  }
   if (magic === 0x30444152) {
     return SplatFileType.RAD;
   }

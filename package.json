@@ -62,6 +62,7 @@
     "spark-rs": "file:rust/spark-rs/pkg"
   },
   "dependencies": {
+    "@bokuweb/zstd-wasm": "^0.0.27",
     "fflate": "^0.8.2"
   },
   "peerDependencies": {
