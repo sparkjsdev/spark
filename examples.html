@@ -285,8 +285,7 @@
           iframe.src = path;
 
           if (codeButton) {
-            const sourcePath = path.replace(/^\.\//, "");
-            codeButton.href = `https://github.com/sparkjsdev/spark/blob/main/examples/${sourcePath}`;
+            codeButton.href = `https://github.com/sparkjsdev/spark/blob/main/examples/${path}`;
           }
 
           if (fullPageButton) {
