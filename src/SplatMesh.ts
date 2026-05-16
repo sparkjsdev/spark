@@ -7,7 +7,6 @@ import init_wasm, {
   raycast_packed_buffer,
 } from "spark-rs";
 import { ExtSplats } from "./ExtSplats";
-import { OldSparkRenderer } from "./OldSparkRenderer";
 import { PackedSplats } from "./PackedSplats";
 import { type RgbaArray, TRgbaArray } from "./RgbaArray";
 import { SparkRenderer } from "./SparkRenderer";
@@ -1281,39 +1280,3 @@ export const emptyLodIndices = (() => {
   texture.needsUpdate = true;
   return texture;
 })();
-
-const EMPTY_GEOMETRY = new THREE.BufferGeometry();
-const EMPTY_MATERIAL = new THREE.ShaderMaterial();
-
-// Creates an empty mesh to hook into Three.js rendering.
-// This is used to detect if a SparkRenderer is present in the scene.
-// If not, one will be injected automatically.
-function createRendererDetectionMesh(): THREE.Mesh {
-  const mesh = new THREE.Mesh(EMPTY_GEOMETRY, EMPTY_MATERIAL);
-  mesh.frustumCulled = false;
-  mesh.onBeforeRender = function (renderer, scene) {
-    if (!scene.isScene) {
-      // The SplatMesh is part of render call that doesn't have a Scene at its root
-      // Don't auto-inject a renderer.
-      this.removeFromParent();
-      return;
-    }
-
-    // Check if the scene has a SparkRenderer instance
-    let hasSparkRenderer = false;
-    scene.traverse((c) => {
-      if (c instanceof SparkRenderer || c instanceof OldSparkRenderer) {
-        hasSparkRenderer = true;
-      }
-    });
-
-    if (!hasSparkRenderer) {
-      // No spark renderer present in the scene, inject one.
-      scene.add(new SparkRenderer({ renderer }));
-    }
-
-    // Remove mesh to stop checking
-    this.removeFromParent();
-  };
-  return mesh;
-}
