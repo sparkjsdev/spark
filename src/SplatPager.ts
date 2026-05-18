@@ -725,9 +725,9 @@ export class SplatPager {
             dyno.unindentLines(`
             int index = ${inputs.index};
             ivec3 splatCoord = pagedSplatTexCoord(index);
-            uvec4 packed = texelFetch(${inputs.packedTexture}, splatCoord, 0);
+            uvec4 packedData = texelFetch(${inputs.packedTexture}, splatCoord, 0);
 
-            unpackSplatEncoding(packed, ${outputs.gsplat}.center, ${outputs.gsplat}.scales, ${outputs.gsplat}.quaternion, ${outputs.gsplat}.rgba, ${inputs.rgbMinMaxLnScaleMinMax});
+            unpackSplatEncoding(packedData, ${outputs.gsplat}.center, ${outputs.gsplat}.scales, ${outputs.gsplat}.quaternion, ${outputs.gsplat}.rgba, ${inputs.rgbMinMaxLnScaleMinMax});
             if ((${outputs.gsplat}.rgba.a == 0.0) || all(equal(${outputs.gsplat}.scales, vec3(0.0, 0.0, 0.0)))) {
               return;
             }
