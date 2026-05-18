@@ -1,3 +1,24 @@
+## 2.1.0 (Apr 18, 2026)
+
+Bug fixes and adjustments post 2.0.0 release.
+
+### Enhancements 
+
+- Support plain x/y/z/r/g/b point clouds in ply files (#340) (@mrxz)
+- Implement forEachSplat and getBoundingBox for PagedSplats (#324) (@mrxz)
+- Specify 0.180.0 or higher as Three.js peer dependency (#309) (@mrxz)
+
+### Bug Fixes
+
+- Rename packed to packedData as Chrome 149 onwards considers it a reserved keyword (#351) (@mrxz)
+- Remove spark-internal-rs from biome.json ignore list (#350) (@mrxz)
+- Fix issue when premultipliedAlpha cannot longer be changed on the fly (#331) (@mrxz)
+- Fix problem when loading CloudCompare-exported binary PLY files (#338) (@mrxz)
+- Address memory leak by clearing texture references so can be GCed (#326) (@mrxz)
+- Fix examples importmaps (@mrxz, @dmarcos)
+- Docs Improvements (@mrxz, @dmarcos, @mikeyzhong)
+
+
 ## 2.0.0 (Apr 14, 2026)
 
 Spark 2.0 is a major release that adds a Level-of-Detail (LoD) system for 3DGS, enabling huge worlds to be rendered on the web on any device, with progressive streaming, virtual splat paging, and higher precision storage. It remains mostly backward compatible with 0.1 apps.
