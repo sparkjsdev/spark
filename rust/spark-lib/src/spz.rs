@@ -36,7 +36,6 @@ pub struct SpzDecoder<T: SplatReceiver> {
     out_pos: usize,
     // V4 path state — accumulate the entire file before processing
     raw: Vec<u8>,
-    v4_decoded: bool,
     // Shared: decompressed payload bytes feeding the section state machine
     buffer: Vec<u8>,
     state: Option<SpzDecoderState>,
@@ -57,7 +56,6 @@ impl<T: SplatReceiver> SpzDecoder<T> {
             out_pos: 0,
             done: false,
             raw: Vec::new(),
-            v4_decoded: false,
         }
     }
 
@@ -132,7 +130,7 @@ impl<T: SplatReceiver> SpzDecoder<T> {
     /// ZSTD-decompress every attribute stream, concatenate the decompressed bytes into
     /// `self.buffer`, and run the existing section state machine. Idempotent — only runs once.
     fn try_decode_v4(&mut self) -> anyhow::Result<()> {
-        if self.v4_decoded {
+        if self.done {
             return Ok(());
         }
         if self.raw.len() < NGSP_HEADER_SIZE {
@@ -202,13 +200,12 @@ impl<T: SplatReceiver> SpzDecoder<T> {
                 .map_err(|e| anyhow::anyhow!("v4 ZSTD decompress failed: {}", e))?;
             let _ = pre_len; // (decompressed sizes already validated by ruzstd against frame headers)
         }
-        self.v4_decoded = true;
 
         // Initialize the section state machine with the parsed v4 metadata, then run it.
         self.init_state(version, num_splats, sh_degree, fractional_bits, flags)?;
         self.poll_sections()?;
-        // For v4 the gzip stream concept doesn't apply; mark "done" so finish() validates against
-        // section completion rather than against gzip stream-end.
+        // Mark the one-shot v4 decode as complete; finish() validates against this same flag
+        // for both the streaming gzip path and the v4 path.
         self.done = true;
         Ok(())
     }
@@ -718,7 +715,7 @@ impl<T: SplatReceiver> ChunkReceiver for SpzDecoder<T> {
             SpzFormat::Ngsp => {
                 // Force a decode attempt; will error if file is truncated.
                 self.try_decode_v4()?;
-                if !self.v4_decoded {
+                if !self.done {
                     return Err(anyhow::anyhow!("Truncated SPZ v4 stream"));
                 }
             }
