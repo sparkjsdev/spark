@@ -830,8 +830,9 @@ impl<T: SplatReceiver> ChunkReceiver for SpzDecoder<T> {
                 }
             }
             SpzFormat::Ngsp => {
-                // Force a decode attempt; will error if file is truncated.
-                self.try_decode_v4()?;
+                // No new bytes arrive between the last push() and finish(); the v4
+                // state machine is already as advanced as the buffered data permits.
+                // A non-Done state here means the file was truncated.
                 if !self.done {
                     return Err(anyhow::anyhow!("Truncated SPZ v4 stream"));
                 }
