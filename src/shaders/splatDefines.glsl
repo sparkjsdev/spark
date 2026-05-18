@@ -207,8 +207,8 @@ uvec4 packSplat(vec3 center, vec3 scales, vec4 quaternion, vec4 rgba) {
     return packSplatEncoding(center, scales, quaternion, rgba, vec4(0.0, 1.0, LN_SCALE_MIN, LN_SCALE_MAX));
 }
 
-void unpackSplatEncoding(uvec4 packed, out vec3 center, out vec3 scales, out vec4 quaternion, out vec4 rgba, vec4 rgbMinMaxLnScaleMinMax) {
-    uint word0 = packed.x, word1 = packed.y, word2 = packed.z, word3 = packed.w;
+void unpackSplatEncoding(uvec4 packedData, out vec3 center, out vec3 scales, out vec4 quaternion, out vec4 rgba, vec4 rgbMinMaxLnScaleMinMax) {
+    uint word0 = packedData.x, word1 = packedData.y, word2 = packedData.z, word3 = packedData.w;
 
     uvec4 uRgba = uvec4(word0 & 0xffu, (word0 >> 8u) & 0xffu, (word0 >> 16u) & 0xffu, (word0 >> 24u) & 0xffu);
     float rgbMin = rgbMinMaxLnScaleMinMax.x;
@@ -239,8 +239,8 @@ void unpackSplatEncoding(uvec4 packed, out vec3 center, out vec3 scales, out vec
 }
 
 // Unpack a Gsplat from a uvec4
-void unpackSplat(uvec4 packed, out vec3 center, out vec3 scales, out vec4 quaternion, out vec4 rgba) {
-    unpackSplatEncoding(packed, center, scales, quaternion, rgba, vec4(0.0, 1.0, LN_SCALE_MIN, LN_SCALE_MAX));
+void unpackSplat(uvec4 packedData, out vec3 center, out vec3 scales, out vec4 quaternion, out vec4 rgba) {
+    unpackSplatEncoding(packedData, center, scales, quaternion, rgba, vec4(0.0, 1.0, LN_SCALE_MIN, LN_SCALE_MAX));
 }
 
 uvec4 packSplatCovEncoding(
@@ -275,8 +275,8 @@ uvec4 packSplatCovEncoding(
     return uvec4(word0, word1, word2, word3);
 }
 
-void unpackSplatCovEncoding(uvec4 packed, out vec3 center, out vec4 rgba, out vec3 xxyyzz, out vec3 xyxzyz, vec4 rgbMinMaxLnScaleMinMax) {
-    uint word0 = packed.x, word1 = packed.y, word2 = packed.z, word3 = packed.w;
+void unpackSplatCovEncoding(uvec4 packedData, out vec3 center, out vec4 rgba, out vec3 xxyyzz, out vec3 xyxzyz, vec4 rgbMinMaxLnScaleMinMax) {
+    uint word0 = packedData.x, word1 = packedData.y, word2 = packedData.z, word3 = packedData.w;
 
     uvec4 uRgba = uvec4(word0 & 0xffu, (word0 >> 8u) & 0xffu, (word0 >> 16u) & 0xffu, (word0 >> 24u) & 0xffu);
     float rgbMin = rgbMinMaxLnScaleMinMax.x;
@@ -306,14 +306,14 @@ void unpackSplatCovEncoding(uvec4 packed, out vec3 center, out vec4 rgba, out ve
 }
 
 void packSplatExtCov(
-    out uvec4 packed, out uvec4 packed2,
+    out uvec4 packedData, out uvec4 packedData2,
     vec3 center, vec4 rgba, vec3 xxyyzz, vec3 xyxzyz
 ) {
-    packed.x = floatBitsToUint(center.x);
-    packed.y = floatBitsToUint(center.y);
-    packed.z = floatBitsToUint(center.z);
-    packed.w = packHalf2x16(vec2(rgba.a, rgba.b));
-    packed2.x = packHalf2x16(rgba.rg);
+    packedData.x = floatBitsToUint(center.x);
+    packedData.y = floatBitsToUint(center.y);
+    packedData.z = floatBitsToUint(center.z);
+    packedData.w = packHalf2x16(vec2(rgba.a, rgba.b));
+    packedData2.x = packHalf2x16(rgba.rg);
 
     vec3 xyxzyzCor = vec3(
         clamp(xyxzyz.x / sqrt(xxyyzz.x * xxyyzz.y), -1.0, 1.0),
@@ -323,26 +323,26 @@ void packSplatExtCov(
     xyxzyzCor = sign(xyxzyzCor) * clamp(log(abs(xyxzyzCor)), -100.0, -0.0000001);
     xxyyzz = log(xxyyzz);
 
-    packed2.y = packHalf2x16(vec2(xxyyzz.x, xxyyzz.y));
-    packed2.z = packHalf2x16(vec2(xxyyzz.z, xyxzyzCor.x));
-    packed2.w = packHalf2x16(vec2(xyxzyzCor.y, xyxzyzCor.z));
+    packedData2.y = packHalf2x16(vec2(xxyyzz.x, xxyyzz.y));
+    packedData2.z = packHalf2x16(vec2(xxyyzz.z, xyxzyzCor.x));
+    packedData2.w = packHalf2x16(vec2(xyxzyzCor.y, xyxzyzCor.z));
 }
 
 void unpackSplatExtCov(
-    uvec4 packed, uvec4 packed2,
+    uvec4 packedData, uvec4 packedData2,
     out vec3 center, out vec4 rgba, out vec3 xxyyzz, out vec3 xyxzyz
 ) {
-    center.x = uintBitsToFloat(packed.x);
-    center.y = uintBitsToFloat(packed.y);
-    center.z = uintBitsToFloat(packed.z);
+    center.x = uintBitsToFloat(packedData.x);
+    center.y = uintBitsToFloat(packedData.y);
+    center.z = uintBitsToFloat(packedData.z);
 
-    vec2 ab = unpackHalf2x16(packed.w);
-    vec2 rg = unpackHalf2x16(packed2.x);
+    vec2 ab = unpackHalf2x16(packedData.w);
+    vec2 rg = unpackHalf2x16(packedData2.x);
     rgba = vec4(rg, ab.y, ab.x);
 
-    vec2 xxyy = unpackHalf2x16(packed2.y);
-    vec2 zzxy = unpackHalf2x16(packed2.z);
-    vec2 xzyz = unpackHalf2x16(packed2.w);
+    vec2 xxyy = unpackHalf2x16(packedData2.y);
+    vec2 zzxy = unpackHalf2x16(packedData2.z);
+    vec2 xzyz = unpackHalf2x16(packedData2.w);
     xxyyzz = exp(vec3(xxyy.x, xxyy.y, zzxy.x));
     xyxzyz = vec3(zzxy.y, xzyz.x, xzyz.y);
     xyxzyz = -sign(xyxzyz) * exp(-abs(xyxzyz));
@@ -354,48 +354,48 @@ void unpackSplatExtCov(
 }
 
 void packSplatExt(
-    out uvec4 packed, out uvec4 packed2,
+    out uvec4 packedData, out uvec4 packedData2,
     vec3 center, vec3 scales, vec4 quaternion, vec4 rgba
 ) {
-    packed.x = floatBitsToUint(center.x);
-    packed.y = floatBitsToUint(center.y);
-    packed.z = floatBitsToUint(center.z);
-    packed.w = packHalf2x16(vec2(rgba.a, 0.0));
+    packedData.x = floatBitsToUint(center.x);
+    packedData.y = floatBitsToUint(center.y);
+    packedData.z = floatBitsToUint(center.z);
+    packedData.w = packHalf2x16(vec2(rgba.a, 0.0));
 
-    packed2.x = packHalf2x16(rgba.rg);
-    packed2.y = packHalf2x16(vec2(rgba.b, log(scales.x)));
-    packed2.z = packHalf2x16(log(scales.yz));
-    packed2.w = encodeQuatOctXy1010R12(quaternion);
+    packedData2.x = packHalf2x16(rgba.rg);
+    packedData2.y = packHalf2x16(vec2(rgba.b, log(scales.x)));
+    packedData2.z = packHalf2x16(log(scales.yz));
+    packedData2.w = encodeQuatOctXy1010R12(quaternion);
 }
 
-vec4 unpackSplatExtCenterAlpha(uvec4 packed) {
+vec4 unpackSplatExtCenterAlpha(uvec4 packedData) {
     return vec4(
-        uintBitsToFloat(packed.x),
-        uintBitsToFloat(packed.y),
-        uintBitsToFloat(packed.z),
-        unpackHalf2x16(packed.w).x
+        uintBitsToFloat(packedData.x),
+        uintBitsToFloat(packedData.y),
+        uintBitsToFloat(packedData.z),
+        unpackHalf2x16(packedData.w).x
     );
 }
 
-float unpackSplatExtAlpha(uvec4 packed) {
-    return unpackHalf2x16(packed.w).x;
+float unpackSplatExtAlpha(uvec4 packedData) {
+    return unpackHalf2x16(packedData.w).x;
 }
 
 void unpackSplatExt(
-    uvec4 packed, uvec4 packed2,
+    uvec4 packedData, uvec4 packedData2,
     out vec3 center, out vec3 scales, out vec4 quaternion, out vec4 rgba
 ) {
-    center.x = uintBitsToFloat(packed.x);
-    center.y = uintBitsToFloat(packed.y);
-    center.z = uintBitsToFloat(packed.z);
-    rgba.a = unpackHalf2x16(packed.w).x;
+    center.x = uintBitsToFloat(packedData.x);
+    center.y = uintBitsToFloat(packedData.y);
+    center.z = uintBitsToFloat(packedData.z);
+    rgba.a = unpackHalf2x16(packedData.w).x;
 
-    rgba.rg = unpackHalf2x16(packed2.x);
-    vec2 split = unpackHalf2x16(packed2.y);
+    rgba.rg = unpackHalf2x16(packedData2.x);
+    vec2 split = unpackHalf2x16(packedData2.y);
     rgba.b = split.x;
     scales.x = exp(split.y);
-    scales.yz = exp(unpackHalf2x16(packed2.z));
-    quaternion = decodeQuatOctXy1010R12(packed2.w);
+    scales.yz = exp(unpackHalf2x16(packedData2.z));
+    quaternion = decodeQuatOctXy1010R12(packedData2.w);
 }
 
 uint encodeExtRgb(vec3 rgb) {

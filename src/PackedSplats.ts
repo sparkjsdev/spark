@@ -1069,22 +1069,22 @@ export class DynoPackedSplats extends DynoUniform<
 }
 
 export const defineEvalPackedSH1 = unindent(`
-  vec3 evaluatePackedSH1(uvec2 packed, vec3 viewDir, float sh1Max) {
+  vec3 evaluatePackedSH1(uvec2 packedData, vec3 viewDir, float sh1Max) {
     // Extract sint7 values packed into 2 x uint32
     vec3 sh1_0 = vec3(ivec3(
-      int(packed.x << 25u) >> 25,
-      int(packed.x << 18u) >> 25,
-      int(packed.x << 11u) >> 25
+      int(packedData.x << 25u) >> 25,
+      int(packedData.x << 18u) >> 25,
+      int(packedData.x << 11u) >> 25
     ));
     vec3 sh1_1 = vec3(ivec3(
-      int(packed.x << 4u) >> 25,
-      int((packed.x >> 3u) | (packed.y << 29u)) >> 25,
-      int(packed.y << 22u) >> 25
+      int(packedData.x << 4u) >> 25,
+      int((packedData.x >> 3u) | (packedData.y << 29u)) >> 25,
+      int(packedData.y << 22u) >> 25
     ));
     vec3 sh1_2 = vec3(ivec3(
-      int(packed.y << 15u) >> 25,
-      int(packed.y << 8u) >> 25,
-      int(packed.y << 1u) >> 25
+      int(packedData.y << 15u) >> 25,
+      int(packedData.y << 8u) >> 25,
+      int(packedData.y << 1u) >> 25
     ));
 
     vec3 rgb = sh1_0 * (-0.4886025 * viewDir.y)
@@ -1095,32 +1095,32 @@ export const defineEvalPackedSH1 = unindent(`
 `);
 
 export const defineEvalPackedSH2 = unindent(`
-  vec3 evaluatePackedSH2(uvec4 packed, vec3 viewDir, float sh2Max) {
+  vec3 evaluatePackedSH2(uvec4 packedData, vec3 viewDir, float sh2Max) {
     // Extract sint8 values packed into 4 x uint32
     vec3 sh2_0 = vec3(ivec3(
-      int(packed.x << 24u) >> 24,
-      int(packed.x << 16u) >> 24,
-      int(packed.x << 8u) >> 24
+      int(packedData.x << 24u) >> 24,
+      int(packedData.x << 16u) >> 24,
+      int(packedData.x << 8u) >> 24
     ));
     vec3 sh2_1 = vec3(ivec3(
-      int(packed.x) >> 24,
-      int(packed.y << 24u) >> 24,
-      int(packed.y << 16u) >> 24
+      int(packedData.x) >> 24,
+      int(packedData.y << 24u) >> 24,
+      int(packedData.y << 16u) >> 24
     ));
     vec3 sh2_2 = vec3(ivec3(
-      int(packed.y << 8u) >> 24,
-      int(packed.y) >> 24,
-      int(packed.z << 24u) >> 24
+      int(packedData.y << 8u) >> 24,
+      int(packedData.y) >> 24,
+      int(packedData.z << 24u) >> 24
     ));
     vec3 sh2_3 = vec3(ivec3(
-      int(packed.z << 16u) >> 24,
-      int(packed.z << 8u) >> 24,
-      int(packed.z) >> 24
+      int(packedData.z << 16u) >> 24,
+      int(packedData.z << 8u) >> 24,
+      int(packedData.z) >> 24
     ));
     vec3 sh2_4 = vec3(ivec3(
-      int(packed.w << 24u) >> 24,
-      int(packed.w << 16u) >> 24,
-      int(packed.w << 8u) >> 24
+      int(packedData.w << 24u) >> 24,
+      int(packedData.w << 16u) >> 24,
+      int(packedData.w << 8u) >> 24
     ));
 
     vec3 rgb = sh2_0 * (1.0925484 * viewDir.x * viewDir.y)
@@ -1133,42 +1133,42 @@ export const defineEvalPackedSH2 = unindent(`
 `);
 
 export const defineEvalPackedSH3 = unindent(`
-  vec3 evaluatePackedSH3(uvec4 packed, vec3 viewDir, float sh3Max) {
+  vec3 evaluatePackedSH3(uvec4 packedData, vec3 viewDir, float sh3Max) {
     // Extract sint6 values packed into 4 x uint32
     vec3 sh3_0 = vec3(ivec3(
-      int(packed.x << 26u) >> 26,
-      int(packed.x << 20u) >> 26,
-      int(packed.x << 14u) >> 26
+      int(packedData.x << 26u) >> 26,
+      int(packedData.x << 20u) >> 26,
+      int(packedData.x << 14u) >> 26
     ));
     vec3 sh3_1 = vec3(ivec3(
-      int(packed.x << 8u) >> 26,
-      int(packed.x << 2u) >> 26,
-      int((packed.x >> 4u) | (packed.y << 28u)) >> 26
+      int(packedData.x << 8u) >> 26,
+      int(packedData.x << 2u) >> 26,
+      int((packedData.x >> 4u) | (packedData.y << 28u)) >> 26
     ));
     vec3 sh3_2 = vec3(ivec3(
-      int(packed.y << 22u) >> 26,
-      int(packed.y << 16u) >> 26,
-      int(packed.y << 10u) >> 26
+      int(packedData.y << 22u) >> 26,
+      int(packedData.y << 16u) >> 26,
+      int(packedData.y << 10u) >> 26
     ));
     vec3 sh3_3 = vec3(ivec3(
-      int(packed.y << 4u) >> 26,
-      int((packed.y >> 2u) | (packed.z << 30u)) >> 26,
-      int(packed.z << 24u) >> 26
+      int(packedData.y << 4u) >> 26,
+      int((packedData.y >> 2u) | (packedData.z << 30u)) >> 26,
+      int(packedData.z << 24u) >> 26
     ));
     vec3 sh3_4 = vec3(ivec3(
-      int(packed.z << 18u) >> 26,
-      int(packed.z << 12u) >> 26,
-      int(packed.z << 6u) >> 26
+      int(packedData.z << 18u) >> 26,
+      int(packedData.z << 12u) >> 26,
+      int(packedData.z << 6u) >> 26
     ));
     vec3 sh3_5 = vec3(ivec3(
-      int(packed.z) >> 26,
-      int(packed.w << 26u) >> 26,
-      int(packed.w << 20u) >> 26
+      int(packedData.z) >> 26,
+      int(packedData.w << 26u) >> 26,
+      int(packedData.w << 20u) >> 26
     ));
     vec3 sh3_6 = vec3(ivec3(
-      int(packed.w << 14u) >> 26,
-      int(packed.w << 8u) >> 26,
-      int(packed.w << 2u) >> 26
+      int(packedData.w << 14u) >> 26,
+      int(packedData.w << 8u) >> 26,
+      int(packedData.w << 2u) >> 26
     ));
 
     float xx = viewDir.x * viewDir.x;

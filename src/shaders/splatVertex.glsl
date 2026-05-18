@@ -83,15 +83,15 @@ void main() {
             }
         }
     } else {
-        uvec4 packed = texelFetch(extSplats, texCoord, 0);
+        uvec4 packedData = texelFetch(extSplats, texCoord, 0);
         if (!enableCovSplats) {
-            unpackSplatEncoding(packed, center, scales, quaternion, rgba, vec4(0.0, 1.0, LN_SCALE_MIN, LN_SCALE_MAX));
+            unpackSplatEncoding(packedData, center, scales, quaternion, rgba, vec4(0.0, 1.0, LN_SCALE_MIN, LN_SCALE_MAX));
             zeroScales = equal(scales, vec3(0.0));
             if (all(zeroScales)) {
                 return;
             }
         } else {
-            unpackSplatCovEncoding(packed, center, rgba, xxyyzz, xyxzyz, vec4(0.0, 1.0, LN_SCALE_MIN, LN_SCALE_MAX));
+            unpackSplatCovEncoding(packedData, center, rgba, xxyyzz, xyxzyz, vec4(0.0, 1.0, LN_SCALE_MIN, LN_SCALE_MAX));
             if (all(equal(xxyyzz, vec3(0.0))) && all(equal(xyxzyz, vec3(0.0)))) {
                 return;
             }

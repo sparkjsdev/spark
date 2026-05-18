@@ -190,8 +190,8 @@ export class NumPackedSplats extends UnaryOp<
 const defineReadPackedArray = unindent(`
   bool readPackedArray(usampler2DArray texture, int numSplats, vec4 rgbMinMaxLnScaleMinMax, int index, out Gsplat gsplat) {
     if ((index >= 0) && (index < numSplats)) {
-      uvec4 packed = texelFetch(texture, splatTexCoord(index), 0);
-      unpackSplatEncoding(packed, gsplat.center, gsplat.scales, gsplat.quaternion, gsplat.rgba, rgbMinMaxLnScaleMinMax);
+      uvec4 packedData = texelFetch(texture, splatTexCoord(index), 0);
+      unpackSplatEncoding(packedData, gsplat.center, gsplat.scales, gsplat.quaternion, gsplat.rgba, rgbMinMaxLnScaleMinMax);
       return true;
     } else {
       return false;

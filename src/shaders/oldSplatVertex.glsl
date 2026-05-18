@@ -61,11 +61,11 @@ void main() {
             splatIndex >> SPLAT_TEX_LAYER_BITS
         );
     }
-    uvec4 packed = texelFetch(packedSplats, texCoord, 0);
+    uvec4 packedData = texelFetch(packedSplats, texCoord, 0);
 
     vec3 center, scales;
     vec4 quaternion, rgba;
-    unpackSplatEncoding(packed, center, scales, quaternion, rgba, rgbMinMaxLnScaleMinMax);
+    unpackSplatEncoding(packedData, center, scales, quaternion, rgba, rgbMinMaxLnScaleMinMax);
 
     if (rgba.a < minAlpha) {
         return;

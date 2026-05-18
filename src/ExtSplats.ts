@@ -779,10 +779,10 @@ export class DynoExtSplats extends DynoUniform<
 }
 
 export const defineEvaluateExtSH1 = unindent(`
-  vec3 evaluateExtSH1(uvec4 packed, vec3 viewDir) {
-    vec3 sh1_0 = decodeExtRgb(packed.x);
-    vec3 sh1_1 = decodeExtRgb(packed.y);
-    vec3 sh1_2 = decodeExtRgb(packed.z);
+  vec3 evaluateExtSH1(uvec4 packedData, vec3 viewDir) {
+    vec3 sh1_0 = decodeExtRgb(packedData.x);
+    vec3 sh1_1 = decodeExtRgb(packedData.y);
+    vec3 sh1_2 = decodeExtRgb(packedData.z);
 
     return sh1_0 * (-0.4886025 * viewDir.y)
       + sh1_1 * (0.4886025 * viewDir.z)
