@@ -780,9 +780,12 @@ fn parse_gzip_header(buffer: &mut Vec<u8>) -> anyhow::Result<bool> {
 
 impl<T: SplatReceiver> ChunkReceiver for SpzDecoder<T> {
     fn push(&mut self, bytes: &[u8]) -> anyhow::Result<()> {
-        // Detect format on first chunk by inspecting the first 4 bytes.
+        // Phase 1: get the incoming bytes into the format-appropriate buffer.
+        // On the very first push (or first few, if chunks arrive < 4 bytes at a
+        // time) the format is still Unknown — we accumulate into `raw` as a
+        // scratch buffer, detect the format from the first 4 bytes, and (for
+        // gzip) move what we've collected so far into `compressed`.
         if self.format == SpzFormat::Unknown {
-            // Buffer bytes into raw until we can decide.
             self.raw.extend_from_slice(bytes);
             if self.raw.len() < 4 {
                 return Ok(());
@@ -790,34 +793,32 @@ impl<T: SplatReceiver> ChunkReceiver for SpzDecoder<T> {
             let magic = read_u32_le(&self.raw[0..4]);
             if magic == SPZ_MAGIC {
                 self.format = SpzFormat::Ngsp;
-                // Try to decode if we already have enough bytes.
-                self.try_decode_v4()?;
-                return Ok(());
+                // `raw` is already the right destination buffer for v4.
             } else if (magic & 0x00ffffff) == 0x00088b1f {
-                // Gzip — replay accumulated bytes through the gzip path.
                 self.format = SpzFormat::Gzip;
+                // Move the detection scratch into the gzip input buffer.
                 let buffered = std::mem::take(&mut self.raw);
                 self.compressed.extend_from_slice(&buffered);
-                self.poll_decompress()?;
-                return Ok(());
             } else {
                 return Err(anyhow::anyhow!(
                     "Unrecognized SPZ format: leading bytes 0x{:08x}", magic
                 ));
             }
+        } else {
+            // Steady state: append to whichever buffer the detected format uses.
+            match self.format {
+                SpzFormat::Gzip => self.compressed.extend_from_slice(bytes),
+                SpzFormat::Ngsp => self.raw.extend_from_slice(bytes),
+                SpzFormat::Unknown => unreachable!(),
+            }
         }
+
+        // Phase 2: advance the decoder. Single dispatch point for both formats.
         match self.format {
-            SpzFormat::Gzip => {
-                self.compressed.extend_from_slice(bytes);
-                self.poll_decompress()?;
-            }
-            SpzFormat::Ngsp => {
-                self.raw.extend_from_slice(bytes);
-                self.try_decode_v4()?;
-            }
+            SpzFormat::Gzip => self.poll_decompress(),
+            SpzFormat::Ngsp => self.try_decode_v4(),
             SpzFormat::Unknown => unreachable!(),
         }
-        Ok(())
     }
 
     fn finish(&mut self) -> anyhow::Result<()> {
