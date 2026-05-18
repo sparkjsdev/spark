@@ -108,24 +108,14 @@ impl<T: SplatReceiver> SpzDecoder<T> {
             return Ok(());
         }
 
-        let magic = read_u32_le(&self.buffer[0..4]);
-        if magic != SPZ_MAGIC {
-            return Err(anyhow::anyhow!("Invalid SPZ magic: 0x{:08x}", magic));
+        let h = parse_common_header(&self.buffer)?;
+        if !(1..=3).contains(&h.version) {
+            return Err(anyhow::anyhow!("Unsupported legacy SPZ version: {}", h.version));
         }
-
-        let version = read_u32_le(&self.buffer[4..8]);
-        if !(1..=3).contains(&version) {
-            return Err(anyhow::anyhow!("Unsupported legacy SPZ version: {}", version));
-        }
-
-        let num_splats = read_u32_le(&self.buffer[8..12]) as usize;
-        let sh_degree = self.buffer[12] as usize;
-        let fractional_bits = self.buffer[13];
-        let flags = self.buffer[14];
         let _reserved = self.buffer[15];
 
         self.buffer.drain(..16);
-        self.init_state(version, num_splats, sh_degree, fractional_bits, flags)?;
+        self.init_state(h.version, h.num_splats, h.sh_degree, h.fractional_bits, h.flags)?;
         Ok(())
     }
 
@@ -624,22 +614,44 @@ impl<T: SplatReceiver> SpzDecoder<T> {
     }
 }
 
+/// Fields shared by the v1–v3 (gzip) and v4 (NGSP) SPZ headers — the first 15
+/// bytes of either header have an identical layout, even though byte 15 onward
+/// diverges (`_reserved` for legacy, `num_streams` + `toc_byte_offset` + 12
+/// reserved bytes for v4). Caller must guarantee `buf.len() >= 15`.
+struct CommonHeaderFields {
+    version: u32,
+    num_splats: usize,
+    sh_degree: usize,
+    fractional_bits: u8,
+    flags: u8,
+}
+
+/// Validate the SPZ magic and parse the shared first 15 bytes. Version range
+/// validation is left to the caller — v1–v3 and v4 have different acceptable
+/// ranges.
+fn parse_common_header(buf: &[u8]) -> anyhow::Result<CommonHeaderFields> {
+    debug_assert!(buf.len() >= 15);
+    let magic = read_u32_le(&buf[0..4]);
+    if magic != SPZ_MAGIC {
+        return Err(anyhow::anyhow!("Invalid SPZ magic: 0x{:08x}", magic));
+    }
+    Ok(CommonHeaderFields {
+        version: read_u32_le(&buf[4..8]),
+        num_splats: read_u32_le(&buf[8..12]) as usize,
+        sh_degree: buf[12] as usize,
+        fractional_bits: buf[13],
+        flags: buf[14],
+    })
+}
+
 /// Parse the 32-byte NGSP header at the start of a v4 file. Caller must
 /// guarantee `raw.len() >= NGSP_HEADER_SIZE`.
 fn parse_v4_header(raw: &[u8]) -> anyhow::Result<V4HeaderInfo> {
     debug_assert!(raw.len() >= NGSP_HEADER_SIZE);
-    let magic = read_u32_le(&raw[0..4]);
-    if magic != SPZ_MAGIC {
-        return Err(anyhow::anyhow!("Invalid v4 SPZ magic: 0x{:08x}", magic));
+    let h = parse_common_header(raw)?;
+    if h.version != 4 {
+        return Err(anyhow::anyhow!("Unsupported NGSP version: {}", h.version));
     }
-    let version = read_u32_le(&raw[4..8]);
-    if version != 4 {
-        return Err(anyhow::anyhow!("Unsupported NGSP version: {}", version));
-    }
-    let num_splats = read_u32_le(&raw[8..12]) as usize;
-    let sh_degree = raw[12] as usize;
-    let fractional_bits = raw[13];
-    let flags = raw[14];
     let num_streams = raw[15] as usize;
     let toc_byte_offset = read_u32_le(&raw[16..20]) as usize;
     // bytes 20..32 reserved
@@ -659,11 +671,11 @@ fn parse_v4_header(raw: &[u8]) -> anyhow::Result<V4HeaderInfo> {
         .ok_or_else(|| anyhow::anyhow!("v4 TOC end overflow"))?;
 
     Ok(V4HeaderInfo {
-        version,
-        num_splats,
-        sh_degree,
-        fractional_bits,
-        flags,
+        version: h.version,
+        num_splats: h.num_splats,
+        sh_degree: h.sh_degree,
+        fractional_bits: h.fractional_bits,
+        flags: h.flags,
         num_streams,
         toc_byte_offset,
         toc_end,
