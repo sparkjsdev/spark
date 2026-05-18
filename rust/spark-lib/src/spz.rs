@@ -25,6 +25,34 @@ enum SpzFormat {
     Ngsp,    // v4: 32-byte NGSP header + TOC + ZSTD-compressed attribute streams
 }
 
+/// Parsed v4 NGSP header; cached between calls to `try_decode_v4` so we don't
+/// re-parse the 32-byte preamble on every push.
+#[derive(Debug, Clone)]
+struct V4HeaderInfo {
+    version: u32,
+    num_splats: usize,
+    sh_degree: usize,
+    fractional_bits: u8,
+    flags: u8,
+    num_streams: usize,
+    toc_byte_offset: usize,
+    toc_end: usize, // toc_byte_offset + num_streams * TOC_ENTRY_SIZE
+}
+
+/// State machine for the streaming v4 decode. Each variant carries the parsed
+/// outputs from the previous stage so we never reparse on subsequent pushes
+/// while waiting for more bytes.
+enum V4Stage {
+    NeedHeader,
+    NeedToc(V4HeaderInfo),
+    NeedStreams {
+        header: V4HeaderInfo,
+        compressed_offsets: Vec<(usize, usize)>, // (offset, size) per stream
+        total_size: usize,                       // total file size required (toc_end + sum of stream sizes)
+    },
+    Done,
+}
+
 pub struct SpzDecoder<T: SplatReceiver> {
     splats: T,
     format: SpzFormat,
@@ -36,6 +64,7 @@ pub struct SpzDecoder<T: SplatReceiver> {
     out_pos: usize,
     // V4 path state — accumulate the entire file before processing
     raw: Vec<u8>,
+    v4_stage: V4Stage,
     // Shared: decompressed payload bytes feeding the section state machine
     buffer: Vec<u8>,
     state: Option<SpzDecoderState>,
@@ -56,6 +85,7 @@ impl<T: SplatReceiver> SpzDecoder<T> {
             out_pos: 0,
             done: false,
             raw: Vec::new(),
+            v4_stage: V4Stage::NeedHeader,
         }
     }
 
@@ -126,88 +156,88 @@ impl<T: SplatReceiver> SpzDecoder<T> {
         Ok(())
     }
 
-    /// Once we have the full v4 file in `self.raw`, parse the 32-byte NGSP header and TOC,
-    /// ZSTD-decompress every attribute stream, concatenate the decompressed bytes into
-    /// `self.buffer`, and run the existing section state machine. Idempotent — only runs once.
+    /// Drive the v4 decode state machine forward. Called every time bytes arrive
+    /// via `push()` (and once more in `finish()`). Each invocation advances
+    /// through as many stages as the currently-buffered bytes allow, then
+    /// returns. Parsed header / TOC outputs are carried in `self.v4_stage` so
+    /// no work is repeated across calls while waiting for the next size
+    /// threshold to be reached.
     fn try_decode_v4(&mut self) -> anyhow::Result<()> {
-        if self.done {
-            return Ok(());
-        }
-        if self.raw.len() < NGSP_HEADER_SIZE {
-            return Ok(());
-        }
-
-        let magic = read_u32_le(&self.raw[0..4]);
-        if magic != SPZ_MAGIC {
-            return Err(anyhow::anyhow!("Invalid v4 SPZ magic: 0x{:08x}", magic));
-        }
-        let version = read_u32_le(&self.raw[4..8]);
-        if version != 4 {
-            return Err(anyhow::anyhow!("Unsupported NGSP version: {}", version));
-        }
-        let num_splats = read_u32_le(&self.raw[8..12]) as usize;
-        let sh_degree = self.raw[12] as usize;
-        let fractional_bits = self.raw[13];
-        let flags = self.raw[14];
-        let num_streams = self.raw[15] as usize;
-        let toc_byte_offset = read_u32_le(&self.raw[16..20]) as usize;
-        // bytes 20..32 reserved
-
-        if toc_byte_offset < NGSP_HEADER_SIZE {
-            return Err(anyhow::anyhow!(
-                "Invalid v4 tocByteOffset: {} < {}",
-                toc_byte_offset, NGSP_HEADER_SIZE
-            ));
-        }
-        let toc_size = num_streams.checked_mul(TOC_ENTRY_SIZE)
-            .ok_or_else(|| anyhow::anyhow!("v4 TOC size overflow"))?;
-        let toc_end = toc_byte_offset.checked_add(toc_size)
-            .ok_or_else(|| anyhow::anyhow!("v4 TOC end overflow"))?;
-        if self.raw.len() < toc_end {
-            return Ok(()); // need more bytes
-        }
-
-        // Walk TOC to compute total expected file size; bail out and wait for more bytes if short.
-        let mut compressed_offsets: Vec<(usize, usize)> = Vec::with_capacity(num_streams);
-        let mut data_cursor = toc_end;
-        for i in 0..num_streams {
-            let e = toc_byte_offset + i * TOC_ENTRY_SIZE;
-            let cs_lo = read_u32_le(&self.raw[e..e + 4]) as u64;
-            let cs_hi = read_u32_le(&self.raw[e + 4..e + 8]) as u64;
-            let _us_lo = read_u32_le(&self.raw[e + 8..e + 12]) as u64;
-            let _us_hi = read_u32_le(&self.raw[e + 12..e + 16]) as u64;
-            let compressed_size = (cs_lo | (cs_hi << 32)) as usize;
-            if cs_hi != 0 || compressed_size > usize::MAX / 2 {
-                return Err(anyhow::anyhow!("v4 stream too large"));
+        loop {
+            // Take ownership of the current stage so we can match on it without
+            // holding a borrow on `self`. Each arm puts an updated stage back.
+            let stage = std::mem::replace(&mut self.v4_stage, V4Stage::Done);
+            match stage {
+                V4Stage::Done => {
+                    // Either already finished or an error left us in a terminal
+                    // state; restore Done and exit. `self.done` distinguishes
+                    // success from a half-finished error path.
+                    self.v4_stage = V4Stage::Done;
+                    return Ok(());
+                }
+                V4Stage::NeedHeader => {
+                    if self.raw.len() < NGSP_HEADER_SIZE {
+                        self.v4_stage = V4Stage::NeedHeader;
+                        return Ok(());
+                    }
+                    let header = parse_v4_header(&self.raw)?;
+                    self.v4_stage = V4Stage::NeedToc(header);
+                    // fall through to next iteration to attempt TOC parse
+                }
+                V4Stage::NeedToc(header) => {
+                    if self.raw.len() < header.toc_end {
+                        self.v4_stage = V4Stage::NeedToc(header);
+                        return Ok(());
+                    }
+                    let (compressed_offsets, total_size) = walk_v4_toc(&self.raw, &header)?;
+                    self.v4_stage = V4Stage::NeedStreams {
+                        header,
+                        compressed_offsets,
+                        total_size,
+                    };
+                    // fall through to next iteration to attempt stream decompression
+                }
+                V4Stage::NeedStreams {
+                    header,
+                    compressed_offsets,
+                    total_size,
+                } => {
+                    if self.raw.len() < total_size {
+                        self.v4_stage = V4Stage::NeedStreams {
+                            header,
+                            compressed_offsets,
+                            total_size,
+                        };
+                        return Ok(());
+                    }
+                    // All bytes present; ZSTD-decompress every stream into
+                    // self.buffer, then run the existing section state machine.
+                    self.buffer.clear();
+                    for (offset, size) in &compressed_offsets {
+                        let compressed = &self.raw[*offset..*offset + *size];
+                        let mut decoder = ruzstd::StreamingDecoder::new(compressed)
+                            .map_err(|e| anyhow::anyhow!("v4 ZSTD init failed: {}", e))?;
+                        decoder
+                            .read_to_end(&mut self.buffer)
+                            .map_err(|e| anyhow::anyhow!("v4 ZSTD decompress failed: {}", e))?;
+                    }
+                    self.init_state(
+                        header.version,
+                        header.num_splats,
+                        header.sh_degree,
+                        header.fractional_bits,
+                        header.flags,
+                    )?;
+                    self.poll_sections()?;
+                    // Mark the one-shot v4 decode as complete; finish() validates
+                    // against this same flag for both the streaming gzip path and
+                    // the v4 path.
+                    self.v4_stage = V4Stage::Done;
+                    self.done = true;
+                    return Ok(());
+                }
             }
-            compressed_offsets.push((data_cursor, compressed_size));
-            data_cursor = data_cursor
-                .checked_add(compressed_size)
-                .ok_or_else(|| anyhow::anyhow!("v4 stream offset overflow"))?;
         }
-        if self.raw.len() < data_cursor {
-            return Ok(()); // need more bytes for the compressed streams
-        }
-        // We have everything required. Decompress every stream and concatenate into self.buffer.
-        self.buffer.clear();
-        for (offset, size) in &compressed_offsets {
-            let compressed = &self.raw[*offset..*offset + *size];
-            let mut decoder = ruzstd::StreamingDecoder::new(compressed)
-                .map_err(|e| anyhow::anyhow!("v4 ZSTD init failed: {}", e))?;
-            let pre_len = self.buffer.len();
-            decoder
-                .read_to_end(&mut self.buffer)
-                .map_err(|e| anyhow::anyhow!("v4 ZSTD decompress failed: {}", e))?;
-            let _ = pre_len; // (decompressed sizes already validated by ruzstd against frame headers)
-        }
-
-        // Initialize the section state machine with the parsed v4 metadata, then run it.
-        self.init_state(version, num_splats, sh_degree, fractional_bits, flags)?;
-        self.poll_sections()?;
-        // Mark the one-shot v4 decode as complete; finish() validates against this same flag
-        // for both the streaming gzip path and the v4 path.
-        self.done = true;
-        Ok(())
     }
 
     fn poll_sections(&mut self) -> anyhow::Result<()> {
@@ -592,6 +622,80 @@ impl<T: SplatReceiver> SpzDecoder<T> {
         if in_offset > 0 { self.compressed.drain(..in_offset); }
         Ok(())
     }
+}
+
+/// Parse the 32-byte NGSP header at the start of a v4 file. Caller must
+/// guarantee `raw.len() >= NGSP_HEADER_SIZE`.
+fn parse_v4_header(raw: &[u8]) -> anyhow::Result<V4HeaderInfo> {
+    debug_assert!(raw.len() >= NGSP_HEADER_SIZE);
+    let magic = read_u32_le(&raw[0..4]);
+    if magic != SPZ_MAGIC {
+        return Err(anyhow::anyhow!("Invalid v4 SPZ magic: 0x{:08x}", magic));
+    }
+    let version = read_u32_le(&raw[4..8]);
+    if version != 4 {
+        return Err(anyhow::anyhow!("Unsupported NGSP version: {}", version));
+    }
+    let num_splats = read_u32_le(&raw[8..12]) as usize;
+    let sh_degree = raw[12] as usize;
+    let fractional_bits = raw[13];
+    let flags = raw[14];
+    let num_streams = raw[15] as usize;
+    let toc_byte_offset = read_u32_le(&raw[16..20]) as usize;
+    // bytes 20..32 reserved
+
+    if toc_byte_offset < NGSP_HEADER_SIZE {
+        return Err(anyhow::anyhow!(
+            "Invalid v4 tocByteOffset: {} < {}",
+            toc_byte_offset,
+            NGSP_HEADER_SIZE
+        ));
+    }
+    let toc_size = num_streams
+        .checked_mul(TOC_ENTRY_SIZE)
+        .ok_or_else(|| anyhow::anyhow!("v4 TOC size overflow"))?;
+    let toc_end = toc_byte_offset
+        .checked_add(toc_size)
+        .ok_or_else(|| anyhow::anyhow!("v4 TOC end overflow"))?;
+
+    Ok(V4HeaderInfo {
+        version,
+        num_splats,
+        sh_degree,
+        fractional_bits,
+        flags,
+        num_streams,
+        toc_byte_offset,
+        toc_end,
+    })
+}
+
+/// Walk the v4 TOC to compute the (offset, size) of every compressed stream
+/// and the total file size required. Caller must guarantee
+/// `raw.len() >= header.toc_end`.
+fn walk_v4_toc(
+    raw: &[u8],
+    header: &V4HeaderInfo,
+) -> anyhow::Result<(Vec<(usize, usize)>, usize)> {
+    debug_assert!(raw.len() >= header.toc_end);
+    let mut compressed_offsets: Vec<(usize, usize)> = Vec::with_capacity(header.num_streams);
+    let mut data_cursor = header.toc_end;
+    for i in 0..header.num_streams {
+        let e = header.toc_byte_offset + i * TOC_ENTRY_SIZE;
+        let cs_lo = read_u32_le(&raw[e..e + 4]) as u64;
+        let cs_hi = read_u32_le(&raw[e + 4..e + 8]) as u64;
+        let _us_lo = read_u32_le(&raw[e + 8..e + 12]) as u64;
+        let _us_hi = read_u32_le(&raw[e + 12..e + 16]) as u64;
+        let compressed_size = (cs_lo | (cs_hi << 32)) as usize;
+        if cs_hi != 0 || compressed_size > usize::MAX / 2 {
+            return Err(anyhow::anyhow!("v4 stream too large"));
+        }
+        compressed_offsets.push((data_cursor, compressed_size));
+        data_cursor = data_cursor
+            .checked_add(compressed_size)
+            .ok_or_else(|| anyhow::anyhow!("v4 stream offset overflow"))?;
+    }
+    Ok((compressed_offsets, data_cursor))
 }
 
 fn parse_gzip_header(buffer: &mut Vec<u8>) -> anyhow::Result<bool> {
