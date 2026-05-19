@@ -15,6 +15,9 @@ const MAX_SPLAT_CHUNK: usize = 65536;
 const NGSP_HEADER_SIZE: usize = 32;
 const TOC_ENTRY_SIZE: usize = 16; // [u64 compressedSize LE][u64 uncompressedSize LE]
 
+// Header flag bits (byte 14 of the SPZ header).
+const FLAG_HAS_EXTENSIONS: u8 = 0x02;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SpzDecoderStage { Centers, Alphas, Rgb, Scales, Quats, Sh, Extension, ChildCounts, ChildStarts, Done }
 
@@ -651,6 +654,16 @@ fn parse_v4_header(raw: &[u8]) -> anyhow::Result<V4HeaderInfo> {
     let h = parse_common_header(raw)?;
     if h.version != 4 {
         return Err(anyhow::anyhow!("Unsupported NGSP version: {}", h.version));
+    }
+    // Extensions are signalled in the flag byte but this decoder does not
+    // parse extension data. Mirror the reference impl's behaviour: warn the
+    // user that some packing-affecting metadata may have been skipped, then
+    // continue decoding the rest of the file as normal.
+    if h.flags & FLAG_HAS_EXTENSIONS != 0 {
+        eprintln!(
+            "[SPZ WARNING] parse_v4_header: extensions were skipped at load time — \
+             unpacked data may be incorrect due to unknown packing behavior"
+        );
     }
     let num_streams = raw[15] as usize;
     let toc_byte_offset = read_u32_le(&raw[16..20]) as usize;
