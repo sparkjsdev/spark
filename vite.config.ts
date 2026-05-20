@@ -49,6 +49,26 @@ function fixWasmDataUrl(): Plugin {
   };
 }
 
+const sparkRsDirectory = "rust/spark-rs/pkg";
+const sparkWorkerRsDirectory = "rust/spark-worker-rs/pkg";
+if (
+  ![sparkRsDirectory, sparkWorkerRsDirectory].every((dir) => fs.existsSync(dir))
+) {
+  console.error(
+    "\x1b[31m************************************************************************\x1b[0m",
+  );
+  console.error(
+    "\x1b[31m Rust Wasm components not found, make sure to build them first.\x1b[0m",
+  );
+  console.error(
+    "\x1b[31m Install Rust and run:\x1b[1m npm run build:wasm\x1b[0m",
+  );
+  console.error(
+    "\x1b[31m************************************************************************\x1b[0m",
+  );
+  process.exit(1);
+}
+
 const assetsDirectory = "examples/assets";
 const localAssetsDirectoryExist = fs.existsSync(assetsDirectory);
 if (!localAssetsDirectoryExist) {

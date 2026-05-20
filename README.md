@@ -113,9 +113,10 @@ Install [Rust](https://www.rust-lang.org/tools/install) if it's not already inst
 Next, build Spark by running:
 ```
 npm install
+npm run build:wasm
 npm run build
 ```
-This will first build the Rust Wasm component (can be invoked via `npm run build:wasm`), then Spark itself (`npm run build`).
+This will first build the Rust Wasm component (`npm run build:wasm`), then Spark itself (`npm run build`).
 
 The examples fetch assets from a remote URL. This step is optional, but offline development and faster loading times are possible if you download and cache the assets files locally with the following command:
 ```
@@ -136,6 +137,7 @@ First try cleaning all the build files and re-building everything:
 ```
 npm run clean
 npm install
+npm run build:wasm
 npm run build
 ```
 
