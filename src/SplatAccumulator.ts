@@ -59,7 +59,7 @@ export class SplatAccumulator {
   time = 0;
   deltaTime = 0;
   viewToWorld = new THREE.Matrix4();
-  viewOrigin = new THREE.Vector3();
+  renderOrigin = new THREE.Vector3();
   viewDirection = new THREE.Vector3();
   static viewCenterUniform = new DynoVec3({ value: new THREE.Vector3() });
   static viewDirUniform = new DynoVec3({ value: new THREE.Vector3() });
@@ -460,10 +460,10 @@ export class SplatAccumulator {
       { numSplats: number; texture: THREE.DataTexture }
     >;
   }) {
-    this.viewToWorld.copy(camera.matrixWorld);
-    camera.getWorldPosition(this.viewOrigin);
+    camera.getWorldPosition(this.renderOrigin);
+    this.viewToWorld.copy(camera.matrixWorld).setPosition(0, 0, 0);
     camera.getWorldDirection(this.viewDirection);
-    SplatAccumulator.viewCenterUniform.value.copy(this.viewOrigin);
+    SplatAccumulator.viewCenterUniform.value.set(0, 0, 0);
     SplatAccumulator.viewDirUniform.value.copy(this.viewDirection);
     SplatAccumulator.sortRadialUniform.value = sortRadial;
 
@@ -502,6 +502,7 @@ export class SplatAccumulator {
           time: this.time,
           deltaTime: this.deltaTime,
           viewToWorld: this.viewToWorld,
+          renderOrigin: this.renderOrigin,
           camera,
           renderSize,
           globalEdits,

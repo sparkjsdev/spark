@@ -230,6 +230,7 @@ export class OldSparkRenderer extends THREE.Mesh {
   // List of cameras used for the current viewpoint (for WebXR)
   private defaultCameras: THREE.Matrix4[] = [];
   private lastStochastic: boolean | null = null;
+  private readonly renderOrigin = new THREE.Vector3();
 
   // Should be set to the defaultView, but can be temporarily changed to another
   // viewpoint using prepareViewpoint() for rendering from a different viewpoint.
@@ -700,6 +701,7 @@ export class OldSparkRenderer extends THREE.Mesh {
       originToWorld = this.active.toWorld;
     }
     viewToWorld = viewToWorld ?? originToWorld.clone();
+    this.renderOrigin.setFromMatrixPosition(originToWorld);
 
     const time = this.time ?? this.clock.getElapsedTime();
     const deltaTime = time - (this.lastUpdateTime ?? time);
@@ -723,6 +725,7 @@ export class OldSparkRenderer extends THREE.Mesh {
         time,
         deltaTime,
         viewToWorld,
+        renderOrigin: this.renderOrigin,
         globalEdits,
       });
     }

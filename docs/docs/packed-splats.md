@@ -127,7 +127,7 @@ Opacity is encoded on a linear scale where 0..255 maps to 0..1.
 
 ### Splat center encoding
 
-The center x/y/z components are encoded as float16, which provides 10 bits of mantissa, or approximately 1K steps (0.1%) of resolution between each successive power of 0 from the origin, with a range of up to 32K in distance. If most of the splats are positioned relative to the origin this provides enough positional resolution. Splats that are transformed far from the origin, however (for example when bringing multiple `SplatMesh`es together in a scene that are far apart) may lose precision when mapped to the space of `SparkRenderer`. For scenes where the user camera may move far from the origin, you may want to tie the `SparkRenderer` origin to your camera by adding it as a child of the camera.
+The center x/y/z components are encoded as float16, which provides 10 bits of mantissa, or approximately 1K steps (0.1%) of resolution between each successive power of 0 from the origin, with a range of up to 32K in distance. If most of the splats are positioned relative to the origin this provides enough positional resolution. Splats that are transformed far from the origin, however (for example when bringing multiple `SplatMesh`es together in a scene that are far apart) may lose precision when mapped to the space of `SparkRenderer`.
 
 ### Splat scales encoding
 
