@@ -1,13 +1,4 @@
 export {
-  OldSparkRenderer,
-  type OldSparkRendererOptions,
-} from "./OldSparkRenderer";
-export {
-  OldSparkViewpoint,
-  type OldSparkViewpointOptions,
-} from "./OldSparkViewpoint";
-
-export {
   SparkRenderer,
   type SparkRendererOptions,
 } from "./SparkRenderer";
@@ -19,7 +10,6 @@ export { RgbaArray, readRgbaArray } from "./RgbaArray";
 
 export {
   SplatLoader,
-  unpackSplats,
   getSplatFileType,
   isPcSogs,
 } from "./SplatLoader";
@@ -36,7 +26,6 @@ export {
   type GsplatModifier,
   SplatTransformer,
 } from "./SplatGenerator";
-export { OldSplatAccumulator } from "./OldSplatAccumulator";
 export { Readback, type Rgba8Readback, type ReadbackBuffer } from "./Readback";
 
 export {
