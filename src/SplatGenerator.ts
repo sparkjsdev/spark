@@ -256,6 +256,7 @@ export interface FrameUpdateContext {
   time: number;
   deltaTime: number;
   viewToWorld: THREE.Matrix4;
+  renderOrigin: THREE.Vector3;
   camera?: THREE.Camera;
   renderSize?: THREE.Vector2;
   globalEdits: SplatEdit[];

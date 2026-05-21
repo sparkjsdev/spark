@@ -379,6 +379,14 @@ export class SparkRenderer extends THREE.Mesh {
   sortTimeoutId = -1;
   sortedCenter = new THREE.Vector3().setScalar(Number.NEGATIVE_INFINITY);
   sortedDir = new THREE.Vector3().setScalar(0);
+  private readonly accumToCamera = new THREE.Matrix4();
+  private readonly accumToCameraScale = new THREE.Vector3();
+  private readonly renderCameraToWorld = new THREE.Matrix4();
+  private readonly renderCameraOrigin = new THREE.Vector3();
+  private readonly lodCameraToWorld = new THREE.Matrix4();
+  private readonly lodCameraScale = new THREE.Vector3();
+  private readonly lodViewToObject = new THREE.Matrix4();
+  private readonly lodMeshOrigin = new THREE.Vector3();
   readback32 = new Uint32Array(0);
 
   enableLod: boolean;
@@ -756,17 +764,20 @@ export class SparkRenderer extends THREE.Mesh {
     const geometry = this.geometry as SplatGeometry;
     geometry.instanceCount = spark.activeSplats;
 
-    const accumToWorld = new THREE.Matrix4();
-    if (!this.display.extSplats) {
-      accumToWorld.makeTranslation(spark.display.viewOrigin);
-    }
-    const cameraToWorld = camera.matrixWorld.clone();
-    const worldToCamera = cameraToWorld.invert();
-    const accumToCamera = worldToCamera.multiply(accumToWorld);
+    const renderCameraToWorld = this.renderCameraToWorld
+      .copy(camera.matrixWorld)
+      .setPosition(
+        this.renderCameraOrigin
+          .setFromMatrixPosition(camera.matrixWorld)
+          .sub(spark.display.renderOrigin),
+      );
+    const accumToCamera = this.accumToCamera
+      .copy(renderCameraToWorld)
+      .invert();
     accumToCamera.decompose(
       this.uniforms.renderToViewPos.value,
       this.uniforms.renderToViewQuat.value,
-      new THREE.Vector3(),
+      this.accumToCameraScale,
     );
     this.uniforms.renderToViewBasis.value.setFromMatrix4(accumToCamera);
 
@@ -997,7 +1008,7 @@ export class SparkRenderer extends THREE.Mesh {
 
     const current = this.current;
 
-    this.sortedCenter.copy(current.viewOrigin);
+    this.sortedCenter.copy(current.renderOrigin);
     this.sortedDir.copy(current.viewDirection);
 
     const { numSplats, maxSplats } = current;
@@ -1159,8 +1170,9 @@ export class SparkRenderer extends THREE.Mesh {
     const viewQuat = new THREE.Quaternion();
     this.current.viewToWorld.decompose(viewPos, viewQuat, new THREE.Vector3());
 
+    const lodPos = this.lodPosOverride ?? this.current.renderOrigin;
     if (this.lodPosOverride) {
-      viewPos.copy(this.lodPosOverride);
+      viewPos.copy(this.lodPosOverride).sub(this.current.renderOrigin);
     }
     if (this.lodQuatOverride) {
       viewQuat.copy(this.lodQuatOverride).normalize();
@@ -1174,7 +1186,7 @@ export class SparkRenderer extends THREE.Mesh {
         this.lodDirty = true;
       }
 
-      const distance = viewPos.distanceTo(this.lastLod.pos);
+      const distance = lodPos.distanceTo(this.lastLod.pos);
       const distanceRamp = Math.max(0.0, 1.0 - distance / 1.0);
       const dot = viewQuat.dot(this.lastLod.quat);
       const quatRamp = Math.max(0.0, 1.0 - (1.0 - dot) / 0.01);
@@ -1306,12 +1318,12 @@ export class SparkRenderer extends THREE.Mesh {
         if (this.lastLod) {
           const deltaTime = Math.max(1, now - this.lastLod.timestamp);
           deltaPred
-            .copy(viewPos)
+            .copy(lodPos)
             .sub(this.lastLod.pos)
             .multiplyScalar(this.lastTraverseTime / deltaTime);
         }
         this.lastLod = {
-          pos: viewPos,
+          pos: lodPos.clone(),
           quat: viewQuat,
           pixelScaleLimit,
           maxSplats,
@@ -1324,8 +1336,10 @@ export class SparkRenderer extends THREE.Mesh {
           deltaPred,
           lodMeshes,
           maxSplats,
+          this.lastLod.pos,
           viewPos,
           viewQuat,
+          this.current.renderOrigin,
           pixelScaleLimit,
         );
         this.currentLod = this.lastLod;
@@ -1365,25 +1379,32 @@ export class SparkRenderer extends THREE.Mesh {
     deltaPred: THREE.Vector3,
     lodMeshes: SplatMesh[],
     maxSplats: number,
+    lodPos: THREE.Vector3,
     viewPos: THREE.Vector3,
     viewQuat: THREE.Quaternion,
+    renderOrigin: THREE.Vector3,
     pixelScaleLimit: number,
   ) {
     // Commented out because it makes LoDing less stable
     // viewPos.add(deltaPred);
 
     const uuidToMesh: Map<string, SplatMesh> = new Map();
-    const cameraToWorld = new THREE.Matrix4().compose(
+    const cameraToWorld = this.lodCameraToWorld.compose(
       viewPos,
       viewQuat,
-      new THREE.Vector3().setScalar(1),
+      this.lodCameraScale.setScalar(1),
     );
 
     const instances = lodMeshes.reduce(
       (instances, mesh) => {
         uuidToMesh.set(mesh.uuid, mesh);
-        const viewToObject = mesh.matrixWorld
-          .clone()
+        const viewToObject = this.lodViewToObject
+          .copy(mesh.matrixWorld)
+          .setPosition(
+            this.lodMeshOrigin
+              .setFromMatrixPosition(mesh.matrixWorld)
+              .sub(renderOrigin),
+          )
           .invert()
           .multiply(cameraToWorld);
 
@@ -1407,7 +1428,7 @@ export class SparkRenderer extends THREE.Mesh {
           instanceId: mesh.uuid,
           lodId: record.lodId,
           rootPage: record.rootPage,
-          viewToObjectCols: viewToObject.elements,
+          viewToObjectCols: viewToObject.elements.slice(),
           lodScale: mesh.lodScale,
           behindFoveate: mesh.behindFoveate ?? this.behindFoveate,
           coneFov0: mesh.coneFov0 ?? this.coneFov0,
@@ -1472,7 +1493,7 @@ export class SparkRenderer extends THREE.Mesh {
           const meshPosition = mesh.getWorldPosition(new THREE.Vector3());
           return {
             splats: mesh.paged,
-            distance: meshPosition.distanceTo(viewPos),
+            distance: meshPosition.distanceTo(lodPos),
           };
         })
         .filter((result) => result !== null);

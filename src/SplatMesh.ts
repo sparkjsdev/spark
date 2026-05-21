@@ -308,6 +308,11 @@ export class SplatMesh extends SplatGenerator {
 
   showLodPage?: number;
   showLodPageDyno = new DynoInt({ value: 0 });
+  private readonly objectToRender = new THREE.Matrix4();
+  private readonly objectToRenderOffset = new THREE.Vector3();
+  private readonly worldToObject = new THREE.Matrix4();
+  private readonly worldToView = new THREE.Matrix4();
+  private readonly viewToObjectMatrix = new THREE.Matrix4();
 
   constructor(options: SplatMeshOptions = {}) {
     super({
@@ -833,6 +838,7 @@ export class SplatMesh extends SplatGenerator {
     time,
     deltaTime,
     viewToWorld,
+    renderOrigin,
     camera,
     renderSize,
     globalEdits,
@@ -870,8 +876,16 @@ export class SplatMesh extends SplatGenerator {
       this.generatorDirty = true;
     }
 
+    this.updateMatrixWorld();
+    const objectToWorld = this.objectToRender.copy(this.matrixWorld);
+    objectToWorld.setPosition(
+      this.objectToRenderOffset
+        .setFromMatrixPosition(this.matrixWorld)
+        .sub(renderOrigin),
+    );
+
     if (!this.covSplats) {
-      if (this.context.transform.update(this)) {
+      if (this.context.transform.updateFromMatrix(objectToWorld)) {
         updated = true;
       }
 
@@ -881,7 +895,7 @@ export class SplatMesh extends SplatGenerator {
       ) {
         updated = true;
       }
-      const worldToView = viewToWorld.clone().invert();
+      const worldToView = this.worldToView.copy(viewToWorld).invert();
       if (
         this.context.worldToView.updateFromMatrix(worldToView) &&
         this.enableWorldToView
@@ -889,13 +903,10 @@ export class SplatMesh extends SplatGenerator {
         updated = true;
       }
 
-      const objectToWorld = new THREE.Matrix4().compose(
-        this.context.transform.translate.value,
-        this.context.transform.rotate.value,
-        new THREE.Vector3().setScalar(this.context.transform.scale.value),
+      const viewToObjectMatrix = this.viewToObjectMatrix.multiplyMatrices(
+        this.worldToObject.copy(objectToWorld).invert(),
+        viewToWorld,
       );
-      const worldToObject = objectToWorld.invert();
-      const viewToObjectMatrix = worldToObject.multiply(viewToWorld);
       if (
         this.context.viewToObject.updateFromMatrix(viewToObjectMatrix) &&
         (this.enableViewToObject || this.context.splats.hasRgbDir())
@@ -904,7 +915,7 @@ export class SplatMesh extends SplatGenerator {
         updated = true;
       }
     } else {
-      if (this.context.covTransform.update(this)) {
+      if (this.context.covTransform.updateFromMatrix(objectToWorld)) {
         updated = true;
       }
 
@@ -914,7 +925,7 @@ export class SplatMesh extends SplatGenerator {
       ) {
         updated = true;
       }
-      const worldToView = viewToWorld.clone().invert();
+      const worldToView = this.worldToView.copy(viewToWorld).invert();
       if (
         this.context.covWorldToView.updateFromMatrix(worldToView) &&
         this.enableWorldToView
@@ -922,8 +933,10 @@ export class SplatMesh extends SplatGenerator {
         updated = true;
       }
 
-      const worldToObject = this.matrixWorld.clone().invert();
-      const viewToObjectMatrix = worldToObject.multiply(viewToWorld);
+      const viewToObjectMatrix = this.viewToObjectMatrix.multiplyMatrices(
+        this.worldToObject.copy(objectToWorld).invert(),
+        viewToWorld,
+      );
       if (
         this.context.covViewToObject.updateFromMatrix(viewToObjectMatrix) &&
         (this.enableViewToObject || this.context.splats.hasRgbDir())
