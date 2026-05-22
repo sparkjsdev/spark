@@ -1548,16 +1548,6 @@ export class SparkRenderer extends THREE.Mesh {
 
     let oldest = null;
     for (const [splats, record] of this.lodIds.entries()) {
-      // Skip paged splats whose pages are still in the pager. Disposing
-      // the worker's LoD tree wipes its per-instance page<->chunk maps,
-      // and they can only be rebuilt by replaying update_lod_trees from
-      // the original lodTree data, which we don't retain JS-side after
-      // upload. Cached chunks emit no fetch event on reshow, so without
-      // this gate a hidden-then-shown mesh is permanently stuck with
-      // empty traversal. Pager presence is the real source of truth.
-      // if (this.pager?.splatsChunkToPage.has(splats as PagedSplats)) {
-      //   continue;
-      // }
       if (oldest == null || record.lastTouched < oldest.lastTouched) {
         oldest = {
           splats,
