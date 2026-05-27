@@ -882,7 +882,12 @@ struct SpzDecoderState {
 
 impl SpzDecoderState {
     fn new(version: u32, num_splats: usize, sh_degree: usize, fractional_bits: u8, flags: u8) -> anyhow::Result<Self> {
-        if sh_degree > 3 { return Err(anyhow::anyhow!("Invalid SH degree: {}", sh_degree)); }
+        if sh_degree > 3 {
+            return Err(anyhow::anyhow!(
+                "SPZ SH degree {} is not supported by the Spark JS decoder (handles 0-3)",
+                sh_degree
+            ));
+        }
         Ok(Self {
             version,
             num_splats,
