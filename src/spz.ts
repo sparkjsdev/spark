@@ -1,3 +1,8 @@
+import {
+  compress as zstdCompress,
+  decompress as zstdDecompress,
+  init as zstdInit,
+} from "@bokuweb/zstd-wasm";
 import * as THREE from "three";
 import {
   SplatData,
@@ -5,11 +10,6 @@ import {
   getSplatFileType,
   getSplatFileTypeFromPath,
 } from "./SplatLoader";
-import {
-  compress as zstdCompress,
-  decompress as zstdDecompress,
-  init as zstdInit,
-} from "@bokuweb/zstd-wasm";
 import { GunzipReader, fromHalf, normalize } from "./utils";
 
 // Lazy, idempotent initialization of the ZSTD WASM module. The first call
@@ -191,14 +191,19 @@ export class SpzReader {
     this.parsed = true;
 
     // Unified attribute reader: v4 returns pre-decompressed streams in order;
-    // v1-v3 reads sequentially from the gzip stream.
+    // v1-v3 reads sequentially from the gzip stream. Exactly one of v4Streams /
+    // reader is non-null (set in the constructor based on the file format).
     let streamIdx = 0;
+    const { v4Streams, reader } = this;
     const read =
-      this.v4Streams !== null
-        ? async (_n: number): Promise<Uint8Array> =>
-            this.v4Streams![streamIdx++]
-        : async (n: number): Promise<Uint8Array> =>
-            await this.reader!.read(n);
+      v4Streams !== null
+        ? async (_n: number): Promise<Uint8Array> => v4Streams[streamIdx++]
+        : async (n: number): Promise<Uint8Array> => {
+            if (reader === null) {
+              throw new Error("SPZ reader not initialized");
+            }
+            return reader.read(n);
+          };
 
     if (this.version === 1) {
       // float16 centers
@@ -449,10 +454,7 @@ export class SpzWriter {
   }
 
   setAlpha(index: number, alpha: number) {
-    this.alphas[index] = Math.max(
-      0,
-      Math.min(255, Math.round(alpha * 255)),
-    );
+    this.alphas[index] = Math.max(0, Math.min(255, Math.round(alpha * 255)));
   }
 
   static scaleRgb(r: number) {
