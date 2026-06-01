@@ -567,6 +567,16 @@ export class SparkRenderer extends THREE.Mesh {
     this.accumulators.push(new SplatAccumulator(accumulatorOptions));
     this.accumulators.push(new SplatAccumulator(accumulatorOptions));
 
+    // Check if the provoking vertex convention should be changed
+    const provokingVertexExt = this.renderer
+      .getContext()
+      .getExtension("WEBGL_provoking_vertex");
+    if (provokingVertexExt) {
+      provokingVertexExt.provokingVertexWEBGL(
+        provokingVertexExt.FIRST_VERTEX_CONVENTION_WEBGL,
+      );
+    }
+
     if (options.target) {
       const {
         width,
