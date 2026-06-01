@@ -253,9 +253,9 @@ impl TsplatArray for GsplatArray {
         self.max_sh_degree
     }
 
-    fn set_max_sh_degree(&mut self, max_sh_degree: usize) {
+    fn clamp_sh_degree(&mut self, max_sh_degree: usize) {
         assert!(max_sh_degree <= 3, "SH degrees must be between 0 and 3");
-        self.max_sh_degree = max_sh_degree;
+        let max_sh_degree = max_sh_degree.min(self.max_sh_degree);
 
         if max_sh_degree < 3 {
             self.sh3.clear();
@@ -266,6 +266,7 @@ impl TsplatArray for GsplatArray {
         if max_sh_degree < 1 {
             self.sh1.clear();
         }
+        self.max_sh_degree = max_sh_degree;
     }
 
     fn len(&self) -> usize {
