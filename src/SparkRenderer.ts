@@ -41,11 +41,6 @@ export interface SparkRendererOptions {
    */
   premultipliedAlpha?: boolean;
   /**
-   * Whether to encode Gsplat with linear RGB (for environment mapping)
-   * @default false
-   */
-  encodeLinear?: boolean;
-  /**
    * Pass in a THREE.Clock to synchronize time-based effects across different
    * systems. Alternatively, you can set the property time directly.
    * (default: new THREE.Clock)
@@ -353,7 +348,6 @@ export class SparkRenderer extends THREE.Mesh {
   falloff: number;
   clipXY: number;
   focalAdjustment: number;
-  encodeLinear: boolean;
 
   sortRadial: boolean;
   minSortIntervalMs: number;
@@ -525,7 +519,6 @@ export class SparkRenderer extends THREE.Mesh {
     this.falloff = options.falloff ?? 1.0;
     this.clipXY = options.clipXY ?? 1.4;
     this.focalAdjustment = options.focalAdjustment ?? 1.0;
-    this.encodeLinear = options.encodeLinear ?? false;
 
     this.sortRadial = options.sortRadial ?? true;
     this.minSortIntervalMs = options.minSortIntervalMs ?? 0;
@@ -612,7 +605,6 @@ export class SparkRenderer extends THREE.Mesh {
           targetOptions,
         );
       }
-      this.encodeLinear = options.encodeLinear ?? true;
     }
   }
 
@@ -741,21 +733,30 @@ export class SparkRenderer extends THREE.Mesh {
     const isNewFrame = frame !== spark.lastFrame;
     spark.lastFrame = frame;
 
-    if (spark.target) {
-      spark.renderSize.set(spark.target.width, spark.target.height);
-    } else {
-      const renderSize = renderer.getDrawingBufferSize(spark.renderSize);
-      if (renderer.xr.isPresenting) {
-        if (renderSize.x === 1 && renderSize.y === 1) {
-          // WebXR mode on Apple Vision Pro returns 1x1 when presenting.
-          // Use a different means to figure out the render size.
-          const baseLayer = renderer.xr.getSession()?.renderState.baseLayer;
-          if (baseLayer) {
-            renderSize.x = baseLayer.framebufferWidth;
-            renderSize.y = baseLayer.framebufferHeight;
-          }
+    // Determine render target
+    const currentRenderTarget = renderer.getRenderTarget();
+    const isXRRenderTarget = checkIsXRRenderTarget(currentRenderTarget);
+    if (currentRenderTarget) {
+      spark.renderSize.set(
+        currentRenderTarget.width,
+        currentRenderTarget.height,
+      );
+
+      // WebXR mode on Apple Vision Pro returns 1x1 when presenting.
+      // Use a different means to figure out the render size.
+      if (
+        isXRRenderTarget &&
+        spark.renderSize.x === 1 &&
+        spark.renderSize.y === 1
+      ) {
+        const baseLayer = renderer.xr.getSession()?.renderState.baseLayer;
+        if (baseLayer) {
+          spark.renderSize.x = baseLayer.framebufferWidth;
+          spark.renderSize.y = baseLayer.framebufferHeight;
         }
       }
+    } else {
+      renderer.getDrawingBufferSize(spark.renderSize);
     }
     this.uniforms.renderSize.value.copy(spark.renderSize);
 
@@ -797,7 +798,15 @@ export class SparkRenderer extends THREE.Mesh {
     this.uniforms.falloff.value = spark.falloff;
     this.uniforms.clipXY.value = spark.clipXY;
     this.uniforms.focalAdjustment.value = spark.focalAdjustment;
-    this.uniforms.encodeLinear.value = spark.encodeLinear;
+
+    const outputColorSpace =
+      currentRenderTarget === null
+        ? renderer.outputColorSpace
+        : isXRRenderTarget
+          ? currentRenderTarget.texture.colorSpace
+          : THREE.ColorManagement.workingColorSpace;
+    this.uniforms.encodeLinear.value =
+      outputColorSpace !== THREE.SRGBColorSpace;
 
     this.uniforms.ordering.value =
       spark.orderingTexture ?? SparkRenderer.emptyOrdering;
@@ -2106,4 +2115,8 @@ export class SparkRenderer extends THREE.Mesh {
       this.material.needsUpdate = true;
     }
   }
+}
+
+function checkIsXRRenderTarget(renderTarget: THREE.RenderTarget | null) {
+  return (renderTarget as unknown as Record<string, boolean>)?.isXRRenderTarget;
 }
