@@ -135,22 +135,22 @@ pub fn sort32_internal(
     b1.fill(0);
 
     // pass 1: Histogram (branchless)
+    macro_rules! tick {
+        ($k:expr) => {{
+            let valid = ($k < DEPTH_INFINITY_F32) as u32;
+            let inv = !$k;
+
+            let r0 = inv & RADIX_MASK;
+            let r1 = inv >> RADIX_BITS;
+
+            b0[r0 as usize] += valid;
+            unsafe { *b1.get_unchecked_mut(r1 as usize) += valid };
+        }};
+    }
+
     let mut chunks = keys.chunks_exact(8);
 
     for chunk in chunks.by_ref() {
-        macro_rules! tick {
-            ($k:expr) => {{
-                let valid = ($k < DEPTH_INFINITY_F32) as u32;
-                let inv = !$k;
-
-                let r0 = inv & RADIX_MASK;
-                let r1 = inv >> RADIX_BITS;
-
-                b0[r0 as usize] += valid;
-                unsafe { *b1.get_unchecked_mut(r1 as usize) += valid };
-            }};
-        }
-
         tick!(chunk[0]);
         tick!(chunk[1]);
         tick!(chunk[2]);
@@ -162,34 +162,31 @@ pub fn sort32_internal(
     }
 
     for &k in chunks.remainder() {
-        let valid = (k < DEPTH_INFINITY_F32) as u32;
-        let inv = !k;
-        b0[(inv & RADIX_MASK) as usize] += valid;
-        unsafe { *b1.get_unchecked_mut((inv >> RADIX_BITS) as usize) += valid };
+        tick!(k);
     }
 
     let active = prefix_sum_exclusive(b0) as usize;
     prefix_sum_exclusive(b1);
 
     // pass 1: scatter into scratch
+    macro_rules! place {
+        ($k:expr, $idx:expr) => {{
+            let valid = ($k < DEPTH_INFINITY_F32) as u32;
+            let inv = !$k;
+
+            let r0 = (inv & RADIX_MASK) as usize;
+            let pos = unsafe { *b0.get_unchecked(r0) } as usize;
+
+            // Always write (branchless), but only advance if valid
+            unsafe { *scratch.get_unchecked_mut(pos) = ((inv as u64) << 32) | ($idx as u64) };
+            unsafe { *b0.get_unchecked_mut(r0) += valid };
+        }};
+    }
+
     let mut chunks = keys.chunks_exact(8);
     let mut i = 0;
 
     for chunk in chunks.by_ref() {
-        macro_rules! place {
-            ($k:expr, $idx:expr) => {{
-                let valid = ($k < DEPTH_INFINITY_F32) as u32;
-                let inv = !$k;
-
-                let r0 = (inv & RADIX_MASK) as usize;
-                let pos = unsafe { *b0.get_unchecked(r0) } as usize;
-
-                // Always write (branchless), but only advance if valid
-                unsafe { *scratch.get_unchecked_mut(pos) = ((inv as u64) << 32) | ($idx as u64) };
-                unsafe { *b0.get_unchecked_mut(r0) += valid };
-            }};
-        }
-
         place!(chunk[0], i);
         place!(chunk[1], i + 1);
         place!(chunk[2], i + 2);
@@ -203,32 +200,24 @@ pub fn sort32_internal(
     }
 
     for &k in chunks.remainder() {
-        let valid = (k < DEPTH_INFINITY_F32) as u32;
-        let inv = !k;
-
-        let r0 = (inv & RADIX_MASK) as usize;
-        let pos = unsafe { *b0.get_unchecked(r0) } as usize;
-
-        unsafe { *scratch.get_unchecked_mut(pos) = ((inv as u64) << 32) | (i as u64) };
-        unsafe { *b0.get_unchecked_mut(r0) += valid };
-
+        place!(k, i);
         i += 1;
     }
 
     // pass 2: scatter into final ordering
+    macro_rules! place2 {
+        ($kv:expr) => {{
+            let r1 = (($kv >> 48) & RADIX_MASK as u64) as usize;
+            let pos = unsafe { *b1.get_unchecked(r1) } as usize;
+
+            unsafe { *ordering.get_unchecked_mut(pos) = $kv as u32 };
+            unsafe { *b1.get_unchecked_mut(r1) += 1 };
+        }};
+    }
+
     let mut chunks = scratch[..active].chunks_exact(8);
 
     for chunk in chunks.by_ref() {
-        macro_rules! place2 {
-            ($kv:expr) => {{
-                let r1 = (($kv >> 48) & RADIX_MASK as u64) as usize;
-                let pos = unsafe { *b1.get_unchecked(r1) } as usize;
-
-                unsafe { *ordering.get_unchecked_mut(pos) = $kv as u32 };
-                unsafe { *b1.get_unchecked_mut(r1) += 1 };
-            }};
-        }
-
         place2!(chunk[0]);
         place2!(chunk[1]);
         place2!(chunk[2]);
@@ -240,11 +229,7 @@ pub fn sort32_internal(
     }
 
     for &kv in chunks.remainder() {
-        let r1 = ((kv >> 48) & RADIX_MASK as u64) as usize;
-        let pos = unsafe { *b1.get_unchecked(r1) } as usize;
-
-        unsafe { *ordering.get_unchecked_mut(pos) = kv as u32 };
-        unsafe { *b1.get_unchecked_mut(r1) += 1 };
+        place2!(kv);
     }
 
     // sanity‑check: last bucket should have consumed all entries
