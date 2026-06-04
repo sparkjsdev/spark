@@ -630,7 +630,7 @@ fn compute_pixel_scale<'a>(
 
 #[wasm_bindgen]
 pub fn dynamic_traverse_lod_trees(
-    max_splats: u32, pixel_scale_limit: f32, last_pixel_limit: Option<f32>,
+    max_splats: u32, pixel_scale_limit: f32, _last_pixel_limit: Option<f32>,
     // lod_instances: &Array,
     lod_ids: &[u32], root_pages: &[u32],
     view_to_objects: &[f32], lod_scales: &[f32],
@@ -662,12 +662,7 @@ pub fn dynamic_traverse_lod_trees(
     }
 
     STATE.with_borrow_mut(|state| {
-        let performance = Reflect::get(&js_sys::global(), &JsValue::from_str("performance"))
-            .expect("globalThis.performance should exist")
-            .dyn_into::<web_sys::Performance>()
-            .expect("globalThis.performance should be a Performance object");
-
-        let LodState { lod_trees, output, .. } = state;
+        let LodState { lod_trees, .. } = state;
         let instances: Vec<_> = lod_ids.iter().enumerate().map(|(index, &lod_id)| {
             let lod_tree = lod_trees.get(&lod_id).unwrap();
             let LodTree { splats, page_to_chunk, chunk_to_page } = &lod_tree;
@@ -704,18 +699,15 @@ pub fn dynamic_traverse_lod_trees(
 
 
         let mut leaf_count = 0;
-        let mut finer_count = 0;
         let mut missing_count = 0;
         let mut min_pixel_scale = f32::INFINITY;
 
         let mut current_scale = pixel_scale_limit * 100.0;
-        let limits = Array::new();
 
         loop {
             let iterator = instances.iter().zip(outputs).enumerate();
             outputs = Vec::with_capacity(num_instances);
 
-            limits.push(&JsValue::from(current_scale));
             let mut output_count = 0;
 
             for (_inst_index, (instance, (mut instance_output, mut stack))) in iterator {
@@ -727,7 +719,6 @@ pub fn dynamic_traverse_lod_trees(
                     min_pixel_scale = min_pixel_scale.min(pixel_scale);
                     if pixel_scale <= current_scale {
                         frontier.push((paged_index, pixel_scale));
-                        // finer_count += 1;
                         continue;
                     }
 
@@ -772,7 +763,6 @@ pub fn dynamic_traverse_lod_trees(
                             } else {
                                 frontier.push((paged_index, pixel_scale));
                             }
-                            // finer_count += 1;
                         } else {
                             stack.push((paged_index, pixel_scale));
                         }
@@ -782,8 +772,6 @@ pub fn dynamic_traverse_lod_trees(
                 output_count += instance_output.len() + frontier.len();
                 outputs.push((instance_output, frontier));
             }
-
-            limits.push(&JsValue::from(output_count));
 
             let ratio = output_count as f32 / max_splats as f32;
             // let next_scale = (0.9 * current_scale * ratio.powf(1.0 / 1.5)).max(pixel_scale_limit);
@@ -802,8 +790,6 @@ pub fn dynamic_traverse_lod_trees(
             // loop
         };
 
-        // let output_size = output.len();
-
         let mut touched: Vec<_> = lod_chunk_max.into_iter().flat_map(|x| {
             let (lod_id, chunk_max) = x;
             chunk_max.into_iter().enumerate().filter_map(move |(chunk, max)| {
@@ -815,9 +801,6 @@ pub fn dynamic_traverse_lod_trees(
             })
         }).collect();
         touched.sort_unstable();
-
-        let test_start = performance.now();
-        let test_time = performance.now() - test_start;
 
         let instance_indices = Array::new();
         let mut output_size = 0;
@@ -852,12 +835,9 @@ pub fn dynamic_traverse_lod_trees(
         Reflect::set(&result, &JsValue::from_str("pixelLimit"), &JsValue::from(min_pixel_scale)).unwrap();
         Reflect::set(&result, &JsValue::from_str("instanceIndices"), &JsValue::from(instance_indices)).unwrap();
         Reflect::set(&result, &JsValue::from_str("chunks"), &JsValue::from(out_chunks)).unwrap();
-        Reflect::set(&result, &JsValue::from_str("testTime"), &JsValue::from(test_time)).unwrap();
         Reflect::set(&result, &JsValue::from_str("outputSize"), &JsValue::from(output_size)).unwrap();
         Reflect::set(&result, &JsValue::from_str("leafCount"), &JsValue::from(leaf_count)).unwrap();
-        Reflect::set(&result, &JsValue::from_str("finerCount"), &JsValue::from(finer_count)).unwrap();
         Reflect::set(&result, &JsValue::from_str("missingCount"), &JsValue::from(missing_count)).unwrap();
-        Reflect::set(&result, &JsValue::from_str("limits"), &JsValue::from(limits)).unwrap();
         Ok(result)
     })
 }
