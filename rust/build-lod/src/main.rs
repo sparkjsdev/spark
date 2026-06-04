@@ -159,8 +159,8 @@ fn process_file_lod_tsplat<TS: SplatReceiver + TsplatArray + SplatGetter>(filena
     }
 
     if let Some(max_sh) = options.max_sh {
-        splats.set_max_sh_degree(max_sh);
-        description.insert("max_sh_degree".to_string(), serde_json::Value::Number(max_sh.into()));
+        splats.clamp_sh_degree(max_sh);
+        description.insert("clamp_sh_degree".to_string(), serde_json::Value::Number(max_sh.into()));
     }
 
     if let Some(min_box) = options.min_box {
@@ -242,7 +242,9 @@ fn process_file_lod_tsplat<TS: SplatReceiver + TsplatArray + SplatGetter>(filena
     let chunk_duration = start_time.elapsed();
     description.insert("chunk_duration".to_string(), serde_json::Number::from_f64(chunk_duration.as_secs_f64()).into());
 
-    let num_sh = TsplatArray::max_sh_degree(&splats).min(options.max_sh.unwrap_or(3));
+    let num_sh = TsplatArray::max_sh_degree(&splats);
+    description.insert("max_sh_degree".to_string(), serde_json::Value::Number(num_sh.into()));
+    
     let mut sh_clusters = None;
     if let Some(num_iterations) = options.cluster_sh {
         if num_sh > 0 {

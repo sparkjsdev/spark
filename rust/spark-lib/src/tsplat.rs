@@ -66,7 +66,7 @@ pub trait TsplatArray {
     fn new_capacity(capacity: usize, max_sh_degree: usize) -> Self;
 
     fn max_sh_degree(&self) -> usize;
-    fn set_max_sh_degree(&mut self, max_sh_degree: usize);
+    fn clamp_sh_degree(&mut self, max_sh_degree: usize);
 
     fn len(&self) -> usize;
     fn get(&self, index: usize) -> Self::Splat<'_>;
