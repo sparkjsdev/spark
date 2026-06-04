@@ -32,7 +32,6 @@ const spark = new SparkRenderer({
 | **Parameter**     | Description |
 | ----------------- | ----------- |
 | **premultipliedAlpha** | Whether to use premultiplied alpha when accumulating splat RGB. (default: `true`)
-| **encodeLinear**    | Whether to encode Gsplat with linear RGB (for example for rendering environment maps). (default: `false`)
 | **clock**         | Pass in a `THREE.Clock` to synchronize time-based effects across different systems. Alternatively, you can set the `SparkRenderer` properties `time` and `deltaTime` directly. (default: `new THREE.Clock`)
 | **autoUpdate**    | Controls whether to check and automatically update splat collection each frame render. (default: `true`)
 | **preUpdate**     | Controls whether to update the splats before or after rendering. For WebXR this is set to `false` in order to complete rendering as soon as possible. (default: `true` if not WebXR)
