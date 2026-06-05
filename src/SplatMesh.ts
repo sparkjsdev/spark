@@ -18,7 +18,7 @@ import {
   SplatGenerator,
   SplatTransformer,
 } from "./SplatGenerator";
-import { PagedSplats, SplatPager } from "./SplatPager";
+import { PagedSplats, type PagedSplatsOptions, SplatPager } from "./SplatPager";
 import type { SplatSkinning } from "./SplatSkinning";
 import {
   DEFAULT_SPLAT_ENCODING,
@@ -323,15 +323,22 @@ export class SplatMesh extends SplatGenerator {
         );
       }
       const rootUrl = options.url ?? "";
-      if (options.paged === true) {
-        this.paged = new PagedSplats({ rootUrl });
-      } else if (options.paged instanceof PagedSplats) {
+      if (options.paged instanceof PagedSplats) {
         this.paged = options.paged;
-      } else if (options.paged instanceof SplatPager) {
-        this.paged = new PagedSplats({ rootUrl, pager: options.paged });
       } else {
-        throw new Error("Invalid paged option");
+        const pagedSplatOptions: PagedSplatsOptions = {
+          rootUrl,
+        };
+        if (options.paged instanceof SplatPager) {
+          pagedSplatOptions.pager = options.paged;
+        } else if (options.paged === true) {
+          pagedSplatOptions.fileType = options.fileType;
+        } else {
+          throw new Error("Invalid paged option");
+        }
+        this.paged = new PagedSplats(pagedSplatOptions);
       }
+
       this.splats = this.paged;
     } else if (options.extSplats) {
       this.extSplats =
