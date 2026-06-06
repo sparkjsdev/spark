@@ -23,11 +23,7 @@ impl SortBuffers {
 }
 
 pub fn sort_internal(buffers: &mut SortBuffers, num_splats: usize) -> Result<u32, String> {
-    let SortBuffers {
-        readback,
-        ordering,
-        buckets,
-    } = buffers;
+    let SortBuffers { readback, ordering, buckets } = buffers;
     let readback = &readback[..num_splats];
 
     // Set the bucket counts to zero
@@ -61,7 +57,8 @@ pub fn sort_internal(buffers: &mut SortBuffers, num_splats: usize) -> Result<u32
     if buckets[0] != active_splats {
         return Err(format!(
             "Expected {} active splats but got {}",
-            active_splats, buckets[0]
+            active_splats,
+            buckets[0]
         ));
     }
     Ok(active_splats)
@@ -79,8 +76,12 @@ pub struct Sort32Buffers {
     pub readback: Vec<u32>,
     /// output indices
     pub ordering: Vec<u32>,
-    pub scratch: Vec<u64>, // (key, index)
-    pub buckets: Vec<u32>, // 2 * 65536
+    /// bucket counts / offsets (length == RADIX_BASE)
+    pub buckets16lo: Vec<u32>,
+    /// bucket counts / offsets (length == RADIX_BASE)
+    pub buckets16hi: Vec<u32>,
+    /// scratch space for (key, index)
+    pub scratch: Vec<u64>,
 }
 
 impl Sort32Buffers {
@@ -95,13 +96,15 @@ impl Sort32Buffers {
         if self.scratch.len() < max_splats {
             self.scratch.resize(max_splats, 0);
         }
-        if self.buckets.len() < RADIX_BASE * 2 {
-            self.buckets.resize(RADIX_BASE * 2, 0);
+        if self.buckets16lo.len() < RADIX_BASE {
+            self.buckets16lo.resize(RADIX_BASE, 0);
+        }
+        if self.buckets16hi.len() < RADIX_BASE {
+            self.buckets16hi.resize(RADIX_BASE, 0);
         }
     }
 }
 
-#[inline(always)]
 fn prefix_sum_exclusive(buckets: &mut [u32]) -> u32 {
     let mut sum = 0u32;
     for b in buckets.iter_mut() {
@@ -112,39 +115,34 @@ fn prefix_sum_exclusive(buckets: &mut [u32]) -> u32 {
     sum
 }
 
+/// Two‑pass radix sort (base 2¹⁶) of 32‑bit float bit‑patterns,
+/// descending order (largest keys first).
 pub fn sort32_internal(
     buffers: &mut Sort32Buffers,
     max_splats: usize,
     num_splats: usize,
 ) -> Result<u32, String> {
+    // make sure our buffers can hold `max_splats`
     buffers.ensure_size(max_splats);
 
-    let Sort32Buffers {
-        readback,
-        ordering,
-        scratch,
-        buckets,
-    } = buffers;
+    let Sort32Buffers { readback, ordering, buckets16lo, buckets16hi, scratch } = buffers;
     let keys = &readback[..num_splats];
 
-    // Split buckets
-    let (b0, b1) = buckets.split_at_mut(RADIX_BASE);
-    let b1 = &mut b1[..RADIX_BASE];
+    // tally low and high buckets (branchless)
+    buckets16lo.fill(0);
+    buckets16hi.fill(0);
 
-    b0.fill(0);
-    b1.fill(0);
-
-    // pass 1: Histogram (branchless)
     macro_rules! tick {
-        ($k:expr) => {{
-            let valid = ($k < DEPTH_INFINITY_F32) as u32;
-            let inv = !$k;
+        ($key:expr) => {{
+            let valid = ($key < DEPTH_INFINITY_F32) as u32;
+            let inv = !$key;
+            let lo = inv & RADIX_MASK;
+            let hi = inv >> RADIX_BITS;
 
-            let r0 = inv & RADIX_MASK;
-            let r1 = inv >> RADIX_BITS;
-
-            b0[r0 as usize] += valid;
-            unsafe { *b1.get_unchecked_mut(r1 as usize) += valid };
+            // by mask above: lo < 65536 == buckets16lo.len() == RADIX_BASE
+            unsafe { *buckets16lo.get_unchecked_mut(lo as usize) += valid; }
+            // by shift above: hi < 65536 == buckets16hi.len() == RADIX_BASE
+            unsafe { *buckets16hi.get_unchecked_mut(hi as usize) += valid; }
         }};
     }
 
@@ -165,21 +163,27 @@ pub fn sort32_internal(
         tick!(k);
     }
 
-    let active = prefix_sum_exclusive(b0) as usize;
-    prefix_sum_exclusive(b1);
+    // exclusive prefix‑sum → starting offsets
+    let active_splats = prefix_sum_exclusive(buckets16lo);
+    prefix_sum_exclusive(buckets16hi);
 
-    // pass 1: scatter into scratch
+    // ——— Pass #1: bucket by inv(low 16 bits) ———
+
+    // scatter into scratch by low bits of inv
     macro_rules! place {
-        ($k:expr, $idx:expr) => {{
-            let valid = ($k < DEPTH_INFINITY_F32) as u32;
-            let inv = !$k;
+        ($key:expr, $idx:expr) => {{
+            if $key < DEPTH_INFINITY_F32 {
+                let inv = !$key;
+                let lo = (inv & RADIX_MASK) as usize;
+                // by mask above: lo < 65536 == buckets16lo.len() == RADIX_BASE
+                let pos = unsafe { *buckets16lo.get_unchecked(lo) } as usize;
+                let inv_idx = ((inv as u64) << 32) | ($idx as u64);
 
-            let r0 = (inv & RADIX_MASK) as usize;
-            let pos = unsafe { *b0.get_unchecked(r0) } as usize;
-
-            // Always write (branchless), but only advance if valid
-            unsafe { *scratch.get_unchecked_mut(pos) = ((inv as u64) << 32) | ($idx as u64) };
-            unsafe { *b0.get_unchecked_mut(r0) += valid };
+                // by design we have pos < active_splats <= max_splats <= scratch.len()
+                unsafe { *scratch.get_unchecked_mut(pos) = inv_idx; }
+                // by mask above: lo < 65536 == buckets16lo.len() == RADIX_BASE
+                unsafe { *buckets16lo.get_unchecked_mut(lo) += 1; }
+            }
         }};
     }
 
@@ -204,18 +208,24 @@ pub fn sort32_internal(
         i += 1;
     }
 
-    // pass 2: scatter into final ordering
-    macro_rules! place2 {
-        ($kv:expr) => {{
-            let r1 = (($kv >> 48) & RADIX_MASK as u64) as usize;
-            let pos = unsafe { *b1.get_unchecked(r1) } as usize;
+    // ——— Pass #2: bucket by inv(high 16 bits) ———
 
-            unsafe { *ordering.get_unchecked_mut(pos) = $kv as u32 };
-            unsafe { *b1.get_unchecked_mut(r1) += 1 };
+    // scatter into final ordering by high bits of inv
+    macro_rules! place2 {
+        ($inv_idx:expr) => {{
+            let idx = $inv_idx as u32;
+            let hi = (($inv_idx >> 48) & RADIX_MASK as u64) as usize;
+            // by mask above: hi < 65536 == buckets16hi.len() == RADIX_BASE
+            let pos = unsafe { *buckets16hi.get_unchecked(hi) } as usize;
+
+            // by design we have pos < active_splats <= max_splats <= ordering.len()
+            unsafe { *ordering.get_unchecked_mut(pos) = idx; }
+            // by mask above: hi < 65536 == buckets16hi.len() == RADIX_BASE
+            unsafe { *buckets16hi.get_unchecked_mut(hi) += 1; }
         }};
     }
 
-    let mut chunks = scratch[..active].chunks_exact(8);
+    let mut chunks = scratch[..active_splats as usize].chunks_exact(8);
 
     for chunk in chunks.by_ref() {
         place2!(chunk[0]);
@@ -228,18 +238,18 @@ pub fn sort32_internal(
         place2!(chunk[7]);
     }
 
-    for &kv in chunks.remainder() {
-        place2!(kv);
+    for &inv_idx in chunks.remainder() {
+        place2!(inv_idx);
     }
 
     // sanity‑check: last bucket should have consumed all entries
-    if b1[RADIX_BASE - 1] != active as u32 {
+    if buckets16hi[RADIX_BASE - 1] != active_splats {
         return Err(format!(
             "Expected {} active splats but got {}",
-            active,
-            b1[RADIX_BASE - 1]
+            active_splats,
+            buckets16hi[RADIX_BASE - 1]
         ));
     }
 
-    Ok(active as u32)
+    Ok(active_splats)
 }
