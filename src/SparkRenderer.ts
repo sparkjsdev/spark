@@ -20,6 +20,7 @@ import {
   isMobile,
   isOculus,
   isVisionPro,
+  uploadU32DataTextureRows,
 } from "./utils";
 
 export interface SparkRendererOptions {
@@ -1084,34 +1085,16 @@ export class SparkRenderer extends THREE.Mesh {
       this.orderingTexture = orderingTexture;
     } else {
       const renderer = this.renderer;
-      const gl = renderer.getContext() as WebGL2RenderingContext;
       if (!renderer.properties.has(this.orderingTexture)) {
         this.orderingTexture.needsUpdate = true;
       } else {
-        const props = renderer.properties.get(this.orderingTexture) as {
-          __webglTexture: WebGLTexture;
-        };
-        const glTexture = props.__webglTexture;
-        if (!glTexture) {
-          throw new Error("ordering texture not found");
-        }
-        renderer.state.activeTexture(gl.TEXTURE0);
-        renderer.state.bindTexture(gl.TEXTURE_2D, glTexture);
-        gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
-        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-        gl.texSubImage2D(
-          gl.TEXTURE_2D,
-          0,
-          0,
-          0,
+        uploadU32DataTextureRows(
+          renderer,
+          this.orderingTexture,
           4096,
           rows,
-          gl.RGBA_INTEGER,
-          gl.UNSIGNED_INT,
-          // data,
           result.ordering,
         );
-        renderer.state.bindTexture(gl.TEXTURE_2D, null);
       }
     }
 
