@@ -474,6 +474,10 @@ impl<T: SplatReceiver> ChunkReceiver for MultiDecoder<T> {
             if (magic & 0x00ffffff) == PLY_MAGIC {
                 return self.init_file_type(SplatFileType::PLY);
             }
+            if magic == SPZ_MAGIC {
+                // NGSP magic at file start — SPZ v4 (ZSTD multi-stream, not gzip-wrapped)
+                return self.init_file_type(SplatFileType::SPZ);
+            }
             if (magic & 0x00ffffff) == GZIP_MAGIC {
                 // Gzipped file, unpack beginning to check magic number
                 if self.buffer_gz.is_none() {
