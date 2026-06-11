@@ -43,7 +43,7 @@ pub fn sort_splats(
 ) -> u32 {
     let max_splats = readback.length() as usize;
 
-    let active_splats = SORT_BUFFERS.with_borrow_mut(|buffers| {
+    SORT_BUFFERS.with_borrow_mut(|buffers| {
         buffers.ensure_size(max_splats);
         let sub_readback = readback.subarray(0, num_splats);
         sub_readback.copy_to(&mut buffers.readback[..num_splats as usize]);
@@ -51,19 +51,17 @@ pub fn sort_splats(
         let active_splats = match sort_internal(buffers, num_splats as usize) {
             Ok(active_splats) => active_splats,
             Err(err) => {
-                wasm_bindgen::throw_str(&format!("{}", err));
+                wasm_bindgen::throw_str(&err.to_string());
             }
         };
 
         if active_splats > 0 {
             // Copy out ordering result
             let subarray = &buffers.ordering[..active_splats as usize];
-            ordering.subarray(0, active_splats).copy_from(&subarray);
+            ordering.subarray(0, active_splats).copy_from(subarray);
         }
         active_splats
-    });
-
-    active_splats
+    })
 }
 
 #[wasm_bindgen]
@@ -72,7 +70,7 @@ pub fn sort32_splats(
 ) -> u32 {
     let max_splats = readback.length() as usize;
 
-    let active_splats = SORT32_BUFFERS.with_borrow_mut(|buffers| {
+    SORT32_BUFFERS.with_borrow_mut(|buffers| {
         buffers.ensure_size(max_splats);
         let sub_readback = readback.subarray(0, num_splats);
         sub_readback.copy_to(&mut buffers.readback[..num_splats as usize]);
@@ -80,19 +78,17 @@ pub fn sort32_splats(
         let active_splats = match sort32_internal(buffers, max_splats, num_splats as usize) {
             Ok(active_splats) => active_splats,
             Err(err) => {
-                wasm_bindgen::throw_str(&format!("{}", err));
+                wasm_bindgen::throw_str(&err.to_string());
             }
         };
 
         if active_splats > 0 {
             // Copy out ordering result
             let subarray = &buffers.ordering[..active_splats as usize];
-            ordering.subarray(0, active_splats).copy_from(&subarray);
+            ordering.subarray(0, active_splats).copy_from(subarray);
         }
         active_splats
-    });
-
-    active_splats
+    })
 }
 
 #[wasm_bindgen]
