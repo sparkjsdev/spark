@@ -914,7 +914,7 @@ export class PackedSplats implements SplatSource {
       sh3: this.extra.sh3 ? (this.extra.sh3 as Uint32Array).slice() : undefined,
     };
     const decoded = await workerPool.withWorker(async (worker) => {
-      return (await worker.call(
+      return await worker.call(
         quality ? "qualityLodPackedSplats" : "tinyLodPackedSplats",
         {
           numSplats: this.numSplats,
@@ -924,12 +924,7 @@ export class PackedSplats implements SplatSource {
           rgba,
           encoding: this.splatEncoding ?? DEFAULT_SPLAT_ENCODING,
         },
-      )) as {
-        numSplats: number;
-        packedArray: Uint32Array;
-        extra: Record<string, unknown>;
-        splatEncoding: SplatEncoding;
-      };
+      );
     });
 
     const lodSplats = new PackedSplats(decoded);

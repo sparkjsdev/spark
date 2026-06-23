@@ -39,6 +39,7 @@ const rpcHandlers = {
   getLodTreeLevel,
   nextChunk,
 };
+export type rpcHandlers = typeof rpcHandlers;
 
 async function onMessage(event: MessageEvent) {
   const {
@@ -76,8 +77,8 @@ function sortSplats16({
   ordering,
 }: {
   numSplats: number;
-  readback: Uint16Array;
-  ordering: Uint32Array;
+  readback: Uint16Array<ArrayBuffer>;
+  ordering: Uint32Array<ArrayBuffer>;
 }) {
   const activeSplats = sort_splats(numSplats, readback, ordering);
   return { activeSplats, readback, ordering };
@@ -89,8 +90,8 @@ function sortSplats32({
   ordering,
 }: {
   numSplats: number;
-  readback: Uint32Array;
-  ordering: Uint32Array;
+  readback: Uint32Array<ArrayBuffer>;
+  ordering: Uint32Array<ArrayBuffer>;
 }) {
   const activeSplats = sort32_splats(numSplats, readback, ordering);
   return { activeSplats, readback, ordering };
@@ -306,14 +307,9 @@ async function loadPackedSplats(
   }
 
   let result:
-    | (ReturnType<typeof toPackedResult> & {
-        lodSplats?: ReturnType<typeof toPackedResult>;
-      })
-    | { lodSplats?: ReturnType<typeof toPackedResult> } = {};
+    | (PackedResult & { lodSplats?: PackedResult })
+    | { lodSplats?: PackedResult } = {};
 
-  // if (nonLod === true) {
-  //   sendStatus({ orig: toPackedResult(packed as DecodedPackedResult) });
-  // } else if (nonLod === "wait") {
   if (nonLod) {
     // Wait until LoD computation is complete before resolving full PackedSplats result
     result = toPackedResult(decoded.to_packedsplats() as DecodedPackedResult);
@@ -341,7 +337,9 @@ async function loadPackedSplats(
 
   const lodPacked = decoded.to_packedsplats_lod();
   result.lodSplats = toPackedResult(lodPacked as DecodedPackedResult);
-  return result;
+  return result as
+    | (PackedResult & { lodSplats: PackedResult })
+    | { lodSplats: PackedResult };
 }
 
 type DecodedExtResult = {
@@ -466,10 +464,8 @@ async function loadExtSplats(
   }
 
   let result:
-    | (ReturnType<typeof toExtResult> & {
-        lodSplats?: ReturnType<typeof toExtResult>;
-      })
-    | { lodSplats?: ReturnType<typeof toExtResult> } = {};
+    | (ExtResult & { lodSplats?: ExtResult })
+    | { lodSplats?: ExtResult } = {};
 
   if (nonLod) {
     // Wait until LoD computation is complete before resolving full PackedSplats result
@@ -498,7 +494,9 @@ async function loadExtSplats(
 
   const lodPacked = decoded.to_extsplats_lod();
   result.lodSplats = toExtResult(lodPacked as DecodedExtResult);
-  return result;
+  return result as
+    | (ExtResult & { lodSplats: ExtResult })
+    | { lodSplats: ExtResult };
 }
 
 async function tinyLodPackedSplats({
@@ -613,11 +611,11 @@ async function qualityLodExtSplats({
   encoding,
 }: {
   numSplats: number;
-  extArrays: [Uint32Array, Uint32Array];
+  extArrays: readonly [Uint32Array, Uint32Array];
   extra?: Record<string, unknown>;
   lodBase?: number;
   rgba?: Uint8Array;
-  encoding: SplatEncoding;
+  encoding?: SplatEncoding;
 }) {
   const base = Math.max(1.1, Math.min(2.0, lodBase ?? 1.75));
   const lodStart = performance.now();

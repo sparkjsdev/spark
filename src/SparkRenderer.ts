@@ -1048,15 +1048,11 @@ export class SparkRenderer extends THREE.Mesh {
     if (!this.sortWorker) {
       this.sortWorker = new SplatWorker();
     }
-    const result = (await this.sortWorker.call("sortSplats32", {
+    const result = await this.sortWorker.call("sortSplats32", {
       numSplats,
       readback,
       ordering,
-    })) as {
-      readback: Uint32Array<ArrayBuffer>;
-      ordering: Uint32Array;
-      activeSplats: number;
-    };
+    });
 
     if (this.sortDelay > 0) {
       await new Promise((resolve) => setTimeout(resolve, this.sortDelay));
@@ -1252,9 +1248,9 @@ export class SparkRenderer extends THREE.Mesh {
           numFetchers: this.numLodFetchers,
         });
 
-        const { lodId } = (await worker.call("newLodTree", {
+        const { lodId } = await worker.call("newLodTree", {
           capacity: this.pager.maxSplats,
-        })) as { lodId: number };
+        });
         this.pagerId = lodId;
       }
 
@@ -1348,17 +1344,17 @@ export class SparkRenderer extends THREE.Mesh {
     splats: PackedSplats | ExtSplats | PagedSplats,
   ) {
     if (splats instanceof PackedSplats || splats instanceof ExtSplats) {
-      const { lodId } = (await worker.call("initLodTree", {
+      const { lodId } = await worker.call("initLodTree", {
         numSplats: splats.numSplats ?? 0,
         lodTree: (splats.extra.lodTree as Uint32Array).slice(),
-      })) as { lodId: number };
+      });
       this.lodIds.set(splats, { lodId, lastTouched: performance.now() });
       this.lodIdToSplats.set(lodId, splats);
       // console.log("*** initLodTree", lodId, splats.extra.lodTree, splats);
     } else {
-      const { lodId } = (await worker.call("newSharedLodTree", {
+      const { lodId } = await worker.call("newSharedLodTree", {
         lodId: this.pagerId,
-      })) as { lodId: number };
+      });
       this.lodIds.set(splats, { lodId, lastTouched: performance.now() });
       this.lodIdToSplats.set(lodId, splats);
       // console.log("*** newSharedLodTree", lodId, this.pagerId, splats);
@@ -1440,20 +1436,13 @@ export class SparkRenderer extends THREE.Mesh {
     );
 
     const traverseStart = performance.now();
-    const result = (await worker.call("traverseLodTrees", {
+    const result = await worker.call("traverseLodTrees", {
       maxSplats,
       pixelScaleLimit,
       lastPixelLimit: this.lastPixelLimit,
       instances,
       traverseMode: this.lodTraverseMode,
-    })) as {
-      keyIndices: Record<
-        string,
-        { lodId: number; numSplats: number; indices: Uint32Array }
-      >;
-      chunks: [number, number][];
-      pixelLimit?: number;
-    };
+    });
     this.lastTraverseTime = performance.now() - traverseStart;
 
     const { keyIndices, chunks, pixelLimit } = result;
@@ -1520,16 +1509,12 @@ export class SparkRenderer extends THREE.Mesh {
     ) {
       this.lastLodRaycastTime = performance.now();
       const traverseStart = performance.now();
-      const result = (await worker.call("traverseLodTrees", {
+      const result = await worker.call("traverseLodTrees", {
         maxSplats: Math.min(this.lodRaycast, Math.round(totalLodSplats * 0.1)),
         pixelScaleLimit,
         instances,
-      })) as {
-        keyIndices: Record<
-          string,
-          { lodId: number; numSplats: number; indices: Uint32Array }
-        >;
-      };
+        traverseMode: this.lodTraverseMode,
+      });
       const raycastTraverseTime = performance.now() - traverseStart;
 
       const { keyIndices } = result;
@@ -2065,10 +2050,10 @@ export class SparkRenderer extends THREE.Mesh {
     }
 
     const result = await this.ensureLodWorker().exclusive(async (worker) => {
-      return (await worker.call("getLodTreeLevel", {
+      return await worker.call("getLodTreeLevel", {
         lodId: instance.lodId,
         level,
-      })) as { indices: Uint32Array };
+      });
     });
 
     if (splats.packedSplats?.lodSplats) {
