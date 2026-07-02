@@ -103,6 +103,10 @@ void main() {
         }
     }
 
+    // Match the reference 3DGS rasterizer (graphdeco-inria/diff-gaussian-rasterization),
+    // which clamps the SH-evaluated color to positive
+    rgba.rgb = max(rgba.rgb, vec3(0.0));
+
     adjustedStdDev = maxStdDev;
     if (rgba.a > 1.0) {
         // Stretch 1..2 to 1..5

@@ -309,7 +309,6 @@ void packSplatExtCov(
     out uvec4 packedData, out uvec4 packedData2,
     vec3 center, vec4 rgba, vec3 xxyyzz, vec3 xyxzyz
 ) {
-    rgba = mix(clamp(rgba, 0.0, 65504.0), vec4(0.0), isnan(rgba));
     packedData.x = floatBitsToUint(center.x);
     packedData.y = floatBitsToUint(center.y);
     packedData.z = floatBitsToUint(center.z);
@@ -358,7 +357,6 @@ void packSplatExt(
     out uvec4 packedData, out uvec4 packedData2,
     vec3 center, vec3 scales, vec4 quaternion, vec4 rgba
 ) {
-    rgba = mix(clamp(rgba, 0.0, 65504.0), vec4(0.0), isnan(rgba));
     packedData.x = floatBitsToUint(center.x);
     packedData.y = floatBitsToUint(center.y);
     packedData.z = floatBitsToUint(center.z);
