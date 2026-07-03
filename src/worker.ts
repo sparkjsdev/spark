@@ -19,9 +19,15 @@ import init_wasm, {
   bhatt_lod_extsplats,
   get_lod_tree_level,
 } from "spark-rs";
-import type { ExtResult, PackedResult, SplatEncoding } from "./defines";
+import {
+  type ExtResult,
+  type PackedResult,
+  type SplatEncoding,
+  SplatFileType,
+} from "./defines";
+import { fetchAndDecodeImages, unzipAndDecodeImages } from "./sogs";
 
-const rpcHandlers = {
+export const rpcHandlers = {
   sortSplats16,
   sortSplats32,
   loadPackedSplats,
@@ -99,8 +105,10 @@ function sortSplats32({
 
 async function decodeBytesUrl({
   decoder,
+  fileType,
   fileBytes,
   url,
+  pathName,
   requestHeader,
   withCredentials,
   chunked,
@@ -108,8 +116,10 @@ async function decodeBytesUrl({
   sendStatus,
 }: {
   decoder: ChunkDecoder;
+  fileType?: string;
   fileBytes?: Uint8Array;
   url?: string;
+  pathName?: string;
   requestHeader?: Record<string, string>;
   withCredentials?: boolean;
   chunked?: boolean;
@@ -127,6 +137,9 @@ async function decodeBytesUrl({
       },
     });
     streamLength = fileBytes.length;
+  } else if (url && fileType === SplatFileType.PCSOGS) {
+    // Unbundled SOG files require fetching and decoding
+    readStream = fetchAndDecodeImages(url);
   } else if (url) {
     const request = new Request(url, {
       headers: requestHeader ? new Headers(requestHeader) : undefined,
@@ -172,6 +185,14 @@ async function decodeBytesUrl({
     streamLength = chunkedLength ?? 0;
   } else {
     throw new Error("No url or fileBytes provided");
+  }
+
+  // Handle SOG files
+  if (
+    fileType === SplatFileType.PCSOGSZIP ||
+    (fileType === undefined && /\.(sogs?|zip)$/.test(pathName ?? url ?? ""))
+  ) {
+    readStream = readStream.pipeThrough(unzipAndDecodeImages(streamLength));
   }
 
   const reader = readStream.getReader();
@@ -276,8 +297,10 @@ async function loadPackedSplats(
     );
     const decoded = await decodeBytesUrl({
       decoder,
+      fileType,
       fileBytes,
       url,
+      pathName,
       requestHeader,
       withCredentials,
       chunked,
@@ -294,8 +317,10 @@ async function loadPackedSplats(
   const decoder = decode_to_csplatarray(fileType, pathName ?? url, encoding);
   const decoded = await decodeBytesUrl({
     decoder,
+    fileType,
     fileBytes,
     url,
+    pathName,
     requestHeader,
     withCredentials,
     chunked,
@@ -434,8 +459,10 @@ async function loadExtSplats(
     );
     const decoded = await decodeBytesUrl({
       decoder,
+      fileType,
       fileBytes,
       url,
+      pathName,
       requestHeader,
       withCredentials,
       chunked,
@@ -452,8 +479,10 @@ async function loadExtSplats(
   const decoder = decode_to_gsplatarray(fileType, pathName ?? url);
   const decoded = await decodeBytesUrl({
     decoder,
+    fileType,
     fileBytes,
     url,
+    pathName,
     requestHeader,
     withCredentials,
     chunked,
