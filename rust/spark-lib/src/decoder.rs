@@ -8,7 +8,7 @@ use crate::{
     ksplat::KsplatDecoder,
     ply::{PLY_MAGIC, PlyDecoder},
     rad::{RAD_CHUNK_MAGIC, RAD_MAGIC, RadDecoder},
-    sogs::SogsDecoder,
+    sogs::{SogsDecoder, PK_MAGIC, CUSTOM_SOGS_MAGIC},
     spz::{SPZ_MAGIC, SpzDecoder}
 };
 
@@ -355,6 +355,7 @@ impl SplatFileType {
             "spz" => Ok(Self::SPZ),
             "splat" => Ok(Self::ANTISPLAT),
             "ksplat" => Ok(Self::KSPLAT),
+            "pcsogs" => Ok(Self::SOGS),
             "pcsogszip" => Ok(Self::SOGS),
             "rad" => Ok(Self::RAD),
             _ => Err(anyhow::anyhow!("Invalid file type: {}", enum_str)),
@@ -488,13 +489,15 @@ impl<T: SplatReceiver> ChunkReceiver for MultiDecoder<T> {
                         }
                     }
                 }
-            } else if magic == 0x04034b50 {
+            } else if magic == PK_MAGIC {
                 detection_complete = true;
                 if let Some(pathname) = &self.pathname {
                     if let Some(SplatFileType::SOGS) = SplatFileType::from_pathname(pathname) {
                         return self.init_file_type(SplatFileType::SOGS);
                     }
                 }
+            } else if magic == CUSTOM_SOGS_MAGIC {
+                return self.init_file_type(SplatFileType::SOGS);
             } else if magic == RAD_MAGIC || magic == RAD_CHUNK_MAGIC {
                 return self.init_file_type(SplatFileType::RAD);
             } else {

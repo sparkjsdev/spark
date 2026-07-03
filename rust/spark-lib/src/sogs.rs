@@ -1,14 +1,19 @@
-use std::{collections::HashMap, io::Cursor};
+use std::collections::HashMap;
+#[cfg(not(feature = "sogs_web_decode"))]
+use std::io::Cursor;
 
 use anyhow::{anyhow, Context};
+#[cfg(not(feature = "sogs_web_decode"))]
 use image::{DynamicImage, GenericImageView, ImageReader};
 use serde_json;
 use serde::Deserialize;
+#[cfg(not(feature = "sogs_web_decode"))]
 use zip::ZipArchive;
 
 use crate::decoder::{ChunkReceiver, SplatInit, SplatProps, SplatReceiver};
 
-const PK_MAGIC: u32 = 0x04034b50;
+pub const PK_MAGIC: u32 = 0x04034b50;
+pub const CUSTOM_SOGS_MAGIC: u32 = 0x53474F53;
 const SH_C0: f32 = 0.28209479177387814;
 const MAX_SPLAT_CHUNK: usize = 65536;
 
@@ -133,7 +138,7 @@ impl<T: SplatReceiver> ChunkReceiver for SogsDecoder<T> {
             return Err(anyhow!("SOGS file too small"));
         }
         let magic = u32::from_le_bytes([self.buffer[0], self.buffer[1], self.buffer[2], self.buffer[3]]);
-        if magic != PK_MAGIC {
+        if magic != PK_MAGIC && magic != CUSTOM_SOGS_MAGIC {
             return Err(anyhow!("Not a ZIP/SOGS file"));
         }
         decode_sogs(&self.buffer, &mut self.splats, None)?;
@@ -141,6 +146,53 @@ impl<T: SplatReceiver> ChunkReceiver for SogsDecoder<T> {
     }
 }
 
+#[cfg(feature = "sogs_web_decode")]
+fn decode_sogs<T: SplatReceiver>(bytes: &[u8], splats: &mut T, _pathname: Option<&str>) -> anyhow::Result<()> {
+    let mut file_cache: HashMap<String, Vec<u8>> = HashMap::new();
+    let mut offset: usize = 4; // Skip magic number
+
+    while offset < bytes.len() {
+        let name_len = u16::from_le_bytes(bytes[offset..offset + 2].try_into().unwrap()) as usize;
+        offset += 2;
+        let name_bytes = &bytes[offset..offset + name_len];
+        offset += name_len;
+        let name = std::str::from_utf8(name_bytes).unwrap();
+
+        let data_size = u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap()) as usize;
+        offset += 4;
+        let data = &bytes[offset..offset + data_size];
+        offset += data_size;
+
+        file_cache.insert(name.to_string(), data.to_vec());
+    }
+
+    let mut get_image_data = |name: &str| -> anyhow::Result<ImageData> {
+        let mut file = file_cache.get(name).cloned().ok_or_else(|| anyhow!("Missing file {name} in cache"))?;
+
+        let width = u32::from_le_bytes(
+            file[0..4].try_into().unwrap()
+        ) as usize;
+
+        let height = u32::from_le_bytes(
+            file[4..8].try_into().unwrap()
+        ) as usize;
+
+        let rgba = file.split_off(8);
+
+        Ok(ImageData { width, height, rgba })
+    };
+
+    let meta_bytes = file_cache.get("meta.json").cloned().ok_or_else(|| anyhow!("Missing meta.json in cache"))?;
+    let meta: PcSogsRoot = serde_json::from_slice(&meta_bytes)
+        .context("Failed to parse meta.json for SOGS")?;
+
+    match meta {
+        PcSogsRoot::V2(v2) => decode_v2(v2, splats, &mut get_image_data),
+        PcSogsRoot::V1(v1) => decode_v1(v1, splats, &mut get_image_data),
+    }
+}
+
+#[cfg(not(feature = "sogs_web_decode"))]
 fn decode_sogs<T: SplatReceiver>(bytes: &[u8], splats: &mut T, _pathname: Option<&str>) -> anyhow::Result<()> {
     let cursor = Cursor::new(bytes);
     let mut zip = ZipArchive::new(cursor)?;
@@ -560,6 +612,7 @@ fn emit_to_receiver<T: SplatReceiver>(
     splats.finish()
 }
 
+#[cfg(not(feature = "sogs_web_decode"))]
 fn preload_all(
     meta: &PcSogsRoot,
     prefix: &str,
@@ -589,6 +642,7 @@ fn preload_all(
     Ok(())
 }
 
+#[cfg(not(feature = "sogs_web_decode"))]
 fn preload_file(
     zip: &mut ZipArchive<Cursor<&[u8]>>,
     prefix: &str,
@@ -620,6 +674,7 @@ struct ImageData {
     height: usize,
 }
 
+#[cfg(not(feature = "sogs_web_decode"))]
 fn decode_image(bytes: &[u8]) -> anyhow::Result<ImageData> {
     let img = ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()?

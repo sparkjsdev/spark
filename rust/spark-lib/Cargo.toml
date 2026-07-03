@@ -7,6 +7,9 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 
+[features]
+sogs_web_decode = []
+
 [dependencies]
 ahash.workspace = true
 anyhow.workspace = true

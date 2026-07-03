@@ -23,7 +23,7 @@ ordered-float.workspace = true
 smallvec.workspace = true
 wasm-bindgen.workspace = true
 web-sys = { workspace = true, features = ["Window", "Performance"] }
-spark-lib = { path = "../spark-lib" }
+spark-lib = { path = "../spark-lib", features = ["sogs_web_decode"] }
 serde-wasm-bindgen.workspace = true
 serde_json.workspace = true
 itertools.workspace = true
