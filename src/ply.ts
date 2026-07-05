@@ -1,5 +1,7 @@
-// PLY file format reader
+// PLY file format reader and writer
 
+import * as THREE from "three";
+import type { SplatData } from "./SplatLoader";
 import { USE_COMPILED_PARSER_FUNCTION } from "./defines";
 
 const PLY_PROPERTY_TYPES = [
@@ -1089,3 +1091,199 @@ type SSChunk = {
   max_g?: number;
   max_b?: number;
 };
+
+export class PlyWriter {
+  private view: DataView;
+  private headerLength: number;
+  private bytesPerVertex: number;
+  private scaleOffset: number;
+  private numSplats: number;
+  private shDegree: number;
+
+  constructor({
+    numSplats,
+    shDegree = 0,
+    compatibility = false,
+  }: {
+    numSplats: number;
+    shDegree?: number;
+    compatibility?: boolean;
+  }) {
+    this.numSplats = numSplats;
+    this.shDegree = shDegree;
+    const numShCoeffs = [0, 9, 24, 45][shDegree] ?? 0;
+    // xyz + [normals] + scale3 + rot4 + opacity + f_dc3 + f_rest
+    const floatsPerVertex =
+      3 + (compatibility ? 3 : 0) + 3 + 4 + 1 + 3 + numShCoeffs;
+    this.bytesPerVertex = floatsPerVertex * 4;
+    this.scaleOffset = (3 + (compatibility ? 3 : 0)) * 4;
+
+    let header = "ply\nformat binary_little_endian 1.0\n";
+    header += `element vertex ${numSplats}\n`;
+    header += "property float x\nproperty float y\nproperty float z\n";
+    if (compatibility) {
+      header += "property float nx\nproperty float ny\nproperty float nz\n";
+    }
+    header +=
+      "property float scale_0\nproperty float scale_1\nproperty float scale_2\n";
+    header +=
+      "property float rot_0\nproperty float rot_1\nproperty float rot_2\nproperty float rot_3\n";
+    header += "property float opacity\n";
+    header +=
+      "property float f_dc_0\nproperty float f_dc_1\nproperty float f_dc_2\n";
+    for (let i = 0; i < numShCoeffs; i++) {
+      header += `property float f_rest_${i}\n`;
+    }
+    header += "end_header\n";
+
+    const headerBytes = new TextEncoder().encode(header);
+    this.headerLength = headerBytes.length;
+    const buf = new ArrayBuffer(
+      this.headerLength + numSplats * this.bytesPerVertex,
+    );
+    new Uint8Array(buf).set(headerBytes);
+    this.view = new DataView(buf);
+  }
+
+  private vertexStart(index: number): number {
+    return this.headerLength + index * this.bytesPerVertex;
+  }
+
+  setCenter(index: number, x: number, y: number, z: number) {
+    const off = this.vertexStart(index);
+    this.view.setFloat32(off, x, true);
+    this.view.setFloat32(off + 4, y, true);
+    this.view.setFloat32(off + 8, z, true);
+  }
+
+  setScale(index: number, scaleX: number, scaleY: number, scaleZ: number) {
+    const off = this.vertexStart(index) + this.scaleOffset;
+    this.view.setFloat32(off, Math.log(scaleX), true);
+    this.view.setFloat32(off + 4, Math.log(scaleY), true);
+    this.view.setFloat32(off + 8, Math.log(scaleZ), true);
+  }
+
+  setQuat(index: number, x: number, y: number, z: number, w: number) {
+    const norm = Math.sqrt(x * x + y * y + z * z + w * w);
+    const scale = norm > 0 ? 1 / norm : 1;
+    const off = this.vertexStart(index) + this.scaleOffset + 12;
+    this.view.setFloat32(off, w * scale, true);
+    this.view.setFloat32(off + 4, x * scale, true);
+    this.view.setFloat32(off + 8, y * scale, true);
+    this.view.setFloat32(off + 12, z * scale, true);
+  }
+
+  setOpacity(index: number, opacity: number) {
+    const op = Math.max(1e-12, Math.min(1 - 1e-12, opacity));
+    const logit = Math.max(-100, Math.min(100, Math.log(op / (1 - op))));
+    const off = this.vertexStart(index) + this.scaleOffset + 28;
+    this.view.setFloat32(off, logit, true);
+  }
+
+  setColor(index: number, r: number, g: number, b: number) {
+    const off = this.vertexStart(index) + this.scaleOffset + 32;
+    this.view.setFloat32(off, (r - 0.5) / SH_C0, true);
+    this.view.setFloat32(off + 4, (g - 0.5) / SH_C0, true);
+    this.view.setFloat32(off + 8, (b - 0.5) / SH_C0, true);
+  }
+
+  setSh(
+    index: number,
+    sh1: Float32Array,
+    sh2?: Float32Array,
+    sh3?: Float32Array,
+  ) {
+    const off = this.vertexStart(index) + this.scaleOffset + 44;
+    const shDegree = sh3 ? 3 : sh2 ? 2 : 1;
+    const stride = [0, 3, 8, 15][shDegree];
+    const numCoeffs = [0, 9, 24, 45][shDegree];
+    for (let idx = 0; idx < numCoeffs; idx++) {
+      const d = stride > 0 ? Math.floor(idx / stride) : 0;
+      const inChannel = stride > 0 ? idx % stride : 0;
+      let val = 0;
+      if (inChannel < 3) {
+        val = sh1[inChannel * 3 + d];
+      } else if (inChannel < 8) {
+        val = sh2 ? sh2[(inChannel - 3) * 3 + d] : 0;
+      } else {
+        val = sh3 ? sh3[(inChannel - 8) * 3 + d] : 0;
+      }
+      this.view.setFloat32(off + idx * 4, val, true);
+    }
+  }
+
+  finalize(): Uint8Array {
+    return new Uint8Array(this.view.buffer);
+  }
+
+  static fromSplatData(
+    splats: SplatData,
+    {
+      compatibility = false,
+      maxSh,
+      rdf = true,
+    }: { compatibility?: boolean; maxSh?: number; rdf?: boolean } = {},
+  ): Uint8Array {
+    const shDegree = Math.min(
+      maxSh ?? 3,
+      splats.sh3 ? 3 : splats.sh2 ? 2 : splats.sh1 ? 1 : 0,
+    );
+    const ply = new PlyWriter({
+      numSplats: splats.numSplats,
+      shDegree,
+      compatibility,
+    });
+    // 180° rotation around X: quaternion (x=1, y=0, z=0, w=0)
+    // Flips Y and Z, converting OpenGL (Y-up) to RDF/OpenCV (Y-down, Z-forward)
+    const rot = rdf ? new THREE.Quaternion(1, 0, 0, 0) : undefined;
+    const q = rdf ? new THREE.Quaternion() : undefined;
+    for (let i = 0; i < splats.numSplats; i++) {
+      const i3 = i * 3;
+      const i4 = i * 4;
+      const cx = splats.centers[i3];
+      let cy = splats.centers[i3 + 1];
+      let cz = splats.centers[i3 + 2];
+      let qx = splats.quaternions[i4];
+      let qy = splats.quaternions[i4 + 1];
+      let qz = splats.quaternions[i4 + 2];
+      let qw = splats.quaternions[i4 + 3];
+      if (rot) {
+        cy = -cy;
+        cz = -cz;
+        q?.set(qx, qy, qz, qw).premultiply(rot);
+        qx = q?.x;
+        qy = q?.y;
+        qz = q?.z;
+        qw = q?.w;
+      }
+      ply.setCenter(i, cx, cy, cz);
+      ply.setScale(
+        i,
+        splats.scales[i3],
+        splats.scales[i3 + 1],
+        splats.scales[i3 + 2],
+      );
+      ply.setQuat(i, qx, qy, qz, qw);
+      ply.setOpacity(i, splats.opacities[i]);
+      ply.setColor(
+        i,
+        splats.colors[i3],
+        splats.colors[i3 + 1],
+        splats.colors[i3 + 2],
+      );
+      if (splats.sh1 && shDegree >= 1) {
+        ply.setSh(
+          i,
+          splats.sh1.subarray(i * 9, (i + 1) * 9),
+          shDegree >= 2 && splats.sh2
+            ? splats.sh2.subarray(i * 15, (i + 1) * 15)
+            : undefined,
+          shDegree >= 3 && splats.sh3
+            ? splats.sh3.subarray(i * 21, (i + 1) * 21)
+            : undefined,
+        );
+      }
+    }
+    return ply.finalize();
+  }
+}

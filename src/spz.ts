@@ -490,6 +490,67 @@ export class SpzWriter {
     }
   }
 
+  static async fromSplatData(
+    splats: SplatData,
+    {
+      maxSh,
+      fractionalBits = 12,
+    }: { maxSh?: number; fractionalBits?: number } = {},
+  ): Promise<{ fileBytes: Uint8Array; clippedCount: number }> {
+    const shDegree = Math.min(
+      maxSh ?? 3,
+      splats.sh3 ? 3 : splats.sh2 ? 2 : splats.sh1 ? 1 : 0,
+    );
+    const spz = new SpzWriter({
+      numSplats: splats.numSplats,
+      shDegree,
+      fractionalBits,
+    });
+    for (let i = 0; i < splats.numSplats; i++) {
+      const i3 = i * 3;
+      const i4 = i * 4;
+      spz.setCenter(
+        i,
+        splats.centers[i3],
+        splats.centers[i3 + 1],
+        splats.centers[i3 + 2],
+      );
+      spz.setScale(
+        i,
+        splats.scales[i3],
+        splats.scales[i3 + 1],
+        splats.scales[i3 + 2],
+      );
+      spz.setQuat(
+        i,
+        splats.quaternions[i4],
+        splats.quaternions[i4 + 1],
+        splats.quaternions[i4 + 2],
+        splats.quaternions[i4 + 3],
+      );
+      spz.setAlpha(i, splats.opacities[i]);
+      spz.setRgb(
+        i,
+        splats.colors[i3],
+        splats.colors[i3 + 1],
+        splats.colors[i3 + 2],
+      );
+      if (splats.sh1 && shDegree >= 1) {
+        spz.setSh(
+          i,
+          splats.sh1.subarray(i * 9, (i + 1) * 9),
+          shDegree >= 2 && splats.sh2
+            ? splats.sh2.subarray(i * 15, (i + 1) * 15)
+            : undefined,
+          shDegree >= 3 && splats.sh3
+            ? splats.sh3.subarray(i * 21, (i + 1) * 21)
+            : undefined,
+        );
+      }
+    }
+    return { fileBytes: await spz.finalize(), clippedCount: spz.clippedCount };
+  }
+
   async finalize(): Promise<Uint8Array> {
     const input = new Uint8Array(this.buffer);
     const stream = new ReadableStream({
@@ -804,60 +865,5 @@ export async function transcodeSpz(input: TranscodeSpzInput) {
     }
   }
 
-  const shDegree = Math.min(
-    maxSh ?? 3,
-    splats.sh3 ? 3 : splats.sh2 ? 2 : splats.sh1 ? 1 : 0,
-  );
-  const spz = new SpzWriter({
-    numSplats: splats.numSplats,
-    shDegree,
-    fractionalBits,
-    flagAntiAlias: true,
-  });
-
-  for (let i = 0; i < splats.numSplats; ++i) {
-    const i3 = i * 3;
-    const i4 = i * 4;
-    spz.setCenter(
-      i,
-      splats.centers[i3],
-      splats.centers[i3 + 1],
-      splats.centers[i3 + 2],
-    );
-    spz.setScale(
-      i,
-      splats.scales[i3],
-      splats.scales[i3 + 1],
-      splats.scales[i3 + 2],
-    );
-    spz.setQuat(
-      i,
-      splats.quaternions[i4],
-      splats.quaternions[i4 + 1],
-      splats.quaternions[i4 + 2],
-      splats.quaternions[i4 + 3],
-    );
-    spz.setAlpha(i, splats.opacities[i]);
-    spz.setRgb(
-      i,
-      splats.colors[i3],
-      splats.colors[i3 + 1],
-      splats.colors[i3 + 2],
-    );
-    if (splats.sh1 && shDegree >= 1) {
-      spz.setSh(
-        i,
-        splats.sh1.slice(i * 9, (i + 1) * 9),
-        shDegree >= 2 && splats.sh2
-          ? splats.sh2.slice(i * 15, (i + 1) * 15)
-          : undefined,
-        shDegree >= 3 && splats.sh3
-          ? splats.sh3.slice(i * 21, (i + 1) * 21)
-          : undefined,
-      );
-    }
-  }
-
-  const spzBytes = await spz.finalize();
-  return { fileBytes: spzBytes, clippedCount: spz.clippedCount };
+  return SpzWriter.fromSplatData(splats, { maxSh, fractionalBits });
 }
