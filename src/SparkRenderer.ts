@@ -734,6 +734,32 @@ export class SparkRenderer extends THREE.Mesh {
     const isNewFrame = frame !== spark.lastFrame;
     spark.lastFrame = frame;
 
+    // Trigger update (either sync in case of preUpdate, or async through setTimeout)
+    if (spark.autoUpdate && isNewFrame) {
+      const preUpdate = spark.preUpdate && !renderer.xr.isPresenting;
+      const useCamera = renderer.xr.isPresenting
+        ? renderer.xr.getCamera()
+        : camera;
+      if (preUpdate) {
+        spark.updateInternal({
+          scene,
+          camera: useCamera,
+          autoUpdate: true,
+        });
+      } else {
+        if (spark.updateTimeoutId === -1) {
+          spark.updateTimeoutId = setTimeout(() => {
+            spark.updateTimeoutId = -1;
+            spark.updateInternal({
+              scene,
+              camera: useCamera,
+              autoUpdate: true,
+            });
+          }, 1);
+        }
+      }
+    }
+
     // Determine render target
     const currentRenderTarget = renderer.getRenderTarget();
     const isXRRenderTarget = checkIsXRRenderTarget(currentRenderTarget);
@@ -827,31 +853,6 @@ export class SparkRenderer extends THREE.Mesh {
     this.uniforms.deltaTime.value = spark.display.deltaTime;
     // Alternating debug flag that can aid in visual debugging
     this.uniforms.debugFlag.value = (performance.now() / 1000.0) % 2.0 < 1.0;
-
-    if (spark.autoUpdate && isNewFrame) {
-      const preUpdate = spark.preUpdate && !renderer.xr.isPresenting;
-      const useCamera = renderer.xr.isPresenting
-        ? renderer.xr.getCamera()
-        : camera;
-      if (preUpdate) {
-        spark.updateInternal({
-          scene,
-          camera: useCamera,
-          autoUpdate: true,
-        });
-      } else {
-        if (spark.updateTimeoutId === -1) {
-          spark.updateTimeoutId = setTimeout(() => {
-            spark.updateTimeoutId = -1;
-            spark.updateInternal({
-              scene,
-              camera: useCamera,
-              autoUpdate: true,
-            });
-          }, 1);
-        }
-      }
-    }
 
     spark.dirty = false;
   }
