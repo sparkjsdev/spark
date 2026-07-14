@@ -1,17 +1,14 @@
-export { OldSparkRenderer, type OldSparkRendererOptions, } from './OldSparkRenderer';
-export { OldSparkViewpoint, type OldSparkViewpointOptions, } from './OldSparkViewpoint';
 export { SparkRenderer, type SparkRendererOptions, } from './SparkRenderer';
 export { SplatAccumulator, type GeneratorMapping } from './SplatAccumulator';
 export * as dyno from './dyno';
 export { RgbaArray, readRgbaArray } from './RgbaArray';
-export { SplatLoader, unpackSplats, getSplatFileType, isPcSogs, } from './SplatLoader';
+export { SplatLoader, getSplatFileType, isPcSogs, } from './SplatLoader';
 export { PlyReader } from './ply';
 export { SpzReader, SpzWriter, transcodeSpz } from './spz';
 export { PackedSplats, type PackedSplatsOptions } from './PackedSplats';
 export { ExtSplats, type ExtSplatsOptions } from './ExtSplats';
 export * from './SplatPager';
 export { SplatGenerator, type GsplatGenerator, SplatModifier, type GsplatModifier, SplatTransformer, } from './SplatGenerator';
-export { OldSplatAccumulator } from './OldSplatAccumulator';
 export { Readback, type Rgba8Readback, type ReadbackBuffer } from './Readback';
 export { SplatMesh, type SplatMeshOptions, type SplatMeshContext, } from './SplatMesh';
 export { SplatSkinning, type SplatSkinningOptions, SplatSkinningMode, } from './SplatSkinning';

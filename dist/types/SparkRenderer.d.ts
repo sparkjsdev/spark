@@ -21,16 +21,11 @@ export interface SparkRendererOptions {
      */
     premultipliedAlpha?: boolean;
     /**
-     * Whether to encode Gsplat with linear RGB (for environment mapping)
-     * @default false
-     */
-    encodeLinear?: boolean;
-    /**
-     * Pass in a THREE.Clock to synchronize time-based effects across different
+     * Pass in a THREE.Timer to synchronize time-based effects across different
      * systems. Alternatively, you can set the property time directly.
-     * (default: new THREE.Clock)
+     * (default: new THREE.Timer)
      */
-    clock?: THREE.Clock;
+    timer?: THREE.Timer;
     /**
      * Controls whether to check and automatically update Gsplat collection
      * each frame render.
@@ -180,6 +175,7 @@ export interface SparkRendererOptions {
      * @default false
      */
     lodInflate?: boolean;
+    lodTraverseMode?: "dynamic" | "standard";
     /**
      * Whether to use extended Gsplat encoding for paged splats, useful for eliminating
      * quantization artifacts from splat scenes with large internal position coordinates.
@@ -319,10 +315,9 @@ export declare class SparkRenderer extends THREE.Mesh {
     falloff: number;
     clipXY: number;
     focalAdjustment: number;
-    encodeLinear: boolean;
     sortRadial: boolean;
     minSortIntervalMs: number;
-    clock: THREE.Clock;
+    timer: THREE.Timer;
     time?: number;
     lastFrame: number;
     updateTimeoutId: number;
@@ -349,6 +344,7 @@ export declare class SparkRenderer extends THREE.Mesh {
     lodSplatScale: number;
     lodRenderScale: number;
     lodInflate: boolean;
+    lodTraverseMode: "dynamic" | "standard";
     pagedExtSplats: boolean;
     maxPagedSplats: number;
     numLodFetchers: number;

@@ -14,7 +14,6 @@ import { SplatWorker } from "./SplatWorker";
 import { SPLAT_TEX_HEIGHT, SPLAT_TEX_WIDTH } from "./defines";
 import { getShaders } from "./shaders";
 import {
-  cloneClock,
   isAndroid,
   isIos,
   isMobile,
@@ -42,11 +41,11 @@ export interface SparkRendererOptions {
    */
   premultipliedAlpha?: boolean;
   /**
-   * Pass in a THREE.Clock to synchronize time-based effects across different
+   * Pass in a THREE.Timer to synchronize time-based effects across different
    * systems. Alternatively, you can set the property time directly.
-   * (default: new THREE.Clock)
+   * (default: new THREE.Timer)
    */
-  clock?: THREE.Clock;
+  timer?: THREE.Timer;
   /**
    * Controls whether to check and automatically update Gsplat collection
    * each frame render.
@@ -353,7 +352,7 @@ export class SparkRenderer extends THREE.Mesh {
   sortRadial: boolean;
   minSortIntervalMs: number;
 
-  clock: THREE.Clock;
+  timer: THREE.Timer;
   time?: number;
   lastFrame = -1;
   updateTimeoutId = -1;
@@ -550,7 +549,7 @@ export class SparkRenderer extends THREE.Mesh {
         : options.lodRaycast;
     this.lodRaycastIntervalMs = options.lodRaycastIntervalMs ?? 500;
 
-    this.clock = options.clock ? cloneClock(options.clock) : new THREE.Clock();
+    this.timer = options.timer ?? new THREE.Timer();
 
     const accumulatorOptions = {
       extSplats: this.accumExtSplats,
@@ -907,7 +906,8 @@ export class SparkRenderer extends THREE.Mesh {
     autoUpdate: boolean;
   }) {
     const renderer = this.renderer;
-    const time = this.time ?? this.clock.getElapsedTime();
+    this.timer.update();
+    const time = this.time ?? this.timer.getElapsed();
 
     const center = camera.getWorldPosition(new THREE.Vector3());
     const dir = camera.getWorldDirection(new THREE.Vector3());
