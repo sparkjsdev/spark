@@ -441,7 +441,7 @@ export class SplatAccumulator {
   prepareGenerate({
     renderer,
     scene,
-    time,
+    timer,
     camera,
     sortRadial,
     renderSize,
@@ -450,7 +450,7 @@ export class SplatAccumulator {
   }: {
     renderer: THREE.WebGLRenderer;
     scene: THREE.Scene;
-    time: number;
+    timer: THREE.Timer;
     camera: THREE.Camera;
     sortRadial: boolean;
     renderSize: THREE.Vector2;
@@ -467,8 +467,8 @@ export class SplatAccumulator {
     SplatAccumulator.viewDirUniform.value.copy(this.viewDirection);
     SplatAccumulator.sortRadialUniform.value = sortRadial;
 
-    this.time = time;
-    this.deltaTime = time - previous.time;
+    this.time = timer.getElapsed();
+    this.deltaTime = timer.getDelta();
 
     const allGenerators: SplatGenerator[] = [];
     scene.traverse((node) => {

@@ -926,16 +926,6 @@ export function pixelsToPngUrl(
   return canvas.toDataURL("image/png");
 }
 
-// Manually clone a THREE.Clock object.
-export function cloneClock(clock: THREE.Clock): THREE.Clock {
-  const newClock = new THREE.Clock(clock.autoStart);
-  newClock.startTime = clock.startTime;
-  newClock.oldTime = clock.oldTime;
-  newClock.elapsedTime = clock.elapsedTime;
-  newClock.running = clock.running;
-  return newClock;
-}
-
 // Utility to filter out an undefined values from an object.
 export function omitUndefined<T extends object>(obj: T): Partial<T> {
   return Object.fromEntries(

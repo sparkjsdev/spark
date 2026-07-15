@@ -14,7 +14,6 @@ import { SplatWorker } from "./SplatWorker";
 import { SPLAT_TEX_HEIGHT, SPLAT_TEX_WIDTH } from "./defines";
 import { getShaders } from "./shaders";
 import {
-  cloneClock,
   isAndroid,
   isIos,
   isMobile,
@@ -42,11 +41,10 @@ export interface SparkRendererOptions {
    */
   premultipliedAlpha?: boolean;
   /**
-   * Pass in a THREE.Clock to synchronize time-based effects across different
-   * systems. Alternatively, you can set the property time directly.
-   * (default: new THREE.Clock)
+   * Pass in a THREE.Timer to to synchronize time-based effects across different
+   * systems.
    */
-  clock?: THREE.Clock;
+  timer?: THREE.Timer;
   /**
    * Controls whether to check and automatically update Gsplat collection
    * each frame render.
@@ -353,8 +351,8 @@ export class SparkRenderer extends THREE.Mesh {
   sortRadial: boolean;
   minSortIntervalMs: number;
 
-  clock: THREE.Clock;
-  time?: number;
+  readonly timer: THREE.Timer;
+  private readonly ownsTimer: boolean;
   lastFrame = -1;
   updateTimeoutId = -1;
   onDirty?: () => void;
@@ -550,7 +548,8 @@ export class SparkRenderer extends THREE.Mesh {
         : options.lodRaycast;
     this.lodRaycastIntervalMs = options.lodRaycastIntervalMs ?? 500;
 
-    this.clock = options.clock ? cloneClock(options.clock) : new THREE.Clock();
+    this.timer = options.timer ?? new THREE.Timer();
+    this.ownsTimer = !!options.timer;
 
     const accumulatorOptions = {
       extSplats: this.accumExtSplats,
@@ -907,7 +906,9 @@ export class SparkRenderer extends THREE.Mesh {
     autoUpdate: boolean;
   }) {
     const renderer = this.renderer;
-    const time = this.time ?? this.clock.getElapsedTime();
+    if (this.ownsTimer) {
+      this.timer.update();
+    }
 
     const center = camera.getWorldPosition(new THREE.Vector3());
     const dir = camera.getWorldDirection(new THREE.Vector3());
@@ -931,7 +932,7 @@ export class SparkRenderer extends THREE.Mesh {
       next.prepareGenerate({
         renderer,
         scene,
-        time,
+        timer: this.timer,
         camera,
         sortRadial: this.sortRadial ?? true,
         renderSize: this.renderSize,

@@ -32,7 +32,7 @@ const spark = new SparkRenderer({
 | **Parameter**     | Description |
 | ----------------- | ----------- |
 | **premultipliedAlpha** | Whether to use premultiplied alpha when accumulating splat RGB. (default: `true`)
-| **clock**         | Pass in a `THREE.Clock` to synchronize time-based effects across different systems. Alternatively, you can set the `SparkRenderer` properties `time` and `deltaTime` directly. (default: `new THREE.Clock`)
+| **timer**         | Pass in a `THREE.Timer` to synchronize time-based effects across different systems. (default: `new THREE.Timer`)
 | **autoUpdate**    | Controls whether to check and automatically update splat collection each frame render. (default: `true`)
 | **preUpdate**     | Controls whether to update the splats before or after rendering. For WebXR this is set to `false` in order to complete rendering as soon as possible. (default: `true` if not WebXR)
 | **maxStdDev**     | Maximum standard deviations from the center to render Gaussians. Values `Math.sqrt(4)`..`Math.sqrt(9)` produce acceptable results and can be tweaked for performance. (default: `Math.sqrt(8)`)
