@@ -128,21 +128,22 @@ pub fn sort32_internal(
     let Sort32Buffers { readback, ordering, buckets16lo, buckets16hi, scratch } = buffers;
     let keys = &readback[..num_splats];
 
-    // tally low and high buckets (branchless)
+    // tally low and high buckets
     buckets16lo.fill(0);
     buckets16hi.fill(0);
 
     macro_rules! tick {
         ($key:expr) => {{
-            let valid = ($key < DEPTH_INFINITY_F32) as u32;
-            let inv = !$key;
-            let lo = inv & RADIX_MASK;
-            let hi = inv >> RADIX_BITS;
+            if $key < DEPTH_INFINITY_F32 {
+                let inv = !$key;
+                let lo = inv & RADIX_MASK;
+                let hi = inv >> RADIX_BITS;
 
-            // by mask above: lo < 65536 == buckets16lo.len() == RADIX_BASE
-            unsafe { *buckets16lo.get_unchecked_mut(lo as usize) += valid; }
-            // by shift above: hi < 65536 == buckets16hi.len() == RADIX_BASE
-            unsafe { *buckets16hi.get_unchecked_mut(hi as usize) += valid; }
+                // by mask above: lo < 65536 == buckets16lo.len() == RADIX_BASE
+                unsafe { *buckets16lo.get_unchecked_mut(lo as usize) += 1; }
+                // by shift above: hi < 65536 == buckets16hi.len() == RADIX_BASE
+                unsafe { *buckets16hi.get_unchecked_mut(hi as usize) += 1; }
+            }
         }};
     }
 
@@ -167,6 +168,10 @@ pub fn sort32_internal(
     let active_splats = prefix_sum_exclusive(buckets16lo);
     prefix_sum_exclusive(buckets16hi);
 
+    if active_splats == 0 {
+        return Ok(0);
+    }
+
     // ——— Pass #1: bucket by inv(low 16 bits) ———
 
     // scatter into scratch by low bits of inv
@@ -176,13 +181,13 @@ pub fn sort32_internal(
                 let inv = !$key;
                 let lo = (inv & RADIX_MASK) as usize;
                 // by mask above: lo < 65536 == buckets16lo.len() == RADIX_BASE
-                let pos = unsafe { *buckets16lo.get_unchecked(lo) } as usize;
+                let bucket = unsafe { buckets16lo.get_unchecked_mut(lo) };
+                let pos = *bucket as usize;
+                *bucket += 1;
                 let inv_idx = ((inv as u64) << 32) | ($idx as u64);
 
                 // by design we have pos < active_splats <= max_splats <= scratch.len()
                 unsafe { *scratch.get_unchecked_mut(pos) = inv_idx; }
-                // by mask above: lo < 65536 == buckets16lo.len() == RADIX_BASE
-                unsafe { *buckets16lo.get_unchecked_mut(lo) += 1; }
             }
         }};
     }
@@ -216,12 +221,12 @@ pub fn sort32_internal(
             let idx = $inv_idx as u32;
             let hi = (($inv_idx >> 48) & RADIX_MASK as u64) as usize;
             // by mask above: hi < 65536 == buckets16hi.len() == RADIX_BASE
-            let pos = unsafe { *buckets16hi.get_unchecked(hi) } as usize;
+            let bucket = unsafe { buckets16hi.get_unchecked_mut(hi) };
+            let pos = *bucket as usize;
+            *bucket += 1;
 
             // by design we have pos < active_splats <= max_splats <= ordering.len()
             unsafe { *ordering.get_unchecked_mut(pos) = idx; }
-            // by mask above: hi < 65536 == buckets16hi.len() == RADIX_BASE
-            unsafe { *buckets16hi.get_unchecked_mut(hi) += 1; }
         }};
     }
 
@@ -252,4 +257,36 @@ pub fn sort32_internal(
     }
 
     Ok(active_splats)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{sort32_internal, Sort32Buffers};
+
+    #[test]
+    fn sort32_returns_early_when_every_key_is_invalid() {
+        let mut buffers = Sort32Buffers::default();
+        buffers.readback = vec![0x7f800000, 0x7fc00000, 0x80000000, 0xff800000];
+
+        assert_eq!(sort32_internal(&mut buffers, 4, 4), Ok(0));
+    }
+
+    #[test]
+    fn sort32_orders_finite_keys_descending_and_stably() {
+        let mut buffers = Sort32Buffers::default();
+        buffers.readback = vec![
+            0x3f800000, // 1.0
+            0x7f800000, // +infinity, excluded
+            0x00000000, // +0.0
+            0x3f800000, // 1.0, kept after the first equal key
+            0x7f7fffff, // largest finite f32
+            0x80000000, // -0.0, excluded
+            0x7fc00000, // NaN, excluded
+        ];
+
+        let active = sort32_internal(&mut buffers, 7, 7).unwrap();
+
+        assert_eq!(active, 4);
+        assert_eq!(&buffers.ordering[..active as usize], &[4, 0, 3, 2]);
+    }
 }
