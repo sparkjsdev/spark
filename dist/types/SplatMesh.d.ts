@@ -141,10 +141,7 @@ export declare class SplatMesh extends SplatGenerator {
     showLodPageDyno: DynoInt<string>;
     constructor(options?: SplatMeshOptions);
     asyncInitialize(options: SplatMeshOptions): Promise<void>;
-    static staticInitialized: Promise<void>;
-    static isStaticInitialized: boolean;
     static dynoTime: DynoFloat<"value">;
-    static staticInitialize(): Promise<void>;
     pushSplat(center: THREE.Vector3, scales: THREE.Vector3, quaternion: THREE.Quaternion, opacity: number, color: THREE.Color): void;
     forEachSplat(callback: (index: number, center: THREE.Vector3, scales: THREE.Vector3, quaternion: THREE.Quaternion, opacity: number, color: THREE.Color) => void): void;
     dispose(): void;
