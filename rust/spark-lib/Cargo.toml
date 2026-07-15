@@ -14,6 +14,7 @@ glam.workspace = true
 half.workspace = true
 ordered-float.workspace = true
 miniz_oxide.workspace = true
+ruzstd.workspace = true
 serde.workspace = true
 smallvec.workspace = true
 itertools.workspace = true
