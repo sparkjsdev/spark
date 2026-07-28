@@ -1170,7 +1170,10 @@ export class SplatPager {
           data.extra.sh3a as Uint32Array,
           data.extra.sh3b as Uint32Array,
         ];
-        shArrays.length = shArrays.findIndex((sh) => !sh);
+        // findIndex returns -1 when all SH arrays are present — keep the full list
+        // (Array.length = -1 throws a RangeError)
+        const firstMissingSh = shArrays.findIndex((sh) => !sh);
+        if (firstMissingSh >= 0) shArrays.length = firstMissingSh;
         this.newUploads.push({
           page,
           numSplats,
@@ -1185,7 +1188,10 @@ export class SplatPager {
           data.extra.sh2 as Uint32Array,
           data.extra.sh3 as Uint32Array,
         ];
-        shArrays.length = shArrays.findIndex((sh) => !sh);
+        // findIndex returns -1 when all SH arrays are present — keep the full list
+        // (Array.length = -1 throws a RangeError)
+        const firstMissingSh = shArrays.findIndex((sh) => !sh);
+        if (firstMissingSh >= 0) shArrays.length = firstMissingSh;
         this.newUploads.push({
           page,
           numSplats,
