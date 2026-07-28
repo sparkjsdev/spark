@@ -22,6 +22,14 @@ import {
   uploadU32DataTextureRows,
 } from "./utils";
 
+const renderToViewScaleTmp = new THREE.Vector3();
+
+// Average (uniform) world scale of a camera
+function getCameraWorldScale(camera: THREE.Camera): number {
+  const s = camera.getWorldScale(renderToViewScaleTmp);
+  return (s.x + s.y + s.z) / 3;
+}
+
 export interface SparkRendererOptions {
   /**
    * Pass in your THREE.WebGLRenderer instance so Spark can perform work
@@ -621,6 +629,8 @@ export class SparkRenderer extends THREE.Mesh {
       renderToViewQuat: { value: new THREE.Quaternion() },
       // SplatAccumulator to view transformation translation
       renderToViewPos: { value: new THREE.Vector3() },
+      // SplatAccumulator to view transformation uniform scale (camera world scale)
+      renderToViewScale: { value: 1 },
       renderToViewBasis: { value: new THREE.Matrix3() },
       renderToViewOffset: { value: new THREE.Vector3() },
       // Maximum distance (in stddevs) from Gsplat center to render
@@ -780,8 +790,13 @@ export class SparkRenderer extends THREE.Mesh {
     accumToCamera.decompose(
       this.uniforms.renderToViewPos.value,
       this.uniforms.renderToViewQuat.value,
-      new THREE.Vector3(),
+      renderToViewScaleTmp,
     );
+    this.uniforms.renderToViewScale.value =
+      (renderToViewScaleTmp.x +
+        renderToViewScaleTmp.y +
+        renderToViewScaleTmp.z) /
+      3;
     this.uniforms.renderToViewBasis.value.setFromMatrix4(accumToCamera);
 
     this.uniforms.maxStdDev.value = spark.maxStdDev;
@@ -829,8 +844,10 @@ export class SparkRenderer extends THREE.Mesh {
 
     if (spark.autoUpdate && isNewFrame) {
       const preUpdate = spark.preUpdate && !renderer.xr.isPresenting;
+      // Use the per-eye XR camera: getWorldPosition on the parentless ArrayCamera
+      // container falls back to the raw reference-space pose, losing any rig transform
       const useCamera = renderer.xr.isPresenting
-        ? renderer.xr.getCamera()
+        ? (renderer.xr.getCamera().cameras[0] ?? renderer.xr.getCamera())
         : camera;
       if (preUpdate) {
         spark.updateInternal({
@@ -913,9 +930,10 @@ export class SparkRenderer extends THREE.Mesh {
     const center = camera.getWorldPosition(new THREE.Vector3());
     const dir = camera.getWorldDirection(new THREE.Vector3());
 
+    // scale the world-units epsilon with the camera scale (~1mm of physical movement)
     const viewChanged =
-      center.distanceTo(this.sortedCenter) > 0.001 ||
-      dir.dot(this.sortedDir) < 0.999;
+      center.distanceTo(this.sortedCenter) >
+        0.001 * getCameraWorldScale(camera) || dir.dot(this.sortedDir) < 0.999;
 
     const next = this.accumulators.pop();
     if (!next) {
@@ -1159,11 +1177,14 @@ export class SparkRenderer extends THREE.Mesh {
       pixelScaleLimit = Math.min(pxX, pxY);
     }
 
+    // NOTE: pixelScaleLimit needs no camera-scale term (perspective cancels it)
     pixelScaleLimit *= this.lodRenderScale;
 
     const viewPos = new THREE.Vector3();
     const viewQuat = new THREE.Quaternion();
-    this.current.viewToWorld.decompose(viewPos, viewQuat, new THREE.Vector3());
+    const viewScale = new THREE.Vector3();
+    this.current.viewToWorld.decompose(viewPos, viewQuat, viewScale);
+    const viewCamScale = (viewScale.x + viewScale.y + viewScale.z) / 3;
 
     if (this.lodPosOverride) {
       viewPos.copy(this.lodPosOverride);
@@ -1181,7 +1202,7 @@ export class SparkRenderer extends THREE.Mesh {
       }
 
       const distance = viewPos.distanceTo(this.lastLod.pos);
-      const distanceRamp = Math.max(0.0, 1.0 - distance / 1.0);
+      const distanceRamp = Math.max(0.0, 1.0 - distance / viewCamScale);
       const dot = viewQuat.dot(this.lastLod.quat);
       const quatRamp = Math.max(0.0, 1.0 - (1.0 - dot) / 0.01);
       const similarity = distanceRamp * quatRamp;
