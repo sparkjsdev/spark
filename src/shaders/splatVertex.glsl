@@ -15,6 +15,8 @@ flat out float adjustedStdDev;
 uniform vec2 renderSize;
 uniform vec4 renderToViewQuat;
 uniform vec3 renderToViewPos;
+// Uniform scale of the render-to-view transform (1.0 unless the camera is scaled)
+uniform float renderToViewScale;
 uniform mat3 renderToViewBasis;
 uniform float maxStdDev;
 uniform float minPixelRadius;
@@ -120,8 +122,10 @@ void main() {
         adjustedStdDev = maxStdDev + 0.7 * (rgba.a - 1.0);
     }
 
+    // Apply the camera scale (the basis branch already carries the full matrix incl. scale)
+    scales *= renderToViewScale;
     // Compute the view space center of the splat
-    vec3 viewCenter = (!enableCovSplats ? quatVec(renderToViewQuat, center) : (renderToViewBasis * center)) + renderToViewPos;
+    vec3 viewCenter = (!enableCovSplats ? (renderToViewScale * quatVec(renderToViewQuat, center)) : (renderToViewBasis * center)) + renderToViewPos;
 
     // Discard splats behind the camera
     if (viewCenter.z >= 0.0) {
