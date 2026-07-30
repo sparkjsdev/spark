@@ -1627,31 +1627,14 @@ export class SparkRenderer extends THREE.Mesh {
           // instance.indices.set(indices.subarray(0, numSplats));
 
           const renderer = this.renderer;
-          const gl = renderer.getContext() as WebGL2RenderingContext;
           if (renderer.properties.has(instance.texture)) {
-            const props = renderer.properties.get(instance.texture) as {
-              __webglTexture: WebGLTexture;
-            };
-            const glTexture = props.__webglTexture;
-            if (!glTexture) {
-              throw new Error("lodIndices texture not found");
-            }
-            renderer.state.activeTexture(gl.TEXTURE0);
-            renderer.state.bindTexture(gl.TEXTURE_2D, glTexture);
-            gl.bindBuffer(gl.PIXEL_UNPACK_BUFFER, null);
-            gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-            gl.texSubImage2D(
-              gl.TEXTURE_2D,
-              0,
-              0,
-              0,
+            uploadU32DataTextureRows(
+              renderer,
+              instance.texture,
               4096,
               rows,
-              gl.RGBA_INTEGER,
-              gl.UNSIGNED_INT,
               indices,
             );
-            renderer.state.bindTexture(gl.TEXTURE_2D, null);
           }
         }
       }
