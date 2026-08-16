@@ -326,6 +326,7 @@ export class SparkRenderer extends THREE.Mesh {
   readonly renderer: THREE.WebGLRenderer;
   readonly material: THREE.ShaderMaterial;
   readonly uniforms: ReturnType<typeof SparkRenderer.makeUniforms>;
+  private readonly ownedGeometry: SplatGeometry;
 
   autoUpdate: boolean;
   preUpdate: boolean;
@@ -487,6 +488,7 @@ export class SparkRenderer extends THREE.Mesh {
     });
 
     super(geometry, material);
+    this.ownedGeometry = geometry;
     this.material = material;
     this.uniforms = uniforms;
     // Disable frustum culling because we want to always draw them all
@@ -674,6 +676,7 @@ export class SparkRenderer extends THREE.Mesh {
   dispose() {
     // @ts-ignore Object3D has a dispose method in Three.js >= r186
     super.dispose?.();
+    this.ownedGeometry.dispose();
 
     if (this.target) {
       this.target.dispose();
