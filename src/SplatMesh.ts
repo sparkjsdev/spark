@@ -33,6 +33,7 @@ import {
   DynoBool,
   DynoFloat,
   DynoInt,
+  DynoMat3,
   DynoUsampler2D,
   type DynoVal,
   DynoVec4,
@@ -89,6 +90,9 @@ export type SplatMeshOptions = {
   editable?: boolean;
   // Controls whether SplatMesh participates in Three.js raycasting (default: true)
   raycastable?: boolean;
+  // Object-space basis applied to SH view directions before evaluation.
+  // (default: identity)
+  shViewBasis?: THREE.Matrix3;
   // Minimum opacity for raycasting splats. (default: 0.2)
   minRaycastOpacity?: number;
   // Callback function that is called every frame to update the mesh.
@@ -157,6 +161,7 @@ export type SplatMeshContext = {
   covViewToWorld: CovSplatTransformer;
   covWorldToView: CovSplatTransformer;
   covViewToObject: CovSplatTransformer;
+  shViewBasis: DynoMat3<"shViewBasis", THREE.Matrix3>;
   recolor: DynoVec4<THREE.Vector4>;
   time: DynoFloat;
   deltaTime: DynoFloat;
@@ -178,9 +183,12 @@ export interface SplatSource {
   fetchSplat({
     index,
     viewOrigin,
-  }: { index: DynoVal<"int">; viewOrigin?: DynoVal<"vec3"> }): DynoVal<
-    typeof Gsplat
-  >;
+    viewBasis,
+  }: {
+    index: DynoVal<"int">;
+    viewOrigin?: DynoVal<"vec3">;
+    viewBasis?: DynoVal<"mat3">;
+  }): DynoVal<typeof Gsplat>;
 
   forEachSplat(
     callback: (
@@ -252,6 +260,8 @@ export class SplatMesh extends SplatGenerator {
   recolor: THREE.Color = new THREE.Color(1, 1, 1);
   // Global opacity multiplier for all splats in the mesh. (default: 1)
   opacity = 1;
+  // Object-space basis applied to SH view directions.
+  readonly shViewBasis: THREE.Matrix3;
 
   // A SplatMeshContext consisting of useful scene and object dyno uniforms that can
   // be used to in the Gsplat processing pipeline, for example via objectModifier and
@@ -365,6 +375,10 @@ export class SplatMesh extends SplatGenerator {
       covViewToWorld: new CovSplatTransformer(),
       covWorldToView: new CovSplatTransformer(),
       covViewToObject: new CovSplatTransformer(),
+      shViewBasis: new DynoMat3({
+        key: "shViewBasis",
+        value: options.shViewBasis?.clone() ?? new THREE.Matrix3(),
+      }),
       recolor: new DynoVec4({
         value: new THREE.Vector4().setScalar(Number.NEGATIVE_INFINITY),
       }),
@@ -378,6 +392,7 @@ export class SplatMesh extends SplatGenerator {
         key: "lodIndices",
       }),
     };
+    this.shViewBasis = this.context.shViewBasis.value;
 
     this.covSplats = options.covSplats ?? false;
     if (this.covSplats && !this.extSplats) {
@@ -673,6 +688,7 @@ export class SplatMesh extends SplatGenerator {
         let gsplat = context.splats.fetchSplat({
           index,
           viewOrigin: viewToObject.translate,
+          viewBasis: context.shViewBasis,
         });
 
         if (this.splatRgba) {
@@ -748,6 +764,7 @@ export class SplatMesh extends SplatGenerator {
         let gsplat = context.splats.fetchSplat({
           index,
           viewOrigin: covViewToObject.offset,
+          viewBasis: context.shViewBasis,
         });
 
         if (this.splatRgba) {

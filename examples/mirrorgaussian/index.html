@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MirrorGaussian Spark diagnostic</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #080a0d; color: #f3f4f6; font: 13px/1.4 system-ui, sans-serif; }
+    canvas { display: block; }
+    #panel { position: fixed; z-index: 2; top: 14px; left: 14px; width: 290px; padding: 12px 14px; border: 1px solid #ffffff20; border-radius: 10px; background: #11151bcc; backdrop-filter: blur(12px); }
+    #status { margin-top: 6px; color: #b9c1cc; white-space: pre-line; }
+    #modes { display: flex; gap: 6px; margin-top: 10px; }
+    button { border: 1px solid #ffffff24; border-radius: 6px; padding: 5px 9px; color: inherit; background: #ffffff0d; cursor: pointer; }
+    button.active { background: #dbeafe; color: #172033; }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "../js/vendor/three/build/three.module.js",
+        "three/addons/": "../js/vendor/three/examples/jsm/",
+        "@sparkjsdev/spark": "../../dist/spark.module.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="panel">
+    <strong>MirrorGaussian / Spark</strong>
+    <div id="scene-info">Loading scene...</div>
+    <div id="status">Loading manifest...</div>
+    <div id="modes">
+      <button data-mode="final" class="active">Final</button>
+      <button data-mode="real">Real</button>
+      <button data-mode="mirror">Mirror</button>
+      <button data-mode="mask">Mask</button>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as THREE from "three";
+    import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
+
+    const status = document.querySelector("#status");
+    const manifest = await fetch("./assets/mirror.json").then((response) => response.json());
+    const assetUrl = (path) => `./assets/${path.replace(/\.ply$/, ".spz")}`;
+    const useLod = false;
+    let mode = "final";
+    document.querySelector("#scene-info").textContent =
+      `SPZ diagnostic, ${manifest.mirrors.length} mirrors`;
+
+    const renderer = new THREE.WebGLRenderer({ antialias: false });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    document.body.appendChild(renderer.domElement);
+
+    const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.01, 1000);
+    renderer.domElement.style.touchAction = "none";
+
+    const maskFragmentShader = `
+      precision highp float;
+      precision highp int;
+      #include <splatDefines>
+      uniform float near;
+      uniform float far;
+      uniform float maxStdDev;
+      uniform float minAlpha;
+      uniform float falloff;
+      out vec4 fragColor;
+      in vec4 vRgba;
+      in vec2 vSplatUv;
+      in vec3 vNdc;
+      flat in uint vSplatIndex;
+      flat in float adjustedStdDev;
+      #include <logdepthbuf_pars_fragment>
+      void main() {
+        vec4 rgba = vRgba;
+        float z2 = dot(vSplatUv, vSplatUv);
+        if (z2 > adjustedStdDev * adjustedStdDev) discard;
+        if (rgba.a <= 1.0) {
+          rgba.a = mix(rgba.a, rgba.a * exp(-0.5 * z2), falloff);
+        } else {
+          float a = exp((rgba.a * rgba.a - 1.0) / 2.718281828459045);
+          float alpha = 1.0 - pow(1.0 - exp(-0.5 * z2), a);
+          rgba.a = mix(1.0, alpha, falloff);
+        }
+        if (rgba.a < minAlpha) discard;
+        #ifdef PREMULTIPLIED_ALPHA
+          fragColor = vec4(rgba.rgb * rgba.a, rgba.a);
+        #else
+          fragColor = rgba;
+        #endif
+        #include <logdepthbuf_fragment>
+      }
+    `;
+
+    function makePass({ background, mask = false }) {
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(background);
+      const spark = new SparkRenderer({
+        renderer,
+        target: {
+          width: innerWidth,
+          height: innerHeight,
+          colorSpace: mask ? THREE.NoColorSpace : THREE.SRGBColorSpace,
+        },
+        fragmentShader: mask ? maskFragmentShader : undefined,
+        lodSplatCount: mask ? 250000 : 500000,
+      });
+      scene.add(spark);
+      return { scene, spark };
+    }
+
+    const realPass = makePass({ background: 0x080a0d });
+    const mirrorPasses = manifest.mirrors.map(() => makePass({ background: 0x080a0d }));
+    const maskPasses = manifest.mirrors.map(() => makePass({ background: 0xffffff, mask: true }));
+
+    function progress(name) {
+      return (event) => {
+        const percent = event.total ? Math.round(100 * event.loaded / event.total) : 0;
+        status.textContent = `${name}: ${percent}%`;
+      };
+    }
+
+    const realMesh = new SplatMesh({
+      url: assetUrl(manifest.assets.real),
+      lod: useLod,
+      onProgress: progress("Real scene"),
+    });
+    realMesh.quaternion.set(1, 0, 0, 0);
+    realPass.scene.add(realMesh);
+    await realMesh.initialized;
+
+    const bounds = realMesh.getBoundingBox();
+    const center = bounds.getCenter(new THREE.Vector3()).applyQuaternion(realMesh.quaternion);
+    const size = bounds.getSize(new THREE.Vector3());
+    const radius = Math.max(size.x, size.y, size.z) * 0.5;
+    const moveSpeed = Math.max(radius * 0.6, 0.5);
+    camera.position.copy(center).add(new THREE.Vector3(0, radius * 0.2, radius * 1.8));
+    camera.lookAt(center);
+    camera.near = Math.max(radius / 1000, 0.001);
+    camera.far = Math.max(radius * 20, 100);
+    camera.updateProjectionMatrix();
+    status.textContent = "Real scene loaded\nLoading mirror assets...";
+
+    const pressedKeys = new Set();
+    const movementKeys = new Set(["KeyW", "KeyA", "KeyS", "KeyD"]);
+    addEventListener("keydown", (event) => {
+      pressedKeys.add(event.code);
+      if (movementKeys.has(event.code)) {
+        beginNavigation();
+      }
+    });
+    addEventListener("keyup", (event) => {
+      pressedKeys.delete(event.code);
+      if (![...movementKeys].some((key) => pressedKeys.has(key))) {
+        endNavigation();
+      }
+    });
+    addEventListener("blur", () => {
+      pressedKeys.clear();
+      endNavigation();
+    });
+
+    function updateMovement(deltaSeconds) {
+      const forwardAmount =
+        Number(pressedKeys.has("KeyW")) - Number(pressedKeys.has("KeyS"));
+      const rightAmount =
+        Number(pressedKeys.has("KeyD")) - Number(pressedKeys.has("KeyA"));
+      if (forwardAmount === 0 && rightAmount === 0) return false;
+
+      const forward = new THREE.Vector3();
+      camera.getWorldDirection(forward);
+      forward.y = 0;
+      if (forward.lengthSq() < 1e-6) forward.set(0, 0, -1);
+      forward.normalize();
+      const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize();
+      const movement = forward.multiplyScalar(forwardAmount).addScaledVector(right, rightAmount);
+      if (movement.lengthSq() > 1) movement.normalize();
+      const boost =
+        pressedKeys.has("ShiftLeft") ||
+        pressedKeys.has("ShiftRight") ||
+        (pointerDragging && pointerButton === 2)
+          ? 3
+          : 1;
+      movement.multiplyScalar(moveSpeed * boost * deltaSeconds);
+      camera.position.add(movement);
+      return true;
+    }
+
+    const compositeUniforms = {
+      realTexture: { value: realPass.spark.target.texture },
+      mode: { value: 1 },
+    };
+    mirrorPasses.forEach((pass, index) => {
+      compositeUniforms[`mirrorTexture${index}`] = { value: pass.spark.target.texture };
+      compositeUniforms[`maskTexture${index}`] = { value: maskPasses[index].spark.target.texture };
+    });
+    const mirrorUniformDeclarations = manifest.mirrors.map((_, index) => `
+      uniform sampler2D mirrorTexture${index};
+      uniform sampler2D maskTexture${index};
+    `).join("");
+    const mirrorCompositeStatements = manifest.mirrors.map((_, index) => `
+      vec3 mirrorRgb${index} = texture2D(mirrorTexture${index}, vUv).rgb;
+      float mirrorWeight${index} = 1.0 - clamp(texture2D(maskTexture${index}, vUv).r, 0.0, 1.0);
+      rgb = mix(rgb, mirrorRgb${index}, mirrorWeight${index});
+      mirrorOnly += mirrorRgb${index} * mirrorWeight${index};
+      mirrorCoverage = max(mirrorCoverage, mirrorWeight${index});
+    `).join("");
+
+    const compositeScene = new THREE.Scene();
+    const compositeCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    const compositeMaterial = new THREE.ShaderMaterial({
+      uniforms: compositeUniforms,
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = vec4(position.xy, 0.0, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D realTexture;
+        ${mirrorUniformDeclarations}
+        uniform int mode;
+        varying vec2 vUv;
+        void main() {
+          vec3 realRgb = texture2D(realTexture, vUv).rgb;
+          vec3 rgb = realRgb;
+          vec3 mirrorOnly = vec3(0.0);
+          float mirrorCoverage = 0.0;
+          ${mirrorCompositeStatements}
+          if (mode == 1) rgb = realRgb;
+          if (mode == 2) rgb = mirrorOnly;
+          if (mode == 3) rgb = vec3(1.0 - mirrorCoverage);
+          gl_FragColor = vec4(rgb, 1.0);
+          #include <colorspace_fragment>
+        }
+      `,
+      depthTest: false,
+      depthWrite: false,
+    });
+    compositeScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), compositeMaterial));
+
+    const reflectionPasses = [...mirrorPasses, ...maskPasses];
+    let realDirty = true;
+    let reflectionsDirty = true;
+    let reflectionsLoading = true;
+    let reflectionQueue = [];
+    let settleAt = performance.now() + 300;
+    let navigationActive = false;
+    let navigationEndTimer;
+    let nextRealRenderAt = 0;
+    let nextInteractiveRenderAt = 0;
+    let synchronizedRenderRunning = false;
+    let synchronizedRenderRequested = false;
+    const realWarmupUntil = performance.now() + 2000;
+
+    function requestNavigationRender() {
+      realDirty = true;
+      reflectionsDirty = true;
+      reflectionQueue = [];
+      settleAt = performance.now() + 300;
+    }
+
+    async function renderSynchronizedNavigationFrame() {
+      synchronizedRenderRequested = true;
+      if (synchronizedRenderRunning) return;
+      synchronizedRenderRunning = true;
+
+      try {
+        while (synchronizedRenderRequested) {
+          synchronizedRenderRequested = false;
+          const cameraSnapshot = camera.clone();
+          const passes = [realPass, ...reflectionPasses];
+
+          // Each Spark renderer sorts asynchronously. Wait for every pass before
+          // publishing any target so the composite uses one camera pose.
+          for (const pass of passes) {
+            await pass.spark.update({
+              scene: pass.scene,
+              camera: cameraSnapshot,
+            });
+          }
+          for (const pass of passes) {
+            pass.spark.renderTarget({
+              scene: pass.scene,
+              camera: cameraSnapshot,
+            });
+          }
+          renderer.setRenderTarget(null);
+          renderer.render(compositeScene, compositeCamera);
+        }
+      } finally {
+        synchronizedRenderRunning = false;
+      }
+    }
+
+    function beginNavigation() {
+      clearTimeout(navigationEndTimer);
+      navigationActive = true;
+      requestNavigationRender();
+    }
+
+    function endNavigation() {
+      clearTimeout(navigationEndTimer);
+      navigationEndTimer = setTimeout(() => {
+        navigationActive = false;
+        requestNavigationRender();
+      }, 250);
+    }
+
+    const lookEuler = new THREE.Euler().setFromQuaternion(
+      camera.quaternion,
+      "YXZ",
+    );
+    let pointerDragging = false;
+    let pointerButton = 0;
+    let pointerX = 0;
+    let pointerY = 0;
+
+    renderer.domElement.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 && event.button !== 2) return;
+      event.preventDefault();
+      pointerDragging = true;
+      pointerButton = event.button;
+      pointerX = event.clientX;
+      pointerY = event.clientY;
+      renderer.domElement.setPointerCapture(event.pointerId);
+      beginNavigation();
+    });
+
+    renderer.domElement.addEventListener("pointermove", (event) => {
+      if (!pointerDragging) return;
+      const deltaX = event.clientX - pointerX;
+      const deltaY = event.clientY - pointerY;
+      if (pointerButton === 0) {
+        lookEuler.y -= deltaX * 0.003;
+        lookEuler.x -= deltaY * 0.003;
+        lookEuler.x = THREE.MathUtils.clamp(
+          lookEuler.x,
+          -Math.PI / 2 + 0.01,
+          Math.PI / 2 - 0.01,
+        );
+        camera.quaternion.setFromEuler(lookEuler);
+      } else {
+        const forward = new THREE.Vector3();
+        const right = new THREE.Vector3();
+        const up = new THREE.Vector3();
+        camera.getWorldDirection(forward);
+        right.crossVectors(forward, camera.up).normalize();
+        up.crossVectors(right, forward).normalize();
+        camera.position
+          .addScaledVector(right, deltaX * moveSpeed * 0.01)
+          .addScaledVector(up, -deltaY * moveSpeed * 0.01);
+      }
+      pointerX = event.clientX;
+      pointerY = event.clientY;
+      requestNavigationRender();
+    });
+
+    function stopPointerDrag(event) {
+      if (!pointerDragging) return;
+      event.preventDefault();
+      pointerDragging = false;
+      if (renderer.domElement.hasPointerCapture(event.pointerId)) {
+        renderer.domElement.releasePointerCapture(event.pointerId);
+      }
+      endNavigation();
+    }
+
+    renderer.domElement.addEventListener("pointerup", stopPointerDrag);
+    renderer.domElement.addEventListener("pointercancel", stopPointerDrag);
+    renderer.domElement.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+    });
+    renderer.domElement.addEventListener("click", (event) => {
+      event.preventDefault();
+    });
+    renderer.domElement.addEventListener("auxclick", (event) => {
+      event.preventDefault();
+    });
+    renderer.domElement.addEventListener(
+      "wheel",
+      (event) => {
+        event.preventDefault();
+        const forward = new THREE.Vector3();
+        camera.getWorldDirection(forward);
+        const wheelDelta = THREE.MathUtils.clamp(event.deltaY, -100, 100);
+        camera.position.addScaledVector(
+          forward,
+          -wheelDelta * moveSpeed * 0.002,
+        );
+        beginNavigation();
+        endNavigation();
+      },
+      { passive: false },
+    );
+
+    document.querySelectorAll("button[data-mode]").forEach((button) => {
+      button.addEventListener("click", () => {
+        mode = button.dataset.mode;
+        compositeMaterial.uniforms.mode.value =
+          reflectionsLoading && mode === "final"
+            ? 1
+            : ["final", "real", "mirror", "mask"].indexOf(mode);
+        document.querySelectorAll("button[data-mode]").forEach((item) => item.classList.toggle("active", item === button));
+      });
+    });
+
+    addEventListener("resize", () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+      for (const pass of [realPass, ...mirrorPasses, ...maskPasses]) {
+        pass.spark.target.setSize(innerWidth, innerHeight);
+      }
+    });
+
+    let lastFrameTime = performance.now();
+    renderer.setAnimationLoop((time) => {
+      const deltaSeconds = Math.min((time - lastFrameTime) / 1000, 0.1);
+      lastFrameTime = time;
+      if (updateMovement(deltaSeconds)) {
+        requestNavigationRender();
+      }
+
+      const now = performance.now();
+      if (navigationActive && now >= nextInteractiveRenderAt) {
+        renderSynchronizedNavigationFrame();
+        realDirty = false;
+        nextInteractiveRenderAt = now + 120;
+      } else if (
+        !synchronizedRenderRunning &&
+        (realDirty || now < realWarmupUntil) &&
+        now >= nextRealRenderAt
+      ) {
+        realPass.spark.renderTarget({ scene: realPass.scene, camera });
+        realDirty = false;
+        nextRealRenderAt = now + (navigationActive ? 75 : 150);
+      }
+
+      if (
+        !navigationActive &&
+        !synchronizedRenderRunning &&
+        reflectionsDirty &&
+        reflectionQueue.length === 0 &&
+        now >= settleAt
+      ) {
+        // Three rounds allow Spark's asynchronous sort to become visible
+        // without blocking input on all thirteen passes in one frame.
+        reflectionQueue = [
+          ...reflectionPasses,
+          ...reflectionPasses,
+          ...reflectionPasses,
+        ];
+        reflectionsDirty = false;
+      }
+
+      const reflectionPass = reflectionQueue.shift();
+      if (reflectionPass) {
+        reflectionPass.spark.renderTarget({
+          scene: reflectionPass.scene,
+          camera,
+        });
+        if (reflectionQueue.length === 0) {
+          compositeMaterial.uniforms.mode.value =
+            ["final", "real", "mirror", "mask"].indexOf(mode);
+        }
+      }
+
+      renderer.setRenderTarget(null);
+      renderer.render(compositeScene, compositeCamera);
+    });
+
+    async function loadReflections() {
+      for (let index = 0; index < manifest.mirrors.length; index++) {
+        const mirrorSpec = manifest.mirrors[index];
+        const mirrorNumber = index + 1;
+        status.textContent =
+          `Real scene ready\nLoading mirror ${mirrorNumber}/${manifest.mirrors.length} reflection...`;
+        const mirrorMesh = new SplatMesh({
+          url: assetUrl(mirrorSpec.assets.mirror),
+          lod: useLod,
+          shViewBasis: new THREE.Matrix3().set(
+            ...mirrorSpec.sh_view_basis_row_major,
+          ),
+          onProgress: progress(`Mirror ${mirrorSpec.id} reflection`),
+        });
+        mirrorMesh.quaternion.set(1, 0, 0, 0);
+        mirrorPasses[index].scene.add(mirrorMesh);
+        await mirrorMesh.initialized;
+
+        status.textContent =
+          `Real scene ready\nLoading mirror ${mirrorNumber}/${manifest.mirrors.length} mask...`;
+        const maskMesh = new SplatMesh({
+          url: assetUrl(mirrorSpec.assets.mask),
+          lod: useLod,
+          onProgress: progress(`Mirror ${mirrorSpec.id} mask`),
+        });
+        maskMesh.maxSh = 0;
+        maskMesh.quaternion.set(1, 0, 0, 0);
+        maskPasses[index].scene.add(maskMesh);
+        await maskMesh.initialized;
+      }
+
+      reflectionsLoading = false;
+      requestNavigationRender();
+      status.textContent =
+        `Loaded ${manifest.mirrors.length} mirrors\nLeft-drag look; right-drag pan; wheel or WASD move`;
+    }
+
+    loadReflections().catch((error) => {
+      reflectionsLoading = false;
+      status.textContent = `Mirror loading failed\n${error.message}`;
+      console.error(error);
+    });
+  </script>
+</body>
+</html>

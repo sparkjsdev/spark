@@ -28,6 +28,7 @@ import {
   DynoVec4,
   add,
   dynoBlock,
+  mul,
   normalize,
   outputPackedSplat,
   sub,
@@ -326,14 +327,21 @@ export class PackedSplats implements SplatSource {
   fetchSplat({
     index,
     viewOrigin,
-  }: { index: DynoVal<"int">; viewOrigin?: DynoVal<"vec3"> }): DynoVal<
-    typeof Gsplat
-  > {
+    viewBasis,
+  }: {
+    index: DynoVal<"int">;
+    viewOrigin?: DynoVal<"vec3">;
+    viewBasis?: DynoVal<"mat3">;
+  }): DynoVal<typeof Gsplat> {
     let gsplat = readPackedSplat(this.dyno, index);
 
     if (this.hasRgbDir() && viewOrigin) {
       const splatCenter = splitGsplat(gsplat).outputs.center;
-      const viewDir = normalize(sub(splatCenter, viewOrigin));
+      let viewDir = sub(splatCenter, viewOrigin);
+      if (viewBasis) {
+        viewDir = mul(viewBasis, viewDir);
+      }
+      viewDir = normalize(viewDir);
       const { sh1Texture, sh2Texture, sh3Texture } = this.ensureShTextures();
       let { rgb } = evaluatePackedSH({
         coord: splatTexCoord(index),
