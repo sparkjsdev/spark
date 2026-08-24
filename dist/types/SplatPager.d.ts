@@ -35,6 +35,7 @@ export declare class PagedSplats implements SplatSource {
     lodOpacity: dyno.DynoBool<"lodOpacity">;
     dynoNumSh: dyno.DynoInt<"numSh">;
     shMax: dyno.DynoVec3<THREE.Vector3, "shMax">;
+    readonly abortController: AbortController;
     constructor(options: PagedSplatsOptions);
     dispose(): void;
     setMaxSh(maxSh: number): void;
@@ -86,13 +87,6 @@ export interface SplatPagerOptions {
      */
     numFetchers?: number;
 }
-interface PageUpload {
-    page: number;
-    numSplats: number;
-    packedArray: Uint32Array;
-    extArray?: Uint32Array;
-    shArrays: Array<Uint32Array>;
-}
 export declare class SplatPager {
     readonly renderer: THREE.WebGLRenderer;
     readonly extSplats: boolean;
@@ -113,14 +107,11 @@ export declare class SplatPager {
         chunk: number;
         time: number;
     } | undefined)[];
-    pageFreelist: number[];
-    pageLru: Set<{
-        page: number;
-        lru: number;
-    }>;
-    freeablePages: number[];
-    newUploads: PageUpload[];
-    readyUploads: PageUpload[];
+    private readonly pageFreelist;
+    private readonly pageLru;
+    private freeablePages;
+    private newUploads;
+    private readonly readyUploads;
     lodTreeUpdates: {
         splats: PagedSplats;
         page: number;
@@ -128,16 +119,8 @@ export declare class SplatPager {
         numSplats: number;
         lodTree?: Uint32Array;
     }[];
-    fetchers: {
-        splats: PagedSplats;
-        chunk: number;
-        promise: Promise<void>;
-    }[];
-    fetched: {
-        splats: PagedSplats;
-        chunk: number;
-        data: PackedResult | ExtResult;
-    }[];
+    private readonly fetchers;
+    private readonly fetched;
     fetchPriority: {
         splats: PagedSplats;
         chunk: number;
@@ -218,4 +201,3 @@ export declare class SplatPager {
     static emptyShTextures: readonly [THREE.DataArrayTexture, THREE.DataArrayTexture, THREE.DataArrayTexture];
     static emptyExtShTextures: readonly [THREE.DataArrayTexture, THREE.DataArrayTexture, THREE.DataArrayTexture, THREE.DataArrayTexture];
 }
-export {};
