@@ -66,6 +66,8 @@ export class PagedSplats implements SplatSource {
   dynoNumSh: dyno.DynoInt<"numSh">;
   shMax: dyno.DynoVec3<THREE.Vector3, "shMax">;
 
+  readonly abortController: AbortController = new AbortController();
+
   constructor(options: PagedSplatsOptions) {
     this.pager = options.pager;
     this.rootUrl = options.rootUrl ?? "";
@@ -112,6 +114,8 @@ export class PagedSplats implements SplatSource {
       this.dynoIndices.value.dispose();
       this.dynoIndices.value = SplatPager.emptyIndicesTexture;
     }
+
+    this.abortController.abort();
   }
 
   setMaxSh(maxSh: number) {
@@ -197,6 +201,7 @@ export class PagedSplats implements SplatSource {
           url: chunkUrl,
           requestHeader: this.requestHeader,
           withCredentials: this.withCredentials,
+          signal: this.abortController.signal,
         });
       } else {
         offset += chunksStart;
@@ -215,6 +220,7 @@ export class PagedSplats implements SplatSource {
             withCredentials: this.withCredentials,
             offset,
             bytes,
+            signal: this.abortController.signal,
           });
         } else {
           throw new Error("No url or fileBytes provided");
@@ -229,6 +235,7 @@ export class PagedSplats implements SplatSource {
           ? new Headers(this.requestHeader)
           : undefined,
         credentials: this.withCredentials ? "include" : "same-origin",
+        signal: this.abortController.signal,
       });
       const response = await fetch(request);
       if (!response.ok || !response.body) {
@@ -534,11 +541,11 @@ export class SplatPager {
     | { splats: PagedSplats; chunk: number; time: number }
     | undefined
   )[] = [];
-  pageFreelist: number[];
-  pageLru: Set<{ page: number; lru: number }>;
-  freeablePages: number[];
-  newUploads: PageUpload[];
-  readyUploads: PageUpload[];
+  private readonly pageFreelist: number[];
+  private readonly pageLru: Set<{ page: number; lru: number }>;
+  private freeablePages: number[];
+  private newUploads: PageUpload[];
+  private readonly readyUploads: PageUpload[];
   lodTreeUpdates: {
     splats: PagedSplats;
     page: number;
@@ -547,8 +554,8 @@ export class SplatPager {
     lodTree?: Uint32Array;
   }[];
 
-  fetchers: { splats: PagedSplats; chunk: number; promise: Promise<void> }[];
-  fetched: {
+  private readonly fetchers: { splats: PagedSplats; chunk: number }[];
+  private readonly fetched: {
     splats: PagedSplats;
     chunk: number;
     data: PackedResult | ExtResult;
@@ -1053,10 +1060,20 @@ export class SplatPager {
 
       if (numPages < this.maxPages && this.fetchers.length < this.numFetchers) {
         numPages += 1;
+
+        // Add self to active fetchers list
+        const fetcher = { splats, chunk };
+        this.fetchers.push(fetcher);
+
         const promise = splats
           .fetchDecodeChunk(chunk)
           .then(
             async (data) => {
+              // Make sure the originating PagedSplat hasn't been disposed in the meantime
+              if (splats.abortController.signal.aborted) {
+                return;
+              }
+
               // Place data in ready queue and remove self from active fetchers list
               this.fetched.push({ splats, chunk, data });
               if (this.fetchPause > 0) {
@@ -1066,19 +1083,24 @@ export class SplatPager {
               }
             },
             async (error) => {
-              console.warn(error);
+              // An AbortError can be expected in case the originating PagedSplat has been disposed.
+              if (error.name !== "AbortError") {
+                console.warn(error);
+              }
+              // NOTE: backoff is needed as the fetchPriority needs to change before
+              //       reattempting makes sense. The SparkRenderer is responsible for this.
               const backoff = 250 + 500 * Math.random();
               await new Promise((resolve) => setTimeout(resolve, backoff));
             },
           )
           .finally(() => {
-            this.fetchers = this.fetchers.filter(
-              ({ splats: s, chunk: c }) => splats !== s || chunk !== c,
-            );
+            // Remove this fetcher from active fetchers list
+            const fetchIndex = this.fetchers.indexOf(fetcher);
+            this.fetchers[fetchIndex] = this.fetchers[this.fetchers.length - 1];
+            this.fetchers.length--;
+
             this.processFetched();
           });
-        // Add self to active fetchers list
-        this.fetchers.push({ splats, chunk, promise });
 
         promise.then((data) => {
           if (this.autoDrive) {
@@ -1301,16 +1323,19 @@ async function fetchRange({
   withCredentials,
   offset,
   bytes,
+  signal,
 }: {
   url: string;
   requestHeader?: Record<string, string>;
   withCredentials?: boolean;
   offset?: number;
   bytes?: number;
+  signal?: AbortSignal;
 }): Promise<Uint8Array> {
   const request = new Request(url, {
     headers: requestHeader ? new Headers(requestHeader) : undefined,
     credentials: withCredentials ? "include" : "same-origin",
+    signal,
   });
   if (offset !== undefined && bytes !== undefined) {
     request.headers.set("Range", `bytes=${offset}-${offset + bytes - 1}`);
