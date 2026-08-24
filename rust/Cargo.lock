@@ -1073,6 +1073,7 @@ dependencies = [
  "itertools",
  "js-sys",
  "ordered-float",
+ "serde",
  "serde-wasm-bindgen",
  "serde_json",
  "smallvec",

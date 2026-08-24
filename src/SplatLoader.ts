@@ -5,7 +5,6 @@ import { PackedSplats, type PackedSplatsOptions } from "./PackedSplats";
 import { SplatMesh } from "./SplatMesh";
 import { workerPool } from "./SplatWorker";
 import { type SplatEncoding, SplatFileType } from "./defines";
-import { PlyReader } from "./ply";
 import { decompressPartialGzip, getTextureSize } from "./utils";
 
 // SplatLoader implements the THREE.Loader interface and supports loading a variety
@@ -338,65 +337,6 @@ export class SplatLoader extends Loader {
       });
     });
   }
-}
-
-async function fetchWithProgress(
-  request: Request,
-  onProgress?: (event: ProgressEvent) => void,
-) {
-  const response = await fetch(request);
-  if (!response.ok) {
-    throw new Error(
-      `${response.status} "${response.statusText}" fetching URL: ${request.url}`,
-    );
-  }
-  if (!response.body) {
-    throw new Error(`Response body is null for URL: ${request.url}`);
-  }
-
-  const reader = response.body.getReader();
-  let loaded = 0;
-  const chunks: Uint8Array[] = [];
-  try {
-    const contentLength = Number.parseInt(
-      response.headers.get("Content-Length") || "0",
-    );
-    const total = Number.isNaN(contentLength) ? 0 : contentLength;
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-      chunks.push(value);
-      loaded += value.length;
-
-      if (onProgress) {
-        onProgress(
-          new ProgressEvent("progress", {
-            lengthComputable: total !== 0,
-            loaded,
-            total,
-          }),
-        );
-      }
-    }
-  } catch (err) {
-    try {
-      const reason = err instanceof Error ? err.message : "Unknown error";
-      await reader.cancel(reason);
-    } catch {}
-    throw err;
-  }
-
-  // Combine chunks into a single buffer
-  const bytes = new Uint8Array(loaded);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return bytes.buffer;
 }
 
 export function getSplatFileType(

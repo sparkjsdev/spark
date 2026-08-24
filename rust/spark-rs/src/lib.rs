@@ -2,6 +2,8 @@
 use std::cell::RefCell;
 use js_sys::{Array, Float32Array, Object, Reflect, Uint8Array, Uint16Array, Uint32Array};
 use spark_lib::decoder::{ChunkReceiver, MultiDecoder, SplatEncoding, SplatFileType, SplatGetter};
+use spark_lib::spz::SpzEncoder;
+use spark_lib::gsplat::{GsplatSH1,GsplatSH2,GsplatSH3};
 use spark_lib::gsplat::GsplatArray as GsplatArrayInner;
 use spark_lib::csplat::CsplatArray as CsplatArrayInner;
 use spark_lib::tsplat::TsplatArray;
@@ -15,6 +17,9 @@ use raycast::{raycast_packed_ellipsoids, raycast_ext_ellipsoids};
 
 mod sort;
 use sort::{sort_internal, SortBuffers, sort32_internal, Sort32Buffers};
+
+mod transform;
+use transform::{transform_gsplatarray, TransformOptions};
 
 mod decoder;
 mod packed_splats;
@@ -179,6 +184,7 @@ impl GsplatArray {
     }
 }
 
+
 #[wasm_bindgen]
 impl GsplatArray {
     pub fn len(&self) -> usize {
@@ -256,6 +262,32 @@ impl GsplatArray {
 
     pub fn inject_rgba8(&mut self, rgba: Uint8Array) {
         self.inner.inject_rgba8(&rgba.to_vec());
+    }
+
+    pub fn transform(&mut self, transform: JsValue) -> Result<(), JsValue> {
+        let transform_options: TransformOptions = serde_wasm_bindgen::from_value(transform)?;
+        transform_gsplatarray(&mut self.inner, transform_options);
+        Ok(())
+    }
+
+    pub fn concat(&mut self, other: &mut GsplatArray) -> Result<(), JsValue> {
+        for i in 0..other.inner.len() {
+            let sh1 = if other.maxShDegree >= 1 { other.inner.sh1[i].clone() } else { GsplatSH1::default() };
+            let sh2 = if other.maxShDegree >= 2 { other.inner.sh2[i].clone() } else { GsplatSH2::default() };
+            let sh3 = if other.maxShDegree >= 3 { other.inner.sh3[i].clone() } else { GsplatSH3::default() };
+            self.inner.push_splat(other.inner.get(i).clone(), Some(sh1), Some(sh2), Some(sh3));
+        }
+        Ok(())
+    }
+
+    pub fn encode_to_spz(mut self, max_sh: u32, fractional_bits: u8) -> Result<Uint8Array, JsValue> {
+        self.inner.clamp_sh_degree(max_sh as usize);
+        self.maxShDegree = self.inner.max_sh_degree;
+        let encoded = match SpzEncoder::new(self.inner).with_max_sh(max_sh as usize).with_fractional_bits(fractional_bits).encode() {
+            Err(err) => { return Err(JsValue::from(err.to_string())); },
+            Ok(encoded) => encoded
+        };
+        Ok(Uint8Array::from(encoded.as_slice()))
     }
 }
 

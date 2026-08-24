@@ -11,10 +11,8 @@ export { RgbaArray, readRgbaArray } from "./RgbaArray";
 export {
   SplatLoader,
   getSplatFileType,
-  isPcSogs,
 } from "./SplatLoader";
-export { PlyReader } from "./ply";
-export { SpzReader, SpzWriter, transcodeSpz } from "./spz";
+export { transcodeSpz, writeSpz } from "./spz";
 
 export { PackedSplats, type PackedSplatsOptions } from "./PackedSplats";
 export { ExtSplats, type ExtSplatsOptions } from "./ExtSplats";

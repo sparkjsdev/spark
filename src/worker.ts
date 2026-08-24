@@ -96,35 +96,6 @@ function sortSplats32({
   return { activeSplats, readback, ordering };
 }
 
-async function fetchRange({
-  url,
-  requestHeader,
-  withCredentials,
-  offset,
-  bytes,
-}: {
-  url: string;
-  requestHeader?: Record<string, string>;
-  withCredentials?: string;
-  offset?: number;
-  bytes?: number;
-}): Promise<Uint8Array> {
-  const request = new Request(url, {
-    headers: requestHeader ? new Headers(requestHeader) : undefined,
-    credentials: withCredentials ? "include" : "same-origin",
-  });
-  if (offset !== undefined && bytes !== undefined) {
-    request.headers.set("Range", `bytes=${offset}-${offset + bytes - 1}`);
-  }
-  const response = await fetch(request);
-  if (!response.ok || !response.body) {
-    throw new Error(
-      `Failed to fetch "${url}": ${response.status} ${response.statusText}`,
-    );
-  }
-  return new Uint8Array(await response.arrayBuffer());
-}
-
 async function decodeBytesUrl({
   decoder,
   fileBytes,

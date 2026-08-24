@@ -62,7 +62,7 @@
       RgbaArray,
       readRgbaArray,
       SparkControls,
-      SpzWriter,
+      writeSpz,
       unpackSplat,
       PackedSplats,
     } from "@sparkjsdev/spark";
@@ -405,7 +405,7 @@
           alert("No splat mesh loaded for export.");
           return;
         }
-        
+
         try {
           console.log("Starting SPZ export with painted changes...");
           
@@ -416,7 +416,7 @@
             });
             currentSplatMesh.updateGenerator();
           }
-          
+
           const rgba = new RgbaArray();
           rgba.render({
             renderer,
@@ -470,7 +470,7 @@
             unpacked.color.g = rgbaBytes[rgbaOffset + 1] / 255;
             unpacked.color.b = rgbaBytes[rgbaOffset + 2] / 255;
             unpacked.opacity = opacity;
-            
+
             // Push to new PackedSplats
             newPackedSplats.pushSplat(
               unpacked.center,
@@ -482,39 +482,13 @@
             
             processedCount++;
           }
-          
+
           console.log(`Processed ${processedCount} splats`);
           
           // Now export the PackedSplats to SPZ
-          console.log("Creating SPZ writer...");
-          const maxSh = ioOptions.maxSh;
-          const spzWriter = new SpzWriter({
-            numSplats: nonZeroCount,
-            shDegree: maxSh,
-            fractionalBits: ioOptions.fractionalBits,
-            flagAntiAlias: true,
-          });
-          
           console.log("Writing splats to SPZ...");
-          // Iterate through the new packed array
-          for (let i = 0; i < nonZeroCount; i++) {
-            const unpacked = unpackSplat(
-              newPackedSplats.packedArray,
-              i,
-              newPackedSplats.splatEncoding
-            );
-            
-            spzWriter.setCenter(i, unpacked.center.x, unpacked.center.y, unpacked.center.z);
-            spzWriter.setScale(i, unpacked.scales.x, unpacked.scales.y, unpacked.scales.z);
-            spzWriter.setQuat(i, unpacked.quaternion.x, unpacked.quaternion.y, unpacked.quaternion.z, unpacked.quaternion.w);
-            spzWriter.setAlpha(i, unpacked.opacity);
-            spzWriter.setRgb(i, unpacked.color.r, unpacked.color.g, unpacked.color.b);
-          }
-          const spzBytes = await spzWriter.finalize();
-          if (spzWriter.clippedCount > 0) {
-            console.log(`Clipped ${spzWriter.clippedCount} splats. Consider decreasing fractional-bits from ${ioOptions.fractionalBits} to reduce clipping.`);
-          }
-          
+          const { fileBytes: spzBytes } = writeSpz(newPackedSplats, ioOptions.maxSh, ioOptions.fractionalBits);
+
           console.log("Creating download...");
           const blob = new Blob([spzBytes], { type: "application/octet-stream" });
           const url = URL.createObjectURL(blob);
@@ -531,7 +505,7 @@
         }
       },
     };
-    
+
     const ioFolder = gui.addFolder("I/O");
     ioFolder.add(ioOptions, "loadFile").name("Load Splats (SPZ/PLY)");
     ioFolder.add(ioOptions, "saveToSpz").name("Save Splats (SPZ)");
