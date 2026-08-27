@@ -94,7 +94,7 @@
         inTypes: { gsplat: dyno.Gsplat, worldToProj: "mat4" },
         outTypes: { gsplat: dyno.Gsplat },
         inputs: { gsplat, worldToProj },
-        globals: () => [dyno.unindent(`
+        globals: () => [dyno.unindent(/* glsl */ `
           const float PackUpscale = 256. / 255.; // fraction -> 0..1 (including 1)
           const float ShiftRight8 = 1. / 256.;
           const float Inv255 = 1. / 255.;
@@ -113,7 +113,7 @@
             return vec3( vuf * Inv255, gf * PackUpscale, bf );
           }
         `)],
-        statements: ({ inputs, outputs }) => dyno.unindentLines(`
+        statements: ({ inputs, outputs }) => dyno.unindentLines(/* glsl */ `
           ${outputs.gsplat}.flags = 0u;
           if (isGsplatActive(${inputs.gsplat}.flags) && (${inputs.gsplat}.rgba.a > ${minAlpha})) {
             ${outputs.gsplat} = ${inputs.gsplat};

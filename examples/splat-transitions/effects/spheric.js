@@ -89,7 +89,7 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
       },
       outTypes: { gsplat: dyno.Gsplat },
       globals: () => [
-        dyno.unindent(`
+        dyno.unindent(/* glsl */ `
         vec3 applyCenter(vec3 center, float t, float spereRadius, float sphereHeight) {
           float heightModifier = 0.5 + 0.5 * pow(abs(1.0 - 2.0*t), 0.2);
           vec3 targetCenter = vec3(0.0, heightModifier * sphereHeight, 0.0);
@@ -132,7 +132,7 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
       `),
       ],
       statements: ({ inputs, outputs }) =>
-        dyno.unindentLines(`
+        dyno.unindentLines(/* glsl */ `
         ${outputs.gsplat} = ${inputs.gsplat};
         ${outputs.gsplat}.center = applyCenter(${inputs.gsplat}.center, ${inputs.t}, ${inputs.spereRadius}, ${inputs.sphereHeight});
         ${outputs.gsplat}.scales = applyScale(${inputs.gsplat}.scales, ${inputs.t}, ${inputs.splatScale});

@@ -666,7 +666,7 @@ export class SplatPager {
             indices,
           },
           statements: ({ inputs, outputs }) =>
-            dyno.unindentLines(`
+            dyno.unindentLines(/* glsl */ `
             if (${inputs.index} >= ${inputs.numSplats}) {
               return;
             }
@@ -699,7 +699,7 @@ export class SplatPager {
           },
           globals: () => [dyno.defineGsplat],
           statements: ({ inputs, outputs }) =>
-            dyno.unindentLines(`
+            dyno.unindentLines(/* glsl */ `
             int index = ${inputs.index};
             ivec3 splatCoord = pagedSplatTexCoord(index);
             uvec4 packedData = texelFetch(${inputs.packedTexture}, splatCoord, 0);
@@ -788,7 +788,7 @@ export class SplatPager {
           },
           globals: () => [dyno.defineGsplat],
           statements: ({ inputs, outputs }) =>
-            dyno.unindentLines(`
+            dyno.unindentLines(/* glsl */ `
             int index = ${inputs.index};
             ivec3 splatCoord = ivec3(index & 255, (index >> 8) & 255, index >> 16);
             uvec4 ext1 = texelFetch(${inputs.extTexture1}, splatCoord, 0);

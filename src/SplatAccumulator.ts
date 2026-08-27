@@ -623,7 +623,7 @@ export class SplatAccumulator {
               },
               statements: ({ inputs, outputs }) => {
                 if (this.extSplats) {
-                  return unindentLines(`
+                  return unindentLines(/* glsl */ `
                     int indexDiv8 = ${inputs.index} >> 3;
                     ivec3 coord = splatTexCoord(indexDiv8);
                     uvec4 packedData;
@@ -641,7 +641,7 @@ export class SplatAccumulator {
                     ${outputs.rgba8} = uintToVec4(data);
                   `);
                 }
-                return unindentLines(`
+                return unindentLines(/* glsl */ `
                   int indexDiv4 = ${inputs.index} >> 2;
                   ivec3 coord = splatTexCoord(indexDiv4);
                   uvec4 packedData = texelFetch(${inputs.extSplats1}, coord, 0);

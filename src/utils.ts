@@ -934,7 +934,7 @@ export function omitUndefined<T extends object>(obj: T): Partial<T> {
 }
 
 // "Identity" vertex shader that just passes through the position.
-export const IDENT_VERTEX_SHADER = unindent(`
+export const IDENT_VERTEX_SHADER = unindent(/* glsl */ `
   precision highp float;
 
   in vec3 position;

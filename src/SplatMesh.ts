@@ -200,7 +200,7 @@ export class EmptySplatSource implements SplatSource {
     outTypes: { gsplat: Gsplat },
     globals: () => [defineGsplat],
     statements: ({ outputs }) =>
-      unindentLines(`
+      unindentLines(/* glsl */ `
       ${outputs.gsplat}.flags = 0u;
       return;
     `),
@@ -1218,7 +1218,7 @@ export function maybeLookupIndex(
       showLodPage,
     },
     statements: ({ inputs, outputs }) =>
-      unindentLines(`
+      unindentLines(/* glsl */ `
         int index = ${inputs.index};
         if (${inputs.showLodPage} < 0) {
           if (index >= ${inputs.numSplats}) {
@@ -1258,7 +1258,7 @@ export function maybeInjectSplatRgba(
     outTypes: { gsplat: Gsplat },
     inputs: { gsplat, rgba, index, enableLod },
     statements: ({ inputs, outputs }) =>
-      unindentLines(`
+      unindentLines(/* glsl */ `
         ${outputs.gsplat} = ${inputs.gsplat};
         if (!${inputs.enableLod} && (${inputs.index} >= 0) && (${inputs.index} < ${inputs.rgba}.count)) {
           ${outputs.gsplat}.rgba = texelFetch(${inputs.rgba}.texture, splatTexCoord(${inputs.index}), 0);

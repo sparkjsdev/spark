@@ -566,7 +566,7 @@ export class SplatEdits {
 
 export const SdfArray = { type: "SdfArray" } as { type: "SdfArray" };
 
-export const defineSdfArray = unindent(`
+export const defineSdfArray = unindent(/* glsl */ `
   struct SdfArray {
     int numSdfs;
     usampler2D sdfTexture;
@@ -733,7 +733,7 @@ export const defineSdfArray = unindent(`
   }
 `);
 
-export const defineEdit = unindent(`
+export const defineEdit = unindent(/* glsl */ `
   const uint EDIT_FLAG_BLEND = 0xFFu;
   const uint EDIT_BLEND_MULTIPLY = 0u;
   const uint EDIT_BLEND_SET_RGB = 1u;
@@ -820,7 +820,7 @@ function applyGsplatRgbaDisplaceEdits(
     statements: ({ inputs, outputs }) => {
       const { sdfArray, numEdits, rgbaDisplaceEdits } = inputs;
       const { gsplat } = outputs;
-      return unindentLines(`
+      return unindentLines(/* glsl */ `
         ${gsplat} = ${inputs.gsplat};
         if (isGsplatActive(${gsplat}.flags)) {
           for (int editIndex = 0; editIndex < ${numEdits}; ++editIndex) {
@@ -863,7 +863,7 @@ function applyCovSplatRgbaDisplaceEdits(
     statements: ({ inputs, outputs }) => {
       const { sdfArray, numEdits, rgbaDisplaceEdits } = inputs;
       const { covsplat } = outputs;
-      return unindentLines(`
+      return unindentLines(/* glsl */ `
         ${covsplat} = ${inputs.covsplat};
         if (isCovSplatActive(${covsplat}.flags)) {
           for (int editIndex = 0; editIndex < ${numEdits}; ++editIndex) {

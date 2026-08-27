@@ -119,7 +119,7 @@ export class PcgNext<T extends "uint" | "int" | "float">
       outTypes: { state: "uint" },
       inputs: { state },
       globals: () => [
-        unindent(`
+        unindent(/* glsl */ `
           uint pcg_next(uint state) {
             return state * 747796405u + 2891336453u;
           }
@@ -151,7 +151,7 @@ export class PcgHash
       outTypes: { hash: "uint" },
       inputs: { state },
       globals: () => [
-        unindent(`
+        unindent(/* glsl */ `
           uint pcg_hash(uint state) {
             uint hash = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
             return (hash >> 22u) ^ hash;
@@ -180,7 +180,7 @@ export class PcgMix<T extends ValueTypes>
       outTypes: { state: "uint" },
       inputs: { value },
       globals: () => [
-        unindent(`
+        unindent(/* glsl */ `
           uint pcg_mix(uint value) {
             return value;
           }
