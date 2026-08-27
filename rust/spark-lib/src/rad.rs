@@ -796,9 +796,7 @@ impl<T: SplatGetter> RadEncoder<T> {
         if buffer.len() < count {
             buffer.resize(count, 0);
         }
-        for i in 0..count {
-            buffer[i] = clusters.labels[base + i];
-        }
+        buffer[..count].copy_from_slice(&clusters.labels[base..(base + count)]);
 
         let (encoding, bytes) = match self.sh_label_encoding {
             RadShLabelEncoding::U16 => (RadChunkPropertyEncoding::U16, encode_usize_as_u16(buffer, 1, count)),

@@ -671,9 +671,7 @@ impl GsplatArray {
         for i in 0..self.splats.len() {
             let i2 = i * 2;
             let encoded = encode_sh1(&self.sh1[i].to_array(), *sh1_max);
-            for w in 0..2 {
-                sh1[i2 + w] = encoded[w];
-            }
+            sh1[i2..(i2 + 2)].copy_from_slice(&encoded);
         }
         sh1
     }
@@ -689,9 +687,7 @@ impl GsplatArray {
         for i in 0..self.splats.len() {
             let i4 = i * 4;
             let encoded = encode_sh2(&self.sh2[i].to_array(), *sh2_max);
-            for w in 0..4 {
-                sh2[i4 + w] = encoded[w];
-            }
+            sh2[i4..(i4 + 4)].copy_from_slice(&encoded);
         }
         sh2
     }
@@ -707,9 +703,7 @@ impl GsplatArray {
         for i in 0..self.splats.len() {
             let i4 = i * 4;
             let encoded = encode_sh3(&self.sh3[i].to_array(), *sh3_max);
-            for w in 0..4 {
-                sh3[i4 + w] = encoded[w];
-            }
+            sh3[i4..(i4 + 4)].copy_from_slice(&encoded);
         }
         sh3
     }
