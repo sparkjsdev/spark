@@ -106,7 +106,7 @@ impl LodSplat {
 
     #[allow(dead_code)]
     fn new(center: Vec3, size: f32, child_start: u32, child_count: u16) -> Self {
-        let center = center.to_array().map(|x| f16::from_f32(x));
+        let center = center.to_array().map(f16::from_f32);
         let size = f16::from_f32(size);
         Self::new_f16(center, size, child_start, child_count)
     }
@@ -200,7 +200,7 @@ fn set_lod_tree_data(state: &mut LodState, lod_id: u32, page_base: u32, _chunk_b
     while index < count {
         let chunk = (count - index).min(MAX_SPLAT_CHUNK as u32);
         let buffer = &mut state.buffer[0..(chunk * 4) as usize];
-        lod_tree_data.subarray((index * 4) as u32, ((index + chunk) * 4) as u32).copy_to(buffer);
+        lod_tree_data.subarray(index * 4, (index + chunk) * 4).copy_to(buffer);
 
         for i in 0..chunk {
             let i4 = i * 4;
@@ -264,8 +264,8 @@ pub fn init_lod_tree(num_splats: u32, lod_tree: Uint32Array) -> Result<Object, J
         let pages = num_splats.div_ceil(65536);
         let splats = Vec::with_capacity(num_splats as usize);
         let splats = Rc::new(RefCell::new(splats));
-        let page_to_chunk = (0..pages).map(|page| page as u32).collect();
-        let chunk_to_page: Vec<u32> = (0..pages).map(|chunk| chunk as u32).collect();
+        let page_to_chunk = (0..pages).collect();
+        let chunk_to_page: Vec<u32> = (0..pages).collect();
         state.lod_trees.insert(lod_id, LodTree { splats, page_to_chunk, chunk_to_page });
         state.next_id += 1;
 
@@ -546,8 +546,7 @@ pub fn traverse_lod_trees(
             output.push((inst_index, paged_index));
         }
 
-        let mut instance_counts = Vec::new();
-        instance_counts.resize(num_instances, 0);
+        let mut instance_counts = vec![0; num_instances];
         for &(inst_index, _) in output.iter() {
             instance_counts[inst_index as usize] += 1;
         }
@@ -568,7 +567,7 @@ pub fn traverse_lod_trees(
             let rows = instance_output.len().div_ceil(16384);
             let capacity = rows * 16384;
             let output = Uint32Array::new_with_length(capacity as u32);
-            output.subarray(0, instance_output.len() as u32).copy_from(&instance_output);
+            output.subarray(0, instance_output.len() as u32).copy_from(instance_output);
 
             let result = Object::new();
             let lod_id = instances[inst_index].0;
@@ -691,7 +690,7 @@ pub fn dynamic_traverse_lod_trees(
             outputs.push((instance_output, frontier));
 
             let chunk_max = lod_chunk_max.entry(*lod_id).or_default();
-            if 0 >= chunk_max.len() {
+            if chunk_max.is_empty() {
                 chunk_max.resize(1, 0.0);
             }
             chunk_max[0] = f32::INFINITY;
@@ -705,12 +704,12 @@ pub fn dynamic_traverse_lod_trees(
         let mut current_scale = pixel_scale_limit * 100.0;
 
         loop {
-            let iterator = instances.iter().zip(outputs).enumerate();
+            let iterator = instances.iter().zip(outputs);
             outputs = Vec::with_capacity(num_instances);
 
             let mut output_count = 0;
 
-            for (_inst_index, (instance, (mut instance_output, mut stack))) in iterator {
+            for (instance, (mut instance_output, mut stack)) in iterator {
                 let (lod_id, splats, _, chunk_to_page, ..) = instance;
                 let chunk_max = lod_chunk_max.entry(*lod_id).or_default();
                 let mut frontier = Vec::with_capacity(stack.len());

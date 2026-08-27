@@ -56,14 +56,14 @@ pub fn sort_splats(
         let active_splats = match sort_internal(buffers, num_splats as usize) {
             Ok(active_splats) => active_splats,
             Err(err) => {
-                wasm_bindgen::throw_str(&format!("{}", err));
+                wasm_bindgen::throw_str(&err.to_string());
             }
         };
 
         if active_splats > 0 {
             // Copy out ordering result
             let subarray = &buffers.ordering[..active_splats as usize];
-            ordering.subarray(0, active_splats).copy_from(&subarray);
+            ordering.subarray(0, active_splats).copy_from(subarray);
         }
         active_splats
     });
@@ -85,14 +85,14 @@ pub fn sort32_splats(
         let active_splats = match sort32_internal(buffers, max_splats, num_splats as usize) {
             Ok(active_splats) => active_splats,
             Err(err) => {
-                wasm_bindgen::throw_str(&format!("{}", err));
+                wasm_bindgen::throw_str(&err.to_string());
             }
         };
 
         if active_splats > 0 {
             // Copy out ordering result
             let subarray = &buffers.ordering[..active_splats as usize];
-            ordering.subarray(0, active_splats).copy_from(&subarray);
+            ordering.subarray(0, active_splats).copy_from(subarray);
         }
         active_splats
     });
@@ -517,14 +517,14 @@ thread_local! {
 #[wasm_bindgen]
 pub fn get_raycast_buffer() -> Uint32Array {
     RAYCAST_BUFFERS.with_borrow_mut(|(buffer, _, _)| {
-        unsafe { Uint32Array::view(&buffer) }
+        unsafe { Uint32Array::view(buffer) }
     })
 }
 
 #[wasm_bindgen]
 pub fn get_raycast_buffer2() -> Uint32Array {
     RAYCAST_BUFFERS.with_borrow_mut(|(_, buffer, _)| {
-        unsafe { Uint32Array::view(&buffer) }
+        unsafe { Uint32Array::view(buffer) }
     })
 }
 
@@ -552,7 +552,7 @@ pub fn raycast_packed_buffer(
             min_opacity, near, far, &encoding,
         );
 
-        unsafe { Float32Array::view(&distances) }
+        unsafe { Float32Array::view(distances) }
     })
 }
 
@@ -573,7 +573,7 @@ pub fn raycast_ext_buffers(
             min_opacity, near, far,
         );
 
-        unsafe { Float32Array::view(&distances) }
+        unsafe { Float32Array::view(distances) }
     })
 }
 
@@ -593,7 +593,7 @@ pub fn raycast_packed_splats(
         ..Default::default()
     };
 
-    _ = RAYCAST_BUFFERS.with_borrow_mut(|(buffer, _, _)| {
+    RAYCAST_BUFFERS.with_borrow_mut(|(buffer, _, _)| {
         let mut base = 0;
         while base < num_splats {
             let chunk_size = (RAYCAST_BUFFER_COUNT as u32).min(num_splats - base);

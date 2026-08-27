@@ -440,8 +440,8 @@ impl SplatReceiver for ExtSplatsData {
             self.child_counts = None;
         }
 
-        std::mem::swap(&mut self.buffer_a, &mut Vec::new());
-        std::mem::swap(&mut self.buffer_b, &mut Vec::new());
+        self.buffer_a = Vec::new();
+        self.buffer_b = Vec::new();
         Ok(())
     }
 

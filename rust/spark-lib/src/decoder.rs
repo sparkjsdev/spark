@@ -21,21 +21,11 @@ impl dyn ChunkReceiver {
     pub fn into_any(self: Box<Self>) -> Box<dyn Any> { self }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SplatInit {
     pub num_splats: usize,
     pub max_sh_degree: usize,
     pub lod_tree: bool,
-}
-
-impl Default for SplatInit {
-    fn default() -> Self {
-        Self {
-            num_splats: 0,
-            max_sh_degree: 0,
-            lod_tree: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,7 +98,7 @@ impl From<SplatEncoding> for SetSplatEncoding {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SplatProps<'a> {
     pub center: &'a [f32],
     pub opacity: &'a [f32],
@@ -120,23 +110,6 @@ pub struct SplatProps<'a> {
     pub sh3: &'a [f32],
     pub child_count: &'a [u16],
     pub child_start: &'a [usize],
-}
-
-impl<'a> Default for SplatProps<'a> {
-    fn default() -> Self {
-        Self {
-            center: &[],
-            opacity: &[],
-            rgb: &[],
-            scale: &[],
-            quat: &[],
-            sh1: &[],
-            sh2: &[],
-            sh3: &[],
-            child_count: &[],
-            child_start: &[],
-        }
-    }
 }
 
 #[allow(unused)]
@@ -239,7 +212,7 @@ impl SplatPropsArray {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct SplatPropsMut<'a> {
     pub center: &'a mut [f32],
     pub opacity: &'a mut [f32],
@@ -251,23 +224,6 @@ pub struct SplatPropsMut<'a> {
     pub sh3: &'a mut [f32],
     pub child_count: &'a mut [u16],
     pub child_start: &'a mut [usize],
-}
-
-impl<'a> Default for SplatPropsMut<'a> {
-    fn default() -> Self {
-        Self {
-            center: &mut [],
-            opacity: &mut [],
-            rgb: &mut [],
-            scale: &mut [],
-            quat: &mut [],
-            sh1: &mut [],
-            sh2: &mut [],
-            sh3: &mut [],
-            child_count: &mut [],
-            child_start: &mut [],
-        }
-    }
 }
 
 #[allow(unused)]
@@ -382,7 +338,7 @@ impl SplatFileType {
         let clean_path = clean_path
             .split_once('#')
             .map_or(clean_path, |(path, _)| path);
-        clean_path.split('.').last().and_then(Self::from_extension)
+        clean_path.split('.').next_back().and_then(Self::from_extension)
     }
 }
 
