@@ -226,14 +226,10 @@ impl ExtSplatsData {
                     let scales = splat.scales();
                     let quat = splat.quaternion().to_array();
 
-                    for d in 0..3 {
-                        batch_center[i3 + d] = center[d];
-                        batch_rgb[i3 + d] = rgb[d];
-                        batch_scale[i3 + d] = scales[d];
-                    }
-                    for d in 0..4 {
-                        batch_quat[i4 + d] = quat[d];
-                    }
+                    batch_center[i3..(i3 + 3)].copy_from_slice(&center.to_array());
+                    batch_rgb[i3..(i3 + 3)].copy_from_slice(&rgb.to_array());
+                    batch_scale[i3..(i3 + 3)].copy_from_slice(&scales.to_array());
+                    batch_quat[i4..(i4 + 4)].copy_from_slice(&quat);
 
                     batch_opacity[i] = splat.opacity();
 
@@ -270,9 +266,7 @@ impl ExtSplatsData {
                 for i in 0..count {
                     let i9 = i * 9;
                     let values = splats.get_sh1(base + i);
-                    for d in 0..9 {
-                        batch[i9 + d] = values[d];
-                    }
+                    batch[i9..i9 + 9].copy_from_slice(&values)
                 }
                 receiver.set_sh1(base, count, &batch);
                 base += count;
@@ -287,9 +281,7 @@ impl ExtSplatsData {
                 for i in 0..count {
                     let i15 = i * 15;
                     let values = splats.get_sh2(base + i);
-                    for d in 0..15 {
-                        batch[i15 + d] = values[d];
-                    }
+                    batch[i15..i15 + 15].copy_from_slice(&values);
                 }
                 receiver.set_sh2(base, count, &batch);
                 base += count;
@@ -304,9 +296,7 @@ impl ExtSplatsData {
                 for i in 0..count {
                     let i21 = i * 21;
                     let values = splats.get_sh3(base + i);
-                    for d in 0..21 {
-                        batch[i21 + d] = values[d];
-                    }
+                    batch[i21..i21 + 21].copy_from_slice(&values);
                 }
                 receiver.set_sh3(base, count, &batch);
                 base += count;
@@ -772,9 +762,7 @@ impl SplatReceiver for ExtSplatsData {
                 let label = sh_labels[i] as usize;
                 let i4 = i * 4;
                 let l4 = label * 4;
-                for k in 0..4 {
-                    buffer_a[i4 + k] = self.sh1_codes[l4 + k];
-                }
+                buffer_a[i4..i4 + 4].copy_from_slice(&self.sh1_codes[l4..l4 + 4])
             }
 
             if self.max_sh_degree == 1 {
@@ -807,9 +795,7 @@ impl SplatReceiver for ExtSplatsData {
                             let label = sh_labels[i] as usize;
                             let i4 = i * 4;
                             let l4 = label * 4;
-                            for k in 0..4 {
-                                buffer_a[i4 + k] = self.sh3_codes[0][l4 + k];
-                            }
+                            buffer_a[i4..i4 + 4].copy_from_slice(&self.sh3_codes[0][l4..l4 + 4]);
                             for k in 4..7 {
                                 buffer_b[i4 + (k - 4)] = self.sh3_codes[1][l4 + (k - 4)];
                             }
@@ -827,9 +813,7 @@ impl SplatReceiver for ExtSplatsData {
             self.child_counts = Some(vec![0; self.num_splats]);
         }
         let counts = self.child_counts.as_mut().unwrap();
-        for i in 0..count {
-            counts[base + i] = child_count[i];
-        }
+        counts[base..base + count].copy_from_slice(&child_count[..count])
     }
 
     fn set_child_start(&mut self, base: usize, count: usize, child_start: &[usize]) {
@@ -860,9 +844,7 @@ impl SplatGetter for ExtSplatsData {
             let buffer_b = &self.buffer_b[i4..i4 + 4];
             if !out.center.is_empty() {
                 let center = decode_ext_splat_center(buffer_a);
-                for d in 0..3 {
-                    out.center[i3 + d] = center[d];
-                }
+                out.center[i3..i3 + 3].copy_from_slice(&center);
             }
             if !out.opacity.is_empty() {
                 let opacity = decode_ext_splat_opacity(buffer_a);
@@ -870,21 +852,15 @@ impl SplatGetter for ExtSplatsData {
             }
             if !out.rgb.is_empty() {
                 let rgb = decode_ext_splat_rgb(buffer_b);
-                for d in 0..3 {
-                    out.rgb[i3 + d] = rgb[d];
-                }
+                out.rgb[i3..i3 + 3].copy_from_slice(&rgb);
             }
             if !out.scale.is_empty() {
                 let scale = decode_ext_splat_scale(buffer_b);
-                for d in 0..3 {
-                    out.scale[i3 + d] = scale[d];
-                }
+                out.scale[i3..i3 + 3].copy_from_slice(&scale);
             }
             if !out.quat.is_empty() {
                 let quat = decode_ext_splat_quat(buffer_b);
-                for d in 0..4 {
-                    out.quat[i4 + d] = quat[d];
-                }
+                out.quat[i4..i4 + 4].copy_from_slice(&quat);
             }
         }
 
