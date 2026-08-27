@@ -273,18 +273,18 @@ export class PagedSplats implements SplatSource {
                 : 0;
 
           this.rgbMinMaxLnScaleMinMax.value.set(
-            this.splatEncoding.rgbMin ?? 0.0,
-            this.splatEncoding.rgbMax ?? 1.0,
-            this.splatEncoding.lnScaleMin ?? LN_SCALE_MIN,
-            this.splatEncoding.lnScaleMax ?? LN_SCALE_MAX,
+            this.splatEncoding.rgbMin,
+            this.splatEncoding.rgbMax,
+            this.splatEncoding.lnScaleMin,
+            this.splatEncoding.lnScaleMax,
           );
 
-          this.lodOpacity.value = this.splatEncoding.lodOpacity ?? false;
+          this.lodOpacity.value = this.splatEncoding.lodOpacity;
 
           this.shMax.value.set(
-            this.splatEncoding.sh1Max ?? 1.0,
-            this.splatEncoding.sh2Max ?? 1.0,
-            this.splatEncoding.sh3Max ?? 1.0,
+            this.splatEncoding.sh1Max,
+            this.splatEncoding.sh2Max,
+            this.splatEncoding.sh3Max,
           );
         }
         this.sh1Codes = lodSplats.extra.sh1Codes ?? this.sh1Codes;

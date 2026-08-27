@@ -182,16 +182,16 @@ async function decodeBytesUrl({
 }
 
 type DecodedPackedResult = {
-  numSplats: number;
-  packed: Uint32Array;
-  sh1?: Uint32Array;
-  sh2?: Uint32Array;
-  sh3?: Uint32Array;
-  sh1Codes?: Uint32Array;
-  sh2Codes?: Uint32Array;
-  sh3Codes?: Uint32Array;
-  lodTree?: Uint32Array;
-  splatEncoding: SplatEncoding;
+  readonly numSplats: number;
+  readonly packed: Uint32Array;
+  readonly sh1?: Uint32Array;
+  readonly sh2?: Uint32Array;
+  readonly sh3?: Uint32Array;
+  readonly sh1Codes?: Uint32Array;
+  readonly sh2Codes?: Uint32Array;
+  readonly sh3Codes?: Uint32Array;
+  readonly lodTree?: Uint32Array;
+  readonly splatEncoding: SplatEncoding;
 };
 
 function toPackedResult(packed: DecodedPackedResult): PackedResult {

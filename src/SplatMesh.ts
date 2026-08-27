@@ -114,7 +114,7 @@ export type SplatMeshOptions = {
   covWorldModifiers?: CovSplatModifier[];
   // Override the default splat encoding ranges for the PackedSplats.
   // (default: undefined)
-  splatEncoding?: SplatEncoding;
+  splatEncoding?: Partial<SplatEncoding>;
   // Set to true to load/use "extended splat" encoding with float32 x/y/z
   extSplats?: boolean | ExtSplats;
   // Set to true to output covariance splats for anisotropic scaling
@@ -350,8 +350,9 @@ export class SplatMesh extends SplatGenerator {
       this.splats = this.extSplats;
     } else if (options.packedSplats) {
       this.packedSplats = options.packedSplats;
-      this.packedSplats.splatEncoding = options.splatEncoding ?? {
+      this.packedSplats.splatEncoding = {
         ...DEFAULT_SPLAT_ENCODING,
+        ...options.splatEncoding,
       };
       this.splats = this.packedSplats;
     } else {
