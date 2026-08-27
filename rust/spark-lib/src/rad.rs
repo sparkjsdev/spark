@@ -524,7 +524,7 @@ impl<T: SplatGetter> RadEncoder<T> {
 
         let num_splats = self.getter.num_splats();
         let max_sh = self.getter.max_sh_degree().min(self.max_sh);
-        let encoding = self.encoding.clone().or_else(|| self.getter.get_encoding()).unwrap_or(SplatEncoding::default());
+        let encoding = self.encoding.clone().or_else(|| self.getter.get_encoding()).unwrap_or_default();
 
         let mut buffer = Vec::new();
         let buffer_dim = if max_sh == 0 { 4 } else if max_sh == 1 { 9 } else if max_sh == 2 { 15 } else { 21 };
@@ -570,7 +570,7 @@ impl<T: SplatGetter> RadEncoder<T> {
             max_sh: Some(max_sh),
             lod_tree: if self.getter.has_lod_tree() { Some(true) } else { None },
             chunk_size: Some(CHUNK_SIZE),
-            all_chunk_bytes: all_chunk_bytes,
+            all_chunk_bytes,
             chunks: chunk_ranges,
             splat_encoding: None,
             sh_code_count: self.sh_clusters.as_ref().map(|c| c.num_clusters as u32),
@@ -609,11 +609,11 @@ impl<T: SplatGetter> RadEncoder<T> {
         self.getter.get_center(base, count, &mut buffer[..count * 3]);
 
         let (enc, bytes) = match self.center_encoding {
-            RadCenterEncoding::F32 => (RadChunkPropertyEncoding::F32, encode_f32(&buffer, 3, count)),
-            RadCenterEncoding::F16 => (RadChunkPropertyEncoding::F16, encode_f16(&buffer, 3, count)),
+            RadCenterEncoding::F32 => (RadChunkPropertyEncoding::F32, encode_f32(buffer, 3, count)),
+            RadCenterEncoding::F16 => (RadChunkPropertyEncoding::F16, encode_f16(buffer, 3, count)),
             RadCenterEncoding::Auto |
-            RadCenterEncoding::F32LeBytes => (RadChunkPropertyEncoding::F32LeBytes, encode_f32_lebytes(&buffer, 3, count)),
-            RadCenterEncoding::F16LeBytes => (RadChunkPropertyEncoding::F16LeBytes, encode_f16_lebytes(&buffer, 3, count)),
+            RadCenterEncoding::F32LeBytes => (RadChunkPropertyEncoding::F32LeBytes, encode_f32_lebytes(buffer, 3, count)),
+            RadCenterEncoding::F16LeBytes => (RadChunkPropertyEncoding::F16LeBytes, encode_f16_lebytes(buffer, 3, count)),
         };
         let meta = RadChunkProperty {
             property: RadChunkPropertyName::Center,
@@ -632,10 +632,10 @@ impl<T: SplatGetter> RadEncoder<T> {
 
         let max_alpha = if self.getter.has_lod_tree() { 2.0 } else { 1.0 };
         let (enc, bytes, min, max) = match self.alpha_encoding {
-            RadAlphaEncoding::F32 => (RadChunkPropertyEncoding::F32, encode_f32(&buffer, 1, count), None, None),
+            RadAlphaEncoding::F32 => (RadChunkPropertyEncoding::F32, encode_f32(buffer, 1, count), None, None),
             RadAlphaEncoding::Auto |
-            RadAlphaEncoding::F16 => (RadChunkPropertyEncoding::F16, encode_f16(&buffer, 1, count), None, None),
-            RadAlphaEncoding::R8 => (RadChunkPropertyEncoding::R8, encode_r8(&buffer, 1, count, 0.0, max_alpha), Some(0.0), Some(max_alpha)),
+            RadAlphaEncoding::F16 => (RadChunkPropertyEncoding::F16, encode_f16(buffer, 1, count), None, None),
+            RadAlphaEncoding::R8 => (RadChunkPropertyEncoding::R8, encode_r8(buffer, 1, count, 0.0, max_alpha), Some(0.0), Some(max_alpha)),
         };
         let meta = RadChunkProperty {
             property: RadChunkPropertyName::Alpha,
@@ -655,11 +655,11 @@ impl<T: SplatGetter> RadEncoder<T> {
         self.getter.get_rgb(base, count, &mut buffer[..count * 3]);
 
         let (enc, bytes, min, max) = match self.rgb_encoding {
-            RadRgbEncoding::F32 => (RadChunkPropertyEncoding::F32, encode_f32(&buffer, 3, count), None, None),
-            RadRgbEncoding::F16 => (RadChunkPropertyEncoding::F16, encode_f16(&buffer, 3, count), None, None),
-            RadRgbEncoding::R8 => (RadChunkPropertyEncoding::R8, encode_r8(&buffer, 3, count, encoding.rgb_min, encoding.rgb_max), Some(encoding.rgb_min), Some(encoding.rgb_max)),
+            RadRgbEncoding::F32 => (RadChunkPropertyEncoding::F32, encode_f32(buffer, 3, count), None, None),
+            RadRgbEncoding::F16 => (RadChunkPropertyEncoding::F16, encode_f16(buffer, 3, count), None, None),
+            RadRgbEncoding::R8 => (RadChunkPropertyEncoding::R8, encode_r8(buffer, 3, count, encoding.rgb_min, encoding.rgb_max), Some(encoding.rgb_min), Some(encoding.rgb_max)),
             RadRgbEncoding::Auto |
-            RadRgbEncoding::R8Delta => (RadChunkPropertyEncoding::R8Delta, encode_r8_delta(&buffer, 3, count, encoding.rgb_min, encoding.rgb_max), Some(encoding.rgb_min), Some(encoding.rgb_max)),
+            RadRgbEncoding::R8Delta => (RadChunkPropertyEncoding::R8Delta, encode_r8_delta(buffer, 3, count, encoding.rgb_min, encoding.rgb_max), Some(encoding.rgb_min), Some(encoding.rgb_max)),
         };
         let meta = RadChunkProperty {
             property: RadChunkPropertyName::Rgb,
@@ -679,10 +679,10 @@ impl<T: SplatGetter> RadEncoder<T> {
         self.getter.get_scale(base, count, &mut buffer[..count * 3]);
 
         let (enc, bytes, min, max) = match self.scales_encoding {
-            RadScalesEncoding::F32 => (RadChunkPropertyEncoding::F32, encode_f32(&buffer, 3, count), None, None),
+            RadScalesEncoding::F32 => (RadChunkPropertyEncoding::F32, encode_f32(buffer, 3, count), None, None),
             RadScalesEncoding::Auto |
-            RadScalesEncoding::Ln0R8 => (RadChunkPropertyEncoding::Ln0R8, encode_ln_0r8(&buffer, 3, count, -30.0, encoding.ln_scale_min, encoding.ln_scale_max), Some(encoding.ln_scale_min), Some(encoding.ln_scale_max)),
-            RadScalesEncoding::LnF16 => (RadChunkPropertyEncoding::LnF16, encode_ln_f16(&buffer, 3, count), None, None),
+            RadScalesEncoding::Ln0R8 => (RadChunkPropertyEncoding::Ln0R8, encode_ln_0r8(buffer, 3, count, -30.0, encoding.ln_scale_min, encoding.ln_scale_max), Some(encoding.ln_scale_min), Some(encoding.ln_scale_max)),
+            RadScalesEncoding::LnF16 => (RadChunkPropertyEncoding::LnF16, encode_ln_f16(buffer, 3, count), None, None),
         };
         let meta = RadChunkProperty {
             property: RadChunkPropertyName::Scales,
@@ -702,7 +702,7 @@ impl<T: SplatGetter> RadEncoder<T> {
         self.getter.get_quat(base, count, &mut buffer[..count * 4]);
 
         if self.orientation_encoding == RadOrientationEncoding::Oct88R8 || self.orientation_encoding == RadOrientationEncoding::Auto {
-            let bytes = encode_quat_oct88r8(&buffer, count);
+            let bytes = encode_quat_oct88r8(buffer, count);
             let meta = RadChunkProperty {
                 property: RadChunkPropertyName::Orientation,
                 encoding: RadChunkPropertyEncoding::Oct88R8,
@@ -717,8 +717,8 @@ impl<T: SplatGetter> RadEncoder<T> {
                 }
             }
             let (enc, bytes) = match self.orientation_encoding {
-                RadOrientationEncoding::F32 => (RadChunkPropertyEncoding::F32, encode_f32(&buffer, 3, count)),
-                RadOrientationEncoding::F16 => (RadChunkPropertyEncoding::F16, encode_f16(&buffer, 3, count)),
+                RadOrientationEncoding::F32 => (RadChunkPropertyEncoding::F32, encode_f32(buffer, 3, count)),
+                RadOrientationEncoding::F16 => (RadChunkPropertyEncoding::F16, encode_f16(buffer, 3, count)),
                 _ => unreachable!(),
             };
             let meta = RadChunkProperty {
@@ -771,11 +771,11 @@ impl<T: SplatGetter> RadEncoder<T> {
         }
 
         let (encoding, bytes, min, max) = match self.sh_encoding {
-            RadShEncoding::F32 => (RadChunkPropertyEncoding::F32, encode_f32(&buffer, elements, count), None, None),
-            RadShEncoding::F16 => (RadChunkPropertyEncoding::F16, encode_f16(&buffer, elements, count), None, None),
+            RadShEncoding::F32 => (RadChunkPropertyEncoding::F32, encode_f32(buffer, elements, count), None, None),
+            RadShEncoding::F16 => (RadChunkPropertyEncoding::F16, encode_f16(buffer, elements, count), None, None),
             RadShEncoding::Auto |
-            RadShEncoding::S8 => (RadChunkPropertyEncoding::S8, encode_s8(&buffer, elements, count, sh_max), Some(-sh_max), Some(sh_max)),
-            RadShEncoding::S8Delta => (RadChunkPropertyEncoding::S8Delta, encode_s8_delta(&buffer, elements, count, sh_max), Some(-sh_max), Some(sh_max)),
+            RadShEncoding::S8 => (RadChunkPropertyEncoding::S8, encode_s8(buffer, elements, count, sh_max), Some(-sh_max), Some(sh_max)),
+            RadShEncoding::S8Delta => (RadChunkPropertyEncoding::S8Delta, encode_s8_delta(buffer, elements, count, sh_max), Some(-sh_max), Some(sh_max)),
         };
         let meta = RadChunkProperty {
             property,
@@ -801,8 +801,8 @@ impl<T: SplatGetter> RadEncoder<T> {
         }
 
         let (encoding, bytes) = match self.sh_label_encoding {
-            RadShLabelEncoding::U16 => (RadChunkPropertyEncoding::U16, encode_usize_as_u16(&buffer, 1, count)),
-            RadShLabelEncoding::U32 => (RadChunkPropertyEncoding::U32, encode_usize_as_u32(&buffer, 1, count)),
+            RadShLabelEncoding::U16 => (RadChunkPropertyEncoding::U16, encode_usize_as_u16(buffer, 1, count)),
+            RadShLabelEncoding::U32 => (RadChunkPropertyEncoding::U32, encode_usize_as_u32(buffer, 1, count)),
             _ => unreachable!(),
         };
         let meta = RadChunkProperty {
@@ -820,7 +820,7 @@ impl<T: SplatGetter> RadEncoder<T> {
         }
         self.getter.get_child_count(base, count, &mut buffer[..count]);
 
-        let bytes = encode_u16(&buffer, 1, count);
+        let bytes = encode_u16(buffer, 1, count);
         let meta = RadChunkProperty {
             property: RadChunkPropertyName::ChildCount,
             encoding: RadChunkPropertyEncoding::U16,
@@ -836,7 +836,7 @@ impl<T: SplatGetter> RadEncoder<T> {
         }
         self.getter.get_child_start(base, count, &mut buffer[..count]);
 
-        let bytes = encode_usize_as_u32(&buffer, 1, count);
+        let bytes = encode_usize_as_u32(buffer, 1, count);
         let meta = RadChunkProperty {
             property: RadChunkPropertyName::ChildStart,
             encoding: RadChunkPropertyEncoding::U32,
@@ -948,7 +948,7 @@ fn write_pad<W: Write>(writer: &mut W, size: usize) -> anyhow::Result<()> {
     let pad = pad8(size);
     if pad != 0 {
         let zero_pad = [0u8; 8];
-        writer.write_all(&zero_pad[..pad as usize])?;
+        writer.write_all(&zero_pad[..pad])?;
     }
     Ok(())
 }
@@ -1798,7 +1798,7 @@ impl<T: SplatReceiver> RadDecoder<T> {
         self.buffer.drain(..available as usize);
         self.offset += available;
 
-        return Ok(self.offset >= self.chunk_end);
+        Ok(self.offset >= self.chunk_end)
     }
 
     fn skip_remaining(&mut self) -> anyhow::Result<()> {

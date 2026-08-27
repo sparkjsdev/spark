@@ -192,7 +192,7 @@ impl TsplatArray for CsplatArray {
     }
 
     fn prepare_children(&mut self) {
-        self.children.resize_with(self.len(), || SmallVec::new());
+        self.children.resize_with(self.len(), SmallVec::new);
     }
 
     fn has_children(&self) -> bool {
@@ -324,7 +324,7 @@ impl TsplatArray for CsplatArray {
     }
 
     fn retain<F: (FnMut(CsplatRefMut<'_>) -> bool)>(&mut self, mut f: F) {
-        let keep: Vec<bool> = self.splats.iter_mut().map(|splat| f(CsplatRefMut { splat: splat, encoding: &self.encoding })).collect();
+        let keep: Vec<bool> = self.splats.iter_mut().map(|splat| f(CsplatRefMut { splat, encoding: &self.encoding })).collect();
         let mut bits = keep.iter();
 
         self.splats.retain(|_splat| *bits.next().unwrap());
@@ -352,9 +352,9 @@ impl TsplatArray for CsplatArray {
             .map(|(i, splat)| {
                 if let Some(children) = self.children.get(i) {
                     let children: SmallVec<[usize; 4]> = children.iter().map(|&i| i as usize).collect();
-                    f(CsplatRefMut { splat: splat, encoding: &encoding }, &children)
+                    f(CsplatRefMut { splat, encoding: &encoding }, &children)
                 } else {
-                    f(CsplatRefMut { splat: splat, encoding: &encoding }, &[])
+                    f(CsplatRefMut { splat, encoding: &encoding }, &[])
                 }
             })
             .collect();
@@ -417,11 +417,11 @@ impl TsplatArray for CsplatArray {
         Self {
             encoding: self.encoding.clone(),
             max_sh_degree: self.max_sh_degree,
-            splats: index_map.iter().map(|&i| self.splats[i as usize].clone()).collect(),
-            children: if !self.children.is_empty() { index_map.iter().map(|&i| self.children[i as usize].clone()).collect() } else { Vec::new() },
-            sh1: if !self.sh1.is_empty() { index_map.iter().map(|&i| self.sh1[i as usize].clone()).collect() } else { Vec::new() },
-            sh2: if !self.sh2.is_empty() { index_map.iter().map(|&i| self.sh2[i as usize].clone()).collect() } else { Vec::new() },
-            sh3: if !self.sh3.is_empty() { index_map.iter().map(|&i| self.sh3[i as usize].clone()).collect() } else { Vec::new() },
+            splats: index_map.iter().map(|&i| self.splats[i].clone()).collect(),
+            children: if !self.children.is_empty() { index_map.iter().map(|&i| self.children[i].clone()).collect() } else { Vec::new() },
+            sh1: if !self.sh1.is_empty() { index_map.iter().map(|&i| self.sh1[i].clone()).collect() } else { Vec::new() },
+            sh2: if !self.sh2.is_empty() { index_map.iter().map(|&i| self.sh2[i].clone()).collect() } else { Vec::new() },
+            sh3: if !self.sh3.is_empty() { index_map.iter().map(|&i| self.sh3[i].clone()).collect() } else { Vec::new() },
         }
     }
 
@@ -457,7 +457,7 @@ impl SplatReceiver for CsplatArray {
                 self.sh3.reserve(est_lod_size);
             }
         } else {
-            self.children.resize_with(init.num_splats, || SmallVec::new());
+            self.children.resize_with(init.num_splats, SmallVec::new);
         }
 
         self.splats.resize_with(init.num_splats, Default::default);
@@ -623,7 +623,7 @@ impl SplatReceiver for CsplatArray {
 
     fn set_child_count(&mut self, base: usize, count: usize, child_count: &[u16]) {
         for i in 0..count {
-            let mut child_index = *self.children[base + i].get(0).unwrap_or(&0);
+            let mut child_index = *self.children[base + i].first().unwrap_or(&0);
             self.children[base + i].clear();
             self.children[base + i].resize_with(child_count[i] as usize, || {
                 let child = child_index;
