@@ -8,7 +8,7 @@ authors.workspace = true
 repository.workspace = true
 
 [features]
-default = ["antisplat", "ksplat", "ply", "rad", "sogs", "spz", "csplat", "gsplat", "quick_lod"]
+default = ["antisplat", "ksplat", "ply", "rad", "sogs", "spz", "csplat", "gsplat", "tiny_lod", "bhatt_lod"]
 antisplat = []
 ksplat = []
 ply = []
@@ -18,6 +18,8 @@ spz = ["dep:miniz_oxide"]
 csplat = []
 gsplat = []
 quick_lod = ["gsplat"]
+tiny_lod = []
+bhatt_lod = []
 
 [dependencies]
 ahash.workspace = true

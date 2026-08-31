@@ -7,7 +7,9 @@ pub mod csplat;
 pub mod symmat3;
 #[cfg(feature = "quick_lod")]
 pub mod quick_lod;
+#[cfg(feature = "tiny_lod")]
 pub mod tiny_lod;
+#[cfg(feature = "bhatt_lod")]
 pub mod bhatt_lod;
 #[cfg(feature = "ply")]
 pub mod ply;

@@ -14,15 +14,17 @@ crate-type = ["cdylib"]
 omit-default-module-path = true
 
 [features]
-default = ["antisplat", "ksplat", "ply", "rad", "sogs", "spz", "csplat", "gsplat"]
+default = ["antisplat", "ksplat", "ply", "rad", "sogs", "spz", "csplat", "gsplat", "tiny_lod", "bhatt_lod"]
 antisplat = ["spark-lib/antisplat"]
 ksplat = ["spark-lib/ksplat"]
 ply = ["spark-lib/ply"]
 rad = ["spark-lib/rad"]
 sogs = ["spark-lib/sogs"]
 spz = ["spark-lib/spz"]
-gsplat = ["spark-lib/gsplat"]
 csplat = ["spark-lib/csplat"]
+gsplat = ["spark-lib/gsplat"]
+tiny_lod = ["spark-lib/tiny_lod"]
+bhatt_lod = ["spark-lib/bhatt_lod"]
 
 [dependencies]
 ahash.workspace = true

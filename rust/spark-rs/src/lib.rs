@@ -228,6 +228,7 @@ impl GsplatArray {
     //     // spark_lib::quick_lod::compute_lod_tree(&mut self.inner, lod_base, merge_filter, |_s| {});
     // }
 
+    #[cfg(feature = "tiny_lod")]
     pub fn tiny_lod(&mut self, lod_base: f32, merge_filter: bool) {
         // let log = |s: &str| web_sys::console::log_1(&JsValue::from(s));
         let log = |_s: &str| {};
@@ -237,6 +238,7 @@ impl GsplatArray {
         spark_lib::chunk_tree::chunk_tree(&mut self.inner, 0, log);
     }
 
+    #[cfg(feature = "bhatt_lod")]
     pub fn bhatt_lod(&mut self, lod_base: f32) {
         // let log = |s: &str| web_sys::console::log_1(&JsValue::from(s));
         let log = |_s: &str| {};
@@ -347,7 +349,7 @@ pub fn decode_to_gsplatarray(file_type: Option<String>, path_name: Option<String
     let decoder = ChunkDecoder::new(Box::new(decoder), Box::new(on_finish));
     Ok(decoder)
 }
-
+stub_fn!(feature = "gsplat", decode_to_gsplatarray);
 
 #[wasm_bindgen]
 #[cfg(all(feature = "csplat", feature = "gsplat"))]
@@ -396,6 +398,7 @@ impl CsplatArray {
         self.inner.has_children()
     }
 
+    #[cfg(feature = "tiny_lod")]
     pub fn tiny_lod(&mut self, lod_base: f32, merge_filter: bool) {
         // let log = |s: &str| web_sys::console::log_1(&JsValue::from(s));
         let log = |_s: &str| {};
@@ -405,6 +408,7 @@ impl CsplatArray {
         spark_lib::chunk_tree::chunk_tree(&mut self.inner, 0, log);
     }
 
+    #[cfg(feature = "bhatt_lod")]
     pub fn bhatt_lod(&mut self, lod_base: f32) {
         // let log = |s: &str| web_sys::console::log_1(&JsValue::from(s));
         let log = |_s: &str| {};
@@ -515,7 +519,7 @@ pub fn extsplats_to_gsplatarray(num_splats: u32, ext1: Uint32Array, ext2: Uint32
 }
 
 #[wasm_bindgen]
-#[cfg(feature = "csplat")]
+#[cfg(all(feature = "csplat", feature = "tiny_lod"))]
 pub fn tiny_lod_packedsplats(num_splats: u32, packed: Uint32Array, extra: Option<Object>, lod_base: f32, merge_filter: bool, rgba: Option<Uint8Array>, encoding: JsValue) -> Result<Object, JsValue> {
     let mut gs = packedsplats_to_csplatarray(num_splats, packed, extra, encoding)?;
     if let Some(rgba) = rgba {
@@ -524,10 +528,10 @@ pub fn tiny_lod_packedsplats(num_splats: u32, packed: Uint32Array, extra: Option
     gs.tiny_lod(lod_base, merge_filter);
     gs.to_packedsplats_lod()
 }
-stub_fn!(feature = "csplat", tiny_lod_packedsplats);
+stub_fn!(all(feature = "csplat", feature = "tiny_lod"), tiny_lod_packedsplats);
 
 #[wasm_bindgen]
-#[cfg(feature = "csplat")]
+#[cfg(all(feature = "csplat", feature = "bhatt_lod"))]
 pub fn bhatt_lod_packedsplats(num_splats: u32, packed: Uint32Array, extra: Option<Object>, lod_base: f32, rgba: Option<Uint8Array>, encoding: JsValue) -> Result<Object, JsValue> {
     let mut gs = packedsplats_to_csplatarray(num_splats, packed, extra, encoding)?;
     if let Some(rgba) = rgba {
@@ -536,10 +540,10 @@ pub fn bhatt_lod_packedsplats(num_splats: u32, packed: Uint32Array, extra: Optio
     gs.bhatt_lod(lod_base);
     gs.to_packedsplats_lod()
 }
-stub_fn!(feature = "csplat", bhatt_lod_packedsplats);
+stub_fn!(all(feature = "csplat", feature = "bhatt_lod"), bhatt_lod_packedsplats);
 
 #[wasm_bindgen]
-#[cfg(feature = "gsplat")]
+#[cfg(all(feature = "gsplat", feature = "tiny_lod"))]
 pub fn tiny_lod_extsplats(num_splats: u32, ext1: Uint32Array, ext2: Uint32Array, extra: Option<Object>, lod_base: f32, merge_filter: bool, rgba: Option<Uint8Array>) -> Result<Object, JsValue> {
     let mut gs = extsplats_to_gsplatarray(num_splats, ext1, ext2, extra)?;
     if let Some(rgba) = rgba {
@@ -548,10 +552,10 @@ pub fn tiny_lod_extsplats(num_splats: u32, ext1: Uint32Array, ext2: Uint32Array,
     gs.tiny_lod(lod_base, merge_filter);
     gs.to_extsplats_lod()
 }
-stub_fn!(feature = "gsplat", tiny_lod_extsplats);
+stub_fn!(all(feature = "gsplat", feature = "tiny_lod"), tiny_lod_extsplats);
 
 #[wasm_bindgen]
-#[cfg(feature = "gsplat")]
+#[cfg(all(feature = "gsplat", feature = "bhatt_lod"))]
 pub fn bhatt_lod_extsplats(num_splats: u32, ext1: Uint32Array, ext2: Uint32Array, extra: Option<Object>, lod_base: f32, rgba: Option<Uint8Array>) -> Result<Object, JsValue> {
     let mut gs = extsplats_to_gsplatarray(num_splats, ext1, ext2, extra)?;
     if let Some(rgba) = rgba {
@@ -560,7 +564,7 @@ pub fn bhatt_lod_extsplats(num_splats: u32, ext1: Uint32Array, ext2: Uint32Array
     gs.bhatt_lod(lod_base);
     gs.to_extsplats_lod()
 }
-stub_fn!(feature = "gsplat", bhatt_lod_extsplats);
+stub_fn!(all(feature = "gsplat", feature = "bhatt_lod"), bhatt_lod_extsplats);
 
 const RAYCAST_BUFFER_COUNT: usize = 65536;
 
