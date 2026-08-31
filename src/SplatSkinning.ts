@@ -313,11 +313,11 @@ export class SplatSkinning {
     this.mesh.needsUpdate = true;
   }
 
-  private static UNIT_SCALE = new THREE.Vector3(1, 1, 1);
-  private static relQuat = new THREE.Quaternion();
-  private static relPos = new THREE.Vector3();
-  private static dual = new THREE.Quaternion();
-  private static skinMat = new THREE.Matrix4();
+  private static readonly UNIT_SCALE = /*@__PURE__*/ new THREE.Vector3(1, 1, 1);
+  private static readonly relQuat = /*@__PURE__*/ new THREE.Quaternion();
+  private static readonly relPos = /*@__PURE__*/ new THREE.Vector3();
+  private static readonly dual = /*@__PURE__*/ new THREE.Quaternion();
+  private static readonly skinMat = /*@__PURE__*/ new THREE.Matrix4();
 }
 
 // dyno program definitions for SplatSkinning
