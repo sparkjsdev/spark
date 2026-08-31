@@ -1,8 +1,11 @@
 
 pub mod tsplat;
+#[cfg(feature = "gsplat")]
 pub mod gsplat;
+#[cfg(feature = "csplat")]
 pub mod csplat;
 pub mod symmat3;
+#[cfg(feature = "quick_lod")]
 pub mod quick_lod;
 pub mod tiny_lod;
 pub mod bhatt_lod;
@@ -23,6 +26,9 @@ pub mod splat_encode;
 pub mod ordering;
 pub mod chunk_tree;
 pub mod sh_clustering;
+
+#[cfg(not(any(feature = "gsplat", feature = "csplat")))]
+compile_error!("at least one of \"gsplat\" and \"csplat\" must be enabled");
 
 #[cfg(test)]
 mod tests {
