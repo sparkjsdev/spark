@@ -7,19 +7,28 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 
+[features]
+default = ["antisplat", "ksplat", "ply", "rad", "sogs", "spz"]
+antisplat = []
+ksplat = []
+ply = []
+rad = ["dep:miniz_oxide"]
+sogs = ["dep:zip", "dep:image"]
+spz = ["dep:miniz_oxide"]
+
 [dependencies]
 ahash.workspace = true
 anyhow.workspace = true
 glam.workspace = true
 half.workspace = true
 ordered-float.workspace = true
-miniz_oxide.workspace = true
+miniz_oxide = { workspace = true, optional = true }
 serde.workspace = true
 smallvec.workspace = true
 itertools.workspace = true
 serde_json.workspace = true
-zip.workspace = true
-image.workspace = true
+zip = { workspace = true, optional = true }
+image = { workspace = true, optional = true }
 hnsw.workspace = true
 rand_pcg.workspace = true
 space.workspace = true

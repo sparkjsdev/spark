@@ -1,16 +1,21 @@
 use std::any::Any;
 
+#[cfg(feature = "spz")]
 use miniz_oxide::inflate::{core::{decompress, inflate_flags::{TINFL_FLAG_HAS_MORE_INPUT, TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF}, DecompressorOxide}, TINFLStatus};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    antisplat::AntiSplatDecoder,
-    ksplat::KsplatDecoder,
-    ply::{PLY_MAGIC, PlyDecoder},
-    rad::{RAD_CHUNK_MAGIC, RAD_MAGIC, RadDecoder},
-    sogs::SogsDecoder,
-    spz::{SPZ_MAGIC, SpzDecoder}
-};
+#[cfg(feature = "antisplat")]
+use crate::antisplat::AntiSplatDecoder;
+#[cfg(feature = "ksplat")]
+use crate::ksplat::KsplatDecoder;
+#[cfg(feature = "ply")]
+use crate::ply::{PLY_MAGIC, PlyDecoder};
+#[cfg(feature = "rad")]
+use crate::rad::{RAD_CHUNK_MAGIC, RAD_MAGIC, RadDecoder};
+#[cfg(feature = "sogs")]
+use crate::sogs::{PK_MAGIC, SogsDecoder};
+#[cfg(feature = "spz")]
+use crate::spz::{SPZ_MAGIC, SpzDecoder};
 
 pub trait ChunkReceiver: Any {
     fn push(&mut self, bytes: &[u8]) -> anyhow::Result<()>;
@@ -329,33 +334,51 @@ pub trait SplatGetter: 'static {
 
 #[derive(Debug, Clone, Copy)]
 pub enum SplatFileType {
+    #[cfg(feature = "ply")]
     PLY,
+    #[cfg(feature = "spz")]
     SPZ,
+    #[cfg(feature = "antisplat")]
     ANTISPLAT,
+    #[cfg(feature = "ksplat")]
     KSPLAT,
+    #[cfg(feature = "sogs")]
     SOGS,
+    #[cfg(feature = "rad")]
     RAD,
 }
 
 impl SplatFileType {
     pub fn to_enum_str(self) -> &'static str {
         match self {
+            #[cfg(feature = "ply")]
             Self::PLY => "ply",
+            #[cfg(feature = "spz")]
             Self::SPZ => "spz",
+            #[cfg(feature = "antisplat")]
             Self::ANTISPLAT => "splat",
+            #[cfg(feature = "ksplat")]
             Self::KSPLAT => "ksplat",
+            #[cfg(feature = "sogs")]
             Self::SOGS => "pcsogszip",
+            #[cfg(feature = "rad")]
             Self::RAD => "rad",
         }
     }
 
     pub fn from_enum_str(enum_str: &str) -> anyhow::Result<Self> {
         match enum_str {
+            #[cfg(feature = "ply")]
             "ply" => Ok(Self::PLY),
+            #[cfg(feature = "spz")]
             "spz" => Ok(Self::SPZ),
+            #[cfg(feature = "antisplat")]
             "splat" => Ok(Self::ANTISPLAT),
+            #[cfg(feature = "ksplat")]
             "ksplat" => Ok(Self::KSPLAT),
+            #[cfg(feature = "sogs")]
             "pcsogszip" => Ok(Self::SOGS),
+            #[cfg(feature = "rad")]
             "rad" => Ok(Self::RAD),
             _ => Err(anyhow::anyhow!("Invalid file type: {}", enum_str)),
         }
@@ -363,13 +386,21 @@ impl SplatFileType {
 
     pub fn from_extension(extension: &str) -> Option<Self> {
         match extension.to_lowercase().as_str() {
+            #[cfg(feature = "ply")]
             "ply" => Some(Self::PLY),
+            #[cfg(feature = "spz")]
             "spz" => Some(Self::SPZ),
+            #[cfg(feature = "antisplat")]
             "splat" => Some(Self::ANTISPLAT),
+            #[cfg(feature = "ksplat")]
             "ksplat" => Some(Self::KSPLAT),
+            #[cfg(feature = "sogs")]
             "sog" => Some(Self::SOGS),
+            #[cfg(feature = "sogs")]
             "sogs" => Some(Self::SOGS),
+            #[cfg(feature = "sogs")]
             "zip" => Some(Self::SOGS),
+            #[cfg(feature = "rad")]
             "rad" => Some(Self::RAD),
             _ => None,
         }
@@ -418,26 +449,32 @@ impl<T: SplatReceiver> MultiDecoder<T> {
 
     pub fn into_splats(self) -> T {
         let inner_any = self.inner.unwrap().into_any();
+        #[cfg(feature = "ply")]
         let inner_any = match inner_any.downcast::<PlyDecoder<T>>() {
             Ok(ply) => { return ply.into_splats(); },
             Err(inner_any) => inner_any,
         };
+        #[cfg(feature = "spz")]
         let inner_any = match inner_any.downcast::<SpzDecoder<T>>() {
             Ok(spz) => { return spz.into_splats(); },
             Err(inner_any) => inner_any,
         };
+        #[cfg(feature = "antisplat")]
         let inner_any = match inner_any.downcast::<AntiSplatDecoder<T>>() {
             Ok(antisplat) => { return antisplat.into_splats(); },
             Err(inner_any) => inner_any,
         };
+        #[cfg(feature = "ksplat")]
         let inner_any = match inner_any.downcast::<KsplatDecoder<T>>() {
             Ok(ksplat) => { return ksplat.into_splats(); },
             Err(inner_any) => inner_any,
         };
+        #[cfg(feature = "sogs")]
         let inner_any = match inner_any.downcast::<SogsDecoder<T>>() {
             Ok(sogs) => { return sogs.into_splats(); },
             Err(inner_any) => inner_any,
         };
+        #[cfg(feature = "rad")]
         let inner_any = match inner_any.downcast::<RadDecoder<T>>() {
             Ok(rad) => { return rad.into_splats(); },
             Err(inner_any) => inner_any,
@@ -471,34 +508,43 @@ impl<T: SplatReceiver> ChunkReceiver for MultiDecoder<T> {
             let mut detection_complete = false;
 
             let magic = u32::from_le_bytes([self.buffer[0], self.buffer[1], self.buffer[2], self.buffer[3]]);
-            if (magic & 0x00ffffff) == PLY_MAGIC {
-                return self.init_file_type(SplatFileType::PLY);
-            }
-            if (magic & 0x00ffffff) == GZIP_MAGIC {
-                // Gzipped file, unpack beginning to check magic number
-                if self.buffer_gz.is_none() {
-                    self.buffer_gz = try_gunzip(&self.buffer, 4)?;
+            match (magic, magic & 0x00ffffff) {
+                #[cfg(feature = "ply")]
+                (_, PLY_MAGIC) => {
+                    return self.init_file_type(SplatFileType::PLY);
                 }
-                if let Some(buffer_gz) = self.buffer_gz.as_ref() {
-                    detection_complete = true;
-                    if buffer_gz.len() >= 4 {
-                        let magic = u32::from_le_bytes([buffer_gz[0], buffer_gz[1], buffer_gz[2], buffer_gz[3]]);
-                        if magic == SPZ_MAGIC {
-                            return self.init_file_type(SplatFileType::SPZ);
+                #[cfg(feature = "spz")]
+                (_, GZIP_MAGIC) => {
+                    // Gzipped file, unpack beginning to check magic number
+                    if self.buffer_gz.is_none() {
+                        self.buffer_gz = try_gunzip(&self.buffer, 4)?;
+                    }
+                    if let Some(buffer_gz) = self.buffer_gz.as_ref() {
+                        detection_complete = true;
+                        if buffer_gz.len() >= 4 {
+                            let magic = u32::from_le_bytes([buffer_gz[0], buffer_gz[1], buffer_gz[2], buffer_gz[3]]);
+                            if magic == SPZ_MAGIC {
+                                return self.init_file_type(SplatFileType::SPZ);
+                            }
                         }
                     }
                 }
-            } else if magic == 0x04034b50 {
-                detection_complete = true;
-                if let Some(pathname) = &self.pathname {
-                    if let Some(SplatFileType::SOGS) = SplatFileType::from_pathname(pathname) {
-                        return self.init_file_type(SplatFileType::SOGS);
+                #[cfg(feature = "sogs")]
+                (PK_MAGIC, _) => {
+                    detection_complete = true;
+                    if let Some(pathname) = &self.pathname {
+                        if let Some(SplatFileType::SOGS) = SplatFileType::from_pathname(pathname) {
+                            return self.init_file_type(SplatFileType::SOGS);
+                        }
                     }
                 }
-            } else if magic == RAD_MAGIC || magic == RAD_CHUNK_MAGIC {
-                return self.init_file_type(SplatFileType::RAD);
-            } else {
-                detection_complete = true;
+                #[cfg(feature = "rad")]
+                (RAD_MAGIC, _) | (RAD_CHUNK_MAGIC, _) => {
+                    return self.init_file_type(SplatFileType::RAD);
+                }
+                _ => {
+                    detection_complete = true;
+                }
             }
 
             if detection_complete {
@@ -528,15 +574,22 @@ impl<T: SplatReceiver> ChunkReceiver for MultiDecoder<T> {
 
 fn new_decoder<T: SplatReceiver>(file_type: SplatFileType, splats: T) -> Box<dyn ChunkReceiver> {
     match file_type {
+        #[cfg(feature = "ply")]
         SplatFileType::PLY => Box::new(PlyDecoder::new(splats)),
+        #[cfg(feature = "spz")]
         SplatFileType::SPZ => Box::new(SpzDecoder::new(splats)),
+        #[cfg(feature = "antisplat")]
         SplatFileType::ANTISPLAT => Box::new(AntiSplatDecoder::new(splats)),
+        #[cfg(feature = "ksplat")]
         SplatFileType::KSPLAT => Box::new(KsplatDecoder::new(splats)),
+        #[cfg(feature = "sogs")]
         SplatFileType::SOGS => Box::new(SogsDecoder::new(splats, None)),
+        #[cfg(feature = "rad")]
         SplatFileType::RAD => Box::new(RadDecoder::new(splats)),
     }
 }
 
+#[cfg(feature = "spz")]
 fn try_gunzip(buffer: &[u8], max_bytes: usize) -> anyhow::Result<Option<Vec<u8>>> {
     if buffer.len() < 10 {
         return Ok(None);

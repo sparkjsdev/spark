@@ -6,11 +6,17 @@ pub mod symmat3;
 pub mod quick_lod;
 pub mod tiny_lod;
 pub mod bhatt_lod;
+#[cfg(feature = "ply")]
 pub mod ply;
+#[cfg(feature = "spz")]
 pub mod spz;
+#[cfg(feature = "antisplat")]
 pub mod antisplat;
+#[cfg(feature = "ksplat")]
 pub mod ksplat;
+#[cfg(feature = "sogs")]
 pub mod sogs;
+#[cfg(feature = "rad")]
 pub mod rad;
 pub mod decoder;
 pub mod splat_encode;

@@ -13,6 +13,15 @@ crate-type = ["cdylib"]
 [package.metadata.wasm-pack.profile.release.wasm-bindgen]
 omit-default-module-path = true
 
+[features]
+default = ["antisplat", "ksplat", "ply", "rad", "sogs", "spz"]
+antisplat = ["spark-lib/antisplat"]
+ksplat = ["spark-lib/ksplat"]
+ply = ["spark-lib/ply"]
+rad = ["spark-lib/rad"]
+sogs = ["spark-lib/sogs"]
+spz = ["spark-lib/spz"]
+
 [dependencies]
 ahash.workspace = true
 anyhow.workspace = true
@@ -23,7 +32,7 @@ ordered-float.workspace = true
 smallvec.workspace = true
 wasm-bindgen.workspace = true
 web-sys = { workspace = true, features = ["Window", "Performance"] }
-spark-lib = { path = "../spark-lib" }
+spark-lib = { path = "../spark-lib", default-features = false, features = [] }
 serde-wasm-bindgen.workspace = true
 serde_json.workspace = true
 serde.workspace = true

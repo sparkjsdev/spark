@@ -2,6 +2,7 @@
 use std::cell::RefCell;
 use js_sys::{Array, Float32Array, Object, Reflect, Uint8Array, Uint16Array, Uint32Array};
 use spark_lib::decoder::{ChunkReceiver, MultiDecoder, SplatEncoding, SplatFileType, SplatGetter};
+#[cfg(feature = "spz")]
 use spark_lib::spz::SpzEncoder;
 use spark_lib::gsplat::{GsplatSH1,GsplatSH2,GsplatSH3};
 use spark_lib::gsplat::GsplatArray as GsplatArrayInner;
@@ -280,6 +281,7 @@ impl GsplatArray {
         Ok(())
     }
 
+    #[cfg(feature = "spz")]
     pub fn encode_to_spz(mut self, max_sh: u32, fractional_bits: u8) -> Result<Uint8Array, JsValue> {
         self.inner.clamp_sh_degree(max_sh as usize);
         self.maxShDegree = self.inner.max_sh_degree;
@@ -617,6 +619,7 @@ pub fn raycast_packed_splats(
 }
 
 #[wasm_bindgen]
+#[cfg(feature = "rad")]
 pub fn decode_rad_header(bytes: Uint8Array) -> Result<JsValue, JsValue> {
     let bytes = bytes.to_vec();
     let meta_chunks_start = match spark_lib::rad::decode_rad_header(&bytes) {
@@ -631,4 +634,10 @@ pub fn decode_rad_header(bytes: Uint8Array) -> Result<JsValue, JsValue> {
     } else {
         Ok(JsValue::null())
     }
+}
+
+#[wasm_bindgen]
+#[cfg(not(feature = "rad"))]
+pub fn decode_rad_header(_bytes: Uint8Array) -> Result<JsValue, JsValue> {
+    return Err(JsValue::from("spark-rs is compiled without RAD support"));
 }

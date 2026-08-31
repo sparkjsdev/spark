@@ -8,7 +8,7 @@ use zip::ZipArchive;
 
 use crate::decoder::{ChunkReceiver, SplatInit, SplatProps, SplatReceiver};
 
-const PK_MAGIC: u32 = 0x04034b50;
+pub const PK_MAGIC: u32 = 0x04034b50;
 const SH_C0: f32 = 0.28209479177387814;
 const MAX_SPLAT_CHUNK: usize = 65536;
 
