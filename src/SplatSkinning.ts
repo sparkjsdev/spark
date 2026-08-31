@@ -326,7 +326,7 @@ export const GsplatSkinning = { type: "GsplatSkinning" } as {
   type: "GsplatSkinning";
 };
 
-export const defineGsplatSkinning = unindent(`
+export const defineGsplatSkinning = /*@__PURE__*/ unindent(`
   struct GsplatSkinning {
     int numSplats;
     int numBones;
@@ -335,7 +335,7 @@ export const defineGsplatSkinning = unindent(`
   };
 `);
 
-export const defineApplyGsplatSkinning = unindent(`
+export const defineApplyGsplatSkinning = /*@__PURE__*/ unindent(`
   void applyGsplatSkinning(
     int numSplats, int numBones,
     usampler2DArray skinTexture, sampler2D boneTexture,
@@ -426,7 +426,7 @@ function applyGsplatSkinning(
   return dyno.outputs.gsplat;
 }
 
-export const defineApplyCovSplatDQSkinning = unindent(`
+export const defineApplyCovSplatDQSkinning = /*@__PURE__*/ unindent(`
   void applyCovSplatDQSkinning(
     int numSplats, int numBones,
     usampler2DArray skinTexture, sampler2D boneTexture,
@@ -492,7 +492,7 @@ export const defineApplyCovSplatDQSkinning = unindent(`
   }
 `);
 
-export const defineApplyCovSplatLBSkinning = unindent(`
+export const defineApplyCovSplatLBSkinning = /*@__PURE__*/ unindent(`
   void applyCovSplatLBSkinning(
     int numSplats, int numBones,
     usampler2DArray skinTexture, sampler2D boneTexture,
