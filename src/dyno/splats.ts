@@ -108,6 +108,12 @@ export const combineGsplat = ({
 };
 export const gsplatNormal = (gsplat: DynoVal<typeof Gsplat>): DynoVal<"vec3"> =>
   new GsplatNormal({ gsplat });
+export const gsplatXaxis = (gsplat: DynoVal<typeof Gsplat>): DynoVal<"vec3"> =>
+  new GsplatXaxis({ gsplat });
+export const gsplatYaxis = (gsplat: DynoVal<typeof Gsplat>): DynoVal<"vec3"> =>
+  new GsplatYaxis({ gsplat });
+export const gsplatZaxis = (gsplat: DynoVal<typeof Gsplat>): DynoVal<"vec3"> =>
+  new GsplatZaxis({ gsplat });
 
 export const transformGsplat = (
   gsplat: DynoVal<typeof Gsplat>,
@@ -747,6 +753,36 @@ export class GsplatNormal extends UnaryOp<typeof Gsplat, "vec3", "normal"> {
     this.globals = () => [defineGsplat, defineGsplatNormal];
     this.statements = ({ inputs, outputs }) => [
       `${outputs.normal} = gsplatNormal(${inputs.a}.scales, ${inputs.a}.quaternion);`,
+    ];
+  }
+}
+
+export class GsplatXaxis extends UnaryOp<typeof Gsplat, "vec3", "xaxis"> {
+  constructor({ gsplat }: { gsplat: DynoVal<typeof Gsplat> }) {
+    super({ a: gsplat, outKey: "xaxis", outTypeFunc: () => "vec3" });
+    this.globals = () => [defineGsplat];
+    this.statements = ({ inputs, outputs }) => [
+      `${outputs.xaxis} = quatVec(${inputs.a}.quaternion, vec3(1.0, 0.0, 0.0));`,
+    ];
+  }
+}
+
+export class GsplatYaxis extends UnaryOp<typeof Gsplat, "vec3", "yaxis"> {
+  constructor({ gsplat }: { gsplat: DynoVal<typeof Gsplat> }) {
+    super({ a: gsplat, outKey: "yaxis", outTypeFunc: () => "vec3" });
+    this.globals = () => [defineGsplat];
+    this.statements = ({ inputs, outputs }) => [
+      `${outputs.yaxis} = quatVec(${inputs.a}.quaternion, vec3(0.0, 1.0, 0.0));`,
+    ];
+  }
+}
+
+export class GsplatZaxis extends UnaryOp<typeof Gsplat, "vec3", "zaxis"> {
+  constructor({ gsplat }: { gsplat: DynoVal<typeof Gsplat> }) {
+    super({ a: gsplat, outKey: "zaxis", outTypeFunc: () => "vec3" });
+    this.globals = () => [defineGsplat];
+    this.statements = ({ inputs, outputs }) => [
+      `${outputs.zaxis} = quatVec(${inputs.a}.quaternion, vec3(0.0, 0.0, 1.0));`,
     ];
   }
 }
