@@ -232,4 +232,7 @@ This way, you can pass around a `DynoVal<Gsplat>` that contains the all the prop
 | `splitGsplat(gsplat)` | Split a `Gsplat` into its components |
 | `combineGsplat(gsplat)` | Create a `Gsplat` from components (or inject components into an existing `Gsplat`) |
 | `gsplatNormal(gsplat)` | Get the `Gsplat` normal, defined as whichever X/Y/Z axis has the smallest scale |
+| `gsplatXAxis(gsplat)` | Return the unit vector along the splat's X-axis |
+| `gsplatYAxis(gsplat)` | Return the unit vector along the splat's Y-axis |
+| `gsplatZAxis(gsplat)` | Return the unit Vector along the splat's Z-axis |
 | `transformGsplat(gsplat, { scale?, rotate?, translate?, recolor? })` | Transform a `Gsplat` and all its components by the given transform |
