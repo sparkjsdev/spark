@@ -508,6 +508,11 @@ export interface SplatPagerOptions {
    * @default 3
    */
   numFetchers?: number;
+  /**
+   * Called when the LOD tree gains newly-decoded pages (the fetch queue
+   * drains), so on-demand renderers can request a redraw.
+   */
+  onLodTreeUpdate?: () => void;
 }
 
 interface PageUpload {
@@ -532,6 +537,7 @@ export class SplatPager {
   autoDrive: boolean;
   numFetchers: number;
   fetchPause = 0;
+  onLodTreeUpdate?: () => void;
 
   splatsChunkToPage: Map<
     PagedSplats,
@@ -616,6 +622,7 @@ export class SplatPager {
 
     this.autoDrive = options.autoDrive ?? true;
     this.numFetchers = options.numFetchers ?? 3;
+    this.onLodTreeUpdate = options.onLodTreeUpdate;
 
     this.splatsChunkToPage = new Map();
     this.pageToSplatsChunk = new Array(this.maxPages);
@@ -1156,11 +1163,14 @@ export class SplatPager {
 
   private processFetched() {
     const now = performance.now();
+    let processed = false;
     while (true) {
       const fetched = this.fetched.shift();
       if (!fetched) {
+        if (processed) this.onLodTreeUpdate?.();
         break;
       }
+      processed = true;
       const { splats, chunk, data } = fetched;
 
       let page = this.allocatePage();
