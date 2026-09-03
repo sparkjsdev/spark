@@ -42,6 +42,9 @@ export declare const combineGsplat: ({ gsplat, flags, index, center, scales, qua
     b?: DynoVal<"float">;
 }) => DynoVal<typeof Gsplat>;
 export declare const gsplatNormal: (gsplat: DynoVal<typeof Gsplat>) => DynoVal<"vec3">;
+export declare const gsplatXAxis: (gsplat: DynoVal<typeof Gsplat>) => DynoVal<"vec3">;
+export declare const gsplatYAxis: (gsplat: DynoVal<typeof Gsplat>) => DynoVal<"vec3">;
+export declare const gsplatZAxis: (gsplat: DynoVal<typeof Gsplat>) => DynoVal<"vec3">;
 export declare const transformGsplat: (gsplat: DynoVal<typeof Gsplat>, { scale, rotate, translate, recolor, }: {
     scale?: DynoVal<"float">;
     rotate?: DynoVal<"vec4">;
@@ -194,6 +197,21 @@ export declare class CombineGsplat extends Dyno<{
 }
 export declare const defineGsplatNormal: string;
 export declare class GsplatNormal extends UnaryOp<typeof Gsplat, "vec3", "normal"> {
+    constructor({ gsplat }: {
+        gsplat: DynoVal<typeof Gsplat>;
+    });
+}
+export declare class GsplatXAxis extends UnaryOp<typeof Gsplat, "vec3", "xaxis"> {
+    constructor({ gsplat }: {
+        gsplat: DynoVal<typeof Gsplat>;
+    });
+}
+export declare class GsplatYAxis extends UnaryOp<typeof Gsplat, "vec3", "yaxis"> {
+    constructor({ gsplat }: {
+        gsplat: DynoVal<typeof Gsplat>;
+    });
+}
+export declare class GsplatZAxis extends UnaryOp<typeof Gsplat, "vec3", "zaxis"> {
     constructor({ gsplat }: {
         gsplat: DynoVal<typeof Gsplat>;
     });
