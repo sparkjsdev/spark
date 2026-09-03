@@ -387,9 +387,11 @@ export class PagedSplats implements SplatSource {
   fetchSplat({
     index,
     viewOrigin,
+    viewBasis,
   }: {
     index: dyno.DynoVal<"int">;
     viewOrigin?: dyno.DynoVal<"vec3">;
+    viewBasis?: dyno.DynoVal<"mat3">;
   }): dyno.DynoVal<typeof dyno.Gsplat> {
     if (!this.pager) {
       throw new Error("PagedSplats.pager not set");
@@ -413,6 +415,7 @@ export class PagedSplats implements SplatSource {
           rgbMinMaxLnScaleMinMax: this.rgbMinMaxLnScaleMinMax,
           lodOpacity: this.lodOpacity,
           viewOrigin,
+          viewBasis: viewBasis ?? this.pager.identityViewBasis,
           numSh: this.dynoNumSh,
           shMax: this.shMax,
         }).gsplat;
@@ -429,6 +432,7 @@ export class PagedSplats implements SplatSource {
       return this.pager.readSplatExtDir.apply({
         index: splatIndex,
         viewOrigin,
+        viewBasis: viewBasis ?? this.pager.identityViewBasis,
         numSh: this.dynoNumSh,
       }).gsplat;
     }
@@ -573,6 +577,7 @@ export class SplatPager {
     dyno.DynoUsampler2DArray<"sh3", THREE.DataArrayTexture>,
     dyno.DynoUsampler2DArray<"sh3b", THREE.DataArrayTexture>,
   ];
+  readonly identityViewBasis: dyno.DynoMat3<"identityViewBasis", THREE.Matrix3>;
 
   readIndex: dyno.DynoBlock<
     { index: "int"; numSplats: "int"; indices: "usampler2D" },
@@ -592,13 +597,14 @@ export class SplatPager {
       rgbMinMaxLnScaleMinMax: "vec4";
       lodOpacity: "bool";
       viewOrigin: "vec3";
+      viewBasis: "mat3";
       numSh: "int";
       shMax: "vec3";
     },
     { gsplat: typeof dyno.Gsplat }
   >;
   readSplatExtDir: dyno.DynoBlock<
-    { index: "int"; viewOrigin: "vec3"; numSh: "int" },
+    { index: "int"; viewOrigin: "vec3"; viewBasis: "mat3"; numSh: "int" },
     { gsplat: typeof dyno.Gsplat }
   >;
 
@@ -648,6 +654,10 @@ export class SplatPager {
           value: texture,
         }),
     ) as typeof this.shTextures;
+    this.identityViewBasis = new dyno.DynoMat3({
+      key: "identityViewBasis",
+      value: new THREE.Matrix3(),
+    });
 
     this.readIndex = dyno.dynoBlock(
       { index: "int", numSplats: "int", indices: "usampler2D" },
@@ -725,6 +735,7 @@ export class SplatPager {
         rgbMinMaxLnScaleMinMax: "vec4",
         lodOpacity: "bool",
         viewOrigin: "vec3",
+        viewBasis: "mat3",
         numSh: "int",
         shMax: "vec3",
       },
@@ -734,6 +745,7 @@ export class SplatPager {
         rgbMinMaxLnScaleMinMax,
         lodOpacity,
         viewOrigin,
+        viewBasis,
         numSh,
         shMax,
       }) => {
@@ -742,10 +754,11 @@ export class SplatPager {
           !rgbMinMaxLnScaleMinMax ||
           !lodOpacity ||
           !viewOrigin ||
+          !viewBasis ||
           !numSh ||
           !shMax
         ) {
-          throw new Error("index and viewOrigin are required");
+          throw new Error("index, viewOrigin, and viewBasis are required");
         }
         let gsplat = this.readSplat.apply({
           index,
@@ -754,7 +767,9 @@ export class SplatPager {
         }).gsplat;
 
         const splatCenter = dyno.splitGsplat(gsplat).outputs.center;
-        const viewDir = dyno.normalize(dyno.sub(splatCenter, viewOrigin));
+        const viewDir = dyno.normalize(
+          dyno.mul(viewBasis, dyno.sub(splatCenter, viewOrigin)),
+        );
         let rgb = evaluatePackedSH({
           coord: pagedSplatTexCoord(index),
           viewDir,
@@ -814,17 +829,20 @@ export class SplatPager {
       {
         index: "int",
         viewOrigin: "vec3",
+        viewBasis: "mat3",
         numSh: "int",
       },
       { gsplat: dyno.Gsplat },
-      ({ index, viewOrigin, numSh }) => {
-        if (!index || !viewOrigin || !numSh) {
-          throw new Error("index and viewOrigin are required");
+      ({ index, viewOrigin, viewBasis, numSh }) => {
+        if (!index || !viewOrigin || !viewBasis || !numSh) {
+          throw new Error("index, viewOrigin, and viewBasis are required");
         }
         let gsplat = this.readSplatExt.apply({ index }).gsplat;
 
         const splatCenter = dyno.splitGsplat(gsplat).outputs.center;
-        const viewDir = dyno.normalize(dyno.sub(splatCenter, viewOrigin));
+        const viewDir = dyno.normalize(
+          dyno.mul(viewBasis, dyno.sub(splatCenter, viewOrigin)),
+        );
         let rgb = evaluateExtSH({
           coord: pagedSplatTexCoord(index),
           viewDir,
