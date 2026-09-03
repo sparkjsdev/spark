@@ -97,8 +97,8 @@ fn process_file_lod(filename: &str, options: &BuildLodOptions) {
 }
 
 fn process_file_lod_tsplat<TS: SplatReceiver + TsplatArray + SplatGetter>(filename: &str, options: &BuildLodOptions, splats: TS) {
-    let mut decoder = MultiDecoder::new(splats, None, Some(&filename));
-    let mut splats = match read_file_chunks(&filename, &mut decoder) {
+    let mut decoder = MultiDecoder::new(splats, None, Some(filename));
+    let mut splats = match read_file_chunks(filename, &mut decoder) {
         Ok(_) => {
             println!("Detected file type: {:?}", decoder.file_type.unwrap());
             decoder.into_splats()
