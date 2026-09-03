@@ -108,12 +108,12 @@ export const combineGsplat = ({
 };
 export const gsplatNormal = (gsplat: DynoVal<typeof Gsplat>): DynoVal<"vec3"> =>
   new GsplatNormal({ gsplat });
-export const gsplatXaxis = (gsplat: DynoVal<typeof Gsplat>): DynoVal<"vec3"> =>
-  new GsplatXaxis({ gsplat });
-export const gsplatYaxis = (gsplat: DynoVal<typeof Gsplat>): DynoVal<"vec3"> =>
-  new GsplatYaxis({ gsplat });
-export const gsplatZaxis = (gsplat: DynoVal<typeof Gsplat>): DynoVal<"vec3"> =>
-  new GsplatZaxis({ gsplat });
+export const gsplatXAxis = (gsplat: DynoVal<typeof Gsplat>): DynoVal<"vec3"> =>
+  new GsplatXAxis({ gsplat });
+export const gsplatYAxis = (gsplat: DynoVal<typeof Gsplat>): DynoVal<"vec3"> =>
+  new GsplatYAxis({ gsplat });
+export const gsplatZAxis = (gsplat: DynoVal<typeof Gsplat>): DynoVal<"vec3"> =>
+  new GsplatZAxis({ gsplat });
 
 export const transformGsplat = (
   gsplat: DynoVal<typeof Gsplat>,
@@ -757,7 +757,7 @@ export class GsplatNormal extends UnaryOp<typeof Gsplat, "vec3", "normal"> {
   }
 }
 
-export class GsplatXaxis extends UnaryOp<typeof Gsplat, "vec3", "xaxis"> {
+export class GsplatXAxis extends UnaryOp<typeof Gsplat, "vec3", "xaxis"> {
   constructor({ gsplat }: { gsplat: DynoVal<typeof Gsplat> }) {
     super({ a: gsplat, outKey: "xaxis", outTypeFunc: () => "vec3" });
     this.globals = () => [defineGsplat];
@@ -767,7 +767,7 @@ export class GsplatXaxis extends UnaryOp<typeof Gsplat, "vec3", "xaxis"> {
   }
 }
 
-export class GsplatYaxis extends UnaryOp<typeof Gsplat, "vec3", "yaxis"> {
+export class GsplatYAxis extends UnaryOp<typeof Gsplat, "vec3", "yaxis"> {
   constructor({ gsplat }: { gsplat: DynoVal<typeof Gsplat> }) {
     super({ a: gsplat, outKey: "yaxis", outTypeFunc: () => "vec3" });
     this.globals = () => [defineGsplat];
@@ -777,7 +777,7 @@ export class GsplatYaxis extends UnaryOp<typeof Gsplat, "vec3", "yaxis"> {
   }
 }
 
-export class GsplatZaxis extends UnaryOp<typeof Gsplat, "vec3", "zaxis"> {
+export class GsplatZAxis extends UnaryOp<typeof Gsplat, "vec3", "zaxis"> {
   constructor({ gsplat }: { gsplat: DynoVal<typeof Gsplat> }) {
     super({ a: gsplat, outKey: "zaxis", outTypeFunc: () => "vec3" });
     this.globals = () => [defineGsplat];
