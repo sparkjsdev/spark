@@ -11,6 +11,10 @@ import {
 import { SplatAccumulator } from "./SplatAccumulator";
 import { SplatGeometry } from "./SplatGeometry";
 import { SplatWorker } from "./SplatWorker";
+import {
+  disposeU32DataTextures,
+  replaceU32DataTexture,
+} from "./U32DataTexture";
 import { SPLAT_TEX_HEIGHT, SPLAT_TEX_WIDTH } from "./defines";
 import { getShaders } from "./shaders";
 import {
@@ -21,6 +25,8 @@ import {
   isVisionPro,
   uploadU32DataTextureRows,
 } from "./utils";
+
+const ORDERING_UPLOAD_ROWS_PER_FRAME = 4;
 
 export interface SparkRendererOptions {
   /**
@@ -359,6 +365,15 @@ export class SparkRenderer extends THREE.Mesh {
   dirty: boolean;
 
   orderingTexture: THREE.DataTexture | null = null;
+  private retiredOrderingTexture: THREE.DataTexture | null = null;
+  private pendingOrderingTexture?: {
+    texture: THREE.DataTexture;
+    data: Uint32Array;
+    rows: number;
+    nextRow: number;
+    activeSplats: number;
+    current: SplatAccumulator;
+  };
   maxSplats = 0;
   activeSplats = 0;
 
@@ -402,6 +417,7 @@ export class SparkRenderer extends THREE.Mesh {
     PackedSplats | ExtSplats | PagedSplats,
     { lodId: number; lastTouched: number; rootPage?: number }
   > = new Map();
+  private lodRetiredTextures = new Map<SplatMesh, THREE.DataTexture>();
   lodIdToSplats: Map<number, PackedSplats | ExtSplats | PagedSplats> =
     new Map();
   lodInitQueue: (PackedSplats | ExtSplats | PagedSplats)[] = [];
@@ -684,6 +700,12 @@ export class SparkRenderer extends THREE.Mesh {
       this.orderingTexture.dispose();
       this.orderingTexture = null;
     }
+    if (this.retiredOrderingTexture) {
+      this.retiredOrderingTexture.dispose();
+      this.retiredOrderingTexture = null;
+    }
+    this.pendingOrderingTexture?.texture.dispose();
+    this.pendingOrderingTexture = undefined;
 
     const accumulators = new Set<SplatAccumulator>();
     accumulators.add(this.display);
@@ -695,11 +717,15 @@ export class SparkRenderer extends THREE.Mesh {
       accumulator.dispose();
     }
 
-    const instances = this.lodInstances.values();
+    const instances = this.lodInstances.entries();
     this.lodInstances.clear();
-    for (const instance of instances) {
-      instance.texture.dispose();
+    for (const [mesh, instance] of instances) {
+      disposeU32DataTextures(
+        instance.texture,
+        this.lodRetiredTextures.get(mesh),
+      );
     }
+    this.lodRetiredTextures.clear();
 
     if (this.sortWorker) {
       this.sortWorker.dispose();
@@ -732,6 +758,10 @@ export class SparkRenderer extends THREE.Mesh {
     const frame = renderer.info.render.frame;
     const isNewFrame = frame !== spark.lastFrame;
     spark.lastFrame = frame;
+
+    if (isNewFrame) {
+      spark.uploadOrderingTextureChunk();
+    }
 
     // Trigger update (either sync in case of preUpdate, or async through setTimeout)
     if (spark.autoUpdate && isNewFrame) {
@@ -854,6 +884,9 @@ export class SparkRenderer extends THREE.Mesh {
     this.uniforms.debugFlag.value = (performance.now() / 1000.0) % 2.0 < 1.0;
 
     spark.dirty = false;
+    if (spark.pendingOrderingTexture) {
+      spark.setDirty();
+    }
   }
 
   clearSplats() {
@@ -1064,43 +1097,82 @@ export class SparkRenderer extends THREE.Mesh {
 
     this.readback32 = result.readback;
 
-    this.activeSplats = result.activeSplats;
-
-    if (this.orderingTexture) {
-      if (rows > this.orderingTexture.image.height) {
-        this.orderingTexture.dispose();
-        this.orderingTexture = null;
-      }
-    }
-
+    const rowsToUpload = Math.max(1, Math.ceil(result.activeSplats / 16384));
+    const data = result.ordering.subarray(0, rowsToUpload * 16384);
     if (!this.orderingTexture) {
-      // console.log(`Allocating orderingTexture: ${4096}x${rows}`);
-      const orderingTexture = new THREE.DataTexture(
-        result.ordering,
-        4096,
-        rows,
-        THREE.RGBAIntegerFormat,
-        THREE.UnsignedIntType,
-      );
-      orderingTexture.internalFormat = "RGBA32UI";
-      orderingTexture.needsUpdate = true;
-      this.orderingTexture = orderingTexture;
-    } else {
-      const renderer = this.renderer;
-      if (!renderer.properties.has(this.orderingTexture)) {
-        this.orderingTexture.needsUpdate = true;
-      } else {
-        uploadU32DataTextureRows(
-          renderer,
-          this.orderingTexture,
-          4096,
-          rows,
-          result.ordering,
-        );
-      }
+      const initial = replaceU32DataTexture(undefined, undefined, data, 4096);
+      this.commitOrderingTexture(initial.texture, result.activeSplats, current);
+      return;
     }
 
-    // console.log(`Sorted (${this.minSortIntervalMs}) ${numSplats} splats in ${(performance.now() - now).toFixed(0)} ms`);
+    // Updating the texture sampled by the preceding frame can block until its
+    // draw completes. Fill an unreferenced replacement over several frames.
+    const texture = new THREE.DataTexture(
+      null,
+      4096,
+      rowsToUpload,
+      THREE.RGBAIntegerFormat,
+      THREE.UnsignedIntType,
+    );
+    texture.internalFormat = "RGBA32UI";
+    texture.needsUpdate = true;
+    this.renderer.initTexture(texture);
+    this.pendingOrderingTexture = {
+      texture,
+      data,
+      rows: rowsToUpload,
+      nextRow: 0,
+      activeSplats: result.activeSplats,
+      current,
+    };
+    this.setDirty();
+  }
+
+  private uploadOrderingTextureChunk() {
+    const pending = this.pendingOrderingTexture;
+    if (!pending) {
+      return;
+    }
+
+    const rows = Math.min(
+      ORDERING_UPLOAD_ROWS_PER_FRAME,
+      pending.rows - pending.nextRow,
+    );
+    const valuesPerRow = 4096 * 4;
+    const start = pending.nextRow * valuesPerRow;
+    uploadU32DataTextureRows(
+      this.renderer,
+      pending.texture,
+      4096,
+      rows,
+      pending.data.subarray(start, start + rows * valuesPerRow),
+      pending.nextRow,
+    );
+    pending.nextRow += rows;
+
+    if (pending.nextRow < pending.rows) {
+      this.setDirty();
+      return;
+    }
+
+    pending.texture.image.data = pending.data;
+    this.commitOrderingTexture(
+      pending.texture,
+      pending.activeSplats,
+      pending.current,
+    );
+  }
+
+  private commitOrderingTexture(
+    texture: THREE.DataTexture,
+    activeSplats: number,
+    current: SplatAccumulator,
+  ) {
+    this.retiredOrderingTexture?.dispose();
+    this.retiredOrderingTexture = this.orderingTexture;
+    this.orderingTexture = texture;
+    this.activeSplats = activeSplats;
+    this.pendingOrderingTexture = undefined;
 
     if (this.current.mappingVersion === current.mappingVersion) {
       if (this.current.mappingVersion !== this.display.mappingVersion) {
@@ -1110,7 +1182,6 @@ export class SparkRenderer extends THREE.Mesh {
     }
     this.sorting = false;
     this.setDirty();
-
     this.driveSort();
   }
 
@@ -1569,7 +1640,11 @@ export class SparkRenderer extends THREE.Mesh {
 
     for (const [mesh, instance] of this.lodInstances.entries()) {
       if (instance.lodId === oldest.lodId) {
-        instance.texture.dispose();
+        disposeU32DataTextures(
+          instance.texture,
+          this.lodRetiredTextures.get(mesh),
+        );
+        this.lodRetiredTextures.delete(mesh);
         this.lodInstances.delete(mesh);
       }
     }
@@ -1598,45 +1673,24 @@ export class SparkRenderer extends THREE.Mesh {
         mesh.paged.update(numSplats, indices);
         // console.log("*** paged.update", lodId, numSplats, indices.slice(0, 5).join(","));
       } else {
-        let instance = this.lodInstances.get(mesh);
-        if (instance) {
-          if (indices.length > instance.indices.length) {
-            instance.texture.dispose();
-            instance = undefined;
-          }
-        }
-
-        const rows = Math.ceil(indices.length / 16384);
-        if (!instance) {
-          const capacity = rows * 16384;
-          if (indices.length !== capacity) {
-            throw new Error("Indices length != capacity");
-          }
-          const texture = new THREE.DataTexture(
-            indices,
-            4096,
-            rows,
-            THREE.RGBAIntegerFormat,
-            THREE.UnsignedIntType,
-          );
-          texture.internalFormat = "RGBA32UI";
-          texture.needsUpdate = true;
-          instance = { lodId, numSplats, indices, texture };
-          this.lodInstances.set(mesh, instance);
+        // Keep the sampled texture alive while Three.js uploads its replacement.
+        const previous = this.lodInstances.get(mesh);
+        const replacement = replaceU32DataTexture(
+          previous?.texture,
+          this.lodRetiredTextures.get(mesh),
+          indices,
+          4096,
+        );
+        this.lodInstances.set(mesh, {
+          lodId,
+          numSplats,
+          indices,
+          texture: replacement.texture,
+        });
+        if (replacement.retired) {
+          this.lodRetiredTextures.set(mesh, replacement.retired);
         } else {
-          instance.numSplats = numSplats;
-          // instance.indices.set(indices.subarray(0, numSplats));
-
-          const renderer = this.renderer;
-          if (renderer.properties.has(instance.texture)) {
-            uploadU32DataTextureRows(
-              renderer,
-              instance.texture,
-              4096,
-              rows,
-              indices,
-            );
-          }
+          this.lodRetiredTextures.delete(mesh);
         }
       }
       mesh.updateMappingVersion();

@@ -1673,6 +1673,7 @@ export function uploadU32DataTextureRows(
   width: number,
   rows: number,
   data: Uint32Array,
+  rowOffset = 0,
 ) {
   const gl = renderer.getContext() as WebGL2RenderingContext;
 
@@ -1696,7 +1697,7 @@ export function uploadU32DataTextureRows(
     gl.TEXTURE_2D,
     0,
     0,
-    0,
+    rowOffset,
     width,
     rows,
     gl.RGBA_INTEGER,
