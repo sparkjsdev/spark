@@ -20,8 +20,9 @@ import init_wasm, {
   get_lod_tree_level,
 } from "spark-rs";
 import type { ExtResult, PackedResult, SplatEncoding } from "./defines";
+import { fetchAndDecodeImages, unzipAndDecodeImages } from "./sogs";
 
-const rpcHandlers = {
+export const rpcHandlers = {
   sortSplats16,
   sortSplats32,
   loadPackedSplats,
@@ -98,6 +99,7 @@ function sortSplats32({
 
 async function decodeBytesUrl({
   decoder,
+  fileType,
   fileBytes,
   url,
   requestHeader,
@@ -107,6 +109,7 @@ async function decodeBytesUrl({
   sendStatus,
 }: {
   decoder: ChunkDecoder;
+  fileType?: string;
   fileBytes?: Uint8Array;
   url?: string;
   requestHeader?: Record<string, string>;
@@ -115,13 +118,20 @@ async function decodeBytesUrl({
   chunkedLength?: number;
   sendStatus: (data: unknown) => void;
 }) {
+  let readStream: ReadableStream;
+  let streamLength = 0;
+
   if (fileBytes) {
-    const CHUNK_SIZE = 1048576; // 1 MB
-    for (let i = 0; i < fileBytes.length; i += CHUNK_SIZE) {
-      decoder.push(
-        fileBytes.subarray(i, Math.min(i + CHUNK_SIZE, fileBytes.length)),
-      );
-    }
+    readStream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(fileBytes);
+        controller.close();
+      },
+    });
+    streamLength = fileBytes.length;
+  } else if (url && fileType === "pcsogs") {
+    // Unbundled SOG files require fetching and decoding
+    readStream = fetchAndDecodeImages(url);
   } else if (url) {
     const request = new Request(url, {
       headers: requestHeader ? new Headers(requestHeader) : undefined,
@@ -134,47 +144,63 @@ async function decodeBytesUrl({
         `Failed to fetch "${url}": ${response.status} ${response.statusText}`,
       );
     }
-    const readStream = response.body.getReader();
+    readStream = response.body;
     const contentLength = Number.parseInt(
       response.headers.get("Content-Length") || "0",
     );
-    const total = Number.isNaN(contentLength) ? 0 : contentLength;
-    let loaded = 0;
-
-    while (true) {
-      const { done, value } = await readStream.read();
-      if (done) {
-        readStream.releaseLock();
-        break;
-      }
-      loaded += value.length;
-      sendStatus({ loaded, total });
-
-      decoder.push(value);
-    }
+    streamLength = Number.isNaN(contentLength) ? 0 : contentLength;
   } else if (chunked) {
-    let loaded = 0;
-    const total = chunkedLength ?? 0;
-    while (true) {
-      const readNextChunk: Promise<Uint8Array> = new Promise((resolve) => {
-        nextChunkWaiter = resolve;
-      });
-      sendStatus({ nextChunk: true });
-      const nextChunk = await readNextChunk;
+    readStream = new ReadableStream({
+      async start(controller) {
+        async function readNext() {
+          const readNextChunk: Promise<Uint8Array> = new Promise((resolve) => {
+            nextChunkWaiter = resolve;
+          });
+          sendStatus({ nextChunk: true });
+          const nextChunk = await readNextChunk;
 
-      if (nextChunk.length === 0) {
-        break;
-      }
+          if (nextChunk.length === 0) {
+            controller.close();
+            return true;
+          }
 
-      decoder.push(nextChunk);
-      loaded += nextChunk.length;
-      sendStatus({ progress: { loaded, total } });
-    }
-    if (total === 0) {
-      sendStatus({ progress: { loaded, total: loaded } });
-    }
+          controller.enqueue(nextChunk);
+          return false;
+        }
+
+        let final: boolean;
+        do {
+          final = await readNext();
+        } while (!final);
+      },
+    });
+    streamLength = chunkedLength ?? 0;
   } else {
     throw new Error("No url or fileBytes provided");
+  }
+
+  // Handle SOG files
+  if (
+    fileType === "pcsogszip" ||
+    url?.endsWith(".sog") ||
+    url?.endsWith(".sogs") ||
+    url?.endsWith(".zip")
+  ) {
+    readStream = readStream.pipeThrough(unzipAndDecodeImages(streamLength));
+  }
+
+  const reader = readStream.getReader();
+  let loaded = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      reader.releaseLock();
+      break;
+    }
+    loaded += value.length;
+    sendStatus({ loaded, total: streamLength });
+
+    decoder.push(value);
   }
 
   const decoded = decoder.finish();
@@ -265,6 +291,7 @@ async function loadPackedSplats(
     );
     const decoded = await decodeBytesUrl({
       decoder,
+      fileType,
       fileBytes,
       url,
       requestHeader,
@@ -283,6 +310,7 @@ async function loadPackedSplats(
   const decoder = decode_to_csplatarray(fileType, pathName ?? url, encoding);
   const decoded = await decodeBytesUrl({
     decoder,
+    fileType,
     fileBytes,
     url,
     requestHeader,
@@ -426,6 +454,7 @@ async function loadExtSplats(
     );
     const decoded = await decodeBytesUrl({
       decoder,
+      fileType,
       fileBytes,
       url,
       requestHeader,
@@ -444,6 +473,7 @@ async function loadExtSplats(
   const decoder = decode_to_gsplatarray(fileType, pathName ?? url);
   const decoded = await decodeBytesUrl({
     decoder,
+    fileType,
     fileBytes,
     url,
     requestHeader,
