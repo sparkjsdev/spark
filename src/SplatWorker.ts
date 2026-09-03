@@ -1,5 +1,6 @@
 import { getTransferable } from "./utils";
 import { WASM_MODULE } from "./wasm";
+import type { rpcHandlers } from "./worker";
 import BundledWorker from "./worker?worker&inline";
 
 type PromiseRecord = {
@@ -68,14 +69,18 @@ export class SplatWorker {
     }
   }
 
-  async call(
-    name: string,
-    args: unknown,
+  async call<T extends keyof rpcHandlers, R extends ReturnType<rpcHandlers[T]>>(
+    name: T,
+    args: Parameters<rpcHandlers[T]>[0],
     options: { onStatus?: (data: unknown) => void } = {},
-  ): Promise<unknown> {
+  ): Promise<R> {
     const id = ++SplatWorker.currentId;
-    const promise = new Promise((resolve, reject) => {
-      this.messages[id] = { resolve, reject, onStatus: options.onStatus };
+    const promise = new Promise<R>((resolve, reject) => {
+      this.messages[id] = {
+        resolve: resolve as () => void,
+        reject,
+        onStatus: options.onStatus,
+      };
     });
     this.worker.postMessage(
       { id, name, args },
@@ -95,7 +100,7 @@ export class SplatWorker {
   }
 }
 
-export class NewSplatWorkerPool {
+export class SplatWorkerPool {
   maxWorkers;
   numWorkers = 0;
   freelist: SplatWorker[] = [];
@@ -150,4 +155,4 @@ export class NewSplatWorkerPool {
   }
 }
 
-export const workerPool = new NewSplatWorkerPool();
+export const workerPool = new SplatWorkerPool();

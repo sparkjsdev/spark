@@ -253,13 +253,17 @@ export class PagedSplats implements SplatSource {
         throw new Error("PagedSplats.pager not set");
       }
       if (!this.pager.extSplats) {
-        const result = (await worker.call("loadPackedSplats", {
+        const result = await worker.call("loadPackedSplats", {
           fileBytes: decodeBytes,
           pathName: this.chunkUrl(chunk),
           sh1Codes: this.sh1Codes?.slice(),
           sh2Codes: this.sh2Codes?.slice(),
-          sh3Codes: this.sh3Codes?.slice(),
-        })) as { lodSplats: PackedResult };
+          sh3Codes: (this.sh3Codes as Uint32Array | undefined)?.slice(),
+        });
+        if (!("lodSplats" in result)) {
+          throw new Error("Loaded chunk does not contain LoD splats");
+        }
+
         const lodSplats = result.lodSplats;
         if (!this.splatEncoding) {
           this.splatEncoding = lodSplats.splatEncoding;
@@ -294,7 +298,7 @@ export class PagedSplats implements SplatSource {
       }
 
       const sh3Codes = this.sh3Codes as [Uint32Array, Uint32Array] | undefined;
-      const result = (await worker.call("loadExtSplats", {
+      const result = await worker.call("loadExtSplats", {
         fileBytes: decodeBytes,
         pathName: this.chunkUrl(chunk),
         sh1Codes: this.sh1Codes?.slice(),
@@ -302,7 +306,10 @@ export class PagedSplats implements SplatSource {
         sh3Codes: sh3Codes
           ? [sh3Codes[0].slice(), sh3Codes[1].slice()]
           : undefined,
-      })) as { lodSplats: ExtResult };
+      });
+      if (!("lodSplats" in result)) {
+        throw new Error("Loaded chunk does not contain LoD splats");
+      }
       const lodSplats = result.lodSplats;
       if (!this.splatEncoding) {
         this.splatEncoding = DEFAULT_SPLAT_ENCODING;
