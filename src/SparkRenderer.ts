@@ -672,6 +672,9 @@ export class SparkRenderer extends THREE.Mesh {
   }
 
   dispose() {
+    // @ts-ignore Object3D has a dispose method in Three.js >= r186
+    super.dispose?.();
+
     if (this.target) {
       this.target.dispose();
       this.target = undefined;
