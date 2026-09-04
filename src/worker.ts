@@ -115,13 +115,17 @@ async function decodeBytesUrl({
   chunkedLength?: number;
   sendStatus: (data: unknown) => void;
 }) {
+  let readStream: ReadableStream<Uint8Array>;
+  let streamLength = 0;
+
   if (fileBytes) {
-    const CHUNK_SIZE = 1048576; // 1 MB
-    for (let i = 0; i < fileBytes.length; i += CHUNK_SIZE) {
-      decoder.push(
-        fileBytes.subarray(i, Math.min(i + CHUNK_SIZE, fileBytes.length)),
-      );
-    }
+    readStream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(fileBytes);
+        controller.close();
+      },
+    });
+    streamLength = fileBytes.length;
   } else if (url) {
     const request = new Request(url, {
       headers: requestHeader ? new Headers(requestHeader) : undefined,
@@ -134,47 +138,53 @@ async function decodeBytesUrl({
         `Failed to fetch "${url}": ${response.status} ${response.statusText}`,
       );
     }
-    const readStream = response.body.getReader();
+    readStream = response.body;
     const contentLength = Number.parseInt(
       response.headers.get("Content-Length") || "0",
     );
-    const total = Number.isNaN(contentLength) ? 0 : contentLength;
-    let loaded = 0;
-
-    while (true) {
-      const { done, value } = await readStream.read();
-      if (done) {
-        readStream.releaseLock();
-        break;
-      }
-      loaded += value.length;
-      sendStatus({ loaded, total });
-
-      decoder.push(value);
-    }
+    streamLength = Number.isNaN(contentLength) ? 0 : contentLength;
   } else if (chunked) {
-    let loaded = 0;
-    const total = chunkedLength ?? 0;
-    while (true) {
-      const readNextChunk: Promise<Uint8Array> = new Promise((resolve) => {
-        nextChunkWaiter = resolve;
-      });
-      sendStatus({ nextChunk: true });
-      const nextChunk = await readNextChunk;
+    readStream = new ReadableStream({
+      async start(controller) {
+        async function readNext() {
+          const readNextChunk: Promise<Uint8Array> = new Promise((resolve) => {
+            nextChunkWaiter = resolve;
+          });
+          sendStatus({ nextChunk: true });
+          const nextChunk = await readNextChunk;
 
-      if (nextChunk.length === 0) {
-        break;
-      }
+          if (nextChunk.length === 0) {
+            controller.close();
+            return true;
+          }
 
-      decoder.push(nextChunk);
-      loaded += nextChunk.length;
-      sendStatus({ progress: { loaded, total } });
-    }
-    if (total === 0) {
-      sendStatus({ progress: { loaded, total: loaded } });
-    }
+          controller.enqueue(nextChunk);
+          return false;
+        }
+
+        let final: boolean;
+        do {
+          final = await readNext();
+        } while (!final);
+      },
+    });
+    streamLength = chunkedLength ?? 0;
   } else {
     throw new Error("No url or fileBytes provided");
+  }
+
+  const reader = readStream.getReader();
+  let loaded = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      reader.releaseLock();
+      break;
+    }
+    loaded += value.length;
+    sendStatus({ loaded, total: streamLength });
+
+    decoder.push(value);
   }
 
   const decoded = decoder.finish();
