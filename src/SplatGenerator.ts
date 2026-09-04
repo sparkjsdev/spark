@@ -183,7 +183,7 @@ export class CovSplatTransformer {
         if (!covsplat || !basis || !offset) {
           return [`${outputs.covsplat}.flags = 0u;`];
         }
-        return unindentLines(`
+        return unindentLines(/* glsl */ `
           ${outputs.covsplat}.flags = 0u;
           if (isCovSplatActive(${covsplat}.flags)) {
             ${outputs.covsplat}.flags = ${covsplat}.flags;

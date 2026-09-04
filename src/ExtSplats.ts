@@ -778,7 +778,7 @@ export class DynoExtSplats extends DynoUniform<
   }
 }
 
-export const defineEvaluateExtSH1 = unindent(`
+export const defineEvaluateExtSH1 = unindent(/* glsl */ `
   vec3 evaluateExtSH1(uvec4 packedData, vec3 viewDir) {
     vec3 sh1_0 = decodeExtRgb(packedData.x);
     vec3 sh1_1 = decodeExtRgb(packedData.y);
@@ -790,7 +790,7 @@ export const defineEvaluateExtSH1 = unindent(`
   }
 `);
 
-export const defineEvaluateExtSH12 = unindent(`
+export const defineEvaluateExtSH12 = unindent(/* glsl */ `
   vec3 evaluateExtSH12(uvec4 packed1, uvec4 packed2, vec3 viewDir) {
     vec3 sh1_0 = decodeExtRgb(packed1.x);
     vec3 sh1_1 = decodeExtRgb(packed1.y);
@@ -816,7 +816,7 @@ export const defineEvaluateExtSH12 = unindent(`
   }
 `);
 
-export const defineEvaluateExtSH3 = unindent(`
+export const defineEvaluateExtSH3 = unindent(/* glsl */ `
   vec3 evaluateExtSH3(uvec4 packedA, uvec4 packedB, vec3 viewDir) {
     vec3 sh3_0 = decodeExtRgb(packedA.x);
     vec3 sh3_1 = decodeExtRgb(packedA.y);
@@ -890,7 +890,7 @@ export function evaluateExtSH({
       if (inputs.sh1Texture) {
         if (!inputs.sh2Texture) {
           lines.push(
-            ...unindentLines(`
+            ...unindentLines(/* glsl */ `
             if (${inputs.numSh} >= 1) {
               rgb = evaluateExtSH1(texelFetch(${inputs.sh1Texture}, ${inputs.coord}, 0), ${inputs.viewDir});
             }
@@ -898,7 +898,7 @@ export function evaluateExtSH({
           );
         } else {
           lines.push(
-            ...unindentLines(`
+            ...unindentLines(/* glsl */ `
             if (${inputs.numSh} == 1) {
               rgb = evaluateExtSH1(texelFetch(${inputs.sh1Texture}, ${inputs.coord}, 0), ${inputs.viewDir});
             } else if (${inputs.numSh} >= 2) {
@@ -908,7 +908,7 @@ export function evaluateExtSH({
 
           if (inputs.sh3TextureA && inputs.sh3TextureB) {
             lines.push(
-              ...unindentLines(`
+              ...unindentLines(/* glsl */ `
               if (${inputs.numSh} >= 3) {
                 rgb += evaluateExtSH3(texelFetch(${inputs.sh3TextureA}, ${inputs.coord}, 0), texelFetch(${inputs.sh3TextureB}, ${inputs.coord}, 0), ${inputs.viewDir});
               }

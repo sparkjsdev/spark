@@ -263,7 +263,7 @@ export class RgbaArray {
 
 export const TRgbaArray = { type: "RgbaArray" } as { type: "RgbaArray" };
 
-export const defineRgbaArray = unindent(`
+export const defineRgbaArray = unindent(/* glsl */ `
   struct RgbaArray {
     sampler2DArray texture;
     int count;
@@ -283,7 +283,7 @@ export function readRgbaArray(
     inputs: { rgba, index },
     globals: () => [defineRgbaArray],
     statements: ({ inputs, outputs }) =>
-      unindentLines(`
+      unindentLines(/* glsl */ `
         if ((${inputs.index} >= 0) && (${inputs.index} < ${inputs.rgba}.count)) {
           ${outputs.rgba} = texelFetch(${inputs.rgba}.texture, splatTexCoord(${inputs.index}), 0);
         } else {

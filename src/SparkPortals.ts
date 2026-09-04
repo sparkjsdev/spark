@@ -6,7 +6,7 @@ import { SparkRenderer, type SparkRendererOptions } from "./SparkRenderer";
  * - diskRadius > 0: render "behind portal" only through the disk
  * - diskRadius < 0: render "in front of portal" everywhere except behind disk
  */
-export const DISK_PORTAL_FRAGMENT_SHADER = `
+export const DISK_PORTAL_FRAGMENT_SHADER = /* glsl */ `
 precision highp float;
 precision highp int;
 

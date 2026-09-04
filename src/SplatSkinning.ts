@@ -326,7 +326,7 @@ export const GsplatSkinning = { type: "GsplatSkinning" } as {
   type: "GsplatSkinning";
 };
 
-export const defineGsplatSkinning = unindent(`
+export const defineGsplatSkinning = unindent(/* glsl */ `
   struct GsplatSkinning {
     int numSplats;
     int numBones;
@@ -335,7 +335,7 @@ export const defineGsplatSkinning = unindent(`
   };
 `);
 
-export const defineApplyGsplatSkinning = unindent(`
+export const defineApplyGsplatSkinning = unindent(/* glsl */ `
   void applyGsplatSkinning(
     int numSplats, int numBones,
     usampler2DArray skinTexture, sampler2D boneTexture,
@@ -411,7 +411,7 @@ function applyGsplatSkinning(
     statements: ({ inputs, outputs }) => {
       const { skinning } = inputs;
       const { gsplat } = outputs;
-      return unindentLines(`
+      return unindentLines(/* glsl */ `
         ${gsplat} = ${inputs.gsplat};
         if (isGsplatActive(${gsplat}.flags)) {
           applyGsplatSkinning(
@@ -426,7 +426,7 @@ function applyGsplatSkinning(
   return dyno.outputs.gsplat;
 }
 
-export const defineApplyCovSplatDQSkinning = unindent(`
+export const defineApplyCovSplatDQSkinning = unindent(/* glsl */ `
   void applyCovSplatDQSkinning(
     int numSplats, int numBones,
     usampler2DArray skinTexture, sampler2D boneTexture,
@@ -492,7 +492,7 @@ export const defineApplyCovSplatDQSkinning = unindent(`
   }
 `);
 
-export const defineApplyCovSplatLBSkinning = unindent(`
+export const defineApplyCovSplatLBSkinning = unindent(/* glsl */ `
   void applyCovSplatLBSkinning(
     int numSplats, int numBones,
     usampler2DArray skinTexture, sampler2D boneTexture,
@@ -556,7 +556,7 @@ function applyCovSplatDQSkinning(
     statements: ({ inputs, outputs }) => {
       const { skinning } = inputs;
       const { covsplat } = outputs;
-      return unindentLines(`
+      return unindentLines(/* glsl */ `
         ${covsplat} = ${inputs.covsplat};
         if (isCovSplatActive(${covsplat}.flags)) {
           applyCovSplatDQSkinning(
@@ -586,7 +586,7 @@ function applyCovSplatLBSkinning(
     statements: ({ inputs, outputs }) => {
       const { skinning } = inputs;
       const { covsplat } = outputs;
-      return unindentLines(`
+      return unindentLines(/* glsl */ `
         ${covsplat} = ${inputs.covsplat};
         if (isCovSplatActive(${covsplat}.flags)) {
           applyCovSplatLBSkinning(

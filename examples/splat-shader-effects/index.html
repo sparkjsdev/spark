@@ -83,7 +83,7 @@
           },
           outTypes: { gsplat: dyno.Gsplat },
           globals: () => [
-            dyno.unindent(`
+            dyno.unindent(/* glsl */ `
               vec3 hash(vec3 p) {
                 return fract(sin(p*123.456)*123.456);
               }
@@ -168,7 +168,7 @@
               }
             `)
           ],
-          statements: ({ inputs, outputs }) => dyno.unindentLines(`
+          statements: ({ inputs, outputs }) => dyno.unindentLines(/* glsl */ `
             ${outputs.gsplat} = ${inputs.gsplat};
             
             vec3 localPos = ${inputs.gsplat}.center;

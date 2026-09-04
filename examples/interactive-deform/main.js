@@ -124,7 +124,7 @@ function createDragBounceDynoshader() {
         },
         outTypes: { gsplat: dyno.Gsplat },
         statements: ({ inputs, outputs }) =>
-          dyno.unindentLines(`
+          dyno.unindentLines(/* glsl */ `
           ${outputs.gsplat} = ${inputs.gsplat};
           vec3 originalPos = ${inputs.gsplat}.center;
           

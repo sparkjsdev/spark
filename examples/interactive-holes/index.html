@@ -127,7 +127,7 @@
             inTypes: inputTypes,
             outTypes: { gsplat: dyno.Gsplat },
             globals: () => [
-              dyno.unindent(`
+              dyno.unindent(/* glsl */ `
               float hash(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
               vec3 simulatePhysics(vec3 originalPos, float dropTime, float gravity, float damping, float floorLevel, float friction, float explosionStrength) {
                 float timeVariation = hash(originalPos + vec3(42.0)) * 0.2 - 0.1;
@@ -160,7 +160,7 @@
               }
             `),
             ],
-            statements: ({ inputs, outputs }) => dyno.unindentLines(`
+            statements: ({ inputs, outputs }) => dyno.unindentLines(/* glsl */ `
               ${outputs.gsplat} = ${inputs.gsplat};
               vec3 originalPos = ${inputs.gsplat}.center;
               const int K = ${MAX_IMPULSES};
