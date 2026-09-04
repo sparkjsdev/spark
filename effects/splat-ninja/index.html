@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark • Splat Ninja</title>
+  <style>
+    html, body { margin: 0; height: 100%; width: 100%; background-color: #1a2235; }
+    canvas { touch-action: none; display: block; cursor: crosshair; }
+    canvas#slash-trail {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 1;
+    }
+  </style>
+</head>
+
+<body>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/examples/js/vendor/three/build/three.module.js",
+        "three/addons/": "/examples/js/vendor/three/examples/jsm/",
+        "@sparkjsdev/spark": "/dist/spark.module.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { SparkRenderer, SplatMesh, PackedSplats, dyno } from "@sparkjsdev/spark";
+    import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+
+    const SKY_CLEAR = 0x1a2235;
+
+    // ── Scene ──
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(SKY_CLEAR);
+    const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(0, 1.2, 8.5);
+    camera.lookAt(0, 1.2, 0);
+
+    const canvas = document.createElement("canvas");
+    document.body.appendChild(canvas);
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(new THREE.Color(SKY_CLEAR), 1);
+
+    const spark = new SparkRenderer({ renderer });
+    scene.add(spark);
+
+    // ── Screen-space slash trail ──
+    const TRAIL_FADE_MS = 520;
+    const TRAIL_MIN_DIST_CSS = 1.8;
+    const TRAIL_LINE_WIDTH_CSS = 4.8;
+    const screenTrailPoints = [];
+    let trailDpr = 1;
+    const trailCanvas = document.createElement("canvas");
+    trailCanvas.id = "slash-trail";
+    document.body.appendChild(trailCanvas);
+    const trailCtx = trailCanvas.getContext("2d");
+
+    function syncTrailCanvasSize() {
+      trailDpr = Math.min(window.devicePixelRatio || 1, 2);
+      trailCanvas.width = Math.floor(window.innerWidth * trailDpr);
+      trailCanvas.height = Math.floor(window.innerHeight * trailDpr);
+    }
+
+    function pushScreenTrailFromEvent(event) {
+      const isDown = event.type === "pointerdown";
+      if (isDown && event.button !== 0) return;
+      if (!isDown && (event.buttons & 1) !== 1) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      const x = (event.clientX - rect.left) * trailDpr;
+      const y = (event.clientY - rect.top) * trailDpr;
+      const t = performance.now();
+      const last = screenTrailPoints[screenTrailPoints.length - 1];
+      if (last) {
+        if (Math.hypot(x - last.x, y - last.y) < TRAIL_MIN_DIST_CSS * trailDpr && t - last.t < 12) return;
+      }
+      screenTrailPoints.push({ x, y, t });
+    }
+
+    function drawScreenTrail(nowMs) {
+      const ctx = trailCtx;
+      ctx.clearRect(0, 0, trailCanvas.width, trailCanvas.height);
+      while (screenTrailPoints.length > 0 && nowMs - screenTrailPoints[0].t > TRAIL_FADE_MS) {
+        screenTrailPoints.shift();
+      }
+      if (screenTrailPoints.length < 2) return;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      for (let i = 0; i < screenTrailPoints.length - 1; i++) {
+        const p0 = screenTrailPoints[i];
+        const p1 = screenTrailPoints[i + 1];
+        const age = Math.max(nowMs - p0.t, nowMs - p1.t);
+        const a = 1 - age / TRAIL_FADE_MS;
+        if (a <= 0) continue;
+        const fade = a * a;
+        ctx.strokeStyle = `rgba(255, 160, 50, ${0.18 + fade * 0.75})`;
+        ctx.lineWidth = TRAIL_LINE_WIDTH_CSS * trailDpr;
+        ctx.beginPath();
+        ctx.moveTo(p0.x, p0.y);
+        ctx.lineTo(p1.x, p1.y);
+        ctx.stroke();
+      }
+    }
+    syncTrailCanvasSize();
+
+    // ── Physics constants ──
+    const GRAVITY = 12;
+    const LAUNCH_VY_MIN = 9.7;
+    const LAUNCH_VY_RANGE = 3;
+    const LAUNCH_VX_RANGE = 2.8;
+    const HALF_LATERAL_IMPULSE = 2.0;
+    const HALF_UP_IMPULSE = 1.5;
+    const OFFSCREEN_Y = -4;
+    const MAX_ROLL_RAD = THREE.MathUtils.degToRad(45);
+    const TILT_OMEGA_MIN = 0.55;
+    const TILT_OMEGA_RANGE = 0.45;
+
+    // ── Spark particles ──
+    const SPARK_POOL_SIZE = 2000;
+    const SPARK_BURST_COUNT = 400;
+    const SPARK_GRAVITY = 10;
+    const SPARK_LIFE_DECAY = 0.72;
+    const SPARK_DRAG = 0.975;
+
+    // ── Gesture tuning ──
+    const MIN_TRAIL_SAMPLE_DISTANCE = 0.04;
+    const MIN_STRAIGHTNESS_RATIO = 0.55;
+    const MAX_DIRECTION_CHANGE_DEG = 125;
+
+    const STATE = { HIDDEN: 0, FLYING: 1, SLICED: 2 };
+    let lastFrameTime = 0;
+
+    // ── Raycaster ──
+    const raycaster = new THREE.Raycaster();
+    raycaster.params.Points = { threshold: 0.5 };
+
+    // ── Half modifier factory (each fruit gets its own cut plane uniforms) ──
+    function createHalfModifier(positiveSide, planePointDyn, planeNormalDyn) {
+      const sideDyn = dyno.dynoFloat(positiveSide ? 1.0 : -1.0);
+      return dyno.dynoBlock(
+        { gsplat: dyno.Gsplat },
+        { gsplat: dyno.Gsplat },
+        ({ gsplat }) => {
+          const shader = new dyno.Dyno({
+            inTypes: {
+              gsplat: dyno.Gsplat,
+              cutPlanePoint: "vec3",
+              cutPlaneNormal: "vec3",
+              side: "float",
+            },
+            outTypes: { gsplat: dyno.Gsplat },
+            statements: ({ inputs, outputs }) => dyno.unindentLines(`
+              ${outputs.gsplat} = ${inputs.gsplat};
+              float d = dot(
+                ${inputs.gsplat}.center - ${inputs.cutPlanePoint},
+                ${inputs.cutPlaneNormal}
+              );
+              float keep = ${inputs.side} > 0.0 ? step(0.0, d) : step(d, 0.0);
+              ${outputs.gsplat}.rgba.a *= keep;
+              ${outputs.gsplat}.scales *= keep;
+              float depthIn = abs(d);
+              vec3 rgb = ${outputs.gsplat}.rgba.rgb;
+              vec3 emberDark  = vec3(0.28, 0.03, 0.0);
+              vec3 emberBright = vec3(1.0, 0.32, 0.05);
+              vec3 hotYellow   = vec3(1.0, 0.85, 0.35);
+              vec3 hotWhite    = vec3(1.0, 0.95, 0.82);
+              float glow = smoothstep(0.48, 0.01, depthIn) * keep;
+              glow = pow(glow, 0.55);
+              rgb = mix(rgb, emberDark, glow * 0.88);
+              float midGlow = smoothstep(0.18, 0.0, depthIn) * keep;
+              rgb = mix(rgb, emberBright, midGlow * 0.82);
+              float coreGlow = smoothstep(0.07, 0.0, depthIn) * keep;
+              rgb = mix(rgb, hotYellow, coreGlow * 0.75);
+              float rim = smoothstep(0.03, 0.0, depthIn) * keep;
+              rgb += hotWhite * rim * 0.6;
+              ${outputs.gsplat}.rgba.rgb = rgb;
+            `),
+          });
+          return {
+            gsplat: shader.apply({
+              gsplat,
+              cutPlanePoint: planePointDyn,
+              cutPlaneNormal: planeNormalDyn,
+              side: sideDyn,
+            }).gsplat,
+          };
+        }
+      );
+    }
+
+    // ── Fruit definition ──
+    const SPLAT_DEFS = [
+      { file: "penguin.spz", baseRotX: Math.PI, launchOffsetX: -0.6, scale: 1.0 },
+      { file: "burger-from-amboy.spz", baseRotX: Math.PI, launchOffsetX: 0.6, scale: 1.8 },
+    ];
+
+    // ── Create a Fruit instance ──
+    async function createFruit(def) {
+      const url = await getAssetFileURL(def.file);
+      const packed = new PackedSplats({ url });
+
+      const whole = new SplatMesh({ packedSplats: packed });
+      const halfA = new SplatMesh({ packedSplats: packed });
+      const halfB = new SplatMesh({ packedSplats: packed });
+
+      await Promise.all([whole.initialized, halfA.initialized, halfB.initialized]);
+
+      const cutPlanePoint = dyno.dynoVec3(new THREE.Vector3());
+      const cutPlaneNormal = dyno.dynoVec3(new THREE.Vector3(1, 0, 0));
+
+      halfA.objectModifier = createHalfModifier(true, cutPlanePoint, cutPlaneNormal);
+      halfA.updateGenerator();
+      halfB.objectModifier = createHalfModifier(false, cutPlanePoint, cutPlaneNormal);
+      halfB.updateGenerator();
+
+      whole.visible = false;
+      halfA.visible = false;
+      halfB.visible = false;
+
+      scene.add(whole);
+      scene.add(halfA);
+      scene.add(halfB);
+
+      return {
+        def,
+        whole, halfA, halfB,
+        cutPlanePoint, cutPlaneNormal,
+        state: STATE.HIDDEN,
+        respawnTimer: 0.4 + Math.random() * 0.8,
+        vel: new THREE.Vector3(),
+        halfAVel: new THREE.Vector3(),
+        halfBVel: new THREE.Vector3(),
+        tiltPhase: 0,
+        tiltOmega: 0,
+      };
+    }
+
+    const fruits = await Promise.all(SPLAT_DEFS.map(d => createFruit(d)));
+
+    // ── Spark / fire particles (shared) ──
+    const sparkPos = new Float32Array(SPARK_POOL_SIZE * 3);
+    const sparkVel = new Float32Array(SPARK_POOL_SIZE * 3);
+    const sparkLife = new Float32Array(SPARK_POOL_SIZE);
+    const sparkSize = new Float32Array(SPARK_POOL_SIZE);
+    for (let i = 0; i < SPARK_POOL_SIZE; i++) sparkLife[i] = 0;
+
+    const sparkGeometry = new THREE.BufferGeometry();
+    sparkGeometry.setAttribute("position", new THREE.BufferAttribute(sparkPos, 3));
+    sparkGeometry.setAttribute("aLife", new THREE.BufferAttribute(sparkLife, 1));
+    sparkGeometry.setAttribute("aSize", new THREE.BufferAttribute(sparkSize, 1));
+
+    const sparkUniforms = { uPixelRatio: { value: renderer.getPixelRatio() } };
+    const sparkMaterial = new THREE.ShaderMaterial({
+      uniforms: sparkUniforms,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      vertexShader: `
+        attribute float aLife;
+        attribute float aSize;
+        varying float vLife;
+        uniform float uPixelRatio;
+        void main() {
+          vLife = aLife;
+          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+          gl_Position = projectionMatrix * mvPosition;
+          float lifeF = clamp(aLife, 0.0, 1.0);
+          float s = aSize * mix(0.18, 1.0, lifeF);
+          gl_PointSize = s * uPixelRatio * (340.0 / max(-mvPosition.z, 0.15));
+          if (aLife <= 0.001) gl_PointSize = 0.0;
+        }
+      `,
+      fragmentShader: `
+        varying float vLife;
+        void main() {
+          vec2 p = gl_PointCoord * 2.0 - 1.0;
+          float r2 = dot(p, p);
+          if (r2 > 1.0) discard;
+          if (vLife <= 0.001) discard;
+          float core = exp(-r2 * 4.5);
+          float halo = exp(-r2 * 1.4);
+          vec3 hotWhite   = vec3(1.0, 0.92, 0.72);
+          vec3 hotYellow  = vec3(1.0, 0.7, 0.18);
+          vec3 brightFire = vec3(1.0, 0.35, 0.06);
+          vec3 deepEmber  = vec3(0.45, 0.08, 0.0);
+          vec3 col = mix(deepEmber, brightFire, halo);
+          col = mix(col, hotYellow, pow(halo, 1.8) * 0.85);
+          col = mix(col, hotWhite, core * 0.88);
+          float fade = smoothstep(0.0, 0.12, vLife);
+          float alpha = (core * 0.55 + halo * 0.45) * fade;
+          if (alpha < 0.01) discard;
+          gl_FragColor = vec4(col * (1.3 + core * 1.0), alpha);
+        }
+      `,
+    });
+    const sparkPoints = new THREE.Points(sparkGeometry, sparkMaterial);
+    sparkPoints.frustumCulled = false;
+    sparkPoints.renderOrder = 1000;
+    scene.add(sparkPoints);
+
+    window.addEventListener("resize", () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      syncTrailCanvasSize();
+      sparkUniforms.uPixelRatio.value = renderer.getPixelRatio();
+    });
+
+    const _sparkBitangent = new THREE.Vector3();
+
+    function allocateSparkSlot() {
+      for (let j = 0; j < SPARK_POOL_SIZE; j++) {
+        if (sparkLife[j] <= 0) return j;
+      }
+      return -1;
+    }
+
+    function spawnSparkBurst(p0, p1, planeNormalWorld, cutDirWorld, inheritVelocity) {
+      const tangent = cutDirWorld.clone().normalize();
+      const n = planeNormalWorld.clone().normalize();
+      _sparkBitangent.crossVectors(tangent, n);
+      if (_sparkBitangent.lengthSq() < 1e-8) {
+        _sparkBitangent.set(0, 1, 0);
+      } else {
+        _sparkBitangent.normalize();
+      }
+      const baseVel = inheritVelocity.clone();
+      for (let s = 0; s < SPARK_BURST_COUNT; s++) {
+        const idx = allocateSparkSlot();
+        if (idx < 0) break;
+        const u = Math.random();
+        const base = new THREE.Vector3().lerpVectors(p0, p1, u);
+        base.addScaledVector(n, (Math.random() - 0.5) * 0.05);
+        base.addScaledVector(tangent, (Math.random() - 0.5) * 0.03);
+        base.addScaledVector(_sparkBitangent, (Math.random() - 0.5) * 0.03);
+        const burst = 3.5 + Math.random() * 5.5;
+        const spreadN = (Math.random() - 0.5) * 2.4;
+        const v = n.clone().multiplyScalar(spreadN * burst);
+        v.addScaledVector(tangent, (Math.random() - 0.5) * burst * 1.1);
+        v.addScaledVector(_sparkBitangent, (Math.random() - 0.5) * burst * 0.9);
+        v.y += 1.0 + Math.random() * 3.0;
+        v.addScaledVector(baseVel, 0.22 + Math.random() * 0.3);
+        const i3 = idx * 3;
+        sparkPos[i3] = base.x;
+        sparkPos[i3 + 1] = base.y;
+        sparkPos[i3 + 2] = base.z;
+        sparkVel[i3] = v.x;
+        sparkVel[i3 + 1] = v.y;
+        sparkVel[i3 + 2] = v.z;
+        sparkLife[idx] = 0.55 + Math.random() * 0.45;
+        sparkSize[idx] = 0.16 + Math.random() * 0.22;
+      }
+      sparkGeometry.attributes.position.needsUpdate = true;
+      sparkGeometry.attributes.aLife.needsUpdate = true;
+      sparkGeometry.attributes.aSize.needsUpdate = true;
+    }
+
+    function updateSparkParticles(dt) {
+      const posAttr = sparkGeometry.attributes.position;
+      const lifeAttr = sparkGeometry.attributes.aLife;
+      let any = false;
+      for (let i = 0; i < SPARK_POOL_SIZE; i++) {
+        if (sparkLife[i] <= 0) continue;
+        any = true;
+        sparkLife[i] -= dt * SPARK_LIFE_DECAY;
+        if (sparkLife[i] <= 0) {
+          sparkLife[i] = 0;
+          sparkPos[i * 3 + 1] = -1e4;
+          continue;
+        }
+        const i3 = i * 3;
+        sparkVel[i3 + 1] -= SPARK_GRAVITY * dt;
+        sparkVel[i3] *= SPARK_DRAG;
+        sparkVel[i3 + 1] *= SPARK_DRAG;
+        sparkVel[i3 + 2] *= SPARK_DRAG;
+        sparkPos[i3] += sparkVel[i3] * dt;
+        sparkPos[i3 + 1] += sparkVel[i3 + 1] * dt;
+        sparkPos[i3 + 2] += sparkVel[i3 + 2] * dt;
+      }
+      if (any) {
+        posAttr.needsUpdate = true;
+        lifeAttr.needsUpdate = true;
+      }
+    }
+
+    // ── Helpers ──
+    function getMouseNdc(event) {
+      const rect = renderer.domElement.getBoundingClientRect();
+      return new THREE.Vector2(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1
+      );
+    }
+
+    // ── Gesture state (one cut at a time, targeting one fruit) ──
+    let isPointerDown = false;
+    let cutStarted = false;
+    let cutStartedOnPointerDown = false;
+    let cutStartWorld = null;
+    let lastValidHitWorld = null;
+    let cutTrailWorld = [];
+    let cutTarget = null;
+
+    function hitTestFruits(ndc) {
+      raycaster.setFromCamera(ndc, camera);
+      let bestDist = Infinity;
+      let bestHit = null;
+      let bestFruit = null;
+      for (let i = 0; i < fruits.length; i++) {
+        const f = fruits[i];
+        if (f.state !== STATE.FLYING) continue;
+        const hits = raycaster.intersectObject(f.whole, false);
+        if (hits && hits.length > 0 && hits[0].distance < bestDist) {
+          bestDist = hits[0].distance;
+          bestHit = hits[0].point.clone();
+          bestFruit = f;
+        }
+      }
+      return bestFruit ? { point: bestHit, fruit: bestFruit } : null;
+    }
+
+    function resetGesture() {
+      cutStarted = false;
+      cutStartedOnPointerDown = false;
+      cutStartWorld = null;
+      lastValidHitWorld = null;
+      cutTrailWorld = [];
+      cutTarget = null;
+    }
+
+    function addTrailPoint(point) {
+      if (!point) return;
+      const last = cutTrailWorld[cutTrailWorld.length - 1];
+      if (!last || last.distanceTo(point) >= MIN_TRAIL_SAMPLE_DISTANCE) {
+        cutTrailWorld.push(point.clone());
+      }
+    }
+
+    function isPreciseCut() {
+      if (!cutStartWorld || !lastValidHitWorld) return false;
+      const trail = cutTrailWorld.slice();
+      if (trail.length === 0) trail.push(cutStartWorld.clone());
+      if (trail[0].distanceTo(cutStartWorld) > 1e-4) trail.unshift(cutStartWorld.clone());
+      if (trail[trail.length - 1].distanceTo(lastValidHitWorld) > 1e-4) trail.push(lastValidHitWorld.clone());
+      let pathLength = 0;
+      let maxAngle = 0;
+      for (let i = 1; i < trail.length; i++) {
+        pathLength += trail[i - 1].distanceTo(trail[i]);
+      }
+      for (let i = 2; i < trail.length; i++) {
+        const prevDir = trail[i - 1].clone().sub(trail[i - 2]);
+        const nextDir = trail[i].clone().sub(trail[i - 1]);
+        if (prevDir.lengthSq() < 1e-6 || nextDir.lengthSq() < 1e-6) continue;
+        prevDir.normalize();
+        nextDir.normalize();
+        const d = THREE.MathUtils.clamp(prevDir.dot(nextDir), -1, 1);
+        const angle = THREE.MathUtils.radToDeg(Math.acos(d));
+        if (angle > maxAngle) maxAngle = angle;
+      }
+      const netLength = cutStartWorld.distanceTo(lastValidHitWorld);
+      const ratio = pathLength > 1e-6 ? netLength / pathLength : 0;
+      return pathLength > 1e-4 && ratio >= MIN_STRAIGHTNESS_RATIO && maxAngle <= MAX_DIRECTION_CHANGE_DEG;
+    }
+
+    // ── Launch a fruit ──
+    function launchFruit(f) {
+      const vx = f.def.launchOffsetX + (Math.random() - 0.5) * LAUNCH_VX_RANGE * 0.4;
+      const vy = LAUNCH_VY_MIN + Math.random() * LAUNCH_VY_RANGE;
+      f.vel.set(vx, vy, 0);
+
+      const s = f.def.scale;
+      f.whole.position.set(f.def.launchOffsetX + (Math.random() - 0.5) * 0.5, OFFSCREEN_Y, 0);
+      f.whole.rotation.set(f.def.baseRotX, 0, 0);
+      f.whole.scale.set(s, s, s);
+      f.tiltPhase = Math.random() * Math.PI * 2;
+      f.tiltOmega = (Math.random() > 0.5 ? 1 : -1) * (TILT_OMEGA_MIN + Math.random() * TILT_OMEGA_RANGE);
+
+      f.whole.visible = true;
+      f.halfA.visible = false;
+      f.halfB.visible = false;
+      f.state = STATE.FLYING;
+    }
+
+    // ── Slice a fruit ──
+    function performSlice(f) {
+      if (!cutStartWorld || !lastValidHitWorld) return;
+
+      const cutDir = lastValidHitWorld.clone().sub(cutStartWorld).normalize();
+      const viewDir = new THREE.Vector3();
+      camera.getWorldDirection(viewDir);
+      const planeNormalWorld = new THREE.Vector3().crossVectors(cutDir, viewDir).normalize();
+      if (planeNormalWorld.lengthSq() < 1e-6) return;
+
+      const planePointWorld = cutStartWorld.clone().add(lastValidHitWorld).multiplyScalar(0.5);
+
+      const localPoint = f.whole.worldToLocal(planePointWorld.clone());
+      const localNormalEnd = f.whole.worldToLocal(planePointWorld.clone().add(planeNormalWorld));
+      const localNormal = localNormalEnd.sub(localPoint).normalize();
+
+      f.cutPlanePoint.value.copy(localPoint);
+      f.cutPlaneNormal.value.copy(localNormal);
+
+      const s = f.def.scale;
+      f.halfA.position.copy(f.whole.position);
+      f.halfA.rotation.copy(f.whole.rotation);
+      f.halfA.scale.set(s, s, s);
+      f.halfB.position.copy(f.whole.position);
+      f.halfB.rotation.copy(f.whole.rotation);
+      f.halfB.scale.set(s, s, s);
+
+      f.halfAVel.copy(f.vel).addScaledVector(planeNormalWorld, HALF_LATERAL_IMPULSE);
+      f.halfAVel.y += HALF_UP_IMPULSE;
+      f.halfBVel.copy(f.vel).addScaledVector(planeNormalWorld, -HALF_LATERAL_IMPULSE);
+      f.halfBVel.y += HALF_UP_IMPULSE;
+
+      f.whole.visible = false;
+      f.halfA.visible = true;
+      f.halfB.visible = true;
+      f.state = STATE.SLICED;
+
+      spawnSparkBurst(
+        cutStartWorld.clone(),
+        lastValidHitWorld.clone(),
+        planeNormalWorld,
+        cutDir,
+        f.vel
+      );
+    }
+
+    function finalizeCut() {
+      if (!cutStarted || !cutStartWorld || !lastValidHitWorld || !cutTarget) {
+        resetGesture();
+        return;
+      }
+      if (cutStartedOnPointerDown) { resetGesture(); return; }
+      if (!isPreciseCut()) { resetGesture(); return; }
+
+      performSlice(cutTarget);
+      resetGesture();
+    }
+
+    // ── Pointer events ──
+    renderer.domElement.addEventListener("pointerdown", (event) => {
+      pushScreenTrailFromEvent(event);
+      isPointerDown = true;
+
+      const ndc = getMouseNdc(event);
+      const result = hitTestFruits(ndc);
+      if (!result) return;
+
+      cutStarted = true;
+      cutStartedOnPointerDown = true;
+      cutStartWorld = result.point;
+      lastValidHitWorld = result.point.clone();
+      cutTrailWorld = [result.point.clone()];
+      cutTarget = result.fruit;
+    });
+
+    renderer.domElement.addEventListener("pointermove", (event) => {
+      pushScreenTrailFromEvent(event);
+      isPointerDown = (event.buttons & 1) === 1;
+      if (!isPointerDown) return;
+
+      const ndc = getMouseNdc(event);
+
+      if (!cutStarted) {
+        const result = hitTestFruits(ndc);
+        if (result) {
+          cutStarted = true;
+          cutStartedOnPointerDown = false;
+          cutStartWorld = result.point;
+          lastValidHitWorld = result.point.clone();
+          cutTrailWorld = [result.point.clone()];
+          cutTarget = result.fruit;
+        }
+        return;
+      }
+
+      if (!cutTarget || cutTarget.state !== STATE.FLYING) {
+        resetGesture();
+        return;
+      }
+
+      raycaster.setFromCamera(ndc, camera);
+      const hits = raycaster.intersectObject(cutTarget.whole, false);
+      const hit = (hits && hits.length > 0) ? hits[0].point.clone() : null;
+
+      if (hit) {
+        lastValidHitWorld = hit;
+        addTrailPoint(hit);
+      } else {
+        finalizeCut();
+      }
+    });
+
+    renderer.domElement.addEventListener("pointerup", (event) => {
+      isPointerDown = false;
+      if (!cutTarget) return;
+
+      const ndc = getMouseNdc(event);
+      raycaster.setFromCamera(ndc, camera);
+      const hits = raycaster.intersectObject(cutTarget.whole, false);
+      if (hits && hits.length > 0) {
+        resetGesture();
+        return;
+      }
+      finalizeCut();
+    });
+
+    renderer.domElement.addEventListener("pointerleave", () => {
+      if (!isPointerDown) return;
+      finalizeCut();
+      isPointerDown = false;
+    });
+
+    // ── Per-fruit respawn delay (staggered so they don't always sync) ──
+    const RESPAWN_DELAY_MIN = 1.0;
+    const RESPAWN_DELAY_RANGE = 1.2;
+
+    function newRespawnDelay() {
+      return RESPAWN_DELAY_MIN + Math.random() * RESPAWN_DELAY_RANGE;
+    }
+
+    // ── Animation loop ──
+    renderer.setAnimationLoop((timeMs) => {
+      const dt = Math.min((timeMs - (lastFrameTime || timeMs)) * 0.001, 0.05);
+      lastFrameTime = timeMs;
+
+      for (let i = 0; i < fruits.length; i++) {
+        const f = fruits[i];
+
+        if (f.state === STATE.HIDDEN) {
+          f.respawnTimer -= dt;
+          if (f.respawnTimer <= 0) {
+            launchFruit(f);
+          }
+        }
+
+        if (f.state === STATE.FLYING) {
+          f.vel.y -= GRAVITY * dt;
+          f.whole.position.addScaledVector(f.vel, dt);
+          f.tiltPhase += f.tiltOmega * dt;
+          const rollZ = MAX_ROLL_RAD * Math.sin(f.tiltPhase);
+          f.whole.rotation.set(f.def.baseRotX, 0, rollZ);
+          f.whole.updateVersion();
+
+          if (f.whole.position.y < OFFSCREEN_Y) {
+            f.whole.visible = false;
+            f.state = STATE.HIDDEN;
+            f.respawnTimer = newRespawnDelay();
+            if (cutTarget === f) resetGesture();
+          }
+        }
+
+        if (f.state === STATE.SLICED) {
+          f.halfAVel.y -= GRAVITY * dt;
+          f.halfBVel.y -= GRAVITY * dt;
+          f.halfA.position.addScaledVector(f.halfAVel, dt);
+          f.halfB.position.addScaledVector(f.halfBVel, dt);
+
+          f.tiltPhase += f.tiltOmega * dt;
+          const rollZ = MAX_ROLL_RAD * Math.sin(f.tiltPhase);
+          f.halfA.rotation.set(f.def.baseRotX, 0, rollZ);
+          f.halfB.rotation.set(f.def.baseRotX, 0, rollZ);
+          f.halfA.updateVersion();
+          f.halfB.updateVersion();
+
+          if (f.halfA.position.y < OFFSCREEN_Y && f.halfB.position.y < OFFSCREEN_Y) {
+            f.halfA.visible = false;
+            f.halfB.visible = false;
+            f.state = STATE.HIDDEN;
+            f.respawnTimer = newRespawnDelay();
+          }
+        }
+      }
+
+      updateSparkParticles(dt);
+      renderer.render(scene, camera);
+      drawScreenTrail(timeMs);
+    });
+  </script>
+</body>
+
+</html>

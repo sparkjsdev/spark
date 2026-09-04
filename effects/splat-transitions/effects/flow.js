@@ -1,0 +1,308 @@
+import { SplatMesh, dyno } from "@sparkjsdev/spark";
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+
+export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
+  const group = new THREE.Group();
+  scene.add(group);
+  let disposed = false;
+
+  const PARAMETERS = {
+    speedMultiplier: 0.5,
+    objectRotation: true,
+    pause: false,
+    fixedMinScale: false,
+    waves: 0.5,
+    cameraRotation: true,
+  };
+  const PAUSE_SECONDS = 2.0;
+
+  function getTransitionState(t, fadeInTime, fadeOutTime, period) {
+    const one = dyno.dynoFloat(1.0);
+    const pauseTime = dyno.dynoFloat(PAUSE_SECONDS);
+    const cycleTime = dyno.add(one, pauseTime);
+    const total = dyno.mul(period, cycleTime);
+    const wrapT = dyno.mod(t, total);
+    const pos = dyno.mod(wrapT, cycleTime);
+    const inPause = dyno.greaterThan(pos, one);
+    const normT = dyno.select(inPause, one, pos);
+    const fadeIn = dyno.and(
+      dyno.greaterThan(wrapT, dyno.mul(fadeInTime, cycleTime)),
+      dyno.lessThan(wrapT, dyno.mul(dyno.add(fadeInTime, one), cycleTime)),
+    );
+    const fadeOut = dyno.and(
+      dyno.greaterThan(wrapT, dyno.mul(fadeOutTime, cycleTime)),
+      dyno.lessThan(wrapT, dyno.mul(dyno.add(fadeOutTime, one), cycleTime)),
+    );
+    return { inTransition: dyno.or(fadeIn, fadeOut), isFadeIn: fadeIn, normT };
+  }
+
+  function contractionDyno(centerGLSL) {
+    return new dyno.Dyno({
+      inTypes: {
+        gsplat: dyno.Gsplat,
+        inTransition: "bool",
+        fadeIn: "bool",
+        t: "float",
+        gt: "float",
+        objectIndex: "int",
+        fixedMinScale: "bool",
+        waves: "float",
+      },
+      outTypes: { gsplat: dyno.Gsplat },
+      globals: () => [
+        dyno.unindent(`
+        float hash13(vec3 p3) { p3 = fract(p3 * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+        float hash11(float p) { p = fract(p * .1031); p += dot(p, p + 33.33); return fract(p * p); }
+        float fadeInOut(float t) { return abs(mix(-1., 1., t)); }
+        ${centerGLSL}
+        float applyBrightness(float t) { return .5 + fadeInOut(t) * .5; }
+        vec3 applyCenter(vec3 center, float t, float id, int idx, float waves) {
+          int next = (idx + 1) % 3;
+          vec3 cNext = getCenterOfMass(next);
+          vec3 cOwn = getCenterOfMass(idx);
+          float f = fadeInOut(t);
+          float v = .5 + hash11(id) * 2.;
+          vec3 p = t < .5 ? mix(cNext, center, pow(f, v)) : mix(cOwn, center, pow(f, v));
+          return p + length(sin(p*2.5)) * waves * (1.-f)*smoothstep(0.5,0.,t) * 2.;
+        }
+        vec3 applyScale(vec3 s, float t, bool fixedMin) { return mix(fixedMin ? vec3(.02) : s * .2, s, pow(fadeInOut(t), 3.)); }
+        float applyOpacity(float t, float gt, int idx) {
+          float p = float(${PAUSE_SECONDS});
+          float c = 1.0 + p;
+          float tot = 3.0 * c;
+          float w = mod(gt + p + .5, tot);
+          int cur = int(floor(w / c));
+          return cur == idx ? .1+fadeInOut(t) : 0.0;
+        }
+      `),
+      ],
+      statements: ({ inputs, outputs }) =>
+        dyno.unindentLines(`
+        ${outputs.gsplat} = ${inputs.gsplat};
+        ${outputs.gsplat}.center = applyCenter(${inputs.gsplat}.center, ${inputs.t}, float(${inputs.gsplat}.index), ${inputs.objectIndex}, ${inputs.waves});
+        ${outputs.gsplat}.scales = applyScale(${inputs.gsplat}.scales, ${inputs.t}, ${inputs.fixedMinScale});
+        ${outputs.gsplat}.rgba.a *= applyOpacity(${inputs.t}, ${inputs.gt}, ${inputs.objectIndex});
+        ${outputs.gsplat}.rgba.rgb *= applyBrightness(${inputs.t});
+      `),
+    });
+  }
+
+  function getTransitionModifier(
+    inTrans,
+    fadeIn,
+    t,
+    idx,
+    gt,
+    centerGLSL,
+    fixedMinScale,
+    waves,
+  ) {
+    const dyn = contractionDyno(centerGLSL);
+    return dyno.dynoBlock(
+      { gsplat: dyno.Gsplat },
+      { gsplat: dyno.Gsplat },
+      ({ gsplat }) => ({
+        gsplat: dyn.apply({
+          gsplat,
+          inTransition: inTrans,
+          fadeIn,
+          t,
+          gt,
+          objectIndex: idx,
+          fixedMinScale,
+          waves,
+        }).gsplat,
+      }),
+    );
+  }
+
+  async function loadGLB(file, isEnv = false) {
+    const url = await getAssetFileURL(file);
+    const loader = new GLTFLoader();
+    const gltf = await new Promise((res, rej) =>
+      loader.load(url, res, undefined, rej),
+    );
+    gltf.scene.traverse((child) => {
+      if (child.isMesh && child.material) {
+        const mat = new THREE.MeshBasicMaterial({
+          color: child.material.color,
+          map: child.material.map,
+        });
+        if (isEnv) {
+          mat.side = THREE.BackSide;
+          if (mat.map) {
+            mat.map.mapping = THREE.EquirectangularReflectionMapping;
+            mat.map.colorSpace = THREE.LinearSRGBColorSpace;
+            mat.map.needsUpdate = true;
+          }
+        }
+        child.material = mat;
+      }
+    });
+    return gltf.scene;
+  }
+
+  const time = dyno.dynoFloat(0.0);
+  const splatFiles = ["woobles.spz", "dessert.spz", "robot-head.spz"];
+  const skyFile = "dali-env.glb";
+
+  const env = await loadGLB(skyFile, true);
+  if (!disposed) group.add(env);
+
+  const meshes = [];
+  const period = dyno.dynoFloat(splatFiles.length);
+  const positions = [
+    new THREE.Vector3(-5, -2.2, -3),
+    new THREE.Vector3(5, -2.5, 0),
+    new THREE.Vector3(0, 1.5, 2),
+  ];
+
+  for (let i = 0; i < splatFiles.length; i++) {
+    const url = await getAssetFileURL(splatFiles[i]);
+    const m = new SplatMesh({ url });
+    await m.initialized;
+    m.position.copy(positions[i]);
+    m.rotateX(Math.PI);
+    if (!disposed) group.add(m);
+    meshes.push(m);
+  }
+
+  const centers = meshes.map((m) => {
+    const box = new THREE.Box3();
+    m.packedSplats.forEachSplat((_, c) => {
+      box.expandByPoint(c);
+    });
+    const localCenter = box.getCenter(new THREE.Vector3());
+    localCenter.y = -localCenter.y;
+    return localCenter.add(m.position);
+  });
+
+  const centerGLSL = `
+    vec3 getCenterOfMass(int idx) {
+      if (idx == 0) return vec3(${centers[0].x}, ${centers[0].y}, ${centers[0].z});
+      if (idx == 1) return vec3(${centers[1].x}, ${centers[1].y}, ${centers[1].z});
+      if (idx == 2) return vec3(${centers[2].x}, ${centers[2].y}, ${centers[2].z});
+      return vec3(0.0);
+    }
+  `;
+
+  meshes.forEach((m, i) => {
+    const { inTransition, isFadeIn, normT } = getTransitionState(
+      time,
+      dyno.dynoFloat(i),
+      dyno.dynoFloat((i + 1) % splatFiles.length),
+      period,
+    );
+    m.worldModifier = getTransitionModifier(
+      inTransition,
+      isFadeIn,
+      normT,
+      dyno.dynoInt(i),
+      time,
+      centerGLSL,
+      dyno.dynoBool(PARAMETERS.fixedMinScale),
+      dyno.dynoFloat(PARAMETERS.waves),
+    );
+    m.updateGenerator();
+  });
+
+  function updateCamera() {
+    const cTime = 1 + PAUSE_SECONDS;
+    const tot = meshes.length * cTime;
+    const w = (time.value + PAUSE_SECONDS) % tot;
+    const cur = Math.floor(w / cTime);
+    const nxt = (cur + 1) % meshes.length;
+    const tr = w / cTime - cur;
+    const s = tr * tr * (3 - 2 * tr);
+    const tgt = new THREE.Vector3().lerpVectors(
+      meshes[cur].position,
+      meshes[nxt].position,
+      s ** 5,
+    );
+    const radius = 4 + Math.abs(s - 0.5) ** 2 * 20;
+    let x;
+    let z;
+    if (PARAMETERS.cameraRotation) {
+      const angle = -time.value * 0.5;
+      x = Math.cos(angle) * radius;
+      z = Math.sin(angle) * radius;
+    } else {
+      x = 0;
+      z = -radius;
+    }
+    const frm = tgt.clone().add(new THREE.Vector3(x, 2, z));
+    camera.position.copy(frm);
+    camera.lookAt(tgt);
+  }
+
+  function update(dt, _t) {
+    if (!PARAMETERS.pause) {
+      time.value += dt * PARAMETERS.speedMultiplier;
+      if (PARAMETERS.objectRotation) {
+        for (const m of meshes) {
+          m.rotation.y += dt * PARAMETERS.speedMultiplier * 2;
+        }
+      }
+    }
+    updateCamera();
+  }
+
+  function setupGUI(folder) {
+    folder.add(PARAMETERS, "speedMultiplier", 0, 1, 0.01);
+    folder.add(PARAMETERS, "objectRotation");
+    folder.add(PARAMETERS, "pause");
+    folder.add(PARAMETERS, "cameraRotation");
+    folder.add(PARAMETERS, "fixedMinScale").onChange(() => {
+      meshes.forEach((m, i) => {
+        const { inTransition, isFadeIn, normT } = getTransitionState(
+          time,
+          dyno.dynoFloat(i),
+          dyno.dynoFloat((i + 1) % splatFiles.length),
+          dyno.dynoFloat(splatFiles.length),
+        );
+        m.worldModifier = getTransitionModifier(
+          inTransition,
+          isFadeIn,
+          normT,
+          dyno.dynoInt(i),
+          time,
+          centerGLSL,
+          dyno.dynoBool(PARAMETERS.fixedMinScale),
+          dyno.dynoFloat(PARAMETERS.waves),
+        );
+        m.updateGenerator();
+      });
+    });
+    folder.add(PARAMETERS, "waves", 0, 1, 0.01).onChange(() => {
+      meshes.forEach((m, i) => {
+        const { inTransition, isFadeIn, normT } = getTransitionState(
+          time,
+          dyno.dynoFloat(i),
+          dyno.dynoFloat((i + 1) % splatFiles.length),
+          dyno.dynoFloat(splatFiles.length),
+        );
+        m.worldModifier = getTransitionModifier(
+          inTransition,
+          isFadeIn,
+          normT,
+          dyno.dynoInt(i),
+          time,
+          centerGLSL,
+          dyno.dynoBool(PARAMETERS.fixedMinScale),
+          dyno.dynoFloat(PARAMETERS.waves),
+        );
+        m.updateGenerator();
+      });
+    });
+    return folder;
+  }
+
+  function dispose() {
+    disposed = true;
+    scene.remove(group);
+  }
+
+  return { group, update, dispose, setupGUI };
+}
