@@ -4,14 +4,14 @@
   "description": "An advanced 3D Gaussian Splatting renderer for THREE.js",
   "homepage": "https://sparkjs.dev/",
   "type": "module",
-  "main": "./dist/spark.cjs.js",
+  "main": "./dist/spark.cjs",
   "module": "./dist/spark.module.js",
   "types": "./dist/types/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/types/index.d.ts",
       "import": "./dist/spark.module.js",
-      "require": "./dist/spark.cjs.js"
+      "require": "./dist/spark.cjs"
     }
   },
   "scripts": {
@@ -38,7 +38,8 @@
     "site:deploy": "npm run site:build && node scripts/deploy-site.js",
     "site:serve": "node scripts/serve-site.js site",
     "start": "npm run dev",
-    "test": "node --no-warnings --loader ts-node/esm --test test/**/*.test.ts"
+    "test": "node --no-warnings --loader ts-node/esm --test test/**/*.test.ts",
+    "test:package": "node scripts/test-package-consumer.mjs"
   },
   "repository": "sparkjs-dev/spark",
   "files": ["dist"],

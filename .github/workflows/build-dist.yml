@@ -6,6 +6,9 @@ on:
       - main
     paths:
       - 'src/**'
+      - 'vite.config.ts'
+      - 'package.json'
+      - 'package-lock.json'
 
 jobs:
   build-dist:

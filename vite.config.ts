@@ -93,8 +93,8 @@ export default defineConfig(({ mode }) => {
         name: "spark",
         formats: ["es", "cjs"],
         fileName: (format) => {
-          const base = format === "es" ? "spark.module" : `spark.${format}`;
-          return isMinify ? `${base}.min.js` : `${base}.js`;
+          if (format === "cjs") return isMinify ? "spark.min.cjs" : "spark.cjs";
+          return isMinify ? "spark.module.min.js" : "spark.module.js";
         },
       },
       sourcemap: true,

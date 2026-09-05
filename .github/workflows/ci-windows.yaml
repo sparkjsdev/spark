@@ -38,3 +38,12 @@ jobs:
 
       - name: Tests
         run: npm run test
+
+      - name: Build WASM
+        run: npm run build:wasm
+
+      - name: Build package
+        run: npm run build
+
+      - name: Packed package consumers
+        run: npm run test:package
