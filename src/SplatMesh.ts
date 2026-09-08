@@ -563,6 +563,9 @@ export class SplatMesh extends SplatGenerator {
   // Call this when you are finished with the SplatMesh and want to free
   // any buffers it holds (via packedSplats).
   dispose() {
+    // @ts-ignore Object3D has a dispose method in Three.js >= r186
+    super.dispose?.();
+
     if (
       this.splats &&
       this.splats !== this.packedSplats &&
