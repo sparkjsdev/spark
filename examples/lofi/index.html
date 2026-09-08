@@ -519,7 +519,7 @@
         inTypes: { gsplat1: dyno.Gsplat, gsplat2: dyno.Gsplat, t: "float", translate: "float" },
         outTypes: { gsplat: dyno.Gsplat },
         inputs,
-        statements: ({ inputs, outputs }) => dyno.unindentLines(`
+        statements: ({ inputs, outputs }) => dyno.unindentLines(/* glsl */ `
           ${outputs.gsplat} = ${inputs.gsplat1};
           vec3 center2 = ${inputs.gsplat2}.center + vec3(0.0, 0.0, ${inputs.translate});
           ${outputs.gsplat}.center = mix(${inputs.gsplat1}.center, center2, ${inputs.t});
@@ -535,7 +535,7 @@
         inTypes: { gsplat: dyno.Gsplat, rustleBlend: "float", t: "float" },
         outTypes: { gsplat: dyno.Gsplat },
         inputs: { gsplat, rustleBlend, t },
-        globals: () => [dyno.unindent(`
+        globals: () => [dyno.unindent(/* glsl */ `
           vec4 colorWave(vec4 rgba, vec3 p, float t) {
             float len = length(p);
             float magnitude = sin(len + t + 1.7 * p.x + 2.3 * p.z + 0.9 * p.y);
@@ -547,7 +547,7 @@
             return mix(rgba, target, 1.0 - sqr(1.0 - magnitude));
           }
         `)],
-        statements: ({ inputs, outputs }) => dyno.unindentLines(`
+        statements: ({ inputs, outputs }) => dyno.unindentLines(/* glsl */ `
           ${outputs.gsplat} = ${inputs.gsplat};
           vec4 displace = colorWave(${outputs.gsplat}.rgba, ${outputs.gsplat}.center, ${inputs.t});
           displace.w = 1.0 - displace.w;
@@ -562,7 +562,7 @@
         outTypes: { gsplat: dyno.Gsplat },
         inputs: { gsplat, tips },
         statements: ({ inputs, outputs }) => {
-          return dyno.unindentLines(`
+          return dyno.unindentLines(/* glsl */ `
             ${outputs.gsplat} = ${inputs.gsplat};
             vec3 center = ${outputs.gsplat}.center;
 
@@ -598,7 +598,7 @@
         inTypes: { gsplat: dyno.Gsplat, spotlightOrigins: "vec3", spotlightDirs: "vec3", spotlightFovs: "float" },
         outTypes: { gsplat: dyno.Gsplat },
         inputs: { gsplat, spotlightOrigins, spotlightDirs, spotlightFovs },
-        globals: () => [dyno.unindent(`
+        globals: () => [dyno.unindent(/* glsl */ `
           float computeSpotlight(
             vec3 worldVertex,
             vec3 worldOrigin,
@@ -635,7 +635,7 @@
           }
         `)],
         statements: ({ inputs, outputs }) => {
-          return dyno.unindentLines(`
+          return dyno.unindentLines(/* glsl */ `
             ${outputs.gsplat} = ${inputs.gsplat};
             if (${inputs.spotlightFovs}[0] > 0.0 || ${inputs.spotlightFovs}[1] > 0.0) {
               float lighting = 0.0;

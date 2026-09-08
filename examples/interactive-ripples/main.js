@@ -55,7 +55,7 @@ function passthroughDyno(timeUniform, hitpointUniform) {
         },
         outTypes: { gsplat: dyno.Gsplat },
         globals: () => [
-          dyno.unindent(`
+          dyno.unindent(/* glsl */ `
            vec3 shockwave(vec3 center, float t, vec3 hitpoint) {
              vec3 direction = center - hitpoint;
              float distance = length(direction);
@@ -73,7 +73,7 @@ function passthroughDyno(timeUniform, hitpointUniform) {
         `),
         ],
         statements: ({ inputs, outputs }) =>
-          dyno.unindentLines(`
+          dyno.unindentLines(/* glsl */ `
           ${outputs.gsplat} = ${inputs.gsplat};
           // Apply shockwave function to position
           ${outputs.gsplat}.center = shockwave(${inputs.gsplat}.center, ${inputs.time}, ${inputs.hitpoint});

@@ -93,7 +93,7 @@ function makePortalMaterial() {
       waveFrequency: { value: 50.0 },
       edgeSoftness: { value: 0.2 },
     },
-    vertexShader: `
+    vertexShader: /* glsl */ `
       varying vec3 vWorldPosition;
       varying vec2 vLocalXY;
       void main() {
@@ -103,7 +103,7 @@ function makePortalMaterial() {
         gl_Position = projectionMatrix * viewMatrix * worldPos;
       }
     `,
-    fragmentShader: `
+    fragmentShader: /* glsl */ `
       uniform sampler2D tMap;
       uniform mat4 portalPV;
       uniform mat4 portalBridge;

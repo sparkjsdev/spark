@@ -52,7 +52,7 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
       },
       outTypes: { gsplat: dyno.Gsplat },
       globals: () => [
-        dyno.unindent(`
+        dyno.unindent(/* glsl */ `
         float hash13(vec3 p3) { p3 = fract(p3 * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
         float hash11(float p) { p = fract(p * .1031); p += dot(p, p + 33.33); return fract(p * p); }
         float fadeInOut(float t) { return abs(mix(-1., 1., t)); }
@@ -79,7 +79,7 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
       `),
       ],
       statements: ({ inputs, outputs }) =>
-        dyno.unindentLines(`
+        dyno.unindentLines(/* glsl */ `
         ${outputs.gsplat} = ${inputs.gsplat};
         ${outputs.gsplat}.center = applyCenter(${inputs.gsplat}.center, ${inputs.t}, float(${inputs.gsplat}.index), ${inputs.objectIndex}, ${inputs.waves});
         ${outputs.gsplat}.scales = applyScale(${inputs.gsplat}.scales, ${inputs.t}, ${inputs.fixedMinScale});
@@ -179,7 +179,7 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
     return localCenter.add(m.position);
   });
 
-  const centerGLSL = `
+  const centerGLSL = /* glsl */ `
     vec3 getCenterOfMass(int idx) {
       if (idx == 0) return vec3(${centers[0].x}, ${centers[0].y}, ${centers[0].z});
       if (idx == 1) return vec3(${centers[1].x}, ${centers[1].y}, ${centers[1].z});

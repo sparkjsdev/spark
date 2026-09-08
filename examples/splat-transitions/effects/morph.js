@@ -43,7 +43,7 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
       },
       outTypes: { gsplat: dyno.Gsplat },
       globals: () => [
-        dyno.unindent(`
+        dyno.unindent(/* glsl */ `
         vec3 hash3(int n) {
           float x = float(n);
           return fract(sin(vec3(x, x + 1.0, x + 2.0)) * 43758.5453123);
@@ -59,7 +59,7 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
       `),
       ],
       statements: ({ inputs, outputs }) =>
-        dyno.unindentLines(`
+        dyno.unindentLines(/* glsl */ `
         ${outputs.gsplat} = ${inputs.gsplat};
         float stay = ${inputs.stay};
         float trans = ${inputs.trans};

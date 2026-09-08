@@ -158,7 +158,7 @@
           outTypes: { gsplat: dyno.Gsplat },
           // GLSL utility functions for effects
           globals: () => [
-            dyno.unindent(`
+            dyno.unindent(/* glsl */ `
               // Pseudo-random hash function
               vec3 hash(vec3 p) {
                 p = fract(p * 0.3183099 + 0.1);
@@ -221,7 +221,7 @@
             `)
           ],
           // Main effect shader logic
-          statements: ({ inputs, outputs }) => dyno.unindentLines(`
+          statements: ({ inputs, outputs }) => dyno.unindentLines(/* glsl */ `
             ${outputs.gsplat} = ${inputs.gsplat};
             float t = ${inputs.t};
             float s = smoothstep(0.,10.,t-4.5)*10.;

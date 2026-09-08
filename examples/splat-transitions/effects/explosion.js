@@ -74,7 +74,7 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
           },
           outTypes: { gsplat: dyno.Gsplat },
           globals: () => [
-            dyno.unindent(`
+            dyno.unindent(/* glsl */ `
             mat2 rot(float angle) { float c = cos(angle); float s = sin(angle); return mat2(c, -s, s, c); }
             float hash(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
             vec3 simulatePhysics(vec3 originalPos, float dropTime, float progress, float gravity, float damping, float floorLevel, float randomOffset, float friction, float explosionStrength) {
@@ -123,7 +123,7 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
           `),
           ],
           statements: ({ inputs, outputs }) =>
-            dyno.unindentLines(`
+            dyno.unindentLines(/* glsl */ `
             ${outputs.gsplat} = ${inputs.gsplat};
             vec3 originalPos = ${inputs.gsplat}.center;
             vec3 originalScale = ${inputs.gsplat}.scales;
@@ -183,12 +183,12 @@ export async function init({ THREE: _THREE, scene, camera, renderer, spark }) {
           },
           outTypes: { gsplat: dyno.Gsplat },
           globals: () => [
-            dyno.unindent(`
+            dyno.unindent(/* glsl */ `
             float hash(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
           `),
           ],
           statements: ({ inputs, outputs }) =>
-            dyno.unindentLines(`
+            dyno.unindentLines(/* glsl */ `
             ${outputs.gsplat} = ${inputs.gsplat};
             vec3 originalPos = ${inputs.gsplat}.center;
             vec3 originalScale = ${inputs.gsplat}.scales;

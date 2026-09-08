@@ -1068,7 +1068,7 @@ export class DynoPackedSplats extends DynoUniform<
   }
 }
 
-export const defineEvalPackedSH1 = unindent(`
+export const defineEvalPackedSH1 = unindent(/* glsl */ `
   vec3 evaluatePackedSH1(uvec2 packedData, vec3 viewDir, float sh1Max) {
     // Extract sint7 values packed into 2 x uint32
     vec3 sh1_0 = vec3(ivec3(
@@ -1094,7 +1094,7 @@ export const defineEvalPackedSH1 = unindent(`
   }
 `);
 
-export const defineEvalPackedSH2 = unindent(`
+export const defineEvalPackedSH2 = unindent(/* glsl */ `
   vec3 evaluatePackedSH2(uvec4 packedData, vec3 viewDir, float sh2Max) {
     // Extract sint8 values packed into 4 x uint32
     vec3 sh2_0 = vec3(ivec3(
@@ -1132,7 +1132,7 @@ export const defineEvalPackedSH2 = unindent(`
   }
 `);
 
-export const defineEvalPackedSH3 = unindent(`
+export const defineEvalPackedSH3 = unindent(/* glsl */ `
   vec3 evaluatePackedSH3(uvec4 packedData, vec3 viewDir, float sh3Max) {
     // Extract sint6 values packed into 4 x uint32
     vec3 sh3_0 = vec3(ivec3(
@@ -1235,7 +1235,7 @@ export function evaluatePackedSH({
       const lines = ["vec3 rgb = vec3(0.0);"];
       if (inputs.sh1Texture) {
         lines.push(
-          ...unindentLines(`
+          ...unindentLines(/* glsl */ `
           if (${inputs.numSh} >= 1) {
             vec3 sh1Rgb = evaluatePackedSH1(texelFetch(${inputs.sh1Texture}, ${inputs.coord}, 0).rg, ${inputs.viewDir}, ${inputs.shMax}.x);
             rgb += sh1Rgb;
@@ -1243,7 +1243,7 @@ export function evaluatePackedSH({
         );
         if (inputs.sh2Texture) {
           lines.push(
-            ...unindentLines(`
+            ...unindentLines(/* glsl */ `
             if (${inputs.numSh} >= 2) {
               vec3 sh2Rgb = evaluatePackedSH2(texelFetch(${inputs.sh2Texture}, ${inputs.coord}, 0), ${inputs.viewDir}, ${inputs.shMax}.y);
               rgb += sh2Rgb;
@@ -1251,7 +1251,7 @@ export function evaluatePackedSH({
           );
           if (inputs.sh3Texture) {
             lines.push(
-              ...unindentLines(`
+              ...unindentLines(/* glsl */ `
               if (${inputs.numSh} >= 3) {
                 vec3 sh3Rgb = evaluatePackedSH3(texelFetch(${inputs.sh3Texture}, ${inputs.coord}, 0), ${inputs.viewDir}, ${inputs.shMax}.z);
                 rgb += sh3Rgb;

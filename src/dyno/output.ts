@@ -59,7 +59,7 @@ export class OutputPackedSplat extends Dyno<
       statements: ({ inputs, outputs }) => {
         const { gsplat, rgbMinMaxLnScaleMinMax } = inputs;
         if (gsplat && rgbMinMaxLnScaleMinMax) {
-          return unindentLines(`
+          return unindentLines(/* glsl */ `
             if (isGsplatActive(${gsplat}.flags)) {
               target = packSplatEncoding(${gsplat}.center, ${gsplat}.scales, ${gsplat}.quaternion, ${gsplat}.rgba, ${rgbMinMaxLnScaleMinMax});
             } else {
@@ -91,7 +91,7 @@ export class OutputCovSplat extends Dyno<
       statements: ({ inputs }) => {
         const { covsplat, rgbMinMaxLnScaleMinMax } = inputs;
         if (covsplat && rgbMinMaxLnScaleMinMax) {
-          return unindentLines(`
+          return unindentLines(/* glsl */ `
             if (isCovSplatActive(${covsplat}.flags)) {
               target = packSplatCovEncoding(${covsplat}.center, ${covsplat}.rgba, ${covsplat}.xxyyzz, ${covsplat}.xyxzyz, ${rgbMinMaxLnScaleMinMax});
             } else {
@@ -121,7 +121,7 @@ export class OutputExtendedSplat extends Dyno<
       statements: ({ inputs }) => {
         const { gsplat } = inputs;
         if (gsplat) {
-          return unindentLines(`
+          return unindentLines(/* glsl */ `
             if (isGsplatActive(${gsplat}.flags)) {
               packSplatExt(target, target2, ${gsplat}.center, ${gsplat}.scales, ${gsplat}.quaternion, ${gsplat}.rgba);
             } else {
@@ -152,7 +152,7 @@ export class OutputExtCovSplat extends Dyno<
       statements: ({ inputs }) => {
         const { covsplat } = inputs;
         if (covsplat) {
-          return unindentLines(`
+          return unindentLines(/* glsl */ `
             if (isCovSplatActive(${covsplat}.flags)) {
               packSplatExtCov(target, target2, ${covsplat}.center, ${covsplat}.rgba, ${covsplat}.xxyyzz, ${covsplat}.xyxzyz);
             } else {
@@ -199,7 +199,7 @@ class OutputSplatDepth extends Dyno<
       statements: ({ inputs }) => {
         const { gsplat, viewCenter, viewDir, sortRadial } = inputs;
         if (gsplat && viewCenter && viewDir && sortRadial) {
-          return unindentLines(`
+          return unindentLines(/* glsl */ `
             float metric = 1.0 / 0.0;
             if (isGsplatActive(${gsplat}.flags)) {
               vec3 center = ${gsplat}.center - ${viewCenter};
@@ -251,7 +251,7 @@ class OutputCovSplatDepth extends Dyno<
       statements: ({ inputs }) => {
         const { covsplat, viewCenter, viewDir, sortRadial } = inputs;
         if (covsplat && viewCenter && viewDir && sortRadial) {
-          return unindentLines(`
+          return unindentLines(/* glsl */ `
             float metric = 1.0 / 0.0;
             if (isCovSplatActive(${covsplat}.flags)) {
               vec3 center = ${covsplat}.center - ${viewCenter};
