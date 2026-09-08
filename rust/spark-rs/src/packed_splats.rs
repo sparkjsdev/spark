@@ -1,8 +1,10 @@
 use std::array;
 
 use js_sys::{Object, Reflect, Uint32Array};
+#[cfg(feature = "gsplat")]
+use spark_lib::gsplat::GsplatArray;
 use spark_lib::{
-    csplat::CsplatArray, decoder::{SetSplatEncoding, SplatEncoding, SplatGetter, SplatInit, SplatProps, SplatPropsMut, SplatReceiver, copy_getter_to_receiver}, gsplat::GsplatArray, splat_encode::{
+    csplat::CsplatArray, decoder::{SetSplatEncoding, SplatEncoding, SplatGetter, SplatInit, SplatProps, SplatPropsMut, SplatReceiver, copy_getter_to_receiver}, splat_encode::{
         decode_packed_splat_center, decode_packed_splat_opacity, decode_packed_splat_quat, decode_packed_splat_rgb, decode_packed_splat_scale, decode_sh1_internal_words, decode_sh2_internal_words, decode_sh3_internal_words, encode_lod_tree, encode_packed_splat, encode_packed_splat_center, encode_packed_splat_opacity, encode_packed_splat_quat, encode_packed_splat_rgb, encode_packed_splat_rgba, encode_packed_splat_scale, encode_sh1_array, encode_sh2_array, encode_sh3_array, get_decode_sh1_scale, get_decode_sh2_scale, get_decode_sh3_scale, get_splat_tex_size
     }, tsplat::{Tsplat, TsplatArray}
 };
@@ -159,6 +161,7 @@ impl PackedSplatsData {
         }
     }
 
+    #[cfg(feature = "gsplat")]
     pub fn to_gsplat_array(&mut self) -> anyhow::Result<GsplatArray> {
         let mut out = GsplatArray::new();
         copy_getter_to_receiver(self, &mut out)?;
