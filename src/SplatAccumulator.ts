@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 import { Readback } from "./Readback";
-import { SplatEdit } from "./SplatEdit";
+import { type SplatEdit, isSplatEdit } from "./SplatEdit";
 import {
   type CovSplatGenerator,
   type GsplatGenerator,
@@ -481,7 +481,7 @@ export class SplatAccumulator {
 
     const globalEditsSet = new Set<SplatEdit>();
     scene.traverseVisible((node) => {
-      if (node instanceof SplatEdit) {
+      if (isSplatEdit(node)) {
         let ancestor = node.parent;
         while (ancestor != null && !(ancestor instanceof SplatMesh)) {
           ancestor = ancestor.parent;

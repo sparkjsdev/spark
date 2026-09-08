@@ -1,5 +1,19 @@
 import * as THREE from "three";
 import { SplatMesh } from "./SplatMesh";
+import {
+  FINGER_TIPS,
+  HANDS,
+  Hand,
+  JOINT_IDS,
+  JOINT_INDEX,
+  JOINT_RADIUS,
+  JOINT_SEGMENTS,
+  JOINT_SEGMENT_STEPS,
+  JOINT_TIPS,
+  JointEnum,
+  type JointId,
+  NUM_JOINTS,
+} from "./hands";
 
 export interface SparkXrOptions {
   renderer: THREE.WebGLRenderer;
@@ -122,118 +136,6 @@ export const DEFAULT_CONTROLLER_GETSLOW = (
   sparkXr: SparkXr,
 ) =>
   gamepads.rightIsHand ? false : (gamepads.right?.buttons[1]?.pressed ?? false);
-
-export enum JointEnum {
-  w = "wrist",
-  t0 = "thumb-metacarpal",
-  t1 = "thumb-phalanx-proximal",
-  t2 = "thumb-phalanx-distal",
-  t3 = "thumb-tip",
-  i0 = "index-finger-metacarpal",
-  i1 = "index-finger-phalanx-proximal",
-  i2 = "index-finger-phalanx-intermediate",
-  i3 = "index-finger-phalanx-distal",
-  i4 = "index-finger-tip",
-  m0 = "middle-finger-metacarpal",
-  m1 = "middle-finger-phalanx-proximal",
-  m2 = "middle-finger-phalanx-intermediate",
-  m3 = "middle-finger-phalanx-distal",
-  m4 = "middle-finger-tip",
-  r0 = "ring-finger-metacarpal",
-  r1 = "ring-finger-phalanx-proximal",
-  r2 = "ring-finger-phalanx-intermediate",
-  r3 = "ring-finger-phalanx-distal",
-  r4 = "ring-finger-tip",
-  p0 = "pinky-finger-metacarpal",
-  p1 = "pinky-finger-phalanx-proximal",
-  p2 = "pinky-finger-phalanx-intermediate",
-  p3 = "pinky-finger-phalanx-distal",
-  p4 = "pinky-finger-tip",
-}
-export type JointId = keyof typeof JointEnum;
-export const JOINT_IDS = Object.keys(JointEnum) as JointId[];
-export const NUM_JOINTS = JOINT_IDS.length;
-
-export const JOINT_INDEX: { [key in JointId]: number } = {
-  w: 0,
-  t0: 1,
-  t1: 2,
-  t2: 3,
-  t3: 4,
-  i0: 5,
-  i1: 6,
-  i2: 7,
-  i3: 8,
-  i4: 9,
-  m0: 10,
-  m1: 11,
-  m2: 12,
-  m3: 13,
-  m4: 14,
-  r0: 15,
-  r1: 16,
-  r2: 17,
-  r3: 18,
-  r4: 19,
-  p0: 20,
-  p1: 21,
-  p2: 22,
-  p3: 23,
-  p4: 24,
-};
-
-export const JOINT_RADIUS: { [key in JointId]: number } = {
-  w: 0.02,
-  t0: 0.015,
-  t1: 0.012,
-  t2: 0.0105,
-  t3: 0.0085,
-  i0: 0.022,
-  i1: 0.012,
-  i2: 0.0085,
-  i3: 0.0075,
-  i4: 0.0065,
-  m0: 0.021,
-  m1: 0.012,
-  m2: 0.008,
-  m3: 0.0075,
-  m4: 0.0065,
-  r0: 0.019,
-  r1: 0.011,
-  r2: 0.0075,
-  r3: 0.007,
-  r4: 0.006,
-  p0: 0.012,
-  p1: 0.01,
-  p2: 0.007,
-  p3: 0.0065,
-  p4: 0.0055,
-};
-
-export const JOINT_SEGMENTS: JointId[][] = [
-  ["w", "t0", "t1", "t2", "t3"],
-  ["w", "i0", "i1", "i2", "i3", "i4"],
-  ["w", "m0", "m1", "m2", "m3", "m4"],
-  ["w", "r0", "r1", "r2", "r3", "r4"],
-  ["w", "p0", "p1", "p2", "p3", "p4"],
-];
-
-export const JOINT_SEGMENT_STEPS: number[][] = [
-  [8, 10, 8, 6],
-  [8, 19, 14, 8, 6],
-  [8, 19, 14, 8, 6],
-  [8, 19, 14, 8, 6],
-  [8, 19, 14, 8, 6],
-];
-
-export const JOINT_TIPS: JointId[] = ["t3", "i4", "m4", "r4", "p4"];
-export const FINGER_TIPS: JointId[] = ["i4", "m4", "r4", "p4"];
-
-export enum Hand {
-  left = "left",
-  right = "right",
-}
-export const HANDS = Object.keys(Hand) as Hand[];
 
 const XR_HEADSET_HINTS =
   /Quest|OculusBrowser|VisionOS|XRBrowser|Pico|Lynx|MagicLeap/i;
@@ -540,17 +442,17 @@ export class SparkXr {
     return !!this.xr;
   }
 
-  static JointEnum = JointEnum;
-  static JOINT_IDS = JOINT_IDS;
-  static NUM_JOINTS = NUM_JOINTS;
-  static JOINT_INDEX = JOINT_INDEX;
-  static JOINT_RADIUS = JOINT_RADIUS;
-  static JOINT_SEGMENTS = JOINT_SEGMENTS;
-  static JOINT_SEGMENT_STEPS = JOINT_SEGMENT_STEPS;
-  static JOINT_TIPS = JOINT_TIPS;
-  static FINGER_TIPS = FINGER_TIPS;
-  static Hand = Hand;
-  static HANDS = HANDS;
+  static readonly JointEnum = JointEnum;
+  static readonly JOINT_IDS = JOINT_IDS;
+  static readonly NUM_JOINTS = NUM_JOINTS;
+  static readonly JOINT_INDEX = JOINT_INDEX;
+  static readonly JOINT_RADIUS = JOINT_RADIUS;
+  static readonly JOINT_SEGMENTS = JOINT_SEGMENTS;
+  static readonly JOINT_SEGMENT_STEPS = JOINT_SEGMENT_STEPS;
+  static readonly JOINT_TIPS = JOINT_TIPS;
+  static readonly FINGER_TIPS = FINGER_TIPS;
+  static readonly Hand = Hand;
+  static readonly HANDS = HANDS;
 
   left() {
     return this.hands[0];

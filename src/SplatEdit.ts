@@ -10,7 +10,6 @@ import {
   unindent,
   unindentLines,
 } from "./dyno";
-import { newArray } from "./utils";
 
 // Spark provides the ability to apply "edits" to Gsplats as part of the standard
 // SplatMesh pipeline. These edits take the form of a sequence of operations,
@@ -127,6 +126,8 @@ export type SplatEditSdfOptions = {
 };
 
 export class SplatEditSdf extends THREE.Object3D {
+  readonly isSplatEditSdf = true;
+
   type: SplatEditSdfType;
   invert: boolean;
   opacity: number;
@@ -144,6 +145,10 @@ export class SplatEditSdf extends THREE.Object3D {
     this.displace = displace ?? new THREE.Vector3(0.0, 0.0, 0.0);
     this.radius = radius ?? 0.0;
   }
+}
+
+export function isSplatEditSdf(obj: THREE.Object3D): obj is SplatEditSdf {
+  return (obj as SplatEditSdf).isSplatEditSdf;
 }
 
 export type SplatEditOptions = {
@@ -167,6 +172,8 @@ export type SplatEditOptions = {
 };
 
 export class SplatEdit extends THREE.Object3D {
+  readonly isSplatEdit = true;
+
   // ordering used to apply SplatEdit operations to Gsplats. This is implicitly
   // increased with each new SplatEdit. Reassigning ordering can be used to
   // reorder the operations.
@@ -220,6 +227,10 @@ export class SplatEdit extends THREE.Object3D {
     }
     this.sdfs = this.sdfs.filter((s) => s !== sdf);
   }
+}
+
+export function isSplatEdit(obj: THREE.Object3D): obj is SplatEdit {
+  return (obj as SplatEdit).isSplatEdit;
 }
 
 // Dyno implementation of RGBA-XYZ SDF editing.
