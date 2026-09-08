@@ -690,7 +690,10 @@ export class ExtSplats implements SplatSource {
         : quality
           ? 1.75
           : 1.5;
-    const extArrays = [this.extArrays[0].slice(), this.extArrays[1].slice()];
+    const extArrays = [
+      this.extArrays[0].slice(),
+      this.extArrays[1].slice(),
+    ] as const;
     const rgba = rgbaArray ? (await rgbaArray.getArray()).slice() : undefined;
     const extra = {
       sh1: this.extra.sh1 ? (this.extra.sh1 as Uint32Array).slice() : undefined,
@@ -698,7 +701,7 @@ export class ExtSplats implements SplatSource {
       sh3: this.extra.sh3 ? (this.extra.sh3 as Uint32Array).slice() : undefined,
     };
     const decoded = await workerPool.withWorker(async (worker) => {
-      return (await worker.call(
+      return await worker.call(
         quality ? "qualityLodExtSplats" : "tinyLodExtSplats",
         {
           numSplats: this.numSplats,
@@ -707,11 +710,7 @@ export class ExtSplats implements SplatSource {
           lodBase,
           rgba,
         },
-      )) as {
-        numSplats: number;
-        extArrays: [Uint32Array, Uint32Array];
-        extra: Record<string, unknown>;
-      };
+      );
     });
 
     const lodSplats = new ExtSplats(decoded);
