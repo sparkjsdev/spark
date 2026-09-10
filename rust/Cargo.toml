@@ -9,7 +9,7 @@ resolver = "2"
 [workspace.package]
 rust-version = "1.82"
 edition = "2021"
-license = "Proprietary"
+license = "MIT"
 authors = ["World Labs Technologies"]
 repository = "https://github.com/sparkjs-dev/spark"
 
