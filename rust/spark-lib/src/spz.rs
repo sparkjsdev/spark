@@ -78,7 +78,7 @@ impl<T: SplatReceiver> SpzDecoder<T> {
         let _reserved = self.buffer[15];
 
         self.buffer.drain(..16);
-        let state = SpzDecoderState::new(version as u32, num_splats, sh_degree, fractional_bits, flags)?;
+        let state = SpzDecoderState::new(version, num_splats, sh_degree, fractional_bits, flags)?;
         self.state = Some(state);
 
         self.splats.init_splats(&SplatInit {

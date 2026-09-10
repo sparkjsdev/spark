@@ -7,7 +7,7 @@ use spark_lib::decoder::ChunkReceiver;
 const MAX_BUFFER_SIZE: usize = 1048576;
 
 thread_local! {
-    static BUFFER: RefCell<Vec<u8>> = RefCell::new(Vec::new());
+    static BUFFER: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
 }
 
 #[wasm_bindgen]

@@ -19,7 +19,7 @@ pub fn compute_lod_tree<TA: TsplatArray>(splats: &mut TA, lod_base: f32, logger:
 
     splats.sort_by(|s| s.feature_size());
     splats.prepare_children();
-    logger(&format!("Sorted and prepared splats"));
+    logger("Sorted and prepared splats");
 
     let mut is_active = Vec::with_capacity(splats.len() * 2 - 1);
     is_active.resize(splats.len(), true);
@@ -235,7 +235,7 @@ pub fn compute_lod_tree<TA: TsplatArray>(splats: &mut TA, lod_base: f32, logger:
         if next_frontier.is_empty() {
             break;
         }
-        limit_size = limit_size / 4.0;
+        limit_size /= 4.0;
         frontier = next_frontier;
     }
 

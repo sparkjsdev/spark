@@ -246,7 +246,7 @@ impl<T: SplatReceiver> ChunkReceiver for KsplatDecoder<T> {
                     i / bucket_size
                 } else {
                     if let Some(lengths) = partially_filled_lengths {
-                        let idx = partial_bucket_index.checked_sub(full_bucket_count).unwrap_or(0);
+                        let idx = partial_bucket_index.saturating_sub(full_bucket_count);
                         if idx < lengths.len() && i >= partial_bucket_base + lengths[idx] as usize {
                             partial_bucket_index += 1;
                             partial_bucket_base += lengths[idx] as usize;

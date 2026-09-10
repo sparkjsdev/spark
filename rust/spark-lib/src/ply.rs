@@ -461,7 +461,7 @@ fn parse_header(header: &str) -> anyhow::Result<ParsedHeader> {
                 current = Some(PlyElementBuilder::new(fields[1], fields[2].parse()?));
             },
             "property" => {
-                if fields.get(1).map(|s| *s) == Some("list") {
+                if fields.get(1).copied() == Some("list") {
                     return Err(anyhow!("PLY list properties are not supported"));
                 }
                 if fields.len() != 3 {
@@ -590,7 +590,7 @@ impl SuperSplatState {
     fn new(parsed: ParsedHeader) -> anyhow::Result<Self> {
         let chunk_desc = parsed.chunk.ok_or(anyhow!("Missing chunk element for SuperSplat PLY"))?;
         let vertex_desc = parsed.vertex;
-        let expected_chunks = (vertex_desc.count + SUPER_CHUNK_SIZE - 1) / SUPER_CHUNK_SIZE;
+        let expected_chunks = vertex_desc.count.div_ceil(SUPER_CHUNK_SIZE);
         if chunk_desc.count < expected_chunks {
             return Err(anyhow!(
                 "Not enough chunk records: have {}, need at least {}",
@@ -1058,7 +1058,7 @@ impl PointCloudDecoderState {
             *properties.get("green").ok_or(anyhow!("Missing green property"))?,
             *properties.get("blue").ok_or(anyhow!("Missing blue property"))?,
         ];
-        let alpha = properties.get("alpha").map(|p| *p);
+        let alpha = properties.get("alpha").copied();
 
         Ok(Self {
             num_splats,
@@ -1403,8 +1403,8 @@ impl<T: SplatGetter> PlyEncoder<T> {
                             _ => 0.0,
                         }
                     };
-                    for idx in 0..num_f_rest {
-                        let d = if stride > 0 { idx / stride } else { 0 };
+                    for idx in 0usize..num_f_rest {
+                        let d = idx.checked_div(stride).unwrap_or(0);
                         let in_channel = if stride > 0 { idx % stride } else { 0 };
                         if in_channel < 3 {
                             let k = in_channel; // degree 1 (3 coeffs)
