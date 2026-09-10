@@ -32,16 +32,6 @@ export const SPLAT_TEX_WIDTH_MASK = SPLAT_TEX_WIDTH - 1;
 export const SPLAT_TEX_HEIGHT_MASK = SPLAT_TEX_HEIGHT - 1;
 export const SPLAT_TEX_DEPTH_MASK = SPLAT_TEX_DEPTH - 1;
 
-// Enable/disable Gsplat sorting via Rust WASM code. In testing the sorting
-// time between pure JS and WASM are minimal and don't make a big difference.
-
-export const WASM_SPLAT_SORT = true;
-
-// Enable/disable compiling a dedicated parse function per element type
-// in the plyReader.
-
-export const USE_COMPILED_PARSER_FUNCTION = true;
-
 export enum SplatFileType {
   PLY = "ply",
   SPZ = "spz",
@@ -53,14 +43,14 @@ export enum SplatFileType {
 }
 
 export type SplatEncoding = {
-  rgbMin?: number;
-  rgbMax?: number;
-  lnScaleMin?: number;
-  lnScaleMax?: number;
-  sh1Max?: number;
-  sh2Max?: number;
-  sh3Max?: number;
-  lodOpacity?: boolean;
+  rgbMin: number;
+  rgbMax: number;
+  lnScaleMin: number;
+  lnScaleMax: number;
+  sh1Max: number;
+  sh2Max: number;
+  sh3Max: number;
+  lodOpacity: boolean;
 };
 
 export const DEFAULT_SPLAT_ENCODING: SplatEncoding = {
@@ -75,54 +65,54 @@ export const DEFAULT_SPLAT_ENCODING: SplatEncoding = {
 };
 
 export type RadMeta = {
-  version: number;
-  type: string;
-  count: number;
-  maxSh?: number;
-  lodTree?: boolean;
-  chunkSize?: number;
-  chunks: {
-    offset: number;
-    bytes: number;
-    base?: number;
-    count?: number;
-    filename?: string;
+  readonly version: number;
+  readonly type: string;
+  readonly count: number;
+  readonly maxSh?: number;
+  readonly lodTree?: boolean;
+  readonly chunkSize?: number;
+  readonly chunks: {
+    readonly offset: number;
+    readonly bytes: number;
+    readonly base?: number;
+    readonly count?: number;
+    readonly filename?: string;
   }[];
-  splatEncoding?: SplatEncoding;
+  readonly splatEncoding?: SplatEncoding;
 };
 
 export type PackedExtra = {
-  sh1?: Uint32Array;
-  sh2?: Uint32Array;
-  sh3?: Uint32Array;
-  sh1Codes?: Uint32Array;
-  sh2Codes?: Uint32Array;
-  sh3Codes?: Uint32Array;
-  lodTree?: Uint32Array;
-  radMeta?: RadMeta;
+  readonly sh1?: Uint32Array;
+  readonly sh2?: Uint32Array;
+  readonly sh3?: Uint32Array;
+  readonly sh1Codes?: Uint32Array;
+  readonly sh2Codes?: Uint32Array;
+  readonly sh3Codes?: Uint32Array;
+  readonly lodTree?: Uint32Array;
+  readonly radMeta?: RadMeta;
 };
 
 export type PackedResult = {
-  numSplats: number;
-  packedArray: Uint32Array;
-  extra: PackedExtra;
-  splatEncoding: SplatEncoding;
+  readonly numSplats: number;
+  readonly packedArray: Uint32Array;
+  readonly extra: PackedExtra;
+  readonly splatEncoding: SplatEncoding;
 };
 
 export type ExtExtra = {
-  sh1?: Uint32Array;
-  sh2?: Uint32Array;
-  sh3a?: Uint32Array;
-  sh3b?: Uint32Array;
-  sh1Codes?: Uint32Array;
-  sh2Codes?: Uint32Array;
-  sh3Codes?: [Uint32Array, Uint32Array];
-  lodTree?: Uint32Array;
-  radMeta?: RadMeta;
+  readonly sh1?: Uint32Array;
+  readonly sh2?: Uint32Array;
+  readonly sh3a?: Uint32Array;
+  readonly sh3b?: Uint32Array;
+  readonly sh1Codes?: Uint32Array;
+  readonly sh2Codes?: Uint32Array;
+  readonly sh3Codes?: [Uint32Array, Uint32Array];
+  readonly lodTree?: Uint32Array;
+  readonly radMeta?: RadMeta;
 };
 
 export type ExtResult = {
-  numSplats: number;
-  extArrays: [Uint32Array, Uint32Array];
-  extra: ExtExtra;
+  readonly numSplats: number;
+  readonly extArrays: [Uint32Array, Uint32Array];
+  readonly extra: ExtExtra;
 };
