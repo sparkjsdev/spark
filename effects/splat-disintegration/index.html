@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark • Splat Disintegration</title>
+  <style>
+    html, body { margin: 0; height: 100%; width: 100%; background-color: black; }
+    canvas { touch-action: none; display: block; }
+  </style>
+</head>
+
+<body>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/examples/js/vendor/three/build/three.module.js",
+        "three/addons/": "/examples/js/vendor/three/examples/jsm/",
+        "lil-gui": "/examples/js/vendor/lil-gui/dist/lil-gui.esm.js",
+        "@sparkjsdev/spark": "/dist/spark.module.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { SparkRenderer, SplatMesh, SparkControls, dyno } from "@sparkjsdev/spark";
+    import { GUI } from "lil-gui";
+    import { getAssetFileURL } from "/examples/js/get-asset-url.js";
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(
+      50,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      100
+    );
+    camera.position.set(0, 0, 6);
+    camera.lookAt(0, 0, 0);
+
+    const canvas = document.createElement("canvas");
+    document.body.appendChild(canvas);
+
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x000000, 1);
+
+    const spark = new SparkRenderer({ renderer });
+    scene.add(spark);
+
+    const controls = new SparkControls({ canvas: renderer.domElement });
+    controls.fpsMovement.enable = false;
+
+    window.addEventListener("resize", () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    const splatAssets = {
+      "Furry Logo": { file: "furry-logo-pedestal.spz", offsetY: 0 },
+      "Cat": { file: "cat.spz", offsetY: -1.5 },
+      "Penguin": { file: "penguin.spz", offsetY: -1.5 },
+    };
+
+    let splatMesh = null;
+
+    const time = dyno.dynoFloat(0);
+    const speed = dyno.dynoFloat(0.5);
+    const burstRadius = dyno.dynoFloat(2.0);
+    const offsetY = dyno.dynoFloat(0);
+    const params = { splat: "Furry Logo", speed: 0.5, burstRadius: 2.0 };
+    let accumulatedTime = 0;
+    let lastT = 0;
+
+    function buildDisintegrationModifier() {
+      return dyno.dynoBlock(
+      { gsplat: dyno.Gsplat },
+      { gsplat: dyno.Gsplat },
+      ({ gsplat }) => {
+        const d = new dyno.Dyno({
+          inTypes: { gsplat: dyno.Gsplat, t: "float", burstRadius: "float", offsetY: "float" },
+          outTypes: { gsplat: dyno.Gsplat },
+          globals: () => [
+            dyno.unindent(`
+              vec3 hash(vec3 p) {
+                return fract(sin(p * 123.456) * 123.456);
+              }
+              mat2 rot(float a) {
+                float s = sin(a), c = cos(a);
+                return mat2(c, -s, s, c);
+              }
+            `)
+          ],
+          statements: ({ inputs, outputs }) => dyno.unindentLines(`
+            ${outputs.gsplat} = ${inputs.gsplat};
+            vec3 pos = ${inputs.gsplat}.center;
+            vec3 rnd = hash(pos);
+            float delay = rnd.x;
+            float t = mod(${inputs.t}, 8.);
+            pos.xz *= rot(t*.2);
+            float progress = clamp((t - delay) - pos.y - 3. + ${inputs.offsetY}, 0.0, 1.0);
+            vec3 dir = normalize(vec3(-rnd.x*.5, -rnd.y*.3, rnd.z - 0.5));
+            float dist = progress * ${inputs.burstRadius};
+            vec3 newPos = pos + dir * dist;
+//            ${outputs.gsplat}.rgba.rgb = mix(${outputs.gsplat}.rgba.rgb, vec3(1.0, 1.0, 1.0), progress*2.);
+            ${outputs.gsplat}.scales *= 1.0 - progress*.5;
+            ${outputs.gsplat}.center = newPos;
+            ${outputs.gsplat}.rgba.a *= 1.0 - progress;
+          `),
+        });
+        gsplat = d.apply({ gsplat, t: time, burstRadius, offsetY }).gsplat;
+        return { gsplat };
+      }
+    );
+    }
+
+    async function loadSplat(name) {
+      if (splatMesh) {
+        scene.remove(splatMesh);
+      }
+      const { file: fileName, offsetY: splatOffsetY } = splatAssets[name];
+      offsetY.value = splatOffsetY;
+      const splatURL = await getAssetFileURL(fileName);
+      splatMesh = new SplatMesh({ url: splatURL });
+      splatMesh.position.set(0, splatOffsetY, 0);
+      splatMesh.quaternion.set(1, 0, 0, 0);
+      await splatMesh.initialized;
+      splatMesh.objectModifier = buildDisintegrationModifier();
+      splatMesh.updateGenerator();
+      scene.add(splatMesh);
+      accumulatedTime = 0;
+      lastT = 0;
+    }
+
+    await loadSplat(params.splat);
+
+    const gui = new GUI();
+    gui.add(params, "splat", Object.keys(splatAssets)).name("Splat").onChange((v) => loadSplat(v));
+    gui.add(params, "speed", 0.1, 1, 0.1).name("Speed").onChange((v) => {
+      speed.value = v;
+    });
+    gui.add(params, "burstRadius", 0.5, 5, 0.1).name("Burst Radius").onChange((v) => {
+      burstRadius.value = v;
+      if (splatMesh) splatMesh.updateVersion();
+    });
+    gui.add({ resetTime: () => { accumulatedTime = 0; lastT = 0; } }, "resetTime").name("Reset Time");
+
+    if (window.matchMedia("(max-width: 768px)").matches) {
+      gui.close();
+    }
+
+    renderer.setAnimationLoop((t) => {
+      if (lastT === 0) lastT = t;
+      const deltaSeconds = (t - lastT) * 0.001;
+      accumulatedTime += deltaSeconds * speed.value;
+      lastT = t;
+      time.value = accumulatedTime;
+      if (splatMesh) splatMesh.updateVersion();
+      controls.update(camera);
+      renderer.render(scene, camera);
+    });
+  </script>
+</body>
+
+</html>

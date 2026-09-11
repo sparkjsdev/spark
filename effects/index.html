@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark • Effects</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+
+    :root {
+      --bg: #0a0a0a;
+      --panel: #111111;
+      --card-footer: #1e1e1e;
+      --accent: #48a8ff;
+      --text: #e8e8e8;
+    }
+
+    .layout {
+      display: flex;
+      height: 100%;
+      background: var(--bg);
+    }
+
+    /* Three.js–style nav panel */
+    .nav-panel {
+      width: 280px;
+      flex-shrink: 0;
+      background: var(--panel);
+      border-right: 1px solid #222;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      z-index: 200;
+    }
+
+    .nav-scroll {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 10px 10px 20px;
+      scrollbar-width: thin;
+      scrollbar-color: #444 var(--panel);
+    }
+    .nav-scroll::-webkit-scrollbar {
+      width: 8px;
+    }
+    .nav-scroll::-webkit-scrollbar-track {
+      background: var(--panel);
+    }
+    .nav-scroll::-webkit-scrollbar-thumb {
+      background: #444;
+      border-radius: 0;
+    }
+
+    .thumb-card {
+      margin-bottom: 12px;
+      cursor: pointer;
+      border-radius: 0;
+      overflow: hidden;
+      border: 1px solid #2a2a2a;
+      background: #0d0d0d;
+      transition: border-color 0.15s ease;
+    }
+    .thumb-card:hover {
+      border-color: #555;
+    }
+    .thumb-card.active {
+      border-color: var(--accent);
+    }
+    .thumb-card.inert {
+      cursor: default;
+      opacity: 0.85;
+    }
+    .thumb-card.inert:hover {
+      border-color: #2a2a2a;
+    }
+
+    .thumb-img-wrap {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      overflow: hidden;
+      background: #000;
+    }
+    .thumb-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .thumb-label {
+      padding: 8px 10px;
+      background: var(--card-footer);
+      font-family: inherit;
+      font-size: 12px;
+      line-height: 1.35;
+      color: var(--text);
+      word-break: break-all;
+    }
+    .thumb-card.active .thumb-label {
+      color: #fff;
+    }
+
+    .frame-wrap {
+      flex: 1;
+      min-width: 0;
+      background: #000;
+      position: relative;
+    }
+    .frame-wrap iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      display: block;
+    }
+
+    .action-buttons {
+      position: fixed;
+      bottom: 16px;
+      right: 16px;
+      display: flex;
+      flex-direction: row;
+      gap: 12px;
+      z-index: 999;
+    }
+    .action-button {
+      padding: 12px;
+      border-radius: 50%;
+      background-color: #D43E4C;
+      opacity: 0.9;
+      box-shadow: 0 0 4px rgba(0, 0, 0, 0.15);
+      text-decoration: none;
+      transition: opacity 0.2s ease;
+    }
+    .action-button:hover {
+      opacity: 1;
+    }
+    .action-button.is-disabled {
+      opacity: 0.35;
+      pointer-events: none;
+    }
+
+    .burger {
+      display: none;
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      z-index: 300;
+      width: 44px;
+      height: 44px;
+      padding: 0;
+      border: 1px solid #333;
+      background: rgba(17, 17, 17, 0.92);
+      color: var(--text);
+      cursor: pointer;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .burger span {
+      display: block;
+      width: 18px;
+      height: 2px;
+      background: var(--text);
+      border-radius: 0;
+    }
+    .burger[aria-expanded="true"] span:nth-child(1) {
+      transform: translateY(7px) rotate(45deg);
+    }
+    .burger[aria-expanded="true"] span:nth-child(2) {
+      opacity: 0;
+    }
+    .burger[aria-expanded="true"] span:nth-child(3) {
+      transform: translateY(-7px) rotate(-45deg);
+    }
+
+    .nav-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.55);
+      z-index: 150;
+    }
+    .nav-backdrop.is-open {
+      display: block;
+    }
+
+    @media (max-width: 768px) {
+      .burger {
+        display: flex;
+      }
+      .layout {
+        flex-direction: row;
+      }
+      .nav-panel {
+        position: fixed;
+        top: 0;
+        left: 0;
+        height: 100%;
+        max-width: min(300px, 92vw);
+        transform: translateX(-100%);
+        transition: transform 0.22s ease;
+        box-shadow: 8px 0 24px rgba(0, 0, 0, 0.45);
+      }
+      .nav-panel.is-open {
+        transform: translateX(0);
+      }
+      .frame-wrap {
+        width: 100%;
+      }
+    }
+
+    @media (min-width: 769px) {
+      .nav-backdrop {
+        display: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <button
+    type="button"
+    class="burger"
+    id="burger"
+    aria-label="Open effects menu"
+    aria-expanded="false"
+    aria-controls="navPanel"
+  >
+    <span></span>
+    <span></span>
+    <span></span>
+  </button>
+  <div class="nav-backdrop" id="navBackdrop" aria-hidden="true"></div>
+  <div class="layout">
+    <aside class="nav-panel" id="navPanel" aria-label="Effects list">
+      <div class="nav-scroll" id="navScroll"></div>
+    </aside>
+    <div class="frame-wrap">
+      <iframe id="frame" src="about:blank" title="Effect"></iframe>
+    </div>
+  </div>
+  <div class="action-buttons" aria-label="Effect actions">
+    <a
+      class="action-button code-button is-disabled"
+      id="effectCodeButton"
+      target="_blank"
+      rel="noopener noreferrer"
+      title="View source code for this effect on GitHub"
+      aria-label="View source code for this effect on GitHub"
+      href="#"
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" style="display:block;">
+        <path fill="none" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m9 8l-4 4l4 4m6-8l4 4l-4 4"/>
+      </svg>
+    </a>
+  </div>
+  <script>
+    const frame = document.getElementById('frame');
+    const navScroll = document.getElementById('navScroll');
+    const navPanel = document.getElementById('navPanel');
+    const navBackdrop = document.getElementById('navBackdrop');
+    const burger = document.getElementById('burger');
+    const effectCodeButton = document.getElementById('effectCodeButton');
+
+    const GITHUB_EFFECTS_BASE =
+      'https://github.com/sparkjsdev/spark/blob/main/effects';
+
+    const mqMobile = window.matchMedia('(max-width: 768px)');
+
+    function closeMobileNav() {
+      navPanel.classList.remove('is-open');
+      navBackdrop.classList.remove('is-open');
+      burger.setAttribute('aria-expanded', 'false');
+      burger.setAttribute('aria-label', 'Open effects menu');
+    }
+
+    function openMobileNav() {
+      navPanel.classList.add('is-open');
+      navBackdrop.classList.add('is-open');
+      burger.setAttribute('aria-expanded', 'true');
+      burger.setAttribute('aria-label', 'Close effects menu');
+    }
+
+    function toggleMobileNav() {
+      if (navPanel.classList.contains('is-open')) {
+        closeMobileNav();
+      } else {
+        openMobileNav();
+      }
+    }
+
+    burger.addEventListener('click', () => {
+      if (!mqMobile.matches) {
+        return;
+      }
+      toggleMobileNav();
+    });
+
+    navBackdrop.addEventListener('click', closeMobileNav);
+
+    mqMobile.addEventListener('change', (e) => {
+      if (!e.matches) {
+        closeMobileNav();
+      }
+    });
+
+    function updateGithubSourceLink(effectPath) {
+      if (!effectCodeButton) {
+        return;
+      }
+      if (!effectPath) {
+        effectCodeButton.classList.add('is-disabled');
+        effectCodeButton.href = '#';
+        effectCodeButton.setAttribute('aria-disabled', 'true');
+        return;
+      }
+      effectCodeButton.classList.remove('is-disabled');
+      effectCodeButton.removeAttribute('aria-disabled');
+      effectCodeButton.href = `${GITHUB_EFFECTS_BASE}/${effectPath}/index.html`;
+    }
+
+    function selectEffect(path) {
+      if (!path) {
+        return;
+      }
+      frame.src = path + '/index.html';
+      setActiveByPath(path);
+      updateGithubSourceLink(path);
+      if (mqMobile.matches) {
+        closeMobileNav();
+      }
+    }
+
+    function setActiveByPath(path) {
+      const cards = navScroll.querySelectorAll('.thumb-card:not(.inert)');
+      for (let j = 0; j < cards.length; j++) {
+        const card = cards[j];
+        card.classList.toggle('active', card.dataset.path === path);
+      }
+    }
+
+    async function init() {
+      const res = await fetch('effects.json');
+      const items = await res.json();
+
+      let firstEffectPath = null;
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const card = document.createElement('div');
+        card.className = 'thumb-card' + (item.path === '' ? ' inert' : '');
+        if (item.path !== '') {
+          card.dataset.path = item.path;
+        }
+
+        const imgWrap = document.createElement('div');
+        imgWrap.className = 'thumb-img-wrap';
+        const img = document.createElement('img');
+        img.className = 'thumb-img';
+        img.src = 'thumbnails/' + item.thumb_filename;
+        img.alt = item.title;
+        img.loading = 'lazy';
+        imgWrap.appendChild(img);
+
+        card.appendChild(imgWrap);
+        if (item.path !== '') {
+          const label = document.createElement('div');
+          label.className = 'thumb-label';
+          label.textContent = item.title;
+          card.appendChild(label);
+          if (!firstEffectPath) {
+            firstEffectPath = item.path;
+          }
+          card.addEventListener('click', () => {
+            selectEffect(item.path);
+          });
+        }
+
+        navScroll.appendChild(card);
+      }
+
+      if (firstEffectPath) {
+        selectEffect(firstEffectPath);
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
