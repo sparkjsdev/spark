@@ -1,3 +1,46 @@
+## 2.2.0 (Sep 11, 2026)
+
+Bug fixes and polish
+
+### Enhancements
+
+- Allow people to install the pre-built bundles from the repository directly without having to have the Rust toolchain setup on their machines (#354) (@mrxz)
+- Experimental (opt-in) faster LoD splat traversal algorithm (#344) (@asundqui, @mrxz)
+- Set provoking vertex to first explicitly if WEBGL_provoking_vertex extension is available. FPS perf gains up to 14% in some systems / configurations (#357) (@mrxz, @asundqui)
+- Clean up. Remove OldSparkRenderer and related classes (#322) (@mrxz)
+- Infer `encodeLinear` from the current render target instead of explicitly set (#360) (@mrxz)
+- Combine spark-worker-rs and spark-rs into one. Wasm blob is now embedded once and WASM module is compiled only once. (#335) (@mrxz)
+- Improve splat sorting. Up to ~20% faster (#327) (@39ali, @mrxz, @asundqui)
+- Prevent superfluous initial data upload to GPU (#358) (@mrxz, @asundqui)
+- Add WASM build step to CI dist build. (#377) (@mrxz)
+- Fix issue where Spark continues fetching and decoding the LoD chunks of the old scene after scene changes (fix #384) (#392) (@mrxz, @ChiefGnome, @ayamflow)
+- Handle `preUpdate` ahead of updating material uniforms to avoid 1 frame latency (fixes #390) (#391) (@mrxz, @peterreeves)
+- Add `gsplatXaxis`, `gsplatYAxis` and `gsplatZAxis` helper dynos indicating unit vector along splat axis (#419) (@asundqui, @oscarlorentzon)
+- Opt-in parameters to omit splat formats, splat representations and LOD generation methods from the WASM blob reducing its size (@mrxz, @asundqui) (#418)
+- Add `rust/`` folder to `build-dist.yml` paths (#412) (@mrxz)
+- Use type information of rpcHandlers for worker.call (#379) (@mrxz)
+- Call super.dispose() in Object3D subclasses for THREE.js r186+ (#413) (@mrxz)
+- Remove JS based splat file format decoders in favor ot Rust ones (#374) (@mrxz)
+- Add GLSL langauge hint before shader string literals for code editor syntax higlighting (@mrxz) (#416)
+- Unify logic to push data into decoder around `ReadableStream` (#380) (@mrxz)
+- Docs Improvements (@mrxz, @dmarcos)
+
+### Bug Fixes
+
+- Fix unspecified license ot rust code (#422) (@arslantariq-threshold)
+- Adress Rust compiler warnings (#361) (@mrxz)
+- Replace THREE.Clock (deprecated in THREE r183+) with THREE.Timer (#378) (@mrxz)
+- Replace explicit WebGL calls with equivalent `uploadU32DataTextureRows` call. Makes WebGL state consisten (fix #405) (#406) (@sawa-zen, @mrxz)
+- Fix RangeError when all SH arrays are present (#404) (@marwie, @mrxz)
+- Use uploadU32DataTextureRows for LoD index uploads (fix #405) (#406) (@sawa-zen, @mrxz)
+- Pass fileType to SplatPager when constructing SplatMesh (fix #363) (#365) (@mrxz, @fuxy-clude)
+- Prevent unclamped negative colors become NaN making splats render black (fix #386) (#387) (@viethungle0503, @mrxz)
+- Restore `pixelStorei` value since THREE r184+ now caches it (fix #366) (#367) (@mrxz, @Huciko)
+- Fix envmap regression. Save and restore activeCubeFace and activeMipmapLevel when rendering to render target (#315) (@mrxz)
+- Fix build-lod SH degree clamping logic (fix #352) (#359) (@asundqui, @mrxz)
+
+
+
 ## 2.1.0 (Apr 18, 2026)
 
 Bug fixes and adjustments post 2.0.0 release.
