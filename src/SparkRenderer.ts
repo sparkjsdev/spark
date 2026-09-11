@@ -134,9 +134,9 @@ export interface SparkRendererOptions {
    */
   falloff?: number;
   /**
-   * X/Y clipping boundary factor for Gsplat centers against view frustum.
-   * 1.0 clips any centers that are exactly out of bounds, while 1.4 clips
-   * centers that are 40% beyond the bounds.
+   * X/Y clipping boundary factor, in NDC, for projected Gsplat footprints.
+   * 1.0 retains footprints overlapping the view bounds, while 1.4 retains
+   * footprints overlapping bounds expanded by 40%.
    * @default 1.4
    */
   clipXY?: number;
@@ -648,7 +648,7 @@ export class SparkRenderer extends THREE.Mesh {
       // Modulate Gaussian kernal falloff. 0 means "no falloff, flat shading",
       // 1 is normal e^-x^2 falloff.
       falloff: { value: 1.0 },
-      // Clip Gsplats that are clipXY times beyond the +-1 frustum bounds
+      // Cull projected Gsplat footprints outside clipXY times the +-1 frustum bounds
       clipXY: { value: 1.4 },
       // Debug renderSize scale factor
       focalAdjustment: { value: 1.0 },

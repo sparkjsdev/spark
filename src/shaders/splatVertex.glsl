@@ -140,11 +140,6 @@ void main() {
         return;
     }
 
-    // Discard splats more than clipXY times outside the XY frustum
-    float clip = clipXY * clipCenter.w;
-    if (abs(clipCenter.x) > clip || abs(clipCenter.y) > clip) {
-        return;
-    }
 
     vRgba = rgba;
     vSplatUv = position.xy * adjustedStdDev;
@@ -157,6 +152,8 @@ void main() {
         vec4 viewQuaternion = quatQuat(renderToViewQuat, quaternion);
 
         if (enable2DGS && any(zeroScales)) {
+            // This path has no projected-covariance bound. Defer XY clipping to GPU
+            // primitive clipping rather than reject an overlapping 2DGS by its center.
             vec3 offset;
             if (zeroScales.z) {
                 offset = vec3(vSplatUv.xy * scales.xy, 0.0);
@@ -260,12 +257,24 @@ void main() {
         return;
     }
 
-    // Compute the NDC coordinates for the ellipsoid's diagonal axes.
-    vec2 pixelOffset = position.x * eigenVec1 * scale1 + position.y * eigenVec2 * scale2;
-    vec2 ndcOffset = (2.0 / scaledRenderSize) * pixelOffset;
+    // Compute an axis-aligned NDC bound for the rendered ellipse. Its eigen axes
+    // already include adjustedStdDev, blur, focal adjustment, and pixel-radius clamps.
+    vec2 axis1 = eigenVec1 * scale1;
+    vec2 axis2 = eigenVec2 * scale2;
+    vec2 ndcScale = 2.0 / scaledRenderSize;
+    vec2 ndcExtent = abs(ndcScale) * sqrt(axis1 * axis1 + axis2 * axis2);
+    // Pad by at least one projected pixel; the floor covers extreme scales where
+    // float32 rounding could otherwise turn a boundary overlap into a rejection.
+    vec2 ndcCullPadding = max(abs(ndcScale), vec2(1e-6));
 
-    // Compute NDC center of the splat
+    // Discard only when the complete projected footprint misses the XY boundary.
     vec3 ndcCenter = clipCenter.xyz / clipCenter.w;
+    if (any(greaterThan(abs(ndcCenter.xy), vec2(clipXY) + ndcExtent + ndcCullPadding))) {
+        return;
+    }
+
+    vec2 pixelOffset = position.x * axis1 + position.y * axis2;
+    vec2 ndcOffset = ndcScale * pixelOffset;
     vec3 ndc = vec3(ndcCenter.xy + ndcOffset, ndcCenter.z);
 
     vNdc = ndc;
