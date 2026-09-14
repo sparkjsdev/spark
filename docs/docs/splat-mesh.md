@@ -141,13 +141,13 @@ Additional properties on a `SplatMesh` instance:
 
 Call this when you are finished with the `SplatMesh` and want to free any buffers it holds (via `packedSplats`).
 
-## `pushSplat(center, scales, quaternion, opacity, color)`
+## `pushSplat(center, scales, quaternion, opacity, color, sphericalHarmonics?)`
 
 Creates a new splat with the provided parameters (all values in "float" space, i.e. 0-1 for opacity and color) and adds it to the end of the `packedSplats`, increasing `numSplats` by 1. If necessary, reallocates the buffer with an exponential doubling strategy to fit the new data, so it's fairly efficient to `pushSplat(...)` each splat you want to create in a loop.
 
-## `forEachSplat(callback: (index, center, scales, quaternion, opacity, color) => void)`
+## `forEachSplat(callback: (index, center, scales, quaternion, opacity, color, sphericalHarmonics) => void)`
 
-This method iterates over all splats in this instance's `packedSplats`, invoking the provided callback with `index: number` in `0..=(this.numSplats-1)`, `center: THREE.Vector3`, `scales: THREE.Vector3`, `quaternion: THREE.Quaternion`, `opacity: number` (0..1), and `color: THREE.Color` (rgb values in 0..1). Note that the objects passed in as `center` etc. are the same for every callback invocation: they are reused for efficiency. *Changing these values has no effect* as they are decoded/unpacked copies of the underlying data. To update the `packedSplats`, call `.packedSplats.setSplat(index, center, scales, quaternion, opacity, color)`.
+This method iterates over all splats in this instance's `packedSplats`, invoking the provided callback with `index: number` in `0..=(this.numSplats-1)`, `center: THREE.Vector3`, `scales: THREE.Vector3`, `quaternion: THREE.Quaternion`, `opacity: number` (0..1), `color: THREE.Color` (rgb values in 0..1), and decoded `sphericalHarmonics`. Note that the objects passed in as `center` etc. are the same for every callback invocation: these objects are reused for efficiency. *Changing these values has no effect* as they are decoded/unpacked copies of the underlying data. To update the `packedSplats`, call `.packedSplats.setSplat(index, center, scales, quaternion, opacity, color, sphericalHarmonics)`.
 
 
 ## `getBoundingBox(centers_only=true)`

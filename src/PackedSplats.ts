@@ -2,6 +2,11 @@ import * as THREE from "three";
 import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 
 import type { RgbaArray } from "./RgbaArray";
+import type {
+  ForEachSplatCallback,
+  SplatSphericalHarmonics,
+  UnpackedSplat,
+} from "./SplatData";
 import type { GsplatGenerator } from "./SplatGenerator";
 import { SplatLoader } from "./SplatLoader";
 import type { SplatSource } from "./SplatMesh";
@@ -44,7 +49,14 @@ import {
   splitGsplat,
 } from "./dyno/splats";
 import { getShaders } from "./shaders";
-import { getTextureSize, setPackedSplat, unpackSplat } from "./utils";
+import {
+  encodeSh1Rgb,
+  encodeSh2Rgb,
+  encodeSh3Rgb,
+  getTextureSize,
+  setPackedSplat,
+  unpackSplat,
+} from "./utils";
 
 // Initialize a PackedSplats collection from source data via
 // url, fileBytes, or packedArray. Creates an empty array if none are set,
@@ -527,17 +539,11 @@ export class PackedSplats implements SplatSource {
   // Unpack the 16-byte Gsplat data at index into the Three.js components
   // center: THREE.Vector3, scales: THREE.Vector3, quaternion: THREE.Quaternion,
   // opacity: number 0..1, color: THREE.Color 0..1.
-  getSplat(index: number): {
-    center: THREE.Vector3;
-    scales: THREE.Vector3;
-    quaternion: THREE.Quaternion;
-    opacity: number;
-    color: THREE.Color;
-  } {
+  getSplat(index: number): UnpackedSplat {
     if (!this.packedArray || index >= this.numSplats) {
       throw new Error("Invalid index");
     }
-    return unpackSplat(this.packedArray, index, this.splatEncoding);
+    return unpackSplat(this.packedArray, index, this.splatEncoding, this.extra);
   }
 
   // Set all PackedSplat components at index with the provided Gsplat attributes
@@ -550,6 +556,7 @@ export class PackedSplats implements SplatSource {
     quaternion: THREE.Quaternion,
     opacity: number,
     color: THREE.Color,
+    sphericalHarmonics?: SplatSphericalHarmonics,
   ) {
     const packedSplats = this.ensureSplats(index + 1);
     setPackedSplat(
@@ -570,7 +577,34 @@ export class PackedSplats implements SplatSource {
       color.g,
       color.b,
     );
+    this.setSplatSphericalHarmonics(index, sphericalHarmonics);
     this.numSplats = Math.max(this.numSplats, index + 1);
+  }
+
+  private setSplatSphericalHarmonics(
+    index: number,
+    sphericalHarmonics?: SplatSphericalHarmonics,
+  ) {
+    if (!sphericalHarmonics) {
+      return;
+    }
+    if (sphericalHarmonics.sh1) {
+      const sh1 = this.ensureSplatsSh(1, index + 1);
+      sh1.fill(0, index * 2, index * 2 + 2);
+      encodeSh1Rgb(sh1, index, sphericalHarmonics.sh1, this.splatEncoding);
+    }
+    if (sphericalHarmonics.sh2) {
+      this.ensureSplatsSh(1, index + 1);
+      const sh2 = this.ensureSplatsSh(2, index + 1);
+      encodeSh2Rgb(sh2, index, sphericalHarmonics.sh2, this.splatEncoding);
+    }
+    if (sphericalHarmonics.sh3) {
+      this.ensureSplatsSh(1, index + 1);
+      this.ensureSplatsSh(2, index + 1);
+      const sh3 = this.ensureSplatsSh(3, index + 1);
+      sh3.fill(0, index * 4, index * 4 + 4);
+      encodeSh3Rgb(sh3, index, sphericalHarmonics.sh3, this.splatEncoding);
+    }
   }
 
   // Effectively calls this.setSplat(this.numSplats++, center, ...), useful on
@@ -581,6 +615,7 @@ export class PackedSplats implements SplatSource {
     quaternion: THREE.Quaternion,
     opacity: number,
     color: THREE.Color,
+    sphericalHarmonics?: SplatSphericalHarmonics,
   ) {
     const packedSplats = this.ensureSplats(this.numSplats + 1);
     setPackedSplat(
@@ -601,26 +636,23 @@ export class PackedSplats implements SplatSource {
       color.g,
       color.b,
     );
+    this.setSplatSphericalHarmonics(this.numSplats, sphericalHarmonics);
     ++this.numSplats;
   }
 
   // Iterate over Gsplats index 0..=(this.numSplats-1), unpack each Gsplat
   // and invoke the callback function with the Gsplat attributes.
-  forEachSplat(
-    callback: (
-      index: number,
-      center: THREE.Vector3,
-      scales: THREE.Vector3,
-      quaternion: THREE.Quaternion,
-      opacity: number,
-      color: THREE.Color,
-    ) => void,
-  ) {
+  forEachSplat(callback: ForEachSplatCallback) {
     if (!this.packedArray || !this.numSplats) {
       return;
     }
     for (let i = 0; i < this.numSplats; ++i) {
-      const unpacked = unpackSplat(this.packedArray, i, this.splatEncoding);
+      const unpacked = unpackSplat(
+        this.packedArray,
+        i,
+        this.splatEncoding,
+        this.extra,
+      );
       callback(
         i,
         unpacked.center,
@@ -628,6 +660,7 @@ export class PackedSplats implements SplatSource {
         unpacked.quaternion,
         unpacked.opacity,
         unpacked.color,
+        unpacked.sphericalHarmonics,
       );
     }
   }

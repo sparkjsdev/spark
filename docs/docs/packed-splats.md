@@ -62,7 +62,7 @@ Utility functions are provided in Javascript to pack/unpack these encodings:
 ```javascript
 
 // Set via packedSplats interface
-packedSplats.setSplat(index, center, scales, quaternion, opacity, color);
+packedSplats.setSplat(index, center, scales, quaternion, opacity, color, sphericalHarmonics);
 
 // Set underlying Uint32 array directly
 import { utils } from "@sparkjsdev/spark";
@@ -72,15 +72,15 @@ utils.setPackedSplat(packedSplats.packedArray, index, x, y, z, scaleX, scaleY, .
 utils.setPackedSplatQuat(packedSplats.packedArray, index, quatX, quatY, quatZ, quatW);
 
 // Unpack all splat components from the Uint32 array
-const { center, scales, quaternion, color, opacity } = utils.unpackSplat(packedSplats.packedArray, index);
+const { center, scales, quaternion, color, opacity, sphericalHarmonics } = utils.unpackSplat(packedSplats.packedArray, index, packedSplats.splatEncoding, packedSplats.extra);
 
 // Unpack all splats with callback
-packedSplats.forEachSplat((index, center, scales, quaternion, opacity, color) => {
+packedSplats.forEachSplat((index, center, scales, quaternion, opacity, color, sphericalHarmonics) => {
     // Use unpacked splat data. Changing the inputs directly has no effect.
     // Update just the scales component
     utils.setPackedSplatScales(packedSplat.packedArray, index, 0.005, 0.01, 0.015);
     // Update the entire splat
-    packedSplat.setSplat(index, center, scales, quaternion, opacity, color);
+    packedSplat.setSplat(index, center, scales, quaternion, opacity, color, sphericalHarmonics);
 });
 ```
 
@@ -175,19 +175,19 @@ Ensures that `this.packedArray` can fit `numSplats` splats. If it's too small, r
 
 Typically you don't need to call this, because calling `this.setSplat(index, ...)` and `this.pushSplat(...)` will automatically call `ensureSplats()` so we have enough splats.
 
-### `getSplat(index): { center, scales, quaternion, opacity, color }`
+### `getSplat(index): { center, scales, quaternion, opacity, color, sphericalHarmonics }`
 
-Unpack the 16-byte splat data at `index` into the THREE.js components `center: THREE.Vector3`, `scales: THREE.Vector3`, `quaternion: THREE.Quaternion`, `opacity: number 0..1`, `color: THREE.Color 0..1`.
+Unpack the splat data at `index`, including decoded `sphericalHarmonics.sh1`, `.sh2`, and `.sh3` bands when present.
 
-### `setSplat(index, center, scales, quaternion, opacity, color)`
+### `setSplat(index, center, scales, quaternion, opacity, color, sphericalHarmonics?)`
 
 Set all PackedSplat components at `index` with the provided splat attributes (can be the same objects returned by `getSplat`). Ensures there is capacity for at least `index+1` splats.
 
-### `pushSplat(center, scales, quaternion, opacity, color)`
+### `pushSplat(center, scales, quaternion, opacity, color, sphericalHarmonics?)`
 
 Effectively calls `this.setSplat(this.numSplats++, center, ...)`, useful on construction where you just want to iterate and create a collection of splats.
 
-### `forEachSplat(callback: (index, center, scales, quaternion, opacity, color) => void)`
+### `forEachSplat(callback: (index, center, scales, quaternion, opacity, color, sphericalHarmonics) => void)`
 
 Iterate over splats index `0..=(this.numSplats-1)`, unpack each splat and invoke the callback function with the splat attributes.
 

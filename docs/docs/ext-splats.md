@@ -81,7 +81,7 @@ Each `ExtSplat` occupies 8 × `uint32` total = 32 bytes.
 import { utils } from "@sparkjsdev/spark";
 
 utils.encodeExtSplat(extSplats.extArrays, index, x, y, z, sx, sy, sz, qx, qy, qz, qw, opacity, r, g, b);
-const { center, scales, quaternion, color, opacity } = utils.decodeExtSplat(extSplats.extArrays, index);
+const { center, scales, quaternion, color, opacity, sphericalHarmonics } = utils.decodeExtSplat(extSplats.extArrays, index, extSplats.extra);
 ```
 
 You can also use instance helpers: `setSplat`, `pushSplat`, `getSplat`, and `forEachSplat`.
