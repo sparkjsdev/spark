@@ -183,8 +183,12 @@ thread_local! {
     static STATE: RefCell<LodState> = RefCell::new(LodState::new());
 }
 
-fn set_lod_tree_data(state: &mut LodState, lod_id: u32, page_base: u32, _chunk_base: u32, count: u32, lod_tree_data: &Uint32Array) {
-    let lod_tree = state.lod_trees.get(&lod_id).unwrap();
+fn unknown_lod_id(lod_id: u32) -> JsValue {
+    JsValue::from_str(&format!("Unknown lod_id: {}", lod_id))
+}
+
+fn set_lod_tree_data(state: &mut LodState, lod_id: u32, page_base: u32, _chunk_base: u32, count: u32, lod_tree_data: &Uint32Array) -> Result<(), JsValue> {
+    let lod_tree = state.lod_trees.get(&lod_id).ok_or_else(|| unknown_lod_id(lod_id))?;
     let mut splats = lod_tree.splats.borrow_mut();
 
     if state.buffer.is_empty() {
@@ -218,6 +222,7 @@ fn set_lod_tree_data(state: &mut LodState, lod_id: u32, page_base: u32, _chunk_b
         }
         index += chunk;
     }
+    Ok(())
 }
 
 #[wasm_bindgen]
@@ -242,7 +247,7 @@ pub fn new_lod_tree(capacity: u32) -> Result<Object, JsValue> {
 #[wasm_bindgen]
 pub fn new_shared_lod_tree(orig_lod_id: u32) -> Result<Object, JsValue> {
     STATE.with_borrow_mut(|state| {
-        let lod_tree = state.lod_trees.get(&orig_lod_id).unwrap();
+        let lod_tree = state.lod_trees.get(&orig_lod_id).ok_or_else(|| unknown_lod_id(orig_lod_id))?;
         let splats = lod_tree.splats.clone();
         let page_to_chunk = Vec::with_capacity(lod_tree.page_to_chunk.capacity());
         let chunk_to_page = Vec::with_capacity(lod_tree.chunk_to_page.capacity());
@@ -269,7 +274,7 @@ pub fn init_lod_tree(num_splats: u32, lod_tree: Uint32Array) -> Result<Object, J
         state.lod_trees.insert(lod_id, LodTree { splats, page_to_chunk, chunk_to_page });
         state.next_id += 1;
 
-        set_lod_tree_data(state, lod_id, 0, 0, num_splats, &lod_tree);
+        set_lod_tree_data(state, lod_id, 0, 0, num_splats, &lod_tree)?;
 
         let result = Object::new();
         Reflect::set(&result, &JsValue::from_str("lodId"), &JsValue::from(lod_id)).unwrap();
@@ -285,11 +290,47 @@ pub fn dispose_lod_tree(lod_id: u32) {
     })
 }
 
+/// Debug/test introspection: returns the page<->chunk mapping tables and splat
+/// storage size of a LoD tree, or an error if the id is unknown.
+#[wasm_bindgen]
+pub fn get_lod_tree_info(lod_id: u32) -> Result<Object, JsValue> {
+    STATE.with_borrow(|state| {
+        let lod_tree = state.lod_trees.get(&lod_id)
+            .ok_or_else(|| JsValue::from_str(&format!("Unknown lod_id: {}", lod_id)))?;
+        let splats = lod_tree.splats.borrow();
+
+        let page_to_chunk = Uint32Array::new_with_length(lod_tree.page_to_chunk.len() as u32);
+        page_to_chunk.copy_from(&lod_tree.page_to_chunk);
+        let chunk_to_page = Uint32Array::new_with_length(lod_tree.chunk_to_page.len() as u32);
+        chunk_to_page.copy_from(&lod_tree.chunk_to_page);
+
+        let result = Object::new();
+        Reflect::set(&result, &JsValue::from_str("lodId"), &JsValue::from(lod_id)).unwrap();
+        Reflect::set(&result, &JsValue::from_str("numSplats"), &JsValue::from(splats.len() as u32)).unwrap();
+        Reflect::set(&result, &JsValue::from_str("sharedRefs"), &JsValue::from(Rc::strong_count(&lod_tree.splats) as u32)).unwrap();
+        Reflect::set(&result, &JsValue::from_str("pageToChunk"), &JsValue::from(page_to_chunk)).unwrap();
+        Reflect::set(&result, &JsValue::from_str("chunkToPage"), &JsValue::from(chunk_to_page)).unwrap();
+        Ok(result)
+    })
+}
+
+/// Debug/test introspection: all live LoD tree ids.
+#[wasm_bindgen]
+pub fn get_lod_tree_ids() -> Uint32Array {
+    STATE.with_borrow(|state| {
+        let mut ids: Vec<u32> = state.lod_trees.keys().copied().collect();
+        ids.sort_unstable();
+        let result = Uint32Array::new_with_length(ids.len() as u32);
+        result.copy_from(&ids);
+        result
+    })
+}
+
 #[wasm_bindgen]
 pub fn update_lod_trees(lod_ids: &[u32], page_bases: &[u32], chunk_bases: &[u32], counts: &[u32], lod_trees: &Array) -> Result<Object, JsValue> {
     STATE.with_borrow_mut(|state| {
         for (&lod_id, &page_base, &chunk_base, &count, lod_tree_data) in izip!(lod_ids, page_bases, chunk_bases, counts, lod_trees.iter()) {
-            let lod_tree = state.lod_trees.get_mut(&lod_id).unwrap();
+            let lod_tree = state.lod_trees.get_mut(&lod_id).ok_or_else(|| unknown_lod_id(lod_id))?;
             let pages = count.div_ceil(65536);
             let base_page = page_base >> 16;
             let base_chunk = chunk_base >> 16;
@@ -313,7 +354,7 @@ pub fn update_lod_trees(lod_ids: &[u32], page_bases: &[u32], chunk_bases: &[u32]
                 }
 
                 let lod_tree_data = Uint32Array::from(lod_tree_data);
-                set_lod_tree_data(state, lod_id, page_base, chunk_base, count, &lod_tree_data);
+                set_lod_tree_data(state, lod_id, page_base, chunk_base, count, &lod_tree_data)?;
             }
         }
 
@@ -372,7 +413,7 @@ fn is_resident(index: u32, instance: &LodInstance) -> bool {
 pub fn get_lod_tree_level(lod_id: u32, level: u32) -> anyhow::Result<Object, JsValue> {
     STATE.with_borrow_mut(|state| {
         let LodState { lod_trees, .. } = state;
-        let lod_tree = lod_trees.get(&lod_id).unwrap();
+        let lod_tree = lod_trees.get(&lod_id).ok_or_else(|| unknown_lod_id(lod_id))?;
         let splats = lod_tree.splats.borrow();
 
         let root_size = splats[0].size();
@@ -440,7 +481,7 @@ pub fn traverse_lod_trees(
     STATE.with_borrow_mut(|state| {
         let LodState { lod_trees, frontier, output, touched, touched_set, .. } = state;
         let instances: Vec<_> = lod_ids.iter().enumerate().map(|(index, &lod_id)| {
-            let lod_tree = lod_trees.get(&lod_id).unwrap();
+            let lod_tree = lod_trees.get(&lod_id).ok_or_else(|| unknown_lod_id(lod_id))?;
             let LodTree { splats, page_to_chunk, chunk_to_page } = &lod_tree;
             let i16 = index * 16;
             let forward = Vec3A::from_slice(&view_to_objects[(i16 + 8)..(i16 + 11)]).normalize().map(|x| -x);
@@ -451,8 +492,8 @@ pub fn traverse_lod_trees(
             let cone_dot0 = if cone_fov0s[index] > 0.0 { (0.5 * cone_fov0s[index].clamp(0.0, 180.0)).to_radians().cos() } else { 1.0 };
             let cone_dot = if cone_fovs[index] > 0.0 { (0.5 * cone_fovs[index].clamp(0.0, 180.0)).to_radians().cos() } else { 1.0 };
             let cone_dot = cone_dot.min(cone_dot0);
-            (lod_id, splats.borrow(), page_to_chunk, chunk_to_page, origin, forward, lod_scale, behind_foveate, cone_foveate, cone_dot0, cone_dot)
-        }).collect();
+            Ok((lod_id, splats.borrow(), page_to_chunk, chunk_to_page, origin, forward, lod_scale, behind_foveate, cone_foveate, cone_dot0, cone_dot))
+        }).collect::<Result<Vec<_>, JsValue>>()?;
 
         let mut num_splats = 0;
         frontier.clear();
@@ -466,6 +507,10 @@ pub fn traverse_lod_trees(
             let root_page = root_pages[inst_index];
             let root_page = if root_page == 0xFFFFFFFF { 0 } else { root_page };
             let root_index = root_page << 16;
+            if root_index as usize >= splats.len() {
+                // Root page has no data (yet); instance contributes no splats
+                continue;
+            }
             let pixel_scale = compute_pixel_scale(&splats[root_index as usize], instance);
             frontier.push((OrderedFloat(pixel_scale), inst_index as u32, root_index));
             num_splats += 1;
@@ -664,7 +709,7 @@ pub fn dynamic_traverse_lod_trees(
     STATE.with_borrow_mut(|state| {
         let LodState { lod_trees, .. } = state;
         let instances: Vec<_> = lod_ids.iter().enumerate().map(|(index, &lod_id)| {
-            let lod_tree = lod_trees.get(&lod_id).unwrap();
+            let lod_tree = lod_trees.get(&lod_id).ok_or_else(|| unknown_lod_id(lod_id))?;
             let LodTree { splats, page_to_chunk, chunk_to_page } = &lod_tree;
             let i16 = index * 16;
             let forward = Vec3A::from_slice(&view_to_objects[(i16 + 8)..(i16 + 11)]).normalize().map(|x| -x);
@@ -674,8 +719,8 @@ pub fn dynamic_traverse_lod_trees(
             let cone_foveate = cone_foveates[index];
             let cone_dot0 = if cone_fov0s[index] > 0.0 { (0.5 * cone_fov0s[index]).to_radians().cos() } else { 1.0 };
             let cone_dot = if cone_fovs[index] > 0.0 { (0.5 * cone_fovs[index]).to_radians().cos() } else { 1.0 };
-            (lod_id, splats.borrow(), page_to_chunk, chunk_to_page, origin, forward, lod_scale, behind_foveate, cone_foveate, cone_dot0, cone_dot)
-        }).collect();
+            Ok((lod_id, splats.borrow(), page_to_chunk, chunk_to_page, origin, forward, lod_scale, behind_foveate, cone_foveate, cone_dot0, cone_dot))
+        }).collect::<Result<Vec<_>, JsValue>>()?;
 
         let mut lod_chunk_max: AHashMap<u32, Vec<f32>> = AHashMap::new();
 
@@ -685,8 +730,13 @@ pub fn dynamic_traverse_lod_trees(
             let root_page = root_pages[inst_index];
             let root_page = if root_page == 0xFFFFFFFF { 0 } else { root_page };
             let root_index = root_page << 16;
-            let root_scale = compute_pixel_scale(&splats[root_index as usize], instance);
-            let frontier = vec![(root_index, root_scale)];
+            let frontier = if (root_index as usize) < splats.len() {
+                let root_scale = compute_pixel_scale(&splats[root_index as usize], instance);
+                vec![(root_index, root_scale)]
+            } else {
+                // Root page has no data (yet); instance contributes no splats
+                Vec::new()
+            };
             let instance_output = Vec::with_capacity(1000);
             outputs.push((instance_output, frontier));
 

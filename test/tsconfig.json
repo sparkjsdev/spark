@@ -1,0 +1,22 @@
+{
+  // Editor / type-check project for everything under test/ (Playwright config,
+  // specs, the in-page harness). These files run under Node (config, specs) or
+  // in the browser (browser/pages/*), so they need both the Node globals and the
+  // same Vite ambient types as src/. Nothing is emitted.
+  // Check with: npx tsc -p test/tsconfig.json
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "emitDeclarationOnly": false,
+    "declaration": false,
+    "sourceMap": false,
+    "rootDir": "..",
+    "types": [
+      "node",
+      "vite/client",
+      "vite-plugin-glsl/ext",
+      "vite-plugin-arraybuffer/types"
+    ]
+  },
+  "include": ["**/*.ts"]
+}

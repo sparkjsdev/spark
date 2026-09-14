@@ -17,6 +17,7 @@
       "site-repo",
       "docs",
       "*.backup*",
+      "test-results/",
       "examples/**/spark.module.js",
       "examples/**/*.json",
       "examples/**/pkg"

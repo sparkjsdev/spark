@@ -8,6 +8,7 @@ import {
   SplatMesh,
   SplatPager,
 } from ".";
+import { type SparkHooks, hookPoint } from "./SparkHooks";
 import { SplatAccumulator } from "./SplatAccumulator";
 import { SplatGeometry } from "./SplatGeometry";
 import { SplatWorker } from "./SplatWorker";
@@ -223,6 +224,20 @@ export interface SparkRendererOptions {
    */
   numLodFetchers?: number;
   /**
+   * How long (ms) a LoD tree for a SplatMesh that is no longer visible is kept
+   * alive before it is disposed and its paged splats are released. Trees
+   * backing meshes that are visible in the current frame are never disposed,
+   * whatever the value; `0` disposes a tree on the first LoD update after its
+   * mesh stops being visible.
+   * @default 3000
+   */
+  lodDisposeTimeoutMs?: number;
+  /**
+   * Optional instrumentation hooks for tests. See `SparkHooks`.
+   * @default undefined
+   */
+  hooks?: SparkHooks;
+  /**
    * Full-width angle in degrees of fixed foveation cone along the view direction
    * with no foveation applied (full resolution, foveate=1.0). Set to 0 to disable.
    * @default 90.0
@@ -354,7 +369,7 @@ export class SparkRenderer extends THREE.Mesh {
   readonly timer: THREE.Timer;
   private readonly ownsTimer: boolean;
   lastFrame = -1;
-  updateTimeoutId = -1;
+  updateTimeoutId: ReturnType<typeof setTimeout> | -1 = -1;
   onDirty?: () => void;
   dirty: boolean;
 
@@ -370,10 +385,12 @@ export class SparkRenderer extends THREE.Mesh {
   sortDirty = false;
   lastSortTime = 0;
   sortWorker: SplatWorker | null = null;
-  sortTimeoutId = -1;
+  sortTimeoutId: ReturnType<typeof setTimeout> | -1 = -1;
   sortedCenter = new THREE.Vector3().setScalar(Number.NEGATIVE_INFINITY);
   sortedDir = new THREE.Vector3().setScalar(0);
   readback32 = new Uint32Array(0);
+  // Uninitialized SplatMeshes whose completion will call setDirty()
+  private initWatched: WeakSet<SplatMesh> = new WeakSet();
 
   enableLod: boolean;
   enableDriveLod: boolean;
@@ -386,6 +403,8 @@ export class SparkRenderer extends THREE.Mesh {
   pagedExtSplats: boolean;
   maxPagedSplats: number;
   numLodFetchers: number;
+  lodDisposeTimeoutMs: number;
+  hooks?: SparkHooks;
   behindFoveate: number;
   coneFov0: number;
   coneFov: number;
@@ -535,6 +554,8 @@ export class SparkRenderer extends THREE.Mesh {
     const defaultPages = isMobile() ? (isIos() ? 96 : 128) : 256;
     this.maxPagedSplats = options.maxPagedSplats ?? defaultPages * 65536;
     this.numLodFetchers = options.numLodFetchers ?? 3;
+    this.lodDisposeTimeoutMs = options.lodDisposeTimeoutMs ?? 3000;
+    this.hooks = options.hooks;
     this.behindFoveate = options.behindFoveate ?? 0.2;
     this.coneFov0 = options.coneFov0 ?? 90.0;
     this.coneFov = options.coneFov ?? 120.0;
@@ -944,6 +965,24 @@ export class SparkRenderer extends THREE.Mesh {
         lodInstances: this.enableLod ? this.lodInstances : undefined,
       });
 
+    // Generators that are still loading change nothing this frame; make sure
+    // a render happens once they finish, even without a render loop.
+    for (const generator of visibleGenerators) {
+      if (
+        generator instanceof SplatMesh &&
+        !generator.isInitialized &&
+        !this.initWatched.has(generator)
+      ) {
+        this.initWatched.add(generator);
+        generator.initialized.then(
+          () => this.setDirty(),
+          () => {
+            // Load failures are reported by the mesh itself
+          },
+        );
+      }
+    }
+
     let doUpdate = true;
     const needsUpdate = viewChanged || version !== this.current.version;
     const mappingUpdated = mappingVersion !== this.display.mappingVersion;
@@ -1019,6 +1058,25 @@ export class SparkRenderer extends THREE.Mesh {
     this.sortDirty = false;
     this.lastSortTime = now;
 
+    try {
+      await this.sortInternal();
+    } catch (error) {
+      // A failed sort must not leave `sorting` stuck (which would block every
+      // later mapping change). Retry on the next frame.
+      this.sortDirty = true;
+      throw error;
+    } finally {
+      this.sorting = false;
+      this.setDirty();
+    }
+
+    this.driveSort();
+  }
+
+  private async sortInternal() {
+    const hookStart = hookPoint(this.hooks, "sort.start");
+    if (hookStart) await hookStart;
+
     if (this.readPause > 0) {
       await new Promise((resolve) => setTimeout(resolve, this.readPause));
     }
@@ -1044,6 +1102,9 @@ export class SparkRenderer extends THREE.Mesh {
       readback,
     });
 
+    const hookReadback = hookPoint(this.hooks, "sort.afterReadback");
+    if (hookReadback) await hookReadback;
+
     if (this.sortPause > 0) {
       await new Promise((resolve) => setTimeout(resolve, this.sortPause));
     }
@@ -1056,6 +1117,9 @@ export class SparkRenderer extends THREE.Mesh {
       readback,
       ordering,
     });
+
+    const hookWorker = hookPoint(this.hooks, "sort.afterWorker");
+    if (hookWorker) await hookWorker;
 
     if (this.sortDelay > 0) {
       await new Promise((resolve) => setTimeout(resolve, this.sortDelay));
@@ -1107,10 +1171,6 @@ export class SparkRenderer extends THREE.Mesh {
         this.display = this.current;
       }
     }
-    this.sorting = false;
-    this.setDirty();
-
-    this.driveSort();
   }
 
   private ensureLodWorker() {
@@ -1243,103 +1303,167 @@ export class SparkRenderer extends THREE.Mesh {
     }
 
     this.ensureLodWorker().tryExclusive(async (worker) => {
-      if (hasPaged && !this.pager) {
-        this.pager = new SplatPager({
-          renderer: this.renderer,
-          extSplats: this.pagedExtSplats,
-          maxSplats: this.maxPagedSplats,
-          numFetchers: this.numLodFetchers,
-        });
-
-        const { lodId } = await worker.call("newLodTree", {
-          capacity: this.pager.maxSplats,
-        });
-        this.pagerId = lodId;
-      }
-
-      // Assign pager to any new meshes that don't have one yet
-      // (must run every frame, not just when pager is first created)
-      if (this.pager) {
-        for (const { mesh } of this.lodMeshes) {
-          if (mesh.paged && !mesh.paged.pager) {
-            mesh.paged.pager = this.pager;
-          }
-        }
-      }
-
-      if (this.lodInitQueue.length > 0) {
-        const lodInitQueue = this.lodInitQueue;
-        this.lodInitQueue = [];
-        while (lodInitQueue.length > 0) {
-          const splats = lodInitQueue.shift();
-          if (splats) {
-            await this.initLodTree(worker, splats);
-            this.lodDirty = true;
-          }
-        }
-      }
-
-      if (this.pager) {
-        const updates = this.pager.consumeLodTreeUpdates();
-
-        for (const { splats, page, chunk, numSplats, lodTree } of updates) {
-          const record = this.lodIds.get(splats);
-          if (record) {
-            if (lodTree && chunk === 0) {
-              record.rootPage = page;
-            }
-            this.lodUpdates.push({
-              lodId: record.lodId,
-              pageBase: page * this.pager.pageSplats,
-              chunkBase: chunk * this.pager.pageSplats,
-              count: numSplats,
-              lodTreeData: lodTree,
-            });
-          }
-        }
-      }
-
-      if (this.lodUpdates.length > 0) {
-        const lodUpdates = this.lodUpdates;
-        this.lodUpdates = [];
-        await worker.call("updateLodTrees", { ranges: lodUpdates });
-        this.lodDirty = true;
-      }
-
-      if (this.lodDirty) {
-        const now = performance.now();
-        const deltaPred = new THREE.Vector3();
-        if (this.lastLod) {
-          const deltaTime = Math.max(1, now - this.lastLod.timestamp);
-          deltaPred
-            .copy(viewPos)
-            .sub(this.lastLod.pos)
-            .multiplyScalar(this.lastTraverseTime / deltaTime);
-        }
-        this.lastLod = {
-          pos: viewPos,
-          quat: viewQuat,
-          pixelScaleLimit,
-          maxSplats,
-          timestamp: now,
-        };
-        this.lodDirty = false;
-
-        await this.updateLodInstances(
-          worker,
-          deltaPred,
+      try {
+        await this.lodCallback(worker, {
+          hasPaged,
           lodMeshes,
           maxSplats,
           viewPos,
           viewQuat,
           pixelScaleLimit,
-        );
-        this.currentLod = this.lastLod;
-        this.setDirty();
+        });
+      } finally {
+        // Frames rendered while this callback ran could not start their own
+        // callback (tryExclusive), and chunk data may have landed since we
+        // consumed the pager queues. Both can only be picked up by another
+        // render, so request one for on-demand applications.
+        if (
+          this.lodDirty ||
+          this.lodInitQueue.length > 0 ||
+          this.pager?.hasPendingUpdates()
+        ) {
+          this.setDirty();
+        }
       }
-
-      await this.cleanupLodTrees(worker);
     });
+  }
+
+  private async lodCallback(
+    worker: SplatWorker,
+    {
+      hasPaged,
+      lodMeshes,
+      maxSplats,
+      viewPos,
+      viewQuat,
+      pixelScaleLimit,
+    }: {
+      hasPaged: boolean;
+      lodMeshes: SplatMesh[];
+      maxSplats: number;
+      viewPos: THREE.Vector3;
+      viewQuat: THREE.Quaternion;
+      pixelScaleLimit: number;
+    },
+  ) {
+    const hookStart = hookPoint(this.hooks, "lod.start");
+    if (hookStart) await hookStart;
+
+    if (hasPaged && !this.pager) {
+      this.pager = new SplatPager({
+        renderer: this.renderer,
+        extSplats: this.pagedExtSplats,
+        maxSplats: this.maxPagedSplats,
+        numFetchers: this.numLodFetchers,
+      });
+      this.pager.hooks = this.hooks;
+      // Chunk data that landed must be consumed by a LoD callback, which
+      // only runs from render(): ask on-demand applications to render.
+      this.pager.onUpdate = () => this.setDirty();
+
+      const { lodId } = await worker.call("newLodTree", {
+        capacity: this.pager.maxSplats,
+      });
+      this.pagerId = lodId;
+    }
+
+    // Assign pager to any new meshes that don't have one yet
+    // (must run every frame, not just when pager is first created)
+    if (this.pager) {
+      for (const { mesh } of this.lodMeshes) {
+        if (mesh.paged && !mesh.paged.pager) {
+          mesh.paged.pager = this.pager;
+        }
+      }
+    }
+
+    if (this.lodInitQueue.length > 0) {
+      const lodInitQueue = this.lodInitQueue;
+      this.lodInitQueue = [];
+      while (lodInitQueue.length > 0) {
+        const splats = lodInitQueue.shift();
+        if (splats) {
+          await this.initLodTree(worker, splats);
+          this.lodDirty = true;
+        }
+      }
+      const hookInit = hookPoint(this.hooks, "lod.afterInit");
+      if (hookInit) await hookInit;
+    }
+
+    if (this.pager) {
+      const updates = this.pager.consumeLodTreeUpdates();
+
+      for (const { splats, page, chunk, numSplats, lodTree } of updates) {
+        const record = this.lodIds.get(splats);
+        if (record) {
+          if (chunk === 0) {
+            if (lodTree) {
+              record.rootPage = page;
+            } else if (record.rootPage === page) {
+              // Root chunk evicted: the instance must not be traversed
+              // (it would read foreign data) until the root is re-fetched,
+              // and its current indices no longer point at resident data.
+              record.rootPage = undefined;
+              splats.update(0, EMPTY_INDICES);
+            }
+          }
+          this.lodUpdates.push({
+            lodId: record.lodId,
+            pageBase: page * this.pager.pageSplats,
+            chunkBase: chunk * this.pager.pageSplats,
+            count: numSplats,
+            lodTreeData: lodTree,
+          });
+        }
+      }
+    }
+
+    if (this.lodUpdates.length > 0) {
+      const lodUpdates = this.lodUpdates;
+      this.lodUpdates = [];
+      await worker.call("updateLodTrees", { ranges: lodUpdates });
+      this.lodDirty = true;
+      const hookUpdate = hookPoint(this.hooks, "lod.afterUpdateTrees");
+      if (hookUpdate) await hookUpdate;
+    }
+
+    if (this.lodDirty) {
+      const now = performance.now();
+      const deltaPred = new THREE.Vector3();
+      if (this.lastLod) {
+        const deltaTime = Math.max(1, now - this.lastLod.timestamp);
+        deltaPred
+          .copy(viewPos)
+          .sub(this.lastLod.pos)
+          .multiplyScalar(this.lastTraverseTime / deltaTime);
+      }
+      this.lastLod = {
+        pos: viewPos,
+        quat: viewQuat,
+        pixelScaleLimit,
+        maxSplats,
+        timestamp: now,
+      };
+      this.lodDirty = false;
+
+      await this.updateLodInstances(
+        worker,
+        deltaPred,
+        lodMeshes,
+        maxSplats,
+        viewPos,
+        viewQuat,
+        pixelScaleLimit,
+      );
+      this.currentLod = this.lastLod;
+      this.setDirty();
+    }
+
+    const hookCleanup = hookPoint(this.hooks, "lod.beforeCleanup");
+    if (hookCleanup) await hookCleanup;
+
+    await this.cleanupLodTrees(worker, lodMeshes);
   }
 
   private async initLodTree(
@@ -1360,6 +1484,8 @@ export class SparkRenderer extends THREE.Mesh {
       });
       this.lodIds.set(splats, { lodId, lastTouched: performance.now() });
       this.lodIdToSplats.set(lodId, splats);
+      // Chunk fetches landing from now on belong to this tree
+      this.pager?.activateSplats(splats);
       // console.log("*** newSharedLodTree", lodId, this.pagerId, splats);
     }
   }
@@ -1448,6 +1574,9 @@ export class SparkRenderer extends THREE.Mesh {
     });
     this.lastTraverseTime = performance.now() - traverseStart;
 
+    const hookTraverse = hookPoint(this.hooks, "lod.afterTraverse");
+    if (hookTraverse) await hookTraverse;
+
     const { keyIndices, chunks, pixelLimit } = result;
     this.lastPixelLimit = pixelLimit;
     const totalLodSplats = Object.values(keyIndices).reduce(
@@ -1460,6 +1589,16 @@ export class SparkRenderer extends THREE.Mesh {
 
     this.updateLodIndices(uuidToMesh, keyIndices);
     // console.log("chunks.length =", chunks.length);
+
+    // Paged meshes that could not be traversed (no tree yet, or root chunk
+    // not resident) must not keep displaying indices from a previous traverse
+    // that may now point at evicted pages.
+    for (const mesh of lodMeshes) {
+      if (mesh.paged && !instances[mesh.uuid] && mesh.paged.numSplats > 0) {
+        mesh.paged.update(0, EMPTY_INDICES);
+        mesh.updateMappingVersion();
+      }
+    }
 
     if (this.pager) {
       this.pager.processUploads();
@@ -1534,12 +1673,36 @@ export class SparkRenderer extends THREE.Mesh {
     }
   }
 
-  private async cleanupLodTrees(worker: SplatWorker) {
-    const DISPOSE_TIMEOUT_MS = 3000;
+  private async cleanupLodTrees(worker: SplatWorker, lodMeshes: SplatMesh[]) {
+    const DISPOSE_TIMEOUT_MS = this.lodDisposeTimeoutMs;
     const now = performance.now();
+
+    // Splats backing visible meshes are never eligible: their lastTouched is
+    // stamped in updateLod before this (possibly long) async callback runs,
+    // so a short timeout could otherwise see them as stale. Check both the
+    // meshes this callback was started with and this.lodMeshes, which frames
+    // rendered while the callback ran have kept up to date (a mesh re-added
+    // during the callback has a fresh stamp but is not in `lodMeshes`).
+    const visible = new Set<PackedSplats | ExtSplats | PagedSplats>();
+    const addVisible = (mesh: SplatMesh) => {
+      const splats =
+        mesh.packedSplats?.lodSplats ?? mesh.extSplats?.lodSplats ?? mesh.paged;
+      if (splats) {
+        visible.add(splats);
+      }
+    };
+    for (const mesh of lodMeshes) {
+      addVisible(mesh);
+    }
+    for (const { mesh } of this.lodMeshes) {
+      addVisible(mesh);
+    }
 
     let oldest = null;
     for (const [splats, record] of this.lodIds.entries()) {
+      if (visible.has(splats)) {
+        continue;
+      }
       if (oldest == null || record.lastTouched < oldest.lastTouched) {
         oldest = {
           splats,
@@ -1564,6 +1727,10 @@ export class SparkRenderer extends THREE.Mesh {
 
     if (oldest.splats instanceof PagedSplats) {
       this.pager?.removeSplats(oldest.splats);
+      // Its pages are released; drop indices that point into them
+      if (oldest.splats.pager) {
+        oldest.splats.update(0, EMPTY_INDICES);
+      }
     }
 
     await worker.call("disposeLodTree", { lodId: oldest.lodId });
@@ -2076,3 +2243,5 @@ export class SparkRenderer extends THREE.Mesh {
 function checkIsXRRenderTarget(renderTarget: THREE.RenderTarget | null) {
   return (renderTarget as unknown as Record<string, boolean>)?.isXRRenderTarget;
 }
+
+const EMPTY_INDICES = new Uint32Array(0);

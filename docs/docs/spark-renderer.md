@@ -31,6 +31,7 @@ const spark = new SparkRenderer({
 
 | **Parameter**     | Description |
 | ----------------- | ----------- |
+| **onDirty**       | Callback invoked (at most once per rendered frame) when Spark needs another render to show new results, e.g. a completed sort or LoD update, or a newly streamed chunk. Use this to drive [on-demand rendering](on-demand-rendering.md). (default: `undefined`)
 | **premultipliedAlpha** | Whether to use premultiplied alpha when accumulating splat RGB. (default: `true`)
 | **timer**         | Pass in a `THREE.Timer` to synchronize time-based effects across different systems. (default: `new THREE.Timer`)
 | **autoUpdate**    | Controls whether to check and automatically update splat collection each frame render. (default: `true`)
