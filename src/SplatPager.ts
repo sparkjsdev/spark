@@ -4,6 +4,7 @@ import { decode_rad_header } from "spark-rs";
 import { LN_SCALE_MAX, LN_SCALE_MIN, dyno } from ".";
 import { evaluateExtSH } from "./ExtSplats";
 import { evaluatePackedSH } from "./PackedSplats";
+import { type SparkHooks, hookPoint } from "./SparkHooks";
 import { getSplatFileType, getSplatFileTypeFromPath } from "./SplatLoader";
 import type { SplatSource } from "./SplatMesh";
 import { workerPool } from "./SplatWorker";
@@ -334,9 +335,21 @@ export class PagedSplats implements SplatSource {
       throw new Error("PagedSplats.pager not set");
     }
 
+    if (this.abortController.signal.aborted) {
+      // Disposed while a traverse was in flight: keep the indices texture
+      // released and render nothing.
+      this.numSplats = 0;
+      this.dynoNumSplats.value = 0;
+      return;
+    }
+
     const renderer = this.pager.renderer;
     this.numSplats = numSplats;
     this.dynoNumSplats.value = this.numSplats;
+    if (numSplats === 0) {
+      // Nothing is read from the indices texture when numSplats is 0
+      return;
+    }
     const rows = Math.ceil(numSplats / 16384);
 
     let indicesTexture =
@@ -525,6 +538,26 @@ interface PageUpload {
   shArrays: Array<Uint32Array>;
 }
 
+/** Snapshot of SplatPager internal tables, see SplatPager.debugState() */
+export interface SplatPagerDebugState {
+  maxPages: number;
+  freelist: number[];
+  freeable: number[];
+  lruSize: number;
+  mapped: { page: number; splats: PagedSplats; chunk: number }[];
+  fetchers: { splats: PagedSplats; chunk: number }[];
+  fetched: { splats: PagedSplats; chunk: number }[];
+  lodTreeUpdates: {
+    splats: PagedSplats;
+    chunk: number;
+    page: number;
+    insert: boolean;
+  }[];
+  newUploads: number[];
+  readyUploads: number[];
+  fetchPriority: { splats: PagedSplats; chunk: number }[];
+}
+
 export class SplatPager {
   readonly renderer: THREE.WebGLRenderer;
 
@@ -539,6 +572,14 @@ export class SplatPager {
   autoDrive: boolean;
   numFetchers: number;
   fetchPause = 0;
+
+  /**
+   * Called whenever new chunk data has been assigned a page and is waiting to
+   * be consumed (via consumeLodTreeUpdates/processUploads) by the LoD driver.
+   */
+  onUpdate?: () => void;
+  /** Optional test instrumentation, see SparkHooks. */
+  hooks?: SparkHooks;
 
   splatsChunkToPage: Map<
     PagedSplats,
@@ -568,6 +609,14 @@ export class SplatPager {
     data: PackedResult | ExtResult;
   }[];
   fetchPriority: { splats: PagedSplats; chunk: number }[];
+  /**
+   * PagedSplats whose pages were released via removeSplats() and that have
+   * not been re-activated since. Chunk fetches that were already in flight
+   * when the splats were removed land here and must not be mapped: their LoD
+   * tree is gone (or about to be re-created empty), so a page mapped now
+   * would never be reflected in the tree and would never be fetched again.
+   */
+  private readonly retiredSplats: WeakSet<PagedSplats> = new WeakSet();
 
   packedTexture: dyno.DynoUsampler2DArray<
     "packedTexture",
@@ -958,28 +1007,79 @@ export class SplatPager {
     }
   }
 
+  /**
+   * Mark splats as active again after removeSplats(). Called when a LoD tree
+   * is (re-)created for them; from then on landing chunk fetches are mapped.
+   */
+  activateSplats(splats: PagedSplats) {
+    this.retiredSplats.delete(splats);
+  }
+
+  isRetired(splats: PagedSplats): boolean {
+    return this.retiredSplats.has(splats);
+  }
+
+  /**
+   * Release every page owned by splats and drop all queued work that refers
+   * to them. Until activateSplats() is called again, chunk fetches that land
+   * for these splats are discarded.
+   */
   removeSplats(splats: PagedSplats) {
-    const chunks = this.splatsChunkToPage.get(splats);
-    if (!chunks) {
-      return;
-    }
+    this.retiredSplats.add(splats);
 
-    const freedPages = new Set<number>();
-
-    while (chunks.length > 0) {
-      const chunk = chunks.pop();
-      if (chunk) {
-        const { page } = chunk;
-        this.pageToSplatsChunk[page] = undefined;
-        freedPages.add(page);
-        this.pageFreelist.push(page);
-        this.pageLru.delete(chunk);
+    // Fetched-but-not-yet-mapped chunks would otherwise be mapped by the next
+    // processFetched() for a tree that no longer exists.
+    for (let i = this.fetched.length - 1; i >= 0; i--) {
+      if (this.fetched[i].splats === splats) {
+        this.fetched.splice(i, 1);
       }
     }
-    this.splatsChunkToPage.delete(splats);
-    this.freeablePages = this.freeablePages.filter(
-      (page) => !freedPages.has(page),
-    );
+
+    const chunks = this.splatsChunkToPage.get(splats);
+    const freedPages = new Set<number>();
+
+    if (chunks) {
+      while (chunks.length > 0) {
+        const chunk = chunks.pop();
+        if (chunk) {
+          const { page } = chunk;
+          this.pageToSplatsChunk[page] = undefined;
+          freedPages.add(page);
+          this.pageFreelist.push(page);
+          this.pageLru.delete(chunk);
+        }
+      }
+      this.splatsChunkToPage.delete(splats);
+      while (
+        this.pageToSplatsChunk.length > 0 &&
+        this.pageToSplatsChunk[this.pageToSplatsChunk.length - 1] === undefined
+      ) {
+        this.pageToSplatsChunk.pop();
+      }
+      this.freeablePages = this.freeablePages.filter(
+        (page) => !freedPages.has(page),
+      );
+    }
+
+    // Pending tree updates for these splats refer to pages that are now free
+    // (and may be handed to another chunk before they are consumed). Their
+    // tree is disposed, so nothing needs to be applied for them.
+    if (this.lodTreeUpdates.some((update) => update.splats === splats)) {
+      this.lodTreeUpdates = this.lodTreeUpdates.filter(
+        (update) => update.splats !== splats,
+      );
+    }
+    // Texture uploads for freed pages are dead data.
+    if (freedPages.size > 0) {
+      this.newUploads = this.newUploads.filter(
+        ({ page }) => !freedPages.has(page),
+      );
+      for (let i = this.readyUploads.length - 1; i >= 0; i--) {
+        if (freedPages.has(this.readyUploads[i].page)) {
+          this.readyUploads.splice(i, 1);
+        }
+      }
+    }
   }
 
   private uploadPage(
@@ -1076,8 +1176,18 @@ export class SplatPager {
           .fetchDecodeChunk(chunk)
           .then(
             async (data) => {
-              // Make sure the originating PagedSplat hasn't been disposed in the meantime
-              if (splats.abortController.signal.aborted) {
+              const hook = hookPoint(this.hooks, "pager.fetched", {
+                splats,
+                chunk,
+              });
+              if (hook) await hook;
+
+              // Make sure the originating PagedSplat hasn't been disposed or
+              // removed (LoD tree cleaned up) in the meantime
+              if (
+                splats.abortController.signal.aborted ||
+                this.retiredSplats.has(splats)
+              ) {
                 return;
               }
 
@@ -1100,11 +1210,17 @@ export class SplatPager {
               await new Promise((resolve) => setTimeout(resolve, backoff));
             },
           )
-          .finally(() => {
+          .finally(async () => {
             // Remove this fetcher from active fetchers list
             const fetchIndex = this.fetchers.indexOf(fetcher);
             this.fetchers[fetchIndex] = this.fetchers[this.fetchers.length - 1];
             this.fetchers.length--;
+
+            const hook = hookPoint(this.hooks, "pager.beforeProcessFetched", {
+              splats,
+              chunk,
+            });
+            if (hook) await hook;
 
             this.processFetched();
           });
@@ -1163,22 +1279,31 @@ export class SplatPager {
 
   private processFetched() {
     const now = performance.now();
+    let updated = false;
     while (true) {
       const fetched = this.fetched.shift();
       if (!fetched) {
         break;
       }
       const { splats, chunk, data } = fetched;
+      if (
+        splats.abortController.signal.aborted ||
+        this.retiredSplats.has(splats)
+      ) {
+        // Owner went away between landing and processing
+        continue;
+      }
 
       let page = this.allocatePage();
       if (page === undefined) {
         page = this.allocateFreeable();
         if (page === undefined) {
           // No pages available, stop for now
-          return;
+          break;
         }
       }
 
+      updated = true;
       this.insertSplatsChunkPage(splats, chunk, page, now);
       const { numSplats, extra } = data;
       this.lodTreeUpdates.push({
@@ -1229,6 +1354,10 @@ export class SplatPager {
         });
       }
     }
+
+    if (updated) {
+      this.onUpdate?.();
+    }
   }
 
   processUploads() {
@@ -1242,6 +1371,11 @@ export class SplatPager {
     }
   }
 
+  /** Chunk data waiting to be consumed by the next LoD callback. */
+  hasPendingUpdates(): boolean {
+    return this.lodTreeUpdates.length > 0 || this.newUploads.length > 0;
+  }
+
   consumeLodTreeUpdates() {
     const updates = this.lodTreeUpdates;
     this.lodTreeUpdates = [];
@@ -1249,6 +1383,217 @@ export class SplatPager {
     this.readyUploads.push(...this.newUploads);
     this.newUploads = [];
     return updates;
+  }
+
+  /**
+   * Snapshot of the pager's internal tables for debugging and tests.
+   */
+  debugState(): SplatPagerDebugState {
+    const mapped: SplatPagerDebugState["mapped"] = [];
+    for (let page = 0; page < this.pageToSplatsChunk.length; page++) {
+      const entry = this.pageToSplatsChunk[page];
+      if (entry) {
+        mapped.push({ page, splats: entry.splats, chunk: entry.chunk });
+      }
+    }
+    return {
+      maxPages: this.maxPages,
+      freelist: this.pageFreelist.slice(),
+      freeable: this.freeablePages.slice(),
+      lruSize: this.pageLru.size,
+      mapped,
+      fetchers: this.fetchers.map(({ splats, chunk }) => ({ splats, chunk })),
+      fetched: this.fetched.map(({ splats, chunk }) => ({ splats, chunk })),
+      lodTreeUpdates: this.lodTreeUpdates.map(
+        ({ splats, chunk, page, lodTree }) => ({
+          splats,
+          chunk,
+          page,
+          insert: !!lodTree,
+        }),
+      ),
+      newUploads: this.newUploads.map(({ page }) => page),
+      readyUploads: this.readyUploads.map(({ page }) => page),
+      fetchPriority: this.fetchPriority.map(({ splats, chunk }) => ({
+        splats,
+        chunk,
+      })),
+    };
+  }
+
+  /**
+   * Verify internal consistency of the page tables. Returns a list of
+   * human-readable violations (empty when everything is consistent).
+   *
+   * @param liveSplats If provided, every PagedSplats that owns mapped pages
+   *   must be in this set (i.e. the SparkRenderer still tracks it in lodIds).
+   */
+  checkInvariants(liveSplats?: Set<PagedSplats>): string[] {
+    const errors: string[] = [];
+    const { maxPages } = this;
+
+    // 1. Freelist: unique, in range
+    const freeSet = new Set<number>();
+    for (const page of this.pageFreelist) {
+      if (page < 0 || page >= maxPages || !Number.isInteger(page)) {
+        errors.push(`freelist page out of range: ${page}`);
+      }
+      if (freeSet.has(page)) {
+        errors.push(`freelist has duplicate page: ${page}`);
+      }
+      freeSet.add(page);
+    }
+
+    // 2. Mapped pages disjoint from freelist, union covers all pages
+    const mappedSet = new Set<number>();
+    for (let page = 0; page < this.pageToSplatsChunk.length; page++) {
+      const entry = this.pageToSplatsChunk[page];
+      if (!entry) continue;
+      if (page >= maxPages) {
+        errors.push(`mapped page out of range: ${page}`);
+      }
+      mappedSet.add(page);
+      if (freeSet.has(page)) {
+        errors.push(`page ${page} is both mapped and in freelist`);
+      }
+    }
+    if (this.pageToSplatsChunk.length > maxPages) {
+      errors.push(
+        `pageToSplatsChunk.length ${this.pageToSplatsChunk.length} > maxPages ${maxPages}`,
+      );
+    }
+    if (freeSet.size + mappedSet.size !== maxPages) {
+      errors.push(
+        `freelist (${freeSet.size}) + mapped (${mappedSet.size}) != maxPages (${maxPages})`,
+      );
+    }
+
+    // 3. Bidirectional mapping consistency and 4. pageLru equals mapping entries
+    let numEntries = 0;
+    const lruEntries = new Set(this.pageLru);
+    for (const [splats, chunks] of this.splatsChunkToPage.entries()) {
+      if (chunks.length === 0) {
+        errors.push("splatsChunkToPage has an entry with no chunks");
+      }
+      if (chunks.length > 0 && chunks[chunks.length - 1] === undefined) {
+        errors.push("splatsChunkToPage chunk array not trimmed");
+      }
+      for (let chunk = 0; chunk < chunks.length; chunk++) {
+        const entry = chunks[chunk];
+        if (!entry) continue;
+        numEntries += 1;
+        const back = this.pageToSplatsChunk[entry.page];
+        if (!back) {
+          errors.push(
+            `chunk ${chunk} -> page ${entry.page} but page is unmapped`,
+          );
+        } else if (back.splats !== splats || back.chunk !== chunk) {
+          errors.push(
+            `chunk ${chunk} -> page ${entry.page} but page maps back to chunk ${back.chunk} of ${back.splats === splats ? "same" : "different"} splats`,
+          );
+        }
+        if (!lruEntries.delete(entry)) {
+          errors.push(
+            `mapping entry for chunk ${chunk} (page ${entry.page}) missing from pageLru`,
+          );
+        }
+      }
+      if (liveSplats && !liveSplats.has(splats)) {
+        errors.push(
+          `mapped pages for splats not in lodIds (${chunks.filter((c) => c).length} pages)`,
+        );
+      }
+    }
+    if (numEntries !== mappedSet.size) {
+      errors.push(
+        `splatsChunkToPage entries (${numEntries}) != mapped pages (${mappedSet.size})`,
+      );
+    }
+    if (lruEntries.size > 0) {
+      errors.push(`pageLru has ${lruEntries.size} orphaned entries`);
+    }
+
+    // 5. freeablePages subset of mapped, unique
+    const freeableSet = new Set<number>();
+    for (const page of this.freeablePages) {
+      if (freeableSet.has(page)) {
+        errors.push(`freeablePages has duplicate page: ${page}`);
+      }
+      freeableSet.add(page);
+      if (!mappedSet.has(page)) {
+        errors.push(`freeable page ${page} is not mapped`);
+      }
+    }
+
+    // 6. No duplicate (splats, chunk) across fetchers / fetched / mapping
+    const seen = new Map<PagedSplats, Set<number>>();
+    const mark = (splats: PagedSplats, chunk: number, where: string) => {
+      let set = seen.get(splats);
+      if (!set) {
+        set = new Set();
+        seen.set(splats, set);
+      }
+      if (set.has(chunk)) {
+        errors.push(`duplicate (splats, chunk ${chunk}) in ${where}`);
+      }
+      set.add(chunk);
+    };
+    for (const [splats, chunks] of this.splatsChunkToPage.entries()) {
+      chunks.forEach((entry, chunk) => {
+        if (entry) mark(splats, chunk, "mapping");
+      });
+    }
+    for (const { splats, chunk } of this.fetched) {
+      mark(splats, chunk, "fetched");
+    }
+    for (const { splats, chunk } of this.fetchers) {
+      mark(splats, chunk, "fetchers");
+    }
+
+    // 7. Pending uploads refer to mapped pages
+    for (const { page } of this.newUploads) {
+      if (!mappedSet.has(page)) {
+        errors.push(`newUploads page ${page} is not mapped`);
+      }
+    }
+    for (const { page } of this.readyUploads) {
+      if (!mappedSet.has(page)) {
+        errors.push(`readyUploads page ${page} is not mapped`);
+      }
+    }
+    // Replaying pending lodTreeUpdates in order must end at the current mapping
+    // for every page they touch.
+    const replay = new Map<number, { splats: PagedSplats; chunk: number }>();
+    const touched = new Set<number>();
+    for (const { splats, chunk, page, lodTree } of this.lodTreeUpdates) {
+      touched.add(page);
+      if (lodTree) {
+        replay.set(page, { splats, chunk });
+      } else {
+        replay.delete(page);
+      }
+    }
+    for (const page of touched) {
+      const expected = replay.get(page);
+      const actual = this.pageToSplatsChunk[page];
+      if (expected) {
+        if (
+          !actual ||
+          actual.splats !== expected.splats ||
+          actual.chunk !== expected.chunk
+        ) {
+          errors.push(
+            `pending lodTreeUpdates end with chunk ${expected.chunk} on page ${page} but mapping has ${actual ? `chunk ${actual.chunk}` : "nothing"}`,
+          );
+        }
+      } else if (actual) {
+        errors.push(
+          `pending lodTreeUpdates end with page ${page} evicted but mapping has chunk ${actual.chunk}`,
+        );
+      }
+    }
+
+    return errors;
   }
 
   static emptyUint32x4 = (() => {

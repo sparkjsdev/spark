@@ -1,0 +1,532 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Spark internals: paged LoD and on-demand rendering</title>
+<link rel="stylesheet" href="internals.css" />
+</head>
+<body>
+<nav>
+  <h1>Spark internals: paged LoD and on-demand rendering</h1>
+  <a href="#intro">Scope</a>
+  <div class="group">1. Renderer pipeline</div>
+  <div class="sub">
+    <a href="#arch-components">Components</a>
+    <a href="#arch-frame">One frame</a>
+    <a href="#arch-sort">Sort pipeline</a>
+    <a href="#arch-lodcallback">LoD callback</a>
+    <a href="#arch-dirty">The dirty flag</a>
+  </div>
+  <div class="group">2. Pager</div>
+  <div class="sub">
+    <a href="#pager-state">SplatPager state</a>
+    <a href="#pager-lifecycle">(splats, chunk) lifecycle</a>
+    <a href="#pager-invariants">Invariants I1-I7</a>
+    <a href="#pager-rust">Rust side</a>
+  </div>
+  <div class="group">3. Test infrastructure</div>
+  <div class="sub">
+    <a href="#test-flow">Pieces</a>
+    <a href="#test-hooks">Hook points</a>
+    <a href="#test-harness">Harness API</a>
+    <a href="#test-fuzz">Fuzzer</a>
+    <a href="#test-recipe">Writing an ordering test</a>
+    <a href="#test-commands">Commands</a>
+  </div>
+  <div class="see"><a href="fixes-2026-09.html">History: Sep 2026 churn and on-demand fixes</a></div>
+</nav>
+
+<main>
+<h2 id="intro" style="border-top:0;margin-top:0">Scope</h2>
+<div class="callout warn">
+  <b>Internal engineering notes, as of September 2026 (Spark 2.1.0).</b> This page is not generated from
+  the source and is not linked from the main documentation. Hook names, field names and method names may
+  drift. The source and the tests are authoritative.
+</div>
+<p>
+  This page describes the paged level-of-detail pipeline: the components involved, what happens in one
+  frame, the asynchronous flows that run alongside the application's renders, the tables the pager keeps
+  and the invariants that tie them to the Rust LoD tree, and the Playwright browser suite that exercises
+  all of it. Diagrams are Mermaid.
+</p>
+<p>
+  Key files: <span class="file">src/SparkRenderer.ts</span>, <span class="file">src/SplatPager.ts</span>,
+  <span class="file">src/SparkHooks.ts</span>, <span class="file">src/worker.ts</span>,
+  <span class="file">rust/spark-rs/src/lod_tree.rs</span>, <span class="file">test/browser/*</span>.
+</p>
+
+<!-- ============================================================ 1 -->
+<h2 id="arch">1. Renderer pipeline</h2>
+
+<h3 id="arch-components">Components</h3>
+<p>
+  The application owns the three.js scene and calls <code>renderer.render()</code>. Spark runs from the
+  <code>onBeforeRender</code> hook of the <code>SparkRenderer</code> object in the scene. Three asynchronous
+  flows run concurrently with the application's frames: the depth <b>sort</b>, the <b>LoD callback</b> (tree
+  updates and traversal) and the <b>pager</b> (fetch, decode, page assignment, texture upload).
+</p>
+<pre class="mermaid">
+flowchart LR
+  subgraph app [Application]
+    Scene[THREE.Scene]
+    RenderCall["renderer.render()"]
+  end
+  subgraph main [Main thread: Spark]
+    SR[SparkRenderer]
+    Acc[SplatAccumulator]
+    IdxTex[Indices texture]
+    PageTex[Page textures]
+    Pager[SplatPager]
+    Mesh[SplatMesh]
+    PagedS[PagedSplats]
+  end
+  subgraph workers [Web Workers]
+    SortW[Sort worker]
+    LodW[LoD worker]
+    Wasm[spark-rs WASM]
+  end
+  Cdn[("Chunked .rad files")]
+  RenderCall -->|onBeforeRender| SR
+  SR -->|sort| SortW --> Wasm
+  SR -->|LoD| LodW --> Wasm
+  SR -->|accumulate| Acc
+  SR -->|indices| IdxTex --> Acc
+  SR -->|drive| Pager
+  Pager -->|upload| PageTex --> Acc
+  Pager -->|fetch| PagedS --> Cdn
+  Scene --> Mesh --> PagedS
+</pre>
+<table>
+  <tr><th style="width:190px">Piece</th><th>Role</th><th style="width:230px">Owns</th></tr>
+  <tr><td><code>SplatMesh</code></td><td>User-facing object. With <code>paged: true</code> it holds a <code>PagedSplats</code> instead of a fully loaded <code>PackedSplats</code>.</td><td><code>paged</code>, <code>version</code>, <code>visible</code>, <code>lodScale</code></td></tr>
+  <tr><td><code>PagedSplats</code></td><td>Per-mesh streaming source. Knows the chunk URLs, implements <code>fetchDecodeChunk(chunk)</code>, and holds the mesh's LoD indices texture, written by <code>update(numSplats, indices)</code>. <code>dispose()</code> aborts its <code>abortController</code>; after that, <code>update()</code> sets <code>numSplats = 0</code> and returns.</td><td><code>pager</code>, <code>numSplats</code>, <code>dynoIndices</code></td></tr>
+  <tr><td><code>SplatAccumulator</code></td><td>Aggregates all visible generators into one splat list for the current view. Two accumulators alternate (<code>current</code>/<code>display</code>) so a sort can run against a stable mapping.</td><td><code>version</code>, <code>mappingVersion</code>, <code>numSplats</code></td></tr>
+  <tr><td><code>SparkRenderer</code></td><td>Drives everything from <code>onBeforeRender</code>: accumulate, sort, LoD. Tracks one LoD tree id per LoD source in <code>lodIds</code>, and for each paged mesh the page holding its root chunk (<code>rootPage</code>).</td><td><code>lodIds</code>, <code>lodIdToSplats</code>, <code>lodInitQueue</code>, <code>lodUpdates</code>, <code>lodDirty</code>, <code>sorting</code>, <code>dirty</code>, <code>pager</code>, <code>pagerId</code></td></tr>
+  <tr><td><code>SplatPager</code></td><td>One global pool of <code>maxPages</code> pages of 65536 splats each, shared by every paged mesh. Maps <code>(splats, chunk)</code> to pages, runs fetchers, queues tree updates and texture uploads.</td><td>see section 2</td></tr>
+  <tr><td>Sort worker</td><td><code>SplatWorker</code> running <code>sortSplats32</code> from <span class="file">sort.rs</span>.</td><td></td></tr>
+  <tr><td>LoD worker + <code>lod_tree.rs</code></td><td><code>SplatWorker</code> holding one <code>LodTree</code> per <code>lodId</code>. RPCs: <code>newLodTree</code>, <code>newSharedLodTree</code>, <code>initLodTree</code>, <code>updateLodTrees</code>, <code>traverseLodTrees</code>, <code>disposeLodTree</code>. Paged meshes share one large tree (<code>pagerId</code>, capacity <code>maxSplats</code>); each mesh gets a <code>newSharedLodTree</code> view onto it with its own <code>chunk_to_page</code> / <code>page_to_chunk</code>. <code>traverseLodTrees</code> selects the splats to show per instance under a budget.</td><td><code>lod_trees</code></td></tr>
+</table>
+
+<h3 id="arch-frame">One frame</h3>
+<p>
+  Solid arrows are synchronous calls: the caller continues only after they return. Dashed arrows are
+  results that arrive on a later task: a worker reply, a GPU readback, a network response or a resolved
+  promise. Inside each shaded block, everything after the first dashed arrow runs outside the frame that
+  started it. The four asynchronous boundaries in the whole pipeline are the GPU depth readback, the
+  worker RPCs, the chunk fetch and decode, and <code>SplatMesh.initialized</code>; every other step is
+  synchronous.
+</p>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant App as Application
+  participant SR as SparkRenderer
+  participant Acc as SplatAccumulator
+  participant Sort as Sort worker
+  participant Lod as LoD worker
+  participant Pg as SplatPager
+  participant Net as Network + decode
+
+  App->>SR: renderer.render() -> onBeforeRender
+  SR->>SR: updateInternal
+  Note over SR: with preUpdate = false (WebXR) this runs from a 1 ms setTimeout instead
+  SR->>Acc: prepareGenerate / generate (if view or version changed)
+  SR->>SR: sortDirty = true#59; setDirty()
+  SR->>SR: driveLod: lodDirty, lodMeshes, lodInitQueue
+  SR->>SR: tryExclusive(lodCallback): runs until its first await [skipped if one is running]
+  SR->>SR: driveSort: sorting = true#59; runs until its first await [skipped if sorting or !sortDirty]
+  SR-->>SR: SplatMesh.initialized resolves -> setDirty() (loading meshes seen this frame)
+
+  rect rgb(245,247,251)
+    Note over SR,Sort: sort
+    SR->>SR: sortInternal: start GPU depth readback
+    SR-->>SR: readback complete
+    SR->>Sort: sortSplats32
+    Sort-->>SR: ordering, activeSplats
+    SR->>SR: upload orderingTexture#59; display = current
+    SR->>SR: finally: sorting = false#59; setDirty()#59; driveSort()
+  end
+
+  rect rgb(245,247,251)
+    Note over SR,Pg: LoD callback (one at a time)
+    SR->>Lod: newLodTree (first paged mesh), initLodTree / newSharedLodTree for lodInitQueue
+    Lod-->>SR: lodIds
+    SR->>Pg: activateSplats (paged meshes)
+    SR->>Pg: consumeLodTreeUpdates
+    SR->>Lod: updateLodTrees
+    Lod-->>SR: done
+    SR->>Lod: traverseLodTrees (if lodDirty)
+    Lod-->>SR: keyIndices per instance, wanted chunks
+    SR->>SR: updateLodIndices#59; setDirty()
+    SR->>Pg: processUploads#59; fetchPriority#59; driveFetchers
+    SR->>Pg: cleanupLodTrees: removeSplats (if a tree timed out)
+    SR->>Lod: disposeLodTree
+    Lod-->>SR: done
+    SR->>SR: finally: setDirty() if work is pending
+  end
+
+  rect rgb(245,247,251)
+    Note over Pg,Net: pager (per fetcher, started by driveFetchers)
+    Pg->>Net: fetchDecodeChunk(chunk)
+    Net-->>Pg: decoded chunk
+    Pg->>Pg: push to fetched#59; processFetched: allocate page, map, queue update + upload
+    Pg->>SR: onUpdate -> setDirty()
+    Pg->>Pg: driveFetchers (start the next fetch)
+  end
+</pre>
+
+<h3 id="arch-sort">Sort pipeline</h3>
+<pre class="mermaid">
+flowchart TD
+  S0[driveSort] --> S1{sorting or !sortDirty?}
+  S1 -->|yes| S1a[return]
+  S1 -->|no| S2["sorting = true#59; sortDirty = false"]
+  S2 --> SI
+  subgraph SI [sortInternal]
+    direction TB
+    S3[readbackDepth] --> S4["sortSplats32 (worker)"]
+    S4 --> S5["upload orderingTexture#59; display = current"]
+  end
+  SI -->|ok| S7
+  SI -.->|throws| S6["catch: sortDirty = true"]
+  S6 --> S7["finally: sorting = false#59; setDirty()#59; driveSort()"]
+</pre>
+<p>
+  <code>driveSort</code> honors <code>minSortIntervalMs</code> before starting. The <code>sorting</code>
+  flag guards the accumulator swap: <code>updateInternal</code> does not swap accumulators while
+  <code>mappingUpdated &amp;&amp; sorting</code>. <code>driveSort</code> always clears <code>sorting</code>
+  in <code>finally</code>. If the sort throws, <code>catch</code> sets <code>sortDirty</code> again so the
+  next <code>driveSort</code> retries.
+</p>
+
+<h3 id="arch-lodcallback">LoD callback</h3>
+<p>
+  <code>driveLod</code> runs synchronously inside the frame. It sets <code>lodDirty</code> if the view or
+  the LoD parameters changed, collects the LoD-capable meshes, and queues meshes that have no tree yet in
+  <code>lodInitQueue</code>. It then starts <code>lodCallback</code> through <code>tryExclusive</code>.
+  If a callback is already running, the flags stay set and the next callback picks them up. Because a
+  callback only starts from a render, the <code>finally</code> around it calls <code>setDirty()</code>
+  when it exits with work still pending.
+</p>
+<pre class="mermaid">
+flowchart TD
+  A[driveLod] --> B{callback running?}
+  B -->|yes| Bskip["skip#59; flags stay set"]
+  B -->|no| C[create pager if needed]
+  C --> D[init queued trees]
+  D --> E[consume pager updates]
+  E --> F[rootPage bookkeeping]
+  F --> G[updateLodTrees]
+  G --> H{lodDirty?}
+  H -->|yes| I[traverseLodTrees]
+  I --> J[updateLodIndices]
+  J --> K["processUploads#59; fetchPriority#59; driveFetchers"]
+  K --> L
+  H -->|no| L[cleanupLodTrees]
+  L --> M["finally: setDirty() if pending"]
+</pre>
+<table>
+  <tr><th style="width:200px">Phase</th><th>What happens</th></tr>
+  <tr><td>create pager if needed</td><td>On the first paged mesh: <code>new SplatPager</code>, <code>pager.onUpdate = () =&gt; setDirty()</code>, <code>newLodTree(capacity)</code> gives <code>pagerId</code>. Any <code>mesh.paged</code> without a pager is assigned this one.</td></tr>
+  <tr><td>init queued trees</td><td>For each source in <code>lodInitQueue</code>: a <code>PackedSplats</code> gets <code>initLodTree</code>; a <code>PagedSplats</code> gets <code>newSharedLodTree</code> and <code>pager.activateSplats</code>. Sets <code>lodDirty</code>.</td></tr>
+  <tr><td>consume pager updates</td><td><code>pager.consumeLodTreeUpdates()</code> returns the pending inserts and evicts and moves <code>newUploads</code> to <code>readyUploads</code>.</td></tr>
+  <tr><td>rootPage bookkeeping</td><td>For each update whose mesh still has a <code>lodIds</code> record: an insert of chunk 0 sets <code>rootPage = page</code>; an evict of the recorded <code>rootPage</code> clears it and calls <code>splats.update(0, EMPTY_INDICES)</code>. The update is pushed to <code>lodUpdates</code>.</td></tr>
+  <tr><td>updateLodTrees</td><td>If <code>lodUpdates</code> is non-empty, send the ranges to the worker and set <code>lodDirty</code>.</td></tr>
+  <tr><td>traverseLodTrees</td><td><code>lodDirty = false</code>. Instances are the meshes with a record that are either non-paged or have a defined <code>rootPage</code>. The worker returns key indices per instance and the chunks it touched.</td></tr>
+  <tr><td>updateLodIndices</td><td>Write each instance's indices texture. Paged meshes that were not traversed get <code>update(0, EMPTY_INDICES)</code>. Then <code>setDirty()</code>.</td></tr>
+  <tr><td>processUploads; fetchPriority; driveFetchers</td><td>Upload <code>readyUploads</code> to the page textures. <code>fetchPriority</code> = every paged mesh's chunk 0 by camera distance, then the chunks the traverse touched. <code>driveFetchers</code> starts fetches (section 2).</td></tr>
+  <tr><td>cleanupLodTrees</td><td>Records backing a mesh in this frame's <code>lodMeshes</code> are skipped (their <code>lastTouched</code> predates the async callback). Of the rest, the oldest one untouched for <code>lodDisposeTimeoutMs</code> (at most one per callback): <code>lodIds.delete</code>, <code>pager.removeSplats</code>, <code>splats.update(0, EMPTY_INDICES)</code>, <code>disposeLodTree</code>.</td></tr>
+  <tr><td>finally</td><td><code>setDirty()</code> if <code>lodDirty</code>, <code>lodInitQueue</code> is non-empty, or <code>pager.hasPendingUpdates()</code>.</td></tr>
+</table>
+<p>Two rules hold throughout the callback:</p>
+<ul>
+  <li>A paged mesh is traversed only while its <code>rootPage</code> is defined. The Rust side also bounds-checks <code>root_index</code>.</li>
+  <li>Every path that releases a mesh's pages (root evict, cleanup, dispose) also calls <code>update(0, EMPTY_INDICES)</code> on the mesh, so its indices never point into pages owned by another chunk.</li>
+</ul>
+
+<h3 id="arch-dirty">The dirty flag</h3>
+<p>
+  <code>setDirty()</code> sets <code>dirty</code> and calls the application's <code>onDirty</code> once;
+  the next <code>onBeforeRender</code> clears it. An on-demand application renders only from
+  <code>onDirty</code> and from its own input events, so every asynchronous completion that changes what
+  should be on screen calls <code>setDirty()</code>.
+</p>
+<table>
+  <tr><th>Site</th><th>When</th><th>What it makes visible</th></tr>
+  <tr><td><code>updateInternal</code> after <code>generate()</code></td><td>The accumulator changed: generators added, removed, moved or toggled, or the view changed.</td><td>Scene edits made by the application.</td></tr>
+  <tr><td><code>driveSort</code> <code>finally</code></td><td>A sort finished or failed.</td><td>The new back-to-front ordering; <code>display = current</code>.</td></tr>
+  <tr><td><code>lodCallback</code> after <code>updateLodIndices</code></td><td>A traverse produced new indices.</td><td>The new LoD selection.</td></tr>
+  <tr><td><code>pager.onUpdate</code></td><td><code>processFetched</code> mapped at least one chunk.</td><td>Chunk data waiting in <code>lodTreeUpdates</code>; the next callback inserts it into the tree.</td></tr>
+  <tr><td><code>initWatched</code> in <code>updateInternal</code></td><td>An uninitialized <code>SplatMesh</code> was seen; its <code>initialized</code> promise resolved later.</td><td>A mesh that finished loading after the last render.</td></tr>
+  <tr><td><code>tryExclusive(...)</code> <code>finally</code> in <code>driveLod</code></td><td>A callback exited while <code>lodDirty</code>, <code>lodInitQueue</code> or <code>pager.hasPendingUpdates()</code>.</td><td>LoD work flagged by frames that ran while the callback was busy.</td></tr>
+  <tr><td><code>clearSplats</code></td><td>Explicit clear.</td><td>The empty scene.</td></tr>
+</table>
+
+<!-- ============================================================ 2 -->
+<h2 id="pager">2. Pager</h2>
+
+<h3 id="pager-state">SplatPager state</h3>
+<p>
+  The pool is <code>maxPages = ceil(maxSplats / 65536)</code> layers of a few <code>DataArrayTexture</code>s.
+  Every table below is indexed either by page or by <code>(splats, chunk)</code>. The invariants in the
+  next section state how they must agree.
+</p>
+<table>
+  <tr><th style="width:190px">Field</th><th>Type</th><th>Meaning</th><th>Written by</th><th>Read by</th></tr>
+  <tr><td><code>splatsChunkToPage</code></td><td><code>Map&lt;PagedSplats, ({page, lru} | undefined)[]&gt;</code></td><td>Forward map: which page holds chunk <i>c</i> of a mesh. Arrays are trimmed of trailing <code>undefined</code>; a mesh with no pages has no entry.</td><td><code>insertSplatsChunkPage</code>, <code>removeSplatsChunkPage</code>, <code>removeSplats</code></td><td><code>driveFetchers</code>, <code>checkInvariants</code>, harness cross-check</td></tr>
+  <tr><td><code>pageToSplatsChunk</code></td><td><code>({splats, chunk, time} | undefined)[]</code></td><td>Reverse map: owner of each page. Trailing <code>undefined</code> trimmed.</td><td>same</td><td><code>allocateFreeable</code>, <code>debugState</code></td></tr>
+  <tr><td><code>pageFreelist</code></td><td><code>number[]</code></td><td>Unowned pages. <code>allocatePage()</code> shifts from the front; freed pages are pushed at the back.</td><td>ctor, <code>removeSplats</code>, <code>allocatePage</code></td><td><code>processFetched</code></td></tr>
+  <tr><td><code>pageLru</code></td><td><code>Set&lt;{page, lru}&gt;</code></td><td>Insertion-ordered set of the same <code>{page, lru}</code> objects stored in <code>splatsChunkToPage</code>. Re-inserted on every <code>driveFetchers</code>, so iteration order is LRU.</td><td><code>insertSplatsChunkPage</code>, <code>driveFetchers</code></td><td><code>driveFetchers</code></td></tr>
+  <tr><td><code>freeablePages</code></td><td><code>number[]</code></td><td>Mapped pages that the last traverse did not want, oldest first. Eviction candidates.</td><td><code>driveFetchers</code>, filtered in <code>removeSplats</code></td><td><code>allocateFreeable</code></td></tr>
+  <tr><td><code>fetchPriority</code></td><td><code>{splats, chunk}[]</code></td><td>What the last traverse wants, in priority order: every paged mesh's chunk 0 by camera distance, then the chunks the traverse touched.</td><td><code>updateLodInstances</code></td><td><code>driveFetchers</code></td></tr>
+  <tr><td><code>fetchers</code></td><td><code>{splats, chunk}[]</code></td><td>Fetches in flight (at most <code>numFetchers</code>).</td><td><code>driveFetchers</code></td><td><code>driveFetchers</code>, <code>checkInvariants</code></td></tr>
+  <tr><td><code>fetched</code></td><td><code>{splats, chunk, data}[]</code></td><td>Decoded chunks waiting for a page.</td><td>fetch <code>then</code>, <code>processFetched</code>, <code>removeSplats</code></td><td><code>processFetched</code></td></tr>
+  <tr><td><code>lodTreeUpdates</code></td><td><code>{splats, page, chunk, numSplats, lodTree?}[]</code></td><td>Pending tree edits for the LoD worker. With <code>lodTree</code>: insert chunk data at <code>page</code>. Without: evict. Order matters; the renderer replays them in <code>lodCallback</code>.</td><td><code>processFetched</code>, <code>allocateFreeable</code>, <code>removeSplats</code></td><td><code>consumeLodTreeUpdates</code>, <code>hasPendingUpdates</code></td></tr>
+  <tr><td><code>newUploads</code> / <code>readyUploads</code></td><td><code>PageUpload[]</code></td><td>Texture uploads for newly mapped pages. <code>consumeLodTreeUpdates</code> moves them from new to ready, so a page's tree entry and its texels become visible in the same callback. <code>processUploads</code> uploads them after the traverse.</td><td><code>processFetched</code>, <code>consumeLodTreeUpdates</code>, <code>removeSplats</code></td><td><code>processUploads</code></td></tr>
+  <tr><td><code>retiredSplats</code></td><td><code>WeakSet&lt;PagedSplats&gt;</code></td><td>Meshes whose pages were released by <code>removeSplats</code> and whose tree has not been re-created since. Fetches that land for them are dropped.</td><td><code>removeSplats</code> (add), <code>activateSplats</code> (delete)</td><td>fetch <code>then</code>, <code>processFetched</code></td></tr>
+</table>
+<p>Related fields in <code>SparkRenderer</code>:</p>
+<table>
+  <tr><th style="width:190px">Field</th><th>Meaning</th></tr>
+  <tr><td><code>lodIds: Map&lt;splats, {lodId, lastTouched, rootPage?}&gt;</code></td><td>One entry per LoD source that has a worker tree. <code>rootPage</code> is the page holding chunk 0 of a paged mesh, or <code>undefined</code> when the root is not resident. Only meshes with a defined root are traversed.</td></tr>
+  <tr><td><code>lodIdToSplats</code></td><td>Reverse of <code>lodIds</code>. Turns the traverse's <code>(lodId, chunk)</code> pairs into <code>fetchPriority</code>.</td></tr>
+  <tr><td><code>lodInitQueue</code></td><td>Sources seen this frame without a record. The next callback creates their trees.</td></tr>
+  <tr><td><code>lodUpdates</code></td><td>Consumed pager updates translated into worker ranges (<code>pageBase</code>, <code>chunkBase</code>, <code>count</code>, <code>lodTreeData</code>).</td></tr>
+  <tr><td><code>pagerId</code></td><td>The shared tree that every paged mesh's <code>newSharedLodTree</code> points into.</td></tr>
+</table>
+
+<h3 id="pager-lifecycle">Lifecycle of one <code>(splats, chunk)</code></h3>
+<p>
+  The main path runs top to bottom: a chunk is wanted, fetched, given a page, made visible to the LoD tree
+  and the GPU, and later evicted or freed. Failed and Dropped are the early exits. Transition labels
+  (T1-T12) refer to the table below.
+</p>
+<pre class="mermaid">
+stateDiagram-v2
+  direction TB
+  state "In flight" as InFlight
+
+  [*] --> Wanted: T1 traverse
+  Wanted --> InFlight: T2 driveFetchers
+  InFlight --> Fetched: T3 then()
+  Fetched --> Mapped: T4 processFetched
+  Mapped --> Resident: T5 lodCallback
+  Resident --> Freeable: T6 unwanted
+  Freeable --> Resident: T7 wanted
+  Freeable --> [*]: T8 evicted
+  Resident --> [*]: T9 removeSplats
+
+  InFlight --> Failed: T10 reject
+  Failed --> Wanted: T10 retry
+  InFlight --> Dropped: T11 aborted or retired
+  Fetched --> Dropped: T11, T12
+  Dropped --> [*]
+</pre>
+<table>
+  <tr><th style="width:52px">Id</th><th style="width:200px">Transition</th><th>What happens</th><th style="width:210px">Code</th></tr>
+  <tr><td>T1</td><td>start → Wanted</td><td>The traverse returns the chunks it touched. <code>updateLodInstances</code> builds <code>fetchPriority</code>: every paged mesh's chunk 0 by camera distance, then the touched chunks.</td><td><code>updateLodInstances</code></td></tr>
+  <tr><td>T2</td><td>Wanted → In flight (<code>fetchers</code>)</td><td>A fetch starts only while mapped + fetched + in-flight entries are below <code>maxPages</code> and fewer than <code>numFetchers</code> fetches are running. A wanted chunk that is already mapped only gets its LRU refreshed.</td><td><code>driveFetchers</code></td></tr>
+  <tr><td>T3</td><td>In flight → Fetched (<code>fetched</code>)</td><td>The decoded chunk is pushed to <code>fetched</code>.</td><td>fetch <code>then()</code></td></tr>
+  <tr><td>T4</td><td>Fetched → Mapped</td><td><code>allocatePage()</code> takes a page from the freelist, or <code>allocateFreeable()</code> evicts the least recently wanted page and queues an evict update for its previous owner. Then <code>insertSplatsChunkPage</code>, an insert entry in <code>lodTreeUpdates</code>, an entry in <code>newUploads</code>, and <code>onUpdate()</code>. If no page is available the chunk is dropped and refetched later.</td><td><code>processFetched</code></td></tr>
+  <tr><td>T5</td><td>Mapped → Resident (in the Rust tree and the page texture)</td><td>The next LoD callback consumes the update (<code>rootPage</code> bookkeeping for chunk 0), sends <code>updateLodTrees</code> to the worker, and after the traverse uploads the texels with <code>processUploads</code>.</td><td><code>lodCallback</code>, <code>consumeLodTreeUpdates</code>, <code>processUploads</code></td></tr>
+  <tr><td>T6</td><td>Resident → Freeable (<code>freeablePages</code>)</td><td>A later traverse did not list the chunk in <code>fetchPriority</code>. The page stays mapped and resident and is added to <code>freeablePages</code> in LRU order.</td><td><code>driveFetchers</code></td></tr>
+  <tr><td>T7</td><td>Freeable → Resident</td><td>The chunk is wanted again before it was evicted. Only its LRU timestamp is refreshed.</td><td><code>driveFetchers</code></td></tr>
+  <tr><td>T8</td><td>Freeable → end (evicted)</td><td>Another chunk needed a page and none was free. <code>removeSplatsChunkPage</code> unmaps it, an evict entry is queued in <code>lodTreeUpdates</code>, and the page goes to the incoming chunk. If this was chunk 0 of a mesh, the consuming callback clears that mesh's <code>rootPage</code> and zeroes its indices; the mesh is traversed again once its root is refetched.</td><td><code>allocateFreeable</code></td></tr>
+  <tr><td>T9</td><td>Resident → end (freed)</td><td>The mesh's tree is disposed (<code>cleanupLodTrees</code> after <code>lodDisposeTimeoutMs</code>, or the mesh was disposed). All of its pages return to the freelist. Its entries in <code>fetched</code>, <code>lodTreeUpdates</code>, <code>newUploads</code> and <code>readyUploads</code> are removed and the mesh is added to <code>retiredSplats</code>.</td><td><code>removeSplats</code></td></tr>
+  <tr><td>T10</td><td>In flight → Failed → Wanted</td><td>The fetch rejected. <code>AbortError</code> is silent; anything else is logged and followed by a 250-750 ms backoff. If the next traverse still wants the chunk it is retried.</td><td>fetch <code>catch</code></td></tr>
+  <tr><td>T11</td><td>In flight / Fetched → Dropped</td><td>Before the chunk is mapped, both the fetch handler and <code>processFetched</code> check <code>abortController.signal.aborted</code> (mesh disposed) and <code>retiredSplats.has(splats)</code> (tree disposed by <code>removeSplats</code>, not re-created yet). Either drops the data without touching the tables. Removing a mesh from the scene does not abort it; the retired check covers that case.</td><td>fetch <code>then()</code>, <code>processFetched</code></td></tr>
+  <tr><td>T12</td><td>Fetched → Dropped</td><td><code>removeSplats</code> removes the mesh's chunks from <code>fetched</code>.</td><td><code>removeSplats</code></td></tr>
+</table>
+
+<h3 id="pager-invariants">Invariants checked by <code>SplatPager.checkInvariants(liveSplats)</code></h3>
+<table>
+  <tr><th style="width:56px">Id</th><th>Statement</th><th>Structures</th><th>Message</th></tr>
+  <tr><td>I1</td><td>Freelist entries are unique and in <code>[0, maxPages)</code>.</td><td><code>pageFreelist</code></td><td><code>freelist has duplicate page</code></td></tr>
+  <tr><td>I2</td><td>Mapped pages and the freelist are disjoint and together cover every page.</td><td><code>pageToSplatsChunk</code>, <code>pageFreelist</code></td><td><code>page N is both mapped and in freelist</code>, <code>freelist + mapped != maxPages</code></td></tr>
+  <tr><td>I3</td><td>Forward and reverse maps agree: <code>splatsChunkToPage[s][c] = p</code> iff <code>pageToSplatsChunk[p] = (s, c)</code>. Chunk arrays are trimmed and have no empty entries.</td><td>both maps</td><td><code>chunk c -> page p but page maps back to ...</code></td></tr>
+  <tr><td>I4</td><td><code>pageLru</code> contains exactly the <code>{page, lru}</code> objects referenced by the forward map.</td><td><code>pageLru</code></td><td><code>pageLru has N orphaned entries</code></td></tr>
+  <tr><td>I4b</td><td>If <code>liveSplats</code> is given, every mesh that owns pages is in it (the renderer still has a tree for it).</td><td>forward map vs <code>SparkRenderer.lodIds</code></td><td><code>mapped pages for splats not in lodIds</code></td></tr>
+  <tr><td>I5</td><td><code>freeablePages</code> is a unique subset of the mapped pages.</td><td><code>freeablePages</code></td><td><code>freeable page p is not mapped</code></td></tr>
+  <tr><td>I6</td><td>A <code>(splats, chunk)</code> appears at most once across the mapping, <code>fetched</code> and <code>fetchers</code>.</td><td>all three</td><td><code>duplicate (splats, chunk c) in ...</code></td></tr>
+  <tr><td>I7</td><td>Pending uploads refer to mapped pages. Replaying <code>lodTreeUpdates</code> in order ends at the current mapping for every page it touches.</td><td><code>newUploads</code>, <code>readyUploads</code>, <code>lodTreeUpdates</code> vs <code>pageToSplatsChunk</code></td><td><code>pending lodTreeUpdates end with chunk c on page p but mapping has nothing</code>, <code>newUploads page p is not mapped</code></td></tr>
+</table>
+<p>
+  The test harness adds cross-checks that need the queues drained (<code>lodTreeUpdates</code> and
+  <code>lodUpdates</code> empty, no callback running): the set of Rust tree ids equals
+  <code>{pagerId} + lodIds</code>; for every paged mesh, Rust <code>chunk_to_page</code> equals the pager's
+  forward map, Rust <code>page_to_chunk</code> owners match <code>pageToSplatsChunk</code>, and
+  <code>record.rootPage</code> equals Rust <code>chunk_to_page[0]</code>.
+</p>
+
+<h3 id="pager-rust">Rust side (<span class="file">rust/spark-rs/src/lod_tree.rs</span>)</h3>
+<ul>
+  <li><code>lod_trees: HashMap&lt;u32, LodTree&gt;</code>. Non-paged sources get a private tree from <code>initLodTree</code>. Paged sources share the pager tree: <code>newLodTree(capacity)</code> once, then <code>newSharedLodTree(pagerId)</code> per mesh. The shared tree's <code>splats</code> array is indexed by <code>page &lt;&lt; 16 | offset</code>.</li>
+  <li><code>updateLodTrees(ranges)</code> copies chunk data at <code>pageBase</code> and records <code>chunk_to_page[chunk] = page</code> / <code>page_to_chunk[page] = chunk</code>, or clears them for an evict.</li>
+  <li><code>traverseLodTrees</code> starts each instance at <code>root_index = rootPage &lt;&lt; 16</code> and bounds-checks it. An instance whose root page has no data is skipped.</li>
+  <li>Unknown ids return an error (a rejected promise in JS) instead of panicking; a panic would leave the WASM instance unusable. Every <code>lod_trees</code> lookup uses <code>ok_or_else(unknown_lod_id)?</code> and <code>set_lod_tree_data</code> returns <code>Result</code>.</li>
+  <li><code>get_lod_tree_info(lodId)</code> and <code>get_lod_tree_ids()</code> are test-facing exports (RPCs <code>getLodTreeInfo</code>, <code>getLodTreeIds</code> in <span class="file">src/worker.ts</span>) used by the harness cross-check above.</li>
+</ul>
+
+<!-- ============================================================ 3 -->
+<h2 id="tests">3. Test infrastructure</h2>
+
+<h3 id="test-flow">Pieces</h3>
+<p>
+  Top: what runs in CI and Node. Bottom: what runs inside the browser page. Specs talk to the page through
+  <code>page.evaluate</code> and to the network through <code>page.route</code>.
+</p>
+<pre class="mermaid">
+flowchart TB
+  subgraph node [Node]
+    direction TB
+    CI[CI job]
+    Specs[Specs]
+    Helpers[helpers.ts]
+    PW[Playwright runner]
+    Gen[globalSetup: fixtures]
+    Vite[Vite]
+  end
+  subgraph browser [Browser page]
+    direction TB
+    Page[harness page]
+    Hooks[HooksController]
+    Fuzz[FetchGate + fuzzer]
+    Spark[Spark]
+  end
+  CI --> PW
+  Helpers --> Specs
+  Specs --> PW
+  PW --> Gen
+  PW --> Vite
+  Vite -->|serves| Page
+  Specs -->|page.evaluate| Page
+  Specs -->|page.route| Vite
+  Page --> Hooks
+  Page --> Fuzz
+  Page --> Spark
+  Hooks -->|spark.hooks| Spark
+  Fuzz --> Spark
+</pre>
+<ul>
+  <li><b>CI job</b>: <span class="file">.github/workflows/ci-browser.yml</span>. Manual only (<code>workflow_dispatch</code>): run it from the Actions tab or with <code>gh workflow run ci-browser.yml --ref &lt;branch&gt;</code>; it does not run on push or pull request. Installs Rust with the wasm32 target, runs <code>build:wasm</code>, installs Chromium, then <code>test:fixtures</code> and <code>test:browser</code> with <code>FUZZ_ITERS</code> from the <code>fuzz_iters</code> input (default 3).</li>
+  <li><b>Playwright runner</b>: <span class="file">test/playwright.config.ts</span>. Chromium with SwiftShader, one worker, 320x320 viewport. Starts Vite on port 8080 (or reuses a running one) and runs the global setup.</li>
+  <li><b>Fixtures</b>: <span class="file">test/fixtures/gen-fixture.mjs</span> writes deterministic synthetic scenes (seeded blobs) so LoD trees and chunk boundaries are stable across runs, then runs <code>build-lod --rad-chunked</code> into <code>test/fixtures/out</code> (gitignored). <code>fixture.ply</code> (300K splats) is used by paged/LoD tests; <code>fixture-small.ply</code> (20K) by non-paged tests where SwiftShader is slow. Outputs: <code>fixture-lod.rad</code> and <code>chunked/fixture-lod.rad</code> + <code>*.radc</code>.</li>
+  <li><b>Specs and helpers</b>: <span class="file">test/browser/*.spec.ts</span> (<code>sanity</code>: boot, fixture and GPU baseline; <code>on-demand</code>: every <code>setDirty</code> site in section 1; <code>churn</code>: add/remove/hide/dispose orderings through the network seam; <code>orderings</code>: interleavings that need hook points, plus a direct worker RPC test; <code>pager-fuzz</code>: fresh random seeds; <code>regressions</code>: pinned seeds). <span class="file">helpers.ts</span> provides <code>openHarness</code>, <code>harness()</code>, <code>waitForSnapshot</code>, <code>holdRequests</code>, <code>expectInvariants</code>, <code>expectNoErrors</code>.</li>
+  <li><b>Harness page</b>: <span class="file">test/browser/pages/harness.html</span> + <span class="file">harness.ts</span> expose <code>window.harness</code> (next section). <code>HooksController</code> implements <code>SparkHooks</code> with hold / release / failNext / rejectHeld. <span class="file">fuzz.ts</span> holds the seeded scheduler and <code>FetchGate</code>, a patched <code>fetch</code> that can hold chunk requests.</li>
+  <li><b>Two ways to control timing</b>: the network (Playwright <code>page.route</code> or the in-page <code>FetchGate</code>) reproduces everything a real application can hit; hook points reproduce interleavings inside a single callback (a chunk landing between <code>consumeLodTreeUpdates</code> and <code>cleanupLodTrees</code>, a dispose during a traverse, a fault injected into the sort).</li>
+  <li><b>Render modes</b>: <code>loop</code> (rAF), <code>manual</code> (only <code>harness.render()</code>), <code>ondemand</code> (renders only from <code>onDirty</code>, plus explicit calls). On-demand tests let the application render once and assert that the pipeline converges from <code>onDirty</code> alone.</li>
+</ul>
+
+<h3 id="test-hooks">Hook points (<span class="file">src/SparkHooks.ts</span>)</h3>
+<p>
+  <code>hookPoint(hooks, name)</code> is called at fixed awaits inside the three asynchronous flows. In
+  production <code>hooks</code> is <code>undefined</code> and the call is a single falsy check. The harness
+  installs a controller that can hold, release or fail any point.
+</p>
+<table>
+  <tr><th style="width:240px">Name</th><th>Where</th></tr>
+  <tr><td><code>sort.start</code></td><td>Start of <code>sortInternal</code>, before <code>readbackDepth</code>.</td></tr>
+  <tr><td><code>sort.afterReadback</code></td><td>After the GPU depth readback, before the worker call.</td></tr>
+  <tr><td><code>sort.afterWorker</code></td><td>After <code>sortSplats32</code> returns, before the ordering texture upload.</td></tr>
+  <tr><td><code>lod.start</code></td><td>Start of <code>lodCallback</code>.</td></tr>
+  <tr><td><code>lod.afterInit</code></td><td>After the trees in <code>lodInitQueue</code> are created.</td></tr>
+  <tr><td><code>lod.afterUpdateTrees</code></td><td>After <code>updateLodTrees</code> returns.</td></tr>
+  <tr><td><code>lod.afterTraverse</code></td><td>After <code>traverseLodTrees</code> returns, before <code>updateLodIndices</code>.</td></tr>
+  <tr><td><code>lod.beforeCleanup</code></td><td>Before <code>cleanupLodTrees</code>.</td></tr>
+  <tr><td><code>pager.fetched</code></td><td>A chunk fetch and decode completed, before it is pushed to <code>fetched</code>.</td></tr>
+  <tr><td><code>pager.beforeProcessFetched</code></td><td>Before <code>processFetched</code> assigns pages to queued chunks.</td></tr>
+</table>
+
+<h3 id="test-harness">Harness API (<span class="file">test/browser/pages/harness.ts</span>)</h3>
+<table>
+  <tr><th style="width:280px">Method</th><th>Purpose</th></tr>
+  <tr><td><code>init({mode, maxPages, lodSplatCount, numLodFetchers, lodDisposeTimeoutMs, fetchPause})</code></td><td>Create renderer, scene, camera and <code>SparkRenderer</code> with small pools and short timeouts so eviction and cleanup happen within a test.</td></tr>
+  <tr><td><code>addPaged(name, url, {position})</code>, <code>addMesh(name, url, opts)</code></td><td>Add a paged or fully loaded <code>SplatMesh</code>. Names map to <code>PagedSplats</code> for readable snapshots.</td></tr>
+  <tr><td><code>remove</code>, <code>readd</code>, <code>dispose</code>, <code>destroy</code>, <code>setVisible</code>, <code>setPosition</code></td><td>Scene churn primitives used by specs and the fuzzer.</td></tr>
+  <tr><td><code>setMode</code>, <code>render</code>, <code>moveCamera(pos, look)</code></td><td>Frame control.</td></tr>
+  <tr><td><code>snapshot()</code></td><td>Renders nothing. Returns counters and tables: <code>renders</code>, <code>dirtyEvents</code>, <code>pagerUpdates</code>, <code>pagerDrops</code>, <code>sorting</code>, <code>sortDirty</code>, <code>lodDirty</code>, <code>activeSplats</code>, <code>inFlight</code>, <code>held</code>, <code>lodIds[{name, lodId, rootPage}]</code>, <code>pager.{maxPages, freelist, mapped, fetchers, fetched, lodTreeUpdates, ...}</code>, <code>meshes[name].{pagedNumSplats, pagedAborted, pagedHasIndicesTexture}</code>, <code>errors</code>.</td></tr>
+  <tr><td><code>hooks.hold(name)</code> / <code>unhold</code> / <code>release(name, n)</code> / <code>releaseAll</code> / <code>failNext(name, msg)</code> / <code>rejectHeld</code> / <code>heldCount</code> / <code>heldNames</code></td><td>The <code>SparkHooks</code> controller. A held point returns a pending promise; <code>release</code> resolves the oldest; <code>failNext</code> rejects the next arrival.</td></tr>
+  <tr><td><code>waitIdle</code>, <code>waitQuiet</code>, <code>isBusy</code>, <code>renderUntilIdle</code></td><td>Convergence: no fetchers, no pending updates, no sort, no scheduled render, stable for <code>settleMs</code>.</td></tr>
+  <tr><td><code>checkInvariants()</code></td><td>Pager invariants with the live set from <code>spark.lodIds</code>, accumulator freelist sanity, and (when drained) the Rust cross-check via <code>lodWorkerCall("getLodTreeIds" | "getLodTreeInfo")</code>.</td></tr>
+  <tr><td><code>residentChunks(name)</code>, <code>countLitPixels()</code>, <code>awaitInitialized(name)</code>, <code>lodWorkerCall(name, args)</code>, <code>fuzz(options)</code></td><td>Residency, the rendered image, load completion, direct worker RPC, and the fuzzer entry point.</td></tr>
+</table>
+
+<h3 id="test-fuzz">Fuzzer (<span class="file">test/browser/pages/fuzz.ts</span>, <span class="file">pager-fuzz.spec.ts</span>, <span class="file">regressions.spec.ts</span>)</h3>
+<p>
+  A seeded in-page scheduler (mulberry32 RNG) draws one weighted action per step against a small pool
+  (<code>FUZZ_HARNESS</code> in <span class="file">fuzz-shared.ts</span>), yields a macrotask, and runs the
+  quick pager invariant check. Every <code>drainEvery</code> steps and at the end it releases every held
+  hook and request, renders until idle and runs the full check including the Rust cross-check. The final
+  phase removes every mesh, waits past <code>lodDisposeTimeoutMs</code> and requires the pool to be fully
+  released and <code>lodIds</code> empty.
+</p>
+<table>
+  <tr><th style="width:120px">Probability</th><th>Action</th><th>Exercises</th></tr>
+  <tr><td>0.10</td><td>add a paged mesh at a random position (up to <code>maxMeshes</code>)</td><td>tree creation, root fetch priority by distance</td></tr>
+  <tr><td>0.08</td><td>remove a mesh from the scene</td><td>cleanup after the timeout while fetches may be in flight</td></tr>
+  <tr><td>0.08</td><td>re-add a removed mesh</td><td>re-created tree with in-flight or pending state</td></tr>
+  <tr><td>0.04</td><td>dispose a mesh</td><td>abort path; dispose during a traverse</td></tr>
+  <tr><td>0.06</td><td>toggle visibility</td><td>hidden meshes keep their tree but lose pages, including the root</td></tr>
+  <tr><td>0.08</td><td>jump the camera to one of a few presets</td><td>changes wanted chunks, eviction pressure</td></tr>
+  <tr><td>0.18</td><td>render 1-3 frames</td><td>lets callbacks run; on-demand behaviour</td></tr>
+  <tr><td>0.10</td><td>release one held chunk fetch (<code>FetchGate</code>)</td><td>fetch landing at arbitrary points</td></tr>
+  <tr><td>0.08</td><td>release one held hook point</td><td>resume a held callback or fetch</td></tr>
+  <tr><td>0.06</td><td>hold a random hook point</td><td>hold future arrivals</td></tr>
+  <tr><td>0.04</td><td>unhold + flush a hook point</td><td></td></tr>
+  <tr><td>0.10</td><td>sleep 0-80 ms</td><td>let timers (backoff, dispose timeout) fire</td></tr>
+</table>
+<p>
+  On failure the spec prints the seed, the step trace and the violation strings. Seeds that have failed
+  are kept in <code>PINNED</code> in <span class="file">regressions.spec.ts</span> with the exact harness
+  config and step count so the same interleaving replays on every run. <code>FUZZ_ITERS</code> controls
+  how many fresh seeds <span class="file">pager-fuzz.spec.ts</span> runs (3 in CI).
+</p>
+
+<h3 id="test-recipe">Writing a new ordering test</h3>
+<pre class="code"><code>const opened = await openHarness(page, { mode: "manual", maxPages: 8, lodDisposeTimeoutMs: 200 });
+const h = harness(page);
+await h.addPaged("A", FIXTURES.chunked);
+await h.renderUntilIdle();
+
+// 1. Hold the pipeline at the await you care about
+await h.hooks.hold("lod.beforeCleanup");
+await h.render();
+await h.hooks.waitHeld("lod.beforeCleanup", 1);
+
+// 2. Perform the racing action (scene edit, held fetch release, another render)
+await h.remove("A");
+
+// 3. Resume and let everything settle
+await h.hooks.unhold("lod.beforeCleanup");
+await h.hooks.release("lod.beforeCleanup", 1);
+expect(await h.renderUntilIdle()).toBe(true);
+
+// 4. Assert on tables, not on timing
+await expectInvariants(page);            // pager + Rust cross-check
+expectNoErrors(opened, await h.snapshot());</code></pre>
+<ul>
+  <li>Prefer the network seam (<code>holdRequests(page, ..., url =&gt; chunkIndexFromUrl(url) !== 0)</code>) when the ordering is reachable by a real application. Use hook points when the race is inside one callback.</li>
+  <li>New hook points: add a <code>hookPoint(this.hooks, "area.name")</code> line at the await, list the name in the <code>SparkHooks</code> doc comment and in <code>HOOK_NAMES</code> in <span class="file">fuzz.ts</span> so the fuzzer can hold it.</li>
+  <li>If the fuzzer finds a failing seed, copy the <code>{ seed, steps }</code> pair into <code>PINNED</code> in <span class="file">regressions.spec.ts</span>.</li>
+</ul>
+
+<h3 id="test-commands">Commands</h3>
+<pre class="code"><code>npm run build:wasm                     # spark-rs (needs Rust + wasm32-unknown-unknown)
+npm run test:fixtures                  # generate test/fixtures/out via build-lod (also done by globalSetup)
+npm run test:browser                   # all browser specs (starts vite on 8080 or reuses a running one)
+npm run test:browser -- churn          # one spec file (config lives at test/playwright.config.ts)
+npm run test:browser -- -g "P1b"       # by test title
+FUZZ_ITERS=10 npm run test:browser -- pager-fuzz
+npx tsc -p test/tsconfig.json          # type-check the test code (Node + DOM types)
+npx playwright show-trace test-results/&lt;run&gt;/trace.zip   # traces are kept on failure</code></pre>
+
+</main>
+
+<script type="module">
+import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+mermaid.initialize({ startOnLoad: false, theme: "neutral", securityLevel: "loose", sequence: { useMaxWidth: true }, flowchart: { wrappingWidth: 520 } });
+await mermaid.run({ querySelector: ".mermaid" });
+</script>
+</body>
+</html>

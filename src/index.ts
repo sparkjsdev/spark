@@ -17,6 +17,7 @@ export { transcodeSpz, writeSpz } from "./spz";
 export { PackedSplats, type PackedSplatsOptions } from "./PackedSplats";
 export { ExtSplats, type ExtSplatsOptions } from "./ExtSplats";
 export * from "./SplatPager";
+export { type SparkHooks, hookPoint } from "./SparkHooks";
 export {
   SplatGenerator,
   type GsplatGenerator,

@@ -1,0 +1,674 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Spark: paged LoD churn and on-demand rendering fixes (September 2026)</title>
+<link rel="stylesheet" href="internals.css" />
+</head>
+<body>
+<nav>
+  <h1>Paged LoD churn and on-demand rendering fixes (Sep 2026)</h1>
+  <a href="#intro">What this is</a>
+  <div class="group">1. Defect catalog</div>
+  <div class="sub"><a href="#matrix">Issue matrix</a></div>
+  <div class="group">2. Step-throughs</div>
+  <div class="sub">
+    <a href="#sim-p1a">P1a: chunk lands after removal</a>
+    <a href="#sim-p1b">P1b: stale update, re-created tree</a>
+    <a href="#sim-p2">P2: root chunk evicted</a>
+    <a href="#sim-d1">D1: chunk lands, no render</a>
+    <a href="#sim-d3">D3: lodDirty set during a callback</a>
+    <a href="#sim-d5">D5: failed sort</a>
+  </div>
+  <div class="group">3. What changed</div>
+  <div class="sub">
+    <a href="#changes-code">Code changes by file</a>
+    <a href="#changes-tests">What each browser test covers</a>
+    <a href="#changes-fuzz">Fuzz seeds and invariants</a>
+  </div>
+  <div class="see"><a href="index.html">Back to the internals overview</a></div>
+</nav>
+
+<main>
+<h2 id="intro" style="border-top:0;margin-top:0">What this is</h2>
+<div class="callout warn">
+  <b>Internal engineering notes, as of September 2026 (Spark 2.1.0).</b> This page was written alongside
+  the paged-LoD add/remove churn and on-demand rendering fixes (the change that introduced
+  <code>SparkHooks</code>, <code>SplatPager.checkInvariants()</code> and the <code>test/browser/</code>
+  Playwright suite). It describes the code, defects, fixes and tests as they were at that point and is
+  <b>not</b> kept in sync with later changes: hook names and test names may drift, and the "without fix"
+  behaviours described here no longer exist in the code. It is not linked from the main documentation
+  navigation. The source and the tests are authoritative.
+</div>
+<p>
+  This is a record of the defects found in <code>SparkRenderer</code> / <code>SplatPager</code> during the
+  September 2026 work, how each was reproduced and fixed, and which browser test covers it. It assumes you
+  know how the pieces fit together; that is covered by the
+  <a href="index.html">internals overview</a> (architecture, pager tables, invariants, test harness).
+</p>
+<p>Two problem classes were addressed:</p>
+<ul>
+  <li><b>Add/remove churn corrupting the pager tables (P*)</b>: a paged <code>SplatMesh</code> removed from
+    the scene (and later re-added, hidden, or disposed) while fetches or LoD callbacks were in flight could
+    leave pages mapped to a dead mesh, leave pending tree updates pointing at freed pages, or leave a stale
+    <code>rootPage</code> so a mesh traversed another chunk's data.</li>
+  <li><b>Missed <code>setDirty()</code> in on-demand mode (D*)</b>: an application that renders only from
+    <code>onDirty</code> would stall because some asynchronous completion (chunk landing, mesh
+    initialization, a LoD change during a busy callback, a failed sort) had no path to request a render.</li>
+</ul>
+<p>
+  Each row in the catalog was first written as a failing spec against the unmodified code, then fixed with
+  the smallest change that made that spec pass. The step-throughs in section 2 are small scripted models
+  of the real tables (not the real code). Each replays one interleaving with and without the fix and runs a
+  simplified copy of <code>SplatPager.checkInvariants()</code> after every step.
+</p>
+<p>
+  Key files: <span class="file">src/SparkRenderer.ts</span>, <span class="file">src/SplatPager.ts</span>,
+  <span class="file">src/SparkHooks.ts</span>, <span class="file">src/worker.ts</span>,
+  <span class="file">rust/spark-rs/src/lod_tree.rs</span>, <span class="file">test/browser/*</span>.
+</p>
+
+<!-- ============================================================ 1 -->
+<h2 id="matrix">1. Defect catalog</h2>
+<p>
+  Rows marked "guard" describe suspected defects that were not reachable; their specs were kept as
+  guards. Invariant ids (I1-I7) and <code>setDirty</code> sites refer to the
+  <a href="index.html#pager-invariants">invariants table</a> and the
+  <a href="index.html#arch-dirty">setDirty table</a> in the overview.
+</p>
+<table>
+  <tr><th style="width:52px">Id</th><th>Symptom</th><th>Trigger / ordering</th><th>Root cause</th><th>Fix</th><th>Test</th><th style="width:78px">Status</th></tr>
+  <tr><td><a href="#sim-d1">D1</a></td><td>On-demand app: a paged mesh never appears or never refines.</td><td>App renders once; chunk lands after the last render.</td><td><code>processFetched</code> queues data in <code>lodTreeUpdates</code>; only a LoD callback consumes it and callbacks only run from <code>render()</code>. Nothing asked the app to render.</td><td class="wrap"><code>pager.onUpdate = () =&gt; setDirty()</code> set when the pager is created (<code>lodCallback</code>); <code>processFetched</code> calls <code>onUpdate</code> when it mapped anything. See <a href="index.html#arch-dirty">setDirty sites</a>.</td><td class="wrap"><span class="file">on-demand.spec.ts</span> "D1: paged chunk landing triggers a render in on-demand mode"</td><td><span class="pill red">red</span><span class="pill green">green</span></td></tr>
+  <tr><td>D1b</td><td>After a camera move the on-demand pipeline stops converging.</td><td>Same as D1 with new chunks becoming relevant after one app render.</td><td>Same as D1.</td><td class="wrap">Same as D1.</td><td class="wrap"><span class="file">on-demand.spec.ts</span> "D1b: on-demand pipeline keeps converging after camera moves"</td><td><span class="pill red">red</span><span class="pill green">green</span></td></tr>
+  <tr><td>D2</td><td>On-demand app: a <code>SplatMesh</code> that finished loading after the last render is never shown.</td><td>Add mesh, render once before <code>initialized</code> resolves.</td><td>Nothing observed <code>initialized</code>.</td><td class="wrap"><code>initWatched</code> WeakSet in <code>updateInternal</code>: first time an uninitialized mesh is seen, <code>initialized.then(setDirty)</code>.</td><td class="wrap"><span class="file">on-demand.spec.ts</span> "D2: SplatMesh async initialization triggers a render in on-demand mode"</td><td><span class="pill red">red</span><span class="pill green">green</span></td></tr>
+  <tr><td>D2b</td><td>Same for a non-paged LoD mesh.</td><td>Same.</td><td>Same.</td><td class="wrap">Same.</td><td class="wrap"><span class="file">on-demand.spec.ts</span> "D2b: LoD (non-paged) SplatMesh initialization ..."</td><td><span class="pill red">red</span><span class="pill green">green</span></td></tr>
+  <tr><td><a href="#sim-d3">D3</a></td><td>LoD budget or view changed while a callback was running; the change never applies until the app renders again.</td><td>Render A starts a long callback; render B sets <code>lodDirty</code> but <code>tryExclusive</code> skips; callback A exits.</td><td>Callback A's exit path did not call <code>setDirty</code>; its own traverse had already done so earlier.</td><td class="wrap"><code>try/finally</code> around the <code>tryExclusive</code> body: <code>setDirty()</code> if <code>lodDirty</code>, <code>lodInitQueue.length</code> or <code>pager.hasPendingUpdates()</code>. See <a href="index.html#arch-lodcallback">the LoD callback</a>.</td><td class="wrap"><span class="file">on-demand.spec.ts</span> "D3: LoD callback that exits with lodDirty pending requests a render"</td><td><span class="pill red">red</span><span class="pill green">green</span></td></tr>
+  <tr><td><a href="#sim-d5">D5</a></td><td>After any sort failure, later mesh adds never display.</td><td>Fault injected at <code>sort.afterWorker</code>.</td><td><code>sorting = true</code> was never reset on a rejection; <code>updateInternal</code> skips accumulator swaps while <code>mappingUpdated &amp;&amp; sorting</code>.</td><td class="wrap"><code>driveSort</code> split into <code>sortInternal</code> + <code>try/catch/finally</code>: re-arm <code>sortDirty</code>, clear <code>sorting</code>, <code>setDirty()</code>. See <a href="index.html#arch-sort">sort pipeline</a>.</td><td class="wrap"><span class="file">on-demand.spec.ts</span> "D5: a failed sort does not leave `sorting` stuck"</td><td><span class="pill red">red</span><span class="pill green">green</span></td></tr>
+  <tr><td><a href="#sim-p1a">P1a</a></td><td>Pages stay mapped for a mesh whose tree is gone (I4b); pool shrinks; fuzz runs stall.</td><td>Child chunk fetch in flight; mesh removed; <code>cleanupLodTrees</code> disposes its tree; fetch lands.</td><td>The landing fetch only checked <code>abortController</code>. A removed but not disposed mesh is not aborted, so <code>processFetched</code> mapped a page for a tree that no longer existed.</td><td class="wrap"><code>retiredSplats</code> WeakSet: <code>removeSplats</code> adds, <code>initLodTree</code> -&gt; <code>activateSplats</code> deletes; both the fetch <code>then</code> and <code>processFetched</code> drop retired meshes (lifecycle transition T11 in the overview).</td><td class="wrap"><span class="file">churn.spec.ts</span> "P1a: a chunk that lands for a removed mesh does not stay mapped"; <span class="file">regressions.spec.ts</span> seeds 12, 17</td><td><span class="pill red">red</span><span class="pill green">green</span></td></tr>
+  <tr><td><a href="#sim-p1b">P1b</a></td><td>Pending insert refers to a freed page (I7); when the mesh is re-added the stale insert lands in the new tree: Rust and pager disagree, wrong data traversed.</td><td>Chunk lands between <code>consumeLodTreeUpdates</code> and <code>cleanupLodTrees</code> of the callback that disposes the mesh (held at <code>lod.beforeCleanup</code>), or naturally under churn.</td><td><code>removeSplats</code> freed pages but left <code>fetched</code>, <code>lodTreeUpdates</code> and uploads that referenced them.</td><td class="wrap"><code>removeSplats</code> purges <code>fetched</code>, <code>lodTreeUpdates</code>, <code>newUploads</code>, <code>readyUploads</code> for the mesh / freed pages, plus the P1a retirement (transitions T9 and T12).</td><td class="wrap"><span class="file">orderings.spec.ts</span> "P1b (hooks): ..."; <span class="file">churn.spec.ts</span> "P1b (natural): ..."</td><td><span class="pill red">red</span><span class="pill green">green</span></td></tr>
+  <tr><td><a href="#sim-p2">P2</a></td><td>A hidden mesh whose root page was evicted keeps <code>rootPage</code>; when shown again it renders another chunk's data (foreign splats), <code>rootPage != rust chunk_to_page[0]</code>.</td><td>2-page pool; M1 resident; hide M1; add M2 whose chunks evict all of M1's pages incl. chunk 0; show M1.</td><td><code>lodCallback</code> only set <code>rootPage</code> on insert. Evicts of chunk 0 were forwarded to the worker but the JS record kept the page.</td><td class="wrap">On chunk-0 evict of the recorded root: <code>rootPage = undefined</code> and <code>splats.update(0, EMPTY_INDICES)</code>; instance skipped in <code>updateLodInstances</code>; paged meshes not traversed are zeroed after the traverse; <code>cleanupLodTrees</code> also zeroes (transition T8).</td><td class="wrap"><span class="file">churn.spec.ts</span> "P2: evicting a mesh's root chunk does not leave a stale rootPage"</td><td><span class="pill red">red</span><span class="pill green">green</span></td></tr>
+  <tr><td>P3</td><td>(suspected) landed chunk dropped when no page is available.</td><td>Full pool under sustained pressure.</td><td>Not reachable: <code>driveFetchers</code> caps mapped + fetched + in-flight at <code>maxPages</code>.</td><td class="wrap">None. Harness counts <code>allocateFreeable</code> returning <code>undefined</code> (<code>pagerDrops</code>).</td><td class="wrap"><span class="file">orderings.spec.ts</span> "P3: fetched chunks are never dropped when the pool is full"</td><td><span class="pill green">green</span><span class="pill grey">guard</span></td></tr>
+  <tr><td>P4</td><td>(suspected) double insert orphans a <code>pageLru</code> entry; <code>allocateFreeable</code> throws.</td><td>No known path.</td><td>Not reproduced.</td><td class="wrap">None; covered by I4 in the fuzzer.</td><td class="wrap">fuzzer invariants</td><td><span class="pill grey">n/a</span></td></tr>
+  <tr><td>P5</td><td>(suspected) <code>dispose()</code> then re-add spins on aborted fetches.</td><td>Dispose a mesh and put the same object back.</td><td>Not observed: dispose clears the mesh's splat source so the re-added mesh contributes no LoD source.</td><td class="wrap">None.</td><td class="wrap"><span class="file">churn.spec.ts</span> "P5: dispose() then re-adding the same mesh does not spin on aborted fetches"</td><td><span class="pill green">green</span><span class="pill grey">guard</span></td></tr>
+  <tr><td>P6</td><td>A disposed paged mesh gets its indices texture re-created by a traverse that was already in flight.</td><td>Hold <code>lod.afterTraverse</code>, dispose the mesh, release.</td><td><code>PagedSplats.update()</code> did not check <code>abortController</code>.</td><td class="wrap">Guard at the top of <code>update()</code>: if aborted, <code>numSplats = 0</code> and return.</td><td class="wrap"><span class="file">orderings.spec.ts</span> "P6: disposing a paged mesh during a traverse does not recreate its indices texture"</td><td><span class="pill red">red</span><span class="pill green">green</span></td></tr>
+  <tr><td>R1</td><td>A worker call with an unknown <code>lodId</code> panics the WASM module; every later LoD call fails with "unreachable".</td><td>Direct worker call in the test; any future bookkeeping error in production.</td><td><code>unwrap()</code> on <code>lod_trees.get(id)</code>.</td><td class="wrap"><code>ok_or_else(unknown_lod_id)?</code> everywhere, <code>set_lod_tree_data</code> returns <code>Result</code>, root bounds checks in both traversals. See <a href="index.html#pager-rust">Rust side</a>.</td><td class="wrap"><span class="file">orderings.spec.ts</span> "R1 (gated hardening): unknown lodId in a worker call rejects without poisoning the worker"</td><td><span class="pill red">red</span><span class="pill green">green</span></td></tr>
+</table>
+
+<!-- ============================================================ 2 -->
+<h2 id="sims">2. Interactive step-throughs</h2>
+<p>
+  Each box replays one interleaving. Use <b>Next</b>/<b>Prev</b> or click a step; toggle
+  <b>without fix</b> / <b>with fix</b> to see where the behaviours diverge. Cells that changed in the current
+  step are outlined. The verdict line runs the modelled invariants; the strings match what the real
+  <code>checkInvariants()</code> and harness cross-check emit. The Mermaid diagram under each box is a
+  static version of the same sequence.
+</p>
+
+<h3 id="sim-p1a">P1a: a chunk lands after its mesh was removed and its tree disposed</h3>
+<div class="sim" data-scenario="p1a"></div>
+<pre class="mermaid">
+sequenceDiagram
+  participant App
+  participant SR as SparkRenderer
+  participant Pg as SplatPager
+  participant Net
+  App->>SR: scene.add(A)#59; render()
+  SR->>Pg: initLodTree(A) -> newSharedLodTree#59; activateSplats(A)
+  Pg->>Net: fetch A:0
+  Net-->>Pg: A:0 lands -> page 0, insert queued
+  SR->>SR: callback: rootPage(A) = 0#59; traverse wants A:4
+  Pg->>Net: fetch A:4 (slow)
+  App->>SR: scene.remove(A)#59; render()
+  Note over SR: A untouched for lodDisposeTimeoutMs
+  SR->>Pg: cleanupLodTrees: removeSplats(A) [retire A], disposeLodTree
+  Net-->>Pg: A:4 lands
+  alt without fix
+    Pg->>Pg: A alive? (only abort checked) -> map page 1 for A:4
+    Note over Pg: I4b violated: page mapped for splats not in lodIds
+  else with fix
+    Pg->>Pg: retiredSplats.has(A) -> drop
+  end
+</pre>
+
+<h3 id="sim-p1b">P1b: a chunk lands while the disposing callback is held, then the mesh is re-added</h3>
+<div class="sim" data-scenario="p1b"></div>
+<pre class="mermaid">
+sequenceDiagram
+  participant App
+  participant SR as SparkRenderer
+  participant Pg as SplatPager
+  participant Rust as LoD worker
+  Note over SR,Pg: A: root on page 0#59; A:4 in flight#59; A removed and untouched past the timeout
+  App->>SR: render()
+  SR->>Pg: consumeLodTreeUpdates() (empty)
+  SR->>SR: ... held at [lod.beforeCleanup]
+  Pg->>Pg: A:4 lands: not retired yet -> page 1, insert A:4@1 queued, upload queued
+  SR->>Pg: resume: cleanupLodTrees -> removeSplats(A)
+  alt without fix
+    Note over Pg: pages 0,1 freed but insert A:4@1 and upload for page 1 remain (I7)
+    App->>SR: scene.add(A)#59; render()
+    SR->>Rust: newSharedLodTree -> lodId 3
+    SR->>Rust: updateLodTrees(insert A:4 @ page 1) applied to the new tree
+    Note over Rust,Pg: Rust chunk_to_page[4] = 1, pager: page 1 free or owned by another chunk
+  else with fix
+    Note over Pg: removeSplats purges fetched / lodTreeUpdates / uploads for A#59; retire A
+    App->>SR: scene.add(A)#59; render()
+    SR->>Rust: newSharedLodTree -> lodId 3 (empty)#59; activateSplats(A)#59; fetch A:0 anew
+  end
+</pre>
+
+<h3 id="sim-p2">P2: a hidden mesh's root chunk is evicted</h3>
+<div class="sim" data-scenario="p2"></div>
+<pre class="mermaid">
+sequenceDiagram
+  participant App
+  participant SR as SparkRenderer
+  participant Pg as SplatPager
+  participant Rust as LoD worker
+  Note over SR,Pg: maxPages = 2. M1 resident: chunk 0 on page 0, chunk 3 on page 1#59; rootPage(M1) = 0
+  App->>SR: M1.visible = false#59; scene.add(M2)
+  Pg->>Pg: M2:0 lands: allocateFreeable evicts M1:3 (page 1)
+  SR->>Rust: updateLodTrees(evict M1:3, insert M2:0 @ 1)#59; rootPage(M2) = 1
+  Pg->>Pg: M2:5 lands: allocateFreeable evicts M1:0 (page 0)
+  SR->>Rust: updateLodTrees(evict M1:0, insert M2:5 @ 0)
+  alt without fix
+    Note over SR: rootPage(M1) stays 0 although page 0 now holds M2:5
+    App->>SR: M1.visible = true#59; render()
+    SR->>Rust: traverse M1 from root page 0 -> M2's data -> M1 shows foreign splats
+  else with fix
+    Note over SR: chunk-0 evict of the recorded root -> rootPage(M1) = undefined#59; M1.update(0, EMPTY)
+    App->>SR: M1.visible = true#59; render()
+    SR->>SR: M1 skipped in updateLodInstances (numSplats 0)#59; fetchPriority gets M1:0 -> root refetched
+  end
+</pre>
+
+<h3 id="sim-d1">D1: chunk data lands but no render is requested (on-demand)</h3>
+<div class="sim" data-scenario="d1"></div>
+<pre class="mermaid">
+sequenceDiagram
+  participant App as App (renders only from onDirty)
+  participant SR as SparkRenderer
+  participant Pg as SplatPager
+  participant Net
+  App->>SR: scene.add(A)#59; render #1
+  SR->>SR: initLodTree(A)#59; fetchPriority [A:0]#59; setDirty (mapping changed)
+  SR-->>App: onDirty -> render #2 (sort settles) ... pipeline idle, dirty = false
+  Pg->>Net: fetch A:0
+  Net-->>Pg: A:0 lands -> processFetched maps page 0, insert queued
+  alt without fix
+    Note over Pg,App: lodTreeUpdates = 1, no render scheduled: stall until the user moves the camera
+  else with fix
+    Pg-->>SR: onUpdate -> setDirty()
+    SR-->>App: onDirty -> render #3
+    SR->>SR: callback consumes update, traverses, A displayed, setDirty -> render #4 ... converges
+  end
+</pre>
+
+<h3 id="sim-d3">D3: a LoD change arrives while the callback is running (on-demand)</h3>
+<div class="sim" data-scenario="d3"></div>
+<pre class="mermaid">
+sequenceDiagram
+  participant App as App (on-demand)
+  participant SR as SparkRenderer
+  participant Lod as LoD worker
+  App->>SR: camera moved#59; render #1
+  SR->>Lod: lodCallback: traverse, setDirty -> render #2 ... callback still running (long cleanup)
+  App->>SR: spark.lodSplatCount = 12000#59; render #3
+  SR->>SR: driveLod: lodDirty = true#59; tryExclusive -> busy, skipped
+  Note over SR: render #3 changed nothing else#59; no sort#59; dirty = false
+  Lod-->>SR: callback #1 finishes
+  alt without fix
+    Note over SR,App: lodDirty stays true#59; the new budget applies only on the next user-driven render
+  else with fix
+    SR->>SR: finally: lodDirty -> setDirty()
+    SR-->>App: onDirty -> render #4 -> callback #2 traverses with the new budget
+  end
+</pre>
+
+<h3 id="sim-d5">D5: a sort fails</h3>
+<div class="sim" data-scenario="d5"></div>
+<pre class="mermaid">
+sequenceDiagram
+  participant App
+  participant SR as SparkRenderer
+  participant Sort as Sort worker
+  App->>SR: camera moved#59; render()
+  SR->>SR: driveSort: sorting = true, sortDirty = false
+  SR->>Sort: readback, sortSplats32
+  Sort-->>SR: ordering
+  SR->>SR: [sort.afterWorker] throws (injected)
+  alt without fix
+    Note over SR: sorting stays true
+    App->>SR: scene.add(Q)#59; render()
+    SR->>SR: mappingUpdated && sorting -> doUpdate = false: Q never displayed
+  else with fix
+    SR->>SR: catch: sortDirty = true#59; finally: sorting = false#59; setDirty()
+    App->>SR: scene.add(Q)#59; render()
+    SR->>Sort: sort runs#59; Q displayed
+  end
+</pre>
+
+<!-- ============================================================ 3 -->
+<h2 id="changes">3. What changed and what each test covers</h2>
+
+<h3 id="changes-code">Code changes by file</h3>
+<table>
+  <tr><th style="width:230px">File</th><th>Change</th><th style="width:110px">For</th></tr>
+  <tr><td><span class="file">src/SparkHooks.ts</span> (new)</td><td><code>SparkHooks</code> interface and <code>hookPoint(hooks, name)</code>: named awaits inside the sort, LoD callback and pager pipelines. In production <code>hooks</code> is <code>undefined</code> and each call is a single falsy check; the test harness installs a controller that can hold, release or fail any point.</td><td>test seam</td></tr>
+  <tr><td rowspan="6"><span class="file">src/SparkRenderer.ts</span></td><td><code>pager.onUpdate = () =&gt; this.setDirty()</code> when the pager is created in <code>lodCallback</code>.</td><td>D1, D1b</td></tr>
+  <tr><td><code>initWatched</code> WeakSet in <code>updateInternal</code>: the first time an uninitialized <code>SplatMesh</code> is seen, <code>initialized.then(() =&gt; setDirty())</code>.</td><td>D2, D2b</td></tr>
+  <tr><td><code>try/finally</code> around the <code>tryExclusive(lodCallback)</code> body in <code>driveLod</code>: <code>setDirty()</code> on exit if <code>lodDirty</code>, <code>lodInitQueue.length</code> or <code>pager.hasPendingUpdates()</code>.</td><td>D3</td></tr>
+  <tr><td><code>driveSort</code> split into <code>sortInternal</code> plus <code>try/catch/finally</code>: <code>catch</code> re-arms <code>sortDirty</code>; <code>finally</code> clears <code>sorting</code>, calls <code>setDirty()</code> and re-drives.</td><td>D5</td></tr>
+  <tr><td>In <code>lodCallback</code>, a chunk-0 evict of the recorded <code>rootPage</code> clears it and calls <code>splats.update(0, EMPTY_INDICES)</code>; <code>updateLodInstances</code> skips paged meshes without a root and zeroes paged meshes not traversed; <code>cleanupLodTrees</code> zeroes too. <code>initLodTree</code> for a <code>PagedSplats</code> calls <code>pager.activateSplats</code>.</td><td>P2, P1a</td></tr>
+  <tr><td>Hook points <code>sort.start</code>, <code>sort.afterReadback</code>, <code>sort.afterWorker</code>, <code>lod.start</code>, <code>lod.afterInit</code>, <code>lod.afterUpdateTrees</code>, <code>lod.afterTraverse</code>, <code>lod.beforeCleanup</code>; <code>hooks</code> constructor option.</td><td>test seam</td></tr>
+  <tr><td rowspan="4"><span class="file">src/SplatPager.ts</span></td><td><code>retiredSplats: WeakSet&lt;PagedSplats&gt;</code>; <code>removeSplats</code> adds, <code>activateSplats</code> deletes. The fetch <code>then</code> handler and <code>processFetched</code> drop chunks for retired meshes.</td><td>P1a</td></tr>
+  <tr><td><code>removeSplats</code> also purges <code>fetched</code>, <code>lodTreeUpdates</code>, <code>newUploads</code> and <code>readyUploads</code> entries for the mesh and the freed pages, and filters <code>freeablePages</code>.</td><td>P1b</td></tr>
+  <tr><td><code>onUpdate</code> callback invoked from <code>processFetched</code> when at least one chunk was mapped; <code>hasPendingUpdates()</code>.</td><td>D1, D3</td></tr>
+  <tr><td><code>checkInvariants(liveSplats?)</code> (I1-I7), <code>debugState()</code>, hook points <code>pager.fetched</code> and <code>pager.beforeProcessFetched</code>.</td><td>test oracle</td></tr>
+  <tr><td><span class="file">src/SplatPager.ts</span> (<code>PagedSplats.update</code>)</td><td>Guard at the top of <code>update()</code>: if <code>abortController.signal.aborted</code>, set <code>numSplats = 0</code> and return instead of re-creating the indices texture.</td><td>P6</td></tr>
+  <tr><td><span class="file">rust/spark-rs/src/lod_tree.rs</span></td><td>Every <code>lod_trees.get(id).unwrap()</code> replaced by <code>ok_or_else(unknown_lod_id)?</code>; <code>set_lod_tree_data</code> returns <code>Result</code>; both traversals bounds-check <code>root_index</code>. New exports <code>get_lod_tree_info(lodId)</code> and <code>get_lod_tree_ids()</code>.</td><td>R1, test oracle</td></tr>
+  <tr><td><span class="file">src/worker.ts</span></td><td>RPC handlers <code>getLodTreeInfo</code> and <code>getLodTreeIds</code> so the harness can compare Rust <code>chunk_to_page</code> / <code>page_to_chunk</code> with the pager's tables.</td><td>test oracle</td></tr>
+  <tr><td><span class="file">test/browser/*</span>, <span class="file">test/fixtures/gen-fixture.mjs</span>, <span class="file">test/playwright.config.ts</span>, <span class="file">.github/workflows/ci-browser.yml</span></td><td>Playwright suite, in-page harness and fuzzer, synthetic fixture generator, CI job. Described in the <a href="index.html#tests">test infrastructure</a> section of the overview.</td><td>all</td></tr>
+</table>
+
+<h3 id="changes-tests">What each browser test covers</h3>
+<p>
+  The suite has two kinds of specs: those that reproduce a specific defect above (they failed on the
+  unmodified code) and those that guard a suspected defect or exercise many orderings at once.
+</p>
+<table>
+  <tr><th style="width:170px">Spec file</th><th>Tests</th><th>Covers</th></tr>
+  <tr><td><span class="file">sanity.spec.ts</span></td><td>"WebGL2 + workers + WASM: paged mesh loads and renders in loop mode"; "non-paged LoD mesh and plain PLY load in loop mode".</td><td>Baseline; a failure here means the fixture, WASM build, headless GPU or harness is broken, not a pager defect.</td></tr>
+  <tr><td><span class="file">on-demand.spec.ts</span></td><td>"D1: paged chunk landing triggers a render in on-demand mode"; "D1b: on-demand pipeline keeps converging after camera moves"; "D2: SplatMesh async initialization triggers a render in on-demand mode"; "D2b: LoD (non-paged) SplatMesh initialization ..."; "D3: LoD callback that exits with lodDirty pending requests a render"; "D5: a failed sort does not leave `sorting` stuck".</td><td>Every <code>setDirty</code> site added by this work. Each test lets the application render exactly once and asserts the pipeline converges from <code>onDirty</code> alone.</td></tr>
+  <tr><td><span class="file">churn.spec.ts</span></td><td>"P1a: a chunk that lands for a removed mesh does not stay mapped"; "P1b (natural): ..."; "P2: evicting a mesh's root chunk does not leave a stale rootPage"; "P5: dispose() then re-adding the same mesh does not spin on aborted fetches".</td><td>Orderings reachable by a real application through the network seam alone (held chunk requests via <code>page.route</code>), plus the P5 guard.</td></tr>
+  <tr><td><span class="file">orderings.spec.ts</span></td><td>"P1b (hooks): ..."; "P3: fetched chunks are never dropped when the pool is full"; "P6: disposing a paged mesh during a traverse does not recreate its indices texture"; "R1 (gated hardening): unknown lodId in a worker call rejects without poisoning the worker".</td><td>Orderings that need a hook point inside one callback (<code>lod.beforeCleanup</code>, <code>lod.afterTraverse</code>), the P3 guard, and the Rust hardening via a direct worker RPC.</td></tr>
+  <tr><td><span class="file">pager-fuzz.spec.ts</span></td><td>Runs <code>FUZZ_ITERS</code> fresh seeds through the in-page fuzzer with invariant checks at every drain point and a final full-release check.</td><td>The P* class as a whole; the only test that explores orderings not written by hand.</td></tr>
+  <tr><td><span class="file">regressions.spec.ts</span></td><td>Replays the <code>PINNED</code> list of <code>{ seed, steps }</code> pairs with the exact harness config.</td><td>Fuzz seeds that found P1a before the fix (next section).</td></tr>
+</table>
+
+<h3 id="changes-fuzz">Fuzz seeds and invariants that fired</h3>
+<p>
+  Before the fixes, seeds <b>12</b> and <b>17</b> (120 steps each, <code>FUZZ_HARNESS</code> config) failed
+  with <code>mapped pages for splats not in lodIds</code> (I4b). One of the two runs also never reached idle
+  because the pool had shrunk to pages owned by dead meshes. Both are the P1a class. They are kept in
+  <code>PINNED</code> in <span class="file">regressions.spec.ts</span> with the same config and step count so
+  the identical interleaving replays. After the <code>retiredSplats</code> fix both pass.
+</p>
+<table>
+  <tr><th style="width:70px">Invariant</th><th>Fired during this work</th><th>How</th></tr>
+  <tr><td>I4b</td><td><span class="pill red">yes</span></td><td>Fuzz seeds 12 and 17; then reproduced deterministically as churn "P1a".</td></tr>
+  <tr><td>I7</td><td><span class="pill red">yes</span></td><td>Constructed with the <code>lod.beforeCleanup</code> hook (orderings "P1b (hooks)"), then also observed naturally (churn "P1b (natural)").</td></tr>
+  <tr><td>Rust cross-check (<code>rootPage</code> vs <code>chunk_to_page[0]</code>)</td><td><span class="pill red">yes</span></td><td>Constructed in churn "P2" with a 2-page pool. Not one of I1-I7; it lives in the harness because it needs the worker.</td></tr>
+  <tr><td>I1, I2, I3, I4, I5, I6</td><td><span class="pill grey">no</span></td><td>Never violated by the fuzzer or the specs. I2 would have caught a P1b variant (page re-mapped while an insert for it was still pending) without the purge; I4 covers P4.</td></tr>
+</table>
+<p>
+  P3 (landed chunk dropped when the pool is full) and P5 (dispose then re-add spins on aborted fetches)
+  did not reproduce. <code>driveFetchers</code> caps mapped + fetched + in-flight at <code>maxPages</code>,
+  so P3 is unreachable; <code>dispose()</code> clears the mesh's splat source, so P5 is a no-op. Their
+  specs remain as guards.
+</p>
+
+</main>
+
+<script type="module">
+import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+mermaid.initialize({ startOnLoad: false, theme: "neutral", securityLevel: "loose", sequence: { useMaxWidth: true }, flowchart: { wrappingWidth: 520 } });
+await mermaid.run({ querySelector: ".mermaid" });
+</script>
+
+<script>
+(function () {
+  "use strict";
+  const clone = (o) => JSON.parse(JSON.stringify(o));
+  const fmtSC = (x) => `${x.splats}:${x.chunk}`;
+
+  /* -------- modelled invariants (subset of SplatPager.checkInvariants + harness cross-check) -------- */
+  function pagerInvariants(s) {
+    const errors = [];
+    const mapped = new Set();
+    s.pages.forEach((p, i) => { if (p) mapped.add(i); });
+    const free = new Set(s.freelist);
+    for (const p of free) if (mapped.has(p)) errors.push(`page ${p} is both mapped and in freelist`);
+    if (free.size + mapped.size !== s.maxPages) errors.push(`freelist (${free.size}) + mapped (${mapped.size}) != maxPages (${s.maxPages})`);
+    const owners = new Map();
+    s.pages.forEach((p) => { if (p) owners.set(p.splats, (owners.get(p.splats) || 0) + 1); });
+    for (const [o, n] of owners) if (!(o in s.lodIds)) errors.push(`mapped pages for splats not in lodIds (${n} pages, ${o})`);
+    const replay = new Map(); const touched = new Set();
+    for (const u of s.lodTreeUpdates) { touched.add(u.page); if (u.insert) replay.set(u.page, u); else replay.delete(u.page); }
+    for (const page of touched) {
+      const exp = replay.get(page); const act = s.pages[page];
+      if (exp) { if (!act || act.splats !== exp.splats || act.chunk !== exp.chunk) errors.push(`pending lodTreeUpdates end with chunk ${exp.chunk} on page ${page} but mapping has ${act ? `chunk ${act.chunk}` : "nothing"}`); }
+      else if (act) errors.push(`pending lodTreeUpdates end with page ${page} evicted but mapping has chunk ${act.chunk}`);
+    }
+    for (const p of s.newUploads || []) if (!mapped.has(p)) errors.push(`newUploads page ${p} is not mapped`);
+    const seen = new Set();
+    for (const x of [...s.pages.filter(Boolean), ...(s.fetched || []), ...(s.fetchers || [])]) { const k = fmtSC(x); if (seen.has(k)) errors.push(`duplicate (splats, chunk ${x.chunk}) for ${x.splats}`); seen.add(k); }
+    if (s.rust && s.lodTreeUpdates.length === 0 && !s.callbackActive) {
+      for (const [name, rec] of Object.entries(s.lodIds)) {
+        const tree = s.rust[name] || {};
+        const rustRoot = tree[0];
+        if ((rec.rootPage ?? null) !== (rustRoot ?? null)) errors.push(`${name} rootPage ${rec.rootPage ?? "undefined"} != rust chunk_to_page[0] ${rustRoot ?? "undefined"}`);
+        for (const [chunk, page] of Object.entries(tree)) {
+          const owner = s.pages[page];
+          if (!owner || owner.splats !== name || owner.chunk !== +chunk) errors.push(`${name} chunk ${chunk}: rust chunk_to_page ${page} but pager page owner is ${owner ? fmtSC(owner) : "none"}`);
+        }
+      }
+      for (const name of Object.keys(s.rust)) if (!(name in s.lodIds)) errors.push(`rust has leaked lod tree for ${name}`);
+    }
+    for (const [name, n] of Object.entries(s.numSplats || {})) {
+      if (n > 0 && !s.pages.some((p) => p && p.splats === name)) errors.push(`${name} displays ${n} splats with no resident pages (foreign data)`);
+    }
+    return errors;
+  }
+
+  const PAGER_PANELS = [
+    { type: "pages" },
+    { type: "chips", key: "fetchers", label: "pager.fetchers (in flight)", fmt: fmtSC },
+    { type: "chips", key: "fetched", label: "pager.fetched (landed, no page yet)", fmt: fmtSC },
+    { type: "chips", key: "lodTreeUpdates", label: "pager.lodTreeUpdates (pending for the LoD worker)", fmt: (u) => `${u.insert ? "insert" : "evict"} ${fmtSC(u)} @p${u.page}`, cls: (u) => (u.insert ? "insert" : "evict") },
+    { type: "chips", key: "newUploads", label: "pager.newUploads (pages)", fmt: (p) => `p${p}` },
+    { type: "kv", key: "lodIds", label: "SparkRenderer.lodIds", fmt: (k, v) => `${k}: lodId ${v.lodId}, rootPage ${v.rootPage === undefined ? "undefined" : v.rootPage}` },
+    { type: "kv", key: "rust", label: "Rust lod_trees: chunk_to_page per mesh", fmt: (k, v) => `${k}: {${Object.entries(v).map(([c, p]) => `chunk ${c} -> p${p}`).join(", ") || "empty"}}` },
+    { type: "chips", key: "retired", label: "pager.retiredSplats (exists only with the fix)" },
+    { type: "kv", key: "numSplats", label: "mesh.paged.numSplats (what is drawn)", fmt: (k, v) => `${k}: ${v}` },
+    { type: "flags", keys: ["callbackActive"] },
+  ];
+
+  const pagerInit = (maxPages) => ({
+    maxPages, pages: Array(maxPages).fill(null), freelist: [...Array(maxPages).keys()],
+    fetchers: [], fetched: [], lodTreeUpdates: [], newUploads: [], lodIds: {}, rust: {}, retired: [], numSplats: {}, callbackActive: false,
+  });
+  // helpers mutating the model the way SplatPager does
+  const H = {
+    allocPage(s) { return s.freelist.shift(); },
+    mapChunk(s, splats, chunk, page) {
+      s.pages[page] = { splats, chunk };
+      s.lodTreeUpdates.push({ splats, chunk, page, insert: true });
+      s.newUploads.push(page);
+    },
+    evict(s, page) {
+      const o = s.pages[page];
+      s.pages[page] = null;
+      s.lodTreeUpdates.push({ splats: o.splats, chunk: o.chunk, page, insert: false });
+    },
+    consume(s, fixed) {
+      const updates = s.lodTreeUpdates; s.lodTreeUpdates = []; s.newUploads = [];
+      for (const u of updates) {
+        const rec = s.lodIds[u.splats];
+        if (!rec) continue;
+        if (u.chunk === 0) {
+          if (u.insert) rec.rootPage = u.page;
+          else if (rec.rootPage === u.page && fixed) { rec.rootPage = undefined; s.numSplats[u.splats] = 0; }
+        }
+        s.rust[u.splats] = s.rust[u.splats] || {};
+        if (u.insert) s.rust[u.splats][u.chunk] = u.page; else delete s.rust[u.splats][u.chunk];
+      }
+    },
+    removeSplats(s, splats, fixed) {
+      if (fixed) { if (!s.retired.includes(splats)) s.retired.push(splats); s.fetched = s.fetched.filter((f) => f.splats !== splats); }
+      const freed = [];
+      // chunks are popped from the end of the forward array, so higher chunks are freed first
+      const owned = s.pages.map((p, i) => (p && p.splats === splats ? { i, chunk: p.chunk } : null)).filter(Boolean).sort((a, b) => b.chunk - a.chunk);
+      for (const { i } of owned) { s.pages[i] = null; s.freelist.push(i); freed.push(i); }
+      if (fixed) {
+        s.lodTreeUpdates = s.lodTreeUpdates.filter((u) => u.splats !== splats);
+        s.newUploads = s.newUploads.filter((p) => !freed.includes(p));
+      }
+    },
+    disposeTree(s, splats) { delete s.lodIds[splats]; delete s.rust[splats]; s.numSplats[splats] = 0; },
+    initTree(s, splats, lodId, fixed) {
+      s.lodIds[splats] = { lodId, rootPage: undefined }; s.rust[splats] = {};
+      if (fixed) s.retired = s.retired.filter((r) => r !== splats);
+    },
+  };
+
+  const SCENARIOS = {};
+
+  /* ------------------------------------------------------------------ P1a */
+  SCENARIOS.p1a = {
+    title: "P1a: chunk lands after removal + cleanup",
+    panels: PAGER_PANELS, check: pagerInvariants,
+    initial: pagerInit(4),
+    steps: [
+      { label: "scene.add(A); render()", note: "driveLod queues A in lodInitQueue; the callback creates a shared tree (lodId 2) for A. With the fix, initLodTree also calls pager.activateSplats(A). The traverse cannot run yet (no root), so fetchPriority = [A:0] and a fetcher starts.",
+        apply(s, fixed) { H.initTree(s, "A", 2, fixed); s.fetchers.push({ splats: "A", chunk: 0 }); } },
+      { label: "A:0 lands -> processFetched", note: "allocatePage() gives page 0. insertSplatsChunkPage maps it, an insert update and a texture upload are queued, onUpdate fires.",
+        apply(s) { s.fetchers = []; const p = H.allocPage(s); H.mapChunk(s, "A", 0, p); } },
+      { label: "render(): callback consumes, traverses", note: "consumeLodTreeUpdates: chunk 0 insert -> rootPage(A) = 0. updateLodTrees writes chunk_to_page[0] = 0 in Rust. The traverse selects 1200 splats and wants child chunk A:4, which starts fetching (slow network).",
+        apply(s, fixed) { H.consume(s, fixed); s.numSplats.A = 1200; s.fetchers.push({ splats: "A", chunk: 4 }); } },
+      { label: "scene.remove(A); render()", note: "A is no longer a visible generator, so its lodIds record is not touched. Its pages are not wanted, so they become freeable, but nothing evicts them. The A:4 fetch is still in flight.",
+        apply(s) { s.numSplats.A = 0; } },
+      { label: "lodDisposeTimeoutMs passes; callback runs cleanupLodTrees(A)", note: { unfixed: "removeSplats(A) frees page 0; disposeLodTree removes the Rust tree; lodIds loses A. A's fetch is still in flight and nothing marks A as gone: its abortController is not aborted because the app removed A without disposing it.", fixed: "removeSplats(A) frees page 0 and adds A to retiredSplats; disposeLodTree removes the Rust tree; lodIds loses A. update(0, EMPTY) keeps A's indices empty." },
+        apply(s, fixed) { H.removeSplats(s, "A", fixed); H.disposeTree(s, "A"); } },
+      { label: "A:4 lands", note: { unfixed: "The then() handler only checks abortController.signal.aborted, which is false. The chunk goes to fetched and processFetched maps page 1 for A:4 and queues an insert. The pager now owns a page for a mesh that has no tree: I4b fails. The next callback drops the update (no lodIds record), so Rust never sees it, but the page stays mapped until pool pressure evicts it. In the fuzzer this also produced runs that never reached idle.", fixed: "The then() handler sees retiredSplats.has(A) and returns without touching fetched. The fetcher slot is released; nothing is mapped." },
+        apply(s, fixed) { s.fetchers = []; if (!fixed) { const p = H.allocPage(s); H.mapChunk(s, "A", 4, p); } } },
+      { label: "next callback: consumeLodTreeUpdates", note: { unfixed: "The insert for A:4 has no lodIds record and is skipped. Page 1 remains mapped to a dead mesh.", fixed: "Nothing pending. Tables are clean and the pool is fully free." },
+        apply(s, fixed) { H.consume(s, fixed); } },
+    ],
+  };
+
+  /* ------------------------------------------------------------------ P1b */
+  SCENARIOS.p1b = {
+    title: "P1b: chunk lands while the disposing callback is held; mesh re-added",
+    panels: PAGER_PANELS, check: pagerInvariants,
+    initial: (() => { const s = pagerInit(4); H.initTree(s, "A", 2, true); s.pages[0] = { splats: "A", chunk: 0 }; s.freelist = [1, 2, 3]; s.lodIds.A.rootPage = 0; s.rust.A = { 0: 0 }; s.fetchers.push({ splats: "A", chunk: 4 }); return s; })(),
+    steps: [
+      { label: "Start: A root on page 0, A:4 in flight, A removed and untouched past the timeout", note: "Same starting point as P1a step 4. What matters is the single callback that disposes A.",
+        apply() {} },
+      { label: "render(): callback starts; consumeLodTreeUpdates() is empty; held at lod.beforeCleanup", note: "The callback has passed the point where it reads the pager queues and is now awaiting: in the test a held hook, in production any slow await such as updateLodTrees or the traverse.",
+        apply(s) { s.callbackActive = true; } },
+      { label: "While held: A:4 lands -> processFetched", note: "A is not retired yet in either version (removeSplats has not run). Page 1 is mapped for A:4 and an insert + upload are queued. At this point the mapping is valid.",
+        apply(s) { s.fetchers = []; const p = H.allocPage(s); H.mapChunk(s, "A", 4, p); } },
+      { label: "Resume: cleanupLodTrees -> removeSplats(A), disposeLodTree", note: { unfixed: "removeSplats frees pages 0 and 1 (higher chunk first, so the freelist is now [2,3,1,0]). But the insert for A:4 @ page 1 and the upload for page 1 are still queued: I7 fails (pending update ends on a page the mapping does not have).", fixed: "removeSplats frees the pages and also purges every fetched entry, lodTreeUpdates entry and upload for A / the freed pages, then retires A. Queues are empty." },
+        apply(s, fixed) { H.removeSplats(s, "A", fixed); H.disposeTree(s, "A"); s.callbackActive = false; } },
+      { label: "scene.add(A) again; render(): initLodTree -> newSharedLodTree (lodId 3)", note: { unfixed: "A gets a fresh, empty tree. consumeLodTreeUpdates now returns the stale insert for A:4 @ page 1; A has a record again, so it is forwarded: Rust records chunk_to_page[4] = 1 while the pager has page 1 on its freelist.", fixed: "A gets a fresh tree and is re-activated. There is nothing pending; the root fetch is scheduled normally." },
+        apply(s, fixed) { H.initTree(s, "A", 3, fixed); H.consume(s, fixed); s.fetchers.push({ splats: "A", chunk: 0 }); } },
+      { label: "A:0 lands and is mapped; callback consumes", note: { unfixed: "allocatePage() shifts page 2 for A:0 (freelist order). Rust now has chunk 4 on page 1, which is unowned; the pager has A owning only page 2. When another mesh's chunk lands on page 1 later, A's traverse descends into chunk 4 and reads that foreign data.", fixed: "Page 2 holds A:0, Rust and pager agree, rootPage = 2." },
+        apply(s, fixed) { s.fetchers = []; const p = H.allocPage(s); H.mapChunk(s, "A", 0, p); H.consume(s, fixed); s.numSplats.A = 900; } },
+    ],
+  };
+
+  /* ------------------------------------------------------------------ P2 */
+  SCENARIOS.p2 = {
+    title: "P2: root chunk evicted from a hidden mesh",
+    panels: PAGER_PANELS, check: pagerInvariants,
+    initial: (() => { const s = pagerInit(2); H.initTree(s, "M1", 2, true); s.pages = [{ splats: "M1", chunk: 0 }, { splats: "M1", chunk: 3 }]; s.freelist = []; s.lodIds.M1.rootPage = 0; s.rust.M1 = { 0: 0, 3: 1 }; s.numSplats.M1 = 900; return s; })(),
+    steps: [
+      { label: "Start: maxPages = 2, M1 fills the pool (chunk 0 on page 0, chunk 3 on page 1)", note: "M1 is displayed with 900 splats; rootPage(M1) = 0; Rust agrees.", apply() {} },
+      { label: "M1.visible = false; scene.add(M2); render()", note: "M1 stays within lodDisposeTimeoutMs so its tree survives, but it is not in lodMeshes any more: its pages are not wanted and become freeable. M2 gets tree lodId 3; fetchPriority = [M2:0]; M1 draws nothing because it is invisible.",
+        apply(s, fixed) { H.initTree(s, "M2", 3, fixed); s.numSplats.M1 = 0; s.fetchers.push({ splats: "M2", chunk: 0 }); } },
+      { label: "M2:0 lands: allocateFreeable evicts M1:3 (page 1)", note: "No free page, so allocateFreeable takes the least recently wanted page: M1's chunk 3. An evict update for M1:3 is queued, then the insert of M2:0 on the same page.",
+        apply(s) { s.fetchers = []; H.evict(s, 1); H.mapChunk(s, "M2", 0, 1); } },
+      { label: "callback: consume, updateLodTrees, traverse M2", note: "Rust drops M1 chunk 3, adds M2 chunk 0 on page 1; rootPage(M2) = 1. The traverse of M2 wants chunk 5.",
+        apply(s, fixed) { H.consume(s, fixed); s.numSplats.M2 = 700; s.fetchers.push({ splats: "M2", chunk: 5 }); } },
+      { label: "M2:5 lands: allocateFreeable evicts M1:0 (page 0)", note: "M1's root chunk is evicted: evict M1:0 @ page 0, insert M2:5 @ page 0.",
+        apply(s) { s.fetchers = []; H.evict(s, 0); H.mapChunk(s, "M2", 5, 0); } },
+      { label: "callback: consume (evict of M1 chunk 0)", note: { unfixed: "Rust clears M1's chunk_to_page[0]. In JS, rootPage was only ever assigned on insert, so the record for M1 keeps rootPage = 0 even though page 0 now holds M2:5. Cross-check: rootPage 0 != rust chunk_to_page[0] undefined.", fixed: "The chunk-0 evict matches the recorded root, so rootPage(M1) = undefined and M1.update(0, EMPTY_INDICES) drops any stale indices. Rust and JS agree." },
+        apply(s, fixed) { H.consume(s, fixed); s.numSplats.M2 = 1400; } },
+      { label: "M1.visible = true; render(): traverse", note: { unfixed: "M1 has a record with rootPage 0, so it is traversed from root_index = 0 << 16, i.e. from M2's chunk 5 data. It selects 500 splats that belong to M2 and displays them at M1's transform: foreign data on screen, while M1 has zero resident pages.", fixed: "M1 has rootPage undefined and is skipped by updateLodInstances; the post-traverse loop keeps its numSplats at 0. fetchPriority lists M1:0 (roots first, by distance) so the root is refetched and M1 reappears once it lands." },
+        apply(s, fixed) { if (!fixed) s.numSplats.M1 = 500; else s.fetchers.push({ splats: "M1", chunk: 0 }); } },
+    ],
+  };
+
+  /* ------------------------------------------------------------------ on-demand scenarios */
+  function stallCheck(s) {
+    const errors = [];
+    const pending = (s.pendingPagerUpdates || 0) > 0 || s.lodDirty || s.sortDirty;
+    if (pending && !s.renderScheduled && !s.dirty && !s.callbackActive && !s.sorting && !s.fetchInFlight) {
+      errors.push(`stall: work pending (${[s.pendingPagerUpdates ? `${s.pendingPagerUpdates} pager update(s)` : "", s.lodDirty ? "lodDirty" : "", s.sortDirty ? "sortDirty" : ""].filter(Boolean).join(", ")}) but dirty=false and no render is scheduled`);
+    }
+    if (s.stuck) errors.push(s.stuck);
+    return errors;
+  }
+  const DIRTY_PANELS = [
+    { type: "flags", keys: ["renderScheduled", "dirty", "callbackActive", "lodDirty", "sorting", "sortDirty", "fetchInFlight"] },
+    { type: "kv", key: "counters", label: "counters", fmt: (k, v) => `${k}: ${v}` },
+    { type: "kv", key: "pager", label: "pager", fmt: (k, v) => `${k}: ${v}` },
+    { type: "log", key: "log", label: "timeline" },
+  ];
+  const dirtyInit = () => ({ renderScheduled: false, dirty: false, callbackActive: false, lodDirty: false, sorting: false, sortDirty: false, fetchInFlight: false, pendingPagerUpdates: 0, counters: { renders: 0, onDirtyCalls: 0 }, pager: { mappedPages: 0, lodTreeUpdates: 0, displayedSplats: 0 }, log: [] });
+  const setDirty = (s, why) => { if (!s.dirty) { s.dirty = true; s.counters.onDirtyCalls += 1; s.renderScheduled = true; s.log.push(`setDirty() [${why}] -> onDirty -> app schedules a render`); } };
+  const render = (s, label) => { s.counters.renders += 1; s.renderScheduled = false; s.dirty = false; s.log.push(`render #${s.counters.renders}: ${label}`); };
+
+  SCENARIOS.d1 = {
+    title: "D1: chunk lands, no render requested (on-demand)",
+    panels: DIRTY_PANELS, check: stallCheck, initial: dirtyInit(),
+    steps: [
+      { label: "scene.add(A); app renders once", note: "The app calls render() itself. updateInternal sees a new generator: accumulator swap, setDirty (mapping changed). driveLod creates the pager and A's tree; fetchPriority = [A:0], fetch starts.",
+        apply(s) { render(s, "add A, initLodTree, fetch A:0 starts"); s.fetchInFlight = true; setDirty(s, "mapping changed"); } },
+      { label: "onDirty render: sort finishes, pipeline idle", note: "The scheduled render runs; the sort completes and calls setDirty once more; that render finds nothing to do. Now: dirty = false, nothing scheduled, one fetch in flight.",
+        apply(s) { render(s, "sort, nothing else"); s.log.push("sort finally -> setDirty -> one more render, then idle"); s.counters.renders += 1; s.counters.onDirtyCalls += 1; } },
+      { label: "A:0 lands -> processFetched maps page 0, queues an insert", note: { unfixed: "The data waits in pager.lodTreeUpdates. Only a LoD callback consumes it, and callbacks only start from render(). No render is scheduled and dirty is false: the mesh does not appear until the user moves the camera.", fixed: "processFetched mapped a chunk, so it calls pager.onUpdate, which SparkRenderer set to setDirty(). The app schedules a render." },
+        apply(s, fixed) { s.fetchInFlight = false; s.pendingPagerUpdates = 1; s.pager.mappedPages = 1; s.pager.lodTreeUpdates = 1; s.log.push("A:0 landed: page 0 mapped, lodTreeUpdates = 1"); if (fixed) setDirty(s, "pager.onUpdate"); } },
+      { label: "next render (only happens with the fix)", note: { unfixed: "Nothing happens. The stall persists.", fixed: "The callback consumes the update, updates the tree, traverses and displays A, then calls setDirty for the new indices; the sort runs; the pipeline converges by itself." },
+        apply(s, fixed) { if (fixed) { render(s, "callback consumes update, traverse, A displayed"); s.pendingPagerUpdates = 0; s.pager.lodTreeUpdates = 0; s.pager.displayedSplats = 1200; setDirty(s, "traverse produced indices"); } else s.log.push("(no render: app is waiting for onDirty)"); } },
+    ],
+  };
+
+  SCENARIOS.d3 = {
+    title: "D3: lodDirty set while the callback is busy (on-demand)",
+    panels: DIRTY_PANELS, check: stallCheck,
+    initial: (() => { const s = dirtyInit(); s.pager.mappedPages = 3; s.pager.displayedSplats = 30000; s.log.push("A displayed and idle in on-demand mode"); return s; })(),
+    steps: [
+      { label: "camera moved; render #1 starts a LoD callback", note: "driveLod sets lodDirty from the view change and tryExclusive starts the callback. Its traverse finishes and calls setDirty (new indices). The callback is still running (awaiting the cleanup phase; in the test it is held at lod.beforeCleanup).",
+        apply(s) { render(s, "camera moved, callback starts"); s.callbackActive = true; s.lodDirty = false; s.log.push("callback: traverse done"); setDirty(s, "traverse produced indices"); } },
+      { label: "onDirty render #2: sort settles; nothing else", note: "The sort for the new view runs and finishes (setDirty, one more render). The callback is still busy, so tryExclusive is skipped in these frames; nothing is dirty afterwards.",
+        apply(s) { render(s, "sort for new view"); s.log.push("sort finally -> setDirty -> render #3 with nothing to do"); s.counters.renders += 1; s.counters.onDirtyCalls += 1; } },
+      { label: "app sets spark.lodSplatCount = 12000 and renders once", note: "driveLod compares the LoD parameters with lastLod and sets lodDirty = true. tryExclusive finds the worker busy and skips. The view did not change, so no sort and no setDirty: this frame leaves lodDirty = true with nothing scheduled.",
+        apply(s) { render(s, "lodSplatCount changed -> lodDirty = true; tryExclusive busy"); s.lodDirty = true; } },
+      { label: "callback #1 finishes", note: { unfixed: "The callback's own setDirty happened in step 1. Its exit does nothing. lodDirty stays true until the user causes another render; the new budget is not applied.", fixed: "The finally block around tryExclusive sees lodDirty (it also checks lodInitQueue and pager.hasPendingUpdates()) and calls setDirty. The app renders, a new callback runs and re-traverses with the new budget." },
+        apply(s, fixed) { s.callbackActive = false; s.log.push("callback #1: cleanupLodTrees done, exits"); if (fixed) setDirty(s, "callback exit with lodDirty pending"); } },
+      { label: "next render (only with the fix)", note: { unfixed: "Nothing.", fixed: "Callback #2 traverses with lodSplatCount = 12000; displayed splats drop to the new budget." },
+        apply(s, fixed) { if (fixed) { render(s, "callback #2 traverses with new budget"); s.lodDirty = false; s.pager.displayedSplats = 12000; setDirty(s, "traverse produced indices"); } else s.log.push("(no render: app is waiting for onDirty)"); } },
+    ],
+  };
+
+  const D5_PANELS = [
+    { type: "flags", keys: ["sorting", "sortDirty", "dirty", "renderScheduled"] },
+    { type: "kv", key: "counters", label: "counters", fmt: (k, v) => `${k}: ${v}` },
+    { type: "kv", key: "scene", label: "scene", fmt: (k, v) => `${k}: ${v}` },
+    { type: "log", key: "log", label: "timeline" },
+  ];
+  SCENARIOS.d5 = {
+    title: "D5: a sort rejects",
+    panels: D5_PANELS, check: stallCheck,
+    initial: (() => { const s = dirtyInit(); s.scene = { meshes: "P", displayedFrom: "P", activeSplats: 20000 }; s.log.push("P displayed, idle"); return s; })(),
+    steps: [
+      { label: "camera moved; render(): driveSort", note: "sorting = true, sortDirty = false. sortInternal reads back depths and calls the sort worker.",
+        apply(s) { render(s, "camera moved"); s.sorting = true; s.sortDirty = false; s.log.push("driveSort: sorting = true; readback; sortSplats32"); } },
+      { label: "sort.afterWorker throws (injected fault)", note: { unfixed: "The exception propagates out of driveSort. Nothing resets sorting; it stays true for the rest of the renderer's lifetime.", fixed: "catch: sortDirty = true (so the sort is retried); finally: sorting = false and setDirty() so an on-demand app renders again." },
+        apply(s, fixed) { s.log.push("sortInternal rejected: injected sort failure"); if (fixed) { s.sortDirty = true; s.sorting = false; setDirty(s, "driveSort finally"); } else { s.stuck = "sorting = true with no sort in progress: every later mapping change is skipped by updateInternal"; } } },
+      { label: "scene.add(Q); render()", note: { unfixed: "prepareGenerate reports a new mappingVersion. updateInternal: mappingUpdated && sorting -> doUpdate = false, the new accumulator is returned to the freelist. Q is never displayed, and neither is any later scene change.", fixed: "The mapping change is accepted; driveSort runs (sortDirty was re-armed) and completes; P and Q are displayed." },
+        apply(s, fixed) { render(s, "add Q"); s.scene.meshes = "P, Q"; if (fixed) { s.sorting = true; s.log.push("sort runs and completes"); s.sorting = false; s.sortDirty = false; s.scene.displayedFrom = "P, Q"; s.scene.activeSplats = 40000; setDirty(s, "sort finished"); } else { s.log.push("updateInternal: mappingUpdated && sorting -> skipped"); } } },
+    ],
+  };
+
+  /* ------------------------------------------------------------------ engine */
+  function computeState(sc, upto, fixed) {
+    const s = clone(sc.initial);
+    for (let i = 0; i <= upto && i < sc.steps.length; i++) sc.steps[i].apply(s, fixed);
+    return s;
+  }
+  function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+
+  function renderPanels(container, sc, s, prev) {
+    container.innerHTML = "";
+    for (const p of sc.panels) {
+      const panel = el("div", "panel");
+      if (p.type === "pages") {
+        panel.appendChild(el("div", "panel-label", `page pool (maxPages = ${s.maxPages}); freelist = [${s.freelist.join(", ")}]`));
+        const row = el("div", "pages");
+        for (let i = 0; i < s.maxPages; i++) {
+          const cur = s.pages[i]; const was = prev && prev.pages[i];
+          const cell = el("div", "page" + (cur ? " mapped" : "") + (JSON.stringify(cur) !== JSON.stringify(was) ? " changed" : ""));
+          cell.appendChild(el("span", "idx", `p${i}`));
+          cell.appendChild(document.createTextNode(cur ? fmtSC(cur) : "free"));
+          row.appendChild(cell);
+        }
+        panel.appendChild(row);
+      } else if (p.type === "chips") {
+        const arr = s[p.key] || []; const prevSet = new Set(((prev && prev[p.key]) || []).map((x) => (p.fmt || String)(x)));
+        panel.appendChild(el("div", "panel-label", p.label || p.key));
+        const row = el("div", "chips");
+        if (arr.length === 0) row.appendChild(el("span", "empty", "empty"));
+        for (const x of arr) { const t = (p.fmt || String)(x); row.appendChild(el("span", "chip" + (prevSet.has(t) ? "" : " new") + (p.cls ? " " + p.cls(x) : ""), t)); }
+        panel.appendChild(row);
+      } else if (p.type === "kv") {
+        const obj = s[p.key] || {}; const prevObj = (prev && prev[p.key]) || {};
+        panel.appendChild(el("div", "panel-label", p.label || p.key));
+        const box = el("div", "kv");
+        const keys = Object.keys(obj);
+        if (keys.length === 0) box.appendChild(el("span", "empty", "empty"));
+        for (const k of keys) { const changed = JSON.stringify(obj[k]) !== JSON.stringify(prevObj[k]); box.appendChild(el("div", changed ? "new" : "", p.fmt(k, obj[k]))); }
+        panel.appendChild(box);
+      } else if (p.type === "flags") {
+        panel.appendChild(el("div", "panel-label", "flags"));
+        const row = el("div", "flags");
+        for (const k of p.keys) { const v = !!s[k]; const changed = prev && !!prev[k] !== v; row.appendChild(el("span", `flag ${v} ${changed ? "new" : ""}`, `${k} = ${v}`)); }
+        panel.appendChild(row);
+      } else if (p.type === "log") {
+        panel.appendChild(el("div", "panel-label", p.label || "log"));
+        const box = el("div", "log"); const prevLen = prev ? (prev[p.key] || []).length : 0;
+        (s[p.key] || []).forEach((line, i) => box.appendChild(el("div", i >= prevLen ? "new" : "", line)));
+        panel.appendChild(box);
+        box.scrollTop = box.scrollHeight;
+      }
+      container.appendChild(panel);
+    }
+    const errors = sc.check(s);
+    const v = el("div", "verdict " + (errors.length ? "bad" : "ok"));
+    if (errors.length) { v.appendChild(document.createTextNode("Invariant check fails:")); const ul = el("ul"); for (const e of errors) { const li = el("li"); const c = el("code", "", e); li.appendChild(c); ul.appendChild(li); } v.appendChild(ul); }
+    else v.textContent = "All modelled invariants hold.";
+    container.appendChild(v);
+  }
+
+  function mountSim(root) {
+    const sc = SCENARIOS[root.dataset.scenario];
+    if (!sc) return;
+    let idx = -1; let fixed = false;
+    const head = el("div", "sim-head");
+    head.appendChild(el("span", "title", sc.title));
+    const toggle = el("div", "toggle");
+    const bOff = el("button", "on", "without fix"); const bOn = el("button", "", "with fix");
+    toggle.append(bOff, bOn); head.appendChild(toggle);
+    const bPrev = el("button", "", "Prev"); const bNext = el("button", "", "Next"); const bReset = el("button", "", "Reset");
+    head.append(bPrev, bNext, bReset);
+    const body = el("div", "sim-body");
+    const stepsBox = el("div", "sim-steps"); const ol = el("ol");
+    sc.steps.forEach((st, i) => { const li = el("li", "", st.label); li.addEventListener("click", () => { idx = i; draw(); }); ol.appendChild(li); });
+    stepsBox.appendChild(ol);
+    const stateBox = el("div", "sim-state");
+    const note = el("div", "sim-note"); const panels = el("div");
+    stateBox.append(note, panels);
+    body.append(stepsBox, stateBox);
+    root.append(head, body);
+
+    function draw() {
+      const s = computeState(sc, idx, fixed);
+      const prev = idx >= 0 ? computeState(sc, idx - 1, fixed) : null;
+      [...ol.children].forEach((li, i) => { li.className = i < idx ? "done" : i === idx ? "cur" : ""; });
+      note.innerHTML = "";
+      if (idx < 0) { note.appendChild(el("span", "step-no", "Initial state. Press Next.")); }
+      else {
+        const st = sc.steps[idx];
+        note.appendChild(el("div", "step-no", `Step ${idx + 1} of ${sc.steps.length} (${fixed ? "with fix" : "without fix"})`));
+        const txt = typeof st.note === "string" ? st.note : (fixed ? st.note.fixed : st.note.unfixed);
+        note.appendChild(el("div", "", txt));
+      }
+      bPrev.disabled = idx < 0; bNext.disabled = idx >= sc.steps.length - 1;
+      bOff.className = fixed ? "" : "on"; bOn.className = fixed ? "on" : "";
+      renderPanels(panels, sc, s, prev);
+    }
+    bPrev.addEventListener("click", () => { idx = Math.max(-1, idx - 1); draw(); });
+    bNext.addEventListener("click", () => { idx = Math.min(sc.steps.length - 1, idx + 1); draw(); });
+    bReset.addEventListener("click", () => { idx = -1; draw(); });
+    bOff.addEventListener("click", () => { fixed = false; draw(); });
+    bOn.addEventListener("click", () => { fixed = true; draw(); });
+    draw();
+  }
+  document.querySelectorAll(".sim").forEach(mountSim);
+})();
+</script>
+</body>
+</html>

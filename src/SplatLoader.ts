@@ -88,10 +88,11 @@ export class SplatLoader extends Loader {
     lodAbove?: number;
     lodBase?: number;
   }) {
-    if (fileBytes instanceof ArrayBuffer) {
-      fileBytes = new Uint8Array(fileBytes);
-    }
-    const resolvedURL = fileBytes
+    // A const keeps the narrowed type inside the worker closure below;
+    // reassigning the parameter would lose it there.
+    const bytes: Uint8Array | undefined =
+      fileBytes instanceof ArrayBuffer ? new Uint8Array(fileBytes) : fileBytes;
+    const resolvedURL = bytes
       ? undefined
       : this.manager.resolveURL((this.path ?? "") + (url ?? ""));
 
@@ -151,7 +152,7 @@ export class SplatLoader extends Loader {
             url: basedUrl,
             requestHeader: this.requestHeader,
             withCredentials: this.withCredentials,
-            fileBytes: fileBytes?.slice(),
+            fileBytes: bytes?.slice(),
             fileType,
             pathName: resolvedURL || fileName,
             chunked: stream !== undefined,

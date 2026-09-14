@@ -38,13 +38,17 @@
     "site:deploy": "npm run site:build && node scripts/deploy-site.js",
     "site:serve": "node scripts/serve-site.js site",
     "start": "npm run dev",
-    "test": "node --no-warnings --loader ts-node/esm --test test/**/*.test.ts"
+    "test": "node --no-warnings --loader ts-node/esm --test test/**/*.test.ts",
+    "test:browser": "playwright test -c test/playwright.config.ts",
+    "test:fixtures": "node test/fixtures/gen-fixture.mjs"
   },
   "repository": "sparkjs-dev/spark",
   "files": ["dist"],
   "license": "MIT",
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^22.20.2",
     "@types/three": "0.180.0",
     "fflate": "^0.8.2",
     "lefthook": "1.11.12",

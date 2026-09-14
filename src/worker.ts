@@ -18,6 +18,8 @@ import init_wasm, {
   tiny_lod_extsplats,
   bhatt_lod_extsplats,
   get_lod_tree_level,
+  get_lod_tree_info,
+  get_lod_tree_ids,
 } from "spark-rs";
 import type { ExtResult, PackedResult, SplatEncoding } from "./defines";
 
@@ -37,6 +39,8 @@ const rpcHandlers = {
   updateLodTrees,
   traverseLodTrees,
   getLodTreeLevel,
+  getLodTreeInfo,
+  getLodTreeIds,
   nextChunk,
 };
 export type rpcHandlers = typeof rpcHandlers;
@@ -818,6 +822,24 @@ function getLodTreeLevel({
   level: number;
 }) {
   return get_lod_tree_level(lodId, level) as { indices: Uint32Array };
+}
+
+export type LodTreeInfo = {
+  lodId: number;
+  numSplats: number;
+  sharedRefs: number;
+  pageToChunk: Uint32Array;
+  chunkToPage: Uint32Array;
+};
+
+// Debug/test introspection of a LoD tree's page<->chunk tables
+function getLodTreeInfo({ lodId }: { lodId: number }) {
+  return get_lod_tree_info(lodId) as LodTreeInfo;
+}
+
+// Debug/test introspection: all live LoD tree ids in this worker
+function getLodTreeIds(_args: Record<string, never> | undefined) {
+  return { lodIds: Array.from(get_lod_tree_ids()) };
 }
 
 let nextChunkWaiter = (_chunk: Uint8Array) => {};

@@ -1,0 +1,70 @@
+name: Spark CI Browser
+# Manual-only: run from the Actions tab or with
+#   gh workflow run ci-browser.yml --ref <branch>
+# To run automatically, add push / pull_request triggers here.
+on:
+  workflow_dispatch:
+    inputs:
+      fuzz_iters:
+        description: "Fresh fuzz seeds to run in pager-fuzz.spec.ts"
+        required: false
+        default: "3"
+permissions:
+  contents: read
+jobs:
+  browser-tests:
+    name: playwright (paged LoD / on-demand)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+
+      # Needed for the spark-rs WASM module and for build-lod, which generates
+      # the synthetic LoD fixtures under test/fixtures/out/ (see globalSetup).
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/spark-rs/target
+            rust/build-lod/target
+          key: ${{ runner.os }}-cargo-browser-${{ hashFiles('rust/**/Cargo.lock') }}
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build spark-rs
+        run: npm run build:wasm
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Generate LoD fixtures
+        run: npm run test:fixtures
+
+      - name: Browser tests
+        run: npm run test:browser
+        env:
+          CI: true
+          FUZZ_ITERS: ${{ inputs.fuzz_iters || '3' }}
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-results
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
