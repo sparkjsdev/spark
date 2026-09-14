@@ -7,6 +7,11 @@ export { SplatAccumulator, type GeneratorMapping } from "./SplatAccumulator";
 export * as dyno from "./dyno";
 
 export { RgbaArray, readRgbaArray } from "./RgbaArray";
+export type {
+  ForEachSplatCallback,
+  SplatSphericalHarmonics,
+  UnpackedSplat,
+} from "./SplatData";
 
 export {
   SplatLoader,

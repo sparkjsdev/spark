@@ -1,5 +1,10 @@
 import * as THREE from "three";
 import type { RgbaArray } from "./RgbaArray";
+import type {
+  ForEachSplatCallback,
+  SplatSphericalHarmonics,
+  UnpackedSplat,
+} from "./SplatData";
 import { SplatLoader } from "./SplatLoader";
 import type { SplatSource } from "./SplatMesh";
 import { workerPool } from "./SplatWorker";
@@ -24,7 +29,14 @@ import {
   unindent,
   unindentLines,
 } from "./dyno";
-import { decodeExtSplat, encodeExtSplat, getTextureSize } from "./utils";
+import {
+  decodeExtSplat,
+  encodeExt3Rgb,
+  encodeExtRgb,
+  encodeExtSh1Rgb,
+  encodeExtSplat,
+  getTextureSize,
+} from "./utils";
 
 export type ExtSplatsOptions = {
   // URL to fetch a Gaussian splat file from (supports .ply, .splat, .ksplat,
@@ -472,17 +484,11 @@ export class ExtSplats implements SplatSource {
   // Unpack the 16-byte Gsplat data at index into the Three.js components
   // center: THREE.Vector3, scales: THREE.Vector3, quaternion: THREE.Quaternion,
   // opacity: number 0..1, color: THREE.Color 0..1.
-  getSplat(index: number): {
-    center: THREE.Vector3;
-    scales: THREE.Vector3;
-    quaternion: THREE.Quaternion;
-    opacity: number;
-    color: THREE.Color;
-  } {
+  getSplat(index: number): UnpackedSplat {
     if (index >= this.numSplats) {
       throw new Error("Invalid index");
     }
-    return decodeExtSplat(this.extArrays, index);
+    return decodeExtSplat(this.extArrays, index, this.extra);
   }
 
   // Set all ExtSplat components at index with the provided Gsplat attributes
@@ -495,6 +501,7 @@ export class ExtSplats implements SplatSource {
     quaternion: THREE.Quaternion,
     opacity: number,
     color: THREE.Color,
+    sphericalHarmonics?: SplatSphericalHarmonics,
   ) {
     const extArrays = this.ensureSplats(index + 1);
     encodeExtSplat(
@@ -515,7 +522,69 @@ export class ExtSplats implements SplatSource {
       color.g,
       color.b,
     );
+    this.setSplatSphericalHarmonics(index, sphericalHarmonics);
     this.numSplats = Math.max(this.numSplats, index + 1);
+  }
+
+  private ensureSplatsSh(key: string, numSplats: number): Uint32Array {
+    const current = this.extra[key] as Uint32Array | undefined;
+    const currentSplats = current?.length ? current.length / 4 : 0;
+    if (current && currentSplats >= numSplats) {
+      return current;
+    }
+    const targetSplats = getTextureSize(
+      Math.max(numSplats, 2 * currentSplats),
+    ).maxSplats;
+    const result = new Uint32Array(targetSplats * 4);
+    if (current) {
+      result.set(current);
+    }
+    this.extra[key] = result;
+    return result;
+  }
+
+  private setSplatSphericalHarmonics(
+    index: number,
+    sphericalHarmonics?: SplatSphericalHarmonics,
+  ) {
+    if (!sphericalHarmonics) {
+      return;
+    }
+    if (sphericalHarmonics.sh1) {
+      encodeExtSh1Rgb(
+        this.ensureSplatsSh("sh1", index + 1),
+        index,
+        sphericalHarmonics.sh1,
+      );
+    }
+    if (sphericalHarmonics.sh2) {
+      const sh1 = this.ensureSplatsSh("sh1", index + 1);
+      const sh2 = this.ensureSplatsSh("sh2", index + 1);
+      const base = index * 4;
+      sh1[base + 3] = encodeExtRgb(
+        sphericalHarmonics.sh2[0],
+        sphericalHarmonics.sh2[1],
+        sphericalHarmonics.sh2[2],
+      );
+      for (let coefficient = 1; coefficient < 5; ++coefficient) {
+        const offset = coefficient * 3;
+        sh2[base + coefficient - 1] = encodeExtRgb(
+          sphericalHarmonics.sh2[offset],
+          sphericalHarmonics.sh2[offset + 1],
+          sphericalHarmonics.sh2[offset + 2],
+        );
+      }
+    }
+    if (sphericalHarmonics.sh3) {
+      this.ensureSplatsSh("sh1", index + 1);
+      this.ensureSplatsSh("sh2", index + 1);
+      encodeExt3Rgb(
+        this.ensureSplatsSh("sh3a", index + 1),
+        this.ensureSplatsSh("sh3b", index + 1),
+        index,
+        sphericalHarmonics.sh3,
+      );
+    }
   }
 
   // Effectively calls this.setSplat(this.numSplats++, center, ...), useful on
@@ -526,6 +595,7 @@ export class ExtSplats implements SplatSource {
     quaternion: THREE.Quaternion,
     opacity: number,
     color: THREE.Color,
+    sphericalHarmonics?: SplatSphericalHarmonics,
   ) {
     const extArrays = this.ensureSplats(this.numSplats + 1);
     encodeExtSplat(
@@ -546,26 +616,18 @@ export class ExtSplats implements SplatSource {
       color.g,
       color.b,
     );
+    this.setSplatSphericalHarmonics(this.numSplats, sphericalHarmonics);
     ++this.numSplats;
   }
 
   // Iterate over Gsplats index 0..=(this.numSplats-1), unpack each Gsplat
   // and invoke the callback function with the Gsplat attributes.
-  forEachSplat(
-    callback: (
-      index: number,
-      center: THREE.Vector3,
-      scales: THREE.Vector3,
-      quaternion: THREE.Quaternion,
-      opacity: number,
-      color: THREE.Color,
-    ) => void,
-  ) {
+  forEachSplat(callback: ForEachSplatCallback) {
     if (!this.numSplats) {
       return;
     }
     for (let i = 0; i < this.numSplats; ++i) {
-      const unpacked = decodeExtSplat(this.extArrays, i);
+      const unpacked = decodeExtSplat(this.extArrays, i, this.extra);
       callback(
         i,
         unpacked.center,
@@ -573,6 +635,7 @@ export class ExtSplats implements SplatSource {
         unpacked.quaternion,
         unpacked.opacity,
         unpacked.color,
+        unpacked.sphericalHarmonics,
       );
     }
   }

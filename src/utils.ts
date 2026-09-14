@@ -3,6 +3,7 @@ import * as THREE from "three";
 
 // Miscellaneous utility functions for Spark
 
+import type { SplatSphericalHarmonics, UnpackedSplat } from "./SplatData.js";
 import {
   LN_SCALE_MAX,
   LN_SCALE_MIN,
@@ -430,13 +431,8 @@ export function encodeExtSplat(
 export function decodeExtSplat(
   extArrays: [Uint32Array, Uint32Array],
   index: number,
-): {
-  center: THREE.Vector3;
-  scales: THREE.Vector3;
-  quaternion: THREE.Quaternion;
-  color: THREE.Color;
-  opacity: number;
-} {
+  extra?: Record<string, unknown>,
+): UnpackedSplat {
   // Returns a static object which is reused each time
   const result = packedFields;
   const i4 = index * 4;
@@ -452,6 +448,7 @@ export function decodeExtSplat(
   result.scales.y = Math.exp(fromHalf(extB[i4 + 2] & 0xffff));
   result.scales.z = Math.exp(fromHalf(extB[i4 + 2] >>> 16));
   decodeQuatOctXy1010R12(extB[i4 + 3], result.quaternion);
+  decodeExtSphericalHarmonics(extra ?? {}, index, result.sphericalHarmonics);
   return result;
 }
 
@@ -723,6 +720,7 @@ const packedFields = {
   quaternion: packedQuaternion,
   color: packedColor,
   opacity: 0.0,
+  sphericalHarmonics: {},
 };
 
 // Unpack all components of a PackedSplat from the packedSplats Uint32Array into
@@ -736,14 +734,12 @@ export function unpackSplat(
     lnScaleMin?: number;
     lnScaleMax?: number;
     lodOpacity?: boolean;
+    sh1Max?: number;
+    sh2Max?: number;
+    sh3Max?: number;
   },
-): {
-  center: THREE.Vector3;
-  scales: THREE.Vector3;
-  quaternion: THREE.Quaternion;
-  color: THREE.Color;
-  opacity: number;
-} {
+  extra?: Record<string, unknown>,
+): UnpackedSplat {
   // Returns a static object which is reused each time
   const result = packedFields;
 
@@ -789,6 +785,12 @@ export function unpackSplat(
   // decodeQuatXyz888(uQuat, result.quaternion);
   // decodeQuatEulerXyz888(uQuat, result.quaternion);
 
+  decodePackedSphericalHarmonics(
+    extra ?? {},
+    index,
+    encoding,
+    result.sphericalHarmonics,
+  );
   return result;
 }
 
@@ -1483,6 +1485,89 @@ export function encodeSh3Rgb(
   }
 }
 
+function decodeSignedBits(
+  words: Uint32Array,
+  wordBase: number,
+  bitStart: number,
+  numBits: number,
+): number {
+  const wordOffset = bitStart >>> 5;
+  const bitOffset = bitStart & 31;
+  let value = words[wordBase + wordOffset] >>> bitOffset;
+  if (bitOffset + numBits > 32) {
+    value |= words[wordBase + wordOffset + 1] << (32 - bitOffset);
+  }
+  const shift = 32 - numBits;
+  return (value << shift) >> shift;
+}
+
+function ensureShBand(
+  target: SplatSphericalHarmonics,
+  band: keyof SplatSphericalHarmonics,
+  length: number,
+): Float32Array {
+  const current = target[band];
+  if (current?.length === length) {
+    return current;
+  }
+  const result = new Float32Array(length);
+  target[band] = result;
+  return result;
+}
+
+/** Decode one splat's compact SH1..SH3 data into reusable float arrays. */
+function decodePackedSphericalHarmonics(
+  extra: Record<string, unknown>,
+  index: number,
+  encoding?: {
+    sh1Max?: number;
+    sh2Max?: number;
+    sh3Max?: number;
+  },
+  target: SplatSphericalHarmonics = {},
+): SplatSphericalHarmonics {
+  const sh1 = extra.sh1;
+  if (!(sh1 instanceof Uint32Array)) {
+    target.sh1 = undefined;
+    target.sh2 = undefined;
+    target.sh3 = undefined;
+    return target;
+  }
+
+  const decodedSh1 = ensureShBand(target, "sh1", 9);
+  for (let i = 0; i < decodedSh1.length; ++i) {
+    decodedSh1[i] =
+      decodeSignedBits(sh1, index * 2, i * 7, 7) *
+      ((encoding?.sh1Max ?? 1) / 63);
+  }
+
+  const sh2 = extra.sh2;
+  if (!(sh2 instanceof Uint32Array)) {
+    target.sh2 = undefined;
+    target.sh3 = undefined;
+    return target;
+  }
+  const decodedSh2 = ensureShBand(target, "sh2", 15);
+  for (let i = 0; i < decodedSh2.length; ++i) {
+    decodedSh2[i] =
+      decodeSignedBits(sh2, index * 4, i * 8, 8) *
+      ((encoding?.sh2Max ?? 1) / 127);
+  }
+
+  const sh3 = extra.sh3;
+  if (!(sh3 instanceof Uint32Array)) {
+    target.sh3 = undefined;
+    return target;
+  }
+  const decodedSh3 = ensureShBand(target, "sh3", 21);
+  for (let i = 0; i < decodedSh3.length; ++i) {
+    decodedSh3[i] =
+      decodeSignedBits(sh3, index * 4, i * 6, 6) *
+      ((encoding?.sh3Max ?? 1) / 31);
+  }
+  return target;
+}
+
 export function encodeExtRgb(r: number, g: number, b: number): number {
   const ar = Math.abs(r);
   const ag = Math.abs(g);
@@ -1513,6 +1598,65 @@ export function decodeExtRgb(encoded: number): THREE.Color {
   return color;
 }
 
+function decodeExtRgbInto(
+  encoded: number,
+  target: Float32Array,
+  offset: number,
+) {
+  const color = decodeExtRgb(encoded);
+  target[offset] = color.r;
+  target[offset + 1] = color.g;
+  target[offset + 2] = color.b;
+}
+
+/** Decode one splat's extended SH1..SH3 data into reusable float arrays. */
+function decodeExtSphericalHarmonics(
+  extra: Record<string, unknown>,
+  index: number,
+  target: SplatSphericalHarmonics = {},
+): SplatSphericalHarmonics {
+  const sh1 = extra.sh1;
+  if (!(sh1 instanceof Uint32Array)) {
+    target.sh1 = undefined;
+    target.sh2 = undefined;
+    target.sh3 = undefined;
+    return target;
+  }
+
+  const base = index * 4;
+  const decodedSh1 = ensureShBand(target, "sh1", 9);
+  for (let i = 0; i < 3; ++i) {
+    decodeExtRgbInto(sh1[base + i], decodedSh1, i * 3);
+  }
+
+  const sh2 = extra.sh2;
+  if (!(sh2 instanceof Uint32Array)) {
+    target.sh2 = undefined;
+    target.sh3 = undefined;
+    return target;
+  }
+  const decodedSh2 = ensureShBand(target, "sh2", 15);
+  decodeExtRgbInto(sh1[base + 3], decodedSh2, 0);
+  for (let i = 0; i < 4; ++i) {
+    decodeExtRgbInto(sh2[base + i], decodedSh2, (i + 1) * 3);
+  }
+
+  const sh3a = extra.sh3a;
+  const sh3b = extra.sh3b;
+  if (!(sh3a instanceof Uint32Array) || !(sh3b instanceof Uint32Array)) {
+    target.sh3 = undefined;
+    return target;
+  }
+  const decodedSh3 = ensureShBand(target, "sh3", 21);
+  for (let i = 0; i < 4; ++i) {
+    decodeExtRgbInto(sh3a[base + i], decodedSh3, i * 3);
+  }
+  for (let i = 0; i < 3; ++i) {
+    decodeExtRgbInto(sh3b[base + i], decodedSh3, (i + 4) * 3);
+  }
+  return target;
+}
+
 export function encodeExtSh1Rgb(
   sh1Array: Uint32Array,
   index: number,
@@ -1539,11 +1683,11 @@ export function encodeExtSh12Rgb(
   }
   sh1Array[i4 + 3] = encodeExtRgb(sh2Rgb[0], sh2Rgb[1], sh2Rgb[2]);
   for (let k = 1; k < 5; ++k) {
-    const k5 = k * 5;
+    const k3 = k * 3;
     sh2Array[i4 + (k - 1)] = encodeExtRgb(
-      sh2Rgb[k5],
-      sh2Rgb[k5 + 1],
-      sh2Rgb[k5 + 2],
+      sh2Rgb[k3],
+      sh2Rgb[k3 + 1],
+      sh2Rgb[k3 + 2],
     );
   }
 }

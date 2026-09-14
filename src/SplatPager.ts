@@ -1,20 +1,23 @@
 import * as THREE from "three";
 
 import { decode_rad_header } from "spark-rs";
-import { LN_SCALE_MAX, LN_SCALE_MIN, dyno } from ".";
 import { evaluateExtSH } from "./ExtSplats";
 import { evaluatePackedSH } from "./PackedSplats";
+import type { ForEachSplatCallback } from "./SplatData";
 import { getSplatFileType, getSplatFileTypeFromPath } from "./SplatLoader";
 import type { SplatSource } from "./SplatMesh";
 import { workerPool } from "./SplatWorker";
 import {
   DEFAULT_SPLAT_ENCODING,
   type ExtResult,
+  LN_SCALE_MAX,
+  LN_SCALE_MIN,
   type PackedResult,
   type RadMeta,
   type SplatEncoding,
   SplatFileType,
 } from "./defines";
+import * as dyno from "./dyno";
 import { type DynoUsampler2DArray, pagedSplatTexCoord } from "./dyno";
 import {
   decodeExtSplat,
@@ -444,16 +447,7 @@ export class PagedSplats implements SplatSource {
 
   // Iterate over Gsplats index 0..=(this.numSplats-1), unpack each Gsplat
   // and invoke the callback function with the Gsplat attributes.
-  forEachSplat(
-    callback: (
-      index: number,
-      center: THREE.Vector3,
-      scales: THREE.Vector3,
-      quaternion: THREE.Quaternion,
-      opacity: number,
-      color: THREE.Color,
-    ) => void,
-  ) {
+  forEachSplat(callback: ForEachSplatCallback) {
     if (!this.pager || !this.numSplats) {
       return;
     }
@@ -467,12 +461,49 @@ export class PagedSplats implements SplatSource {
       packedSplatArray,
       extPackedSplatArray,
     ];
-
+    const shExtra = extSplats
+      ? {
+          sh1:
+            this.numSh >= 1
+              ? this.pager.shTextures[0].value.image.data
+              : undefined,
+          sh2:
+            this.numSh >= 2
+              ? this.pager.shTextures[1].value.image.data
+              : undefined,
+          sh3a:
+            this.numSh >= 3
+              ? this.pager.shTextures[2].value.image.data
+              : undefined,
+          sh3b:
+            this.numSh >= 3
+              ? this.pager.shTextures[3].value.image.data
+              : undefined,
+        }
+      : {
+          sh1:
+            this.numSh >= 1
+              ? this.pager.shTextures[0].value.image.data
+              : undefined,
+          sh2:
+            this.numSh >= 2
+              ? this.pager.shTextures[1].value.image.data
+              : undefined,
+          sh3:
+            this.numSh >= 3
+              ? this.pager.shTextures[2].value.image.data
+              : undefined,
+        };
     for (let i = 0; i < this.numSplats; ++i) {
       const splatIndex = indices[i];
       const unpacked = extSplats
-        ? decodeExtSplat(extArrays, splatIndex)
-        : unpackSplat(packedSplatArray, splatIndex, this.splatEncoding);
+        ? decodeExtSplat(extArrays, splatIndex, shExtra)
+        : unpackSplat(
+            packedSplatArray,
+            splatIndex,
+            this.splatEncoding,
+            shExtra,
+          );
       callback(
         i,
         unpacked.center,
@@ -480,6 +511,7 @@ export class PagedSplats implements SplatSource {
         unpacked.quaternion,
         unpacked.opacity,
         unpacked.color,
+        unpacked.sphericalHarmonics,
       );
     }
   }

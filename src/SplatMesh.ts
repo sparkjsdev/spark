@@ -1,4 +1,8 @@
 import * as THREE from "three";
+import type {
+  ForEachSplatCallback,
+  SplatSphericalHarmonics,
+} from "./SplatData";
 
 import {
   get_raycast_buffer,
@@ -182,16 +186,7 @@ export interface SplatSource {
     typeof Gsplat
   >;
 
-  forEachSplat(
-    callback: (
-      index: number,
-      center: THREE.Vector3,
-      scales: THREE.Vector3,
-      quaternion: THREE.Quaternion,
-      opacity: number,
-      color: THREE.Color,
-    ) => void,
-  ): void;
+  forEachSplat(callback: ForEachSplatCallback): void;
 }
 
 export class EmptySplatSource implements SplatSource {
@@ -530,11 +525,26 @@ export class SplatMesh extends SplatGenerator {
     quaternion: THREE.Quaternion,
     opacity: number,
     color: THREE.Color,
+    sphericalHarmonics?: SplatSphericalHarmonics,
   ) {
     if (this.packedSplats) {
-      this.packedSplats.pushSplat(center, scales, quaternion, opacity, color);
+      this.packedSplats.pushSplat(
+        center,
+        scales,
+        quaternion,
+        opacity,
+        color,
+        sphericalHarmonics,
+      );
     } else if (this.extSplats) {
-      this.extSplats.pushSplat(center, scales, quaternion, opacity, color);
+      this.extSplats.pushSplat(
+        center,
+        scales,
+        quaternion,
+        opacity,
+        color,
+        sphericalHarmonics,
+      );
     }
   }
 
@@ -547,16 +557,7 @@ export class SplatMesh extends SplatGenerator {
   // no effect as they are decoded/unpacked copies of the underlying data. To update
   // the packedSplats, call .packedSplats.setSplat(index, center, scales,
   // quaternion, opacity, color).
-  forEachSplat(
-    callback: (
-      index: number,
-      center: THREE.Vector3,
-      scales: THREE.Vector3,
-      quaternion: THREE.Quaternion,
-      opacity: number,
-      color: THREE.Color,
-    ) => void,
-  ) {
+  forEachSplat(callback: ForEachSplatCallback) {
     this.splats?.forEachSplat(callback);
   }
 
