@@ -357,6 +357,22 @@ type PointerState = {
   timeStamp: DOMHighResTimeStamp;
 };
 
+// Raycaster directions are world space, control.position is parent-relative.
+// Scale is ignored, as in the other movement paths.
+function worldDirToParentFrame(
+  dir: THREE.Vector3,
+  control: THREE.Object3D,
+): THREE.Vector3 {
+  const parentDir = dir.clone();
+  const parent = control.parent;
+  if (parent) {
+    const parentRotation = new THREE.Quaternion();
+    parent.getWorldQuaternion(parentRotation);
+    parentDir.applyQuaternion(parentRotation.invert());
+  }
+  return parentDir;
+}
+
 // `PointerControls` implements pointer/mouse/touch controls on the canvas,
 // for both desktop and mobile web applications.
 
@@ -722,7 +738,7 @@ export class PointerControls {
           );
           const raycaster = new THREE.Raycaster();
           raycaster.setFromCamera(ndcMidpoint, theCamera);
-          midpointDir = raycaster.ray.direction;
+          midpointDir = worldDirToParentFrame(raycaster.ray.direction, control);
         }
         const pinchOut = motionDir[1] - motionDir[0];
         const slide = midpointDir.multiplyScalar(pinchOut * this.slideSpeed);
@@ -832,7 +848,9 @@ export class PointerControls {
                 );
             const raycaster = new THREE.Raycaster();
             raycaster.setFromCamera(ndcPoint, theCamera);
-            target.copy(raycaster.ray.direction).normalize();
+            target
+              .copy(worldDirToParentFrame(raycaster.ray.direction, control))
+              .normalize();
           }
 
           if (!this.doublePressed) {
