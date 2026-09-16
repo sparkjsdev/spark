@@ -24,6 +24,37 @@ import {
 } from "./utils";
 import * as wasm from "./wasm";
 
+/**
+ * One range read of a RAD file, as PagedSplats asks for it.
+ *
+ * `url` is the file to read: `rootUrl`, or the sibling file of a chunked RAD.
+ * It is undefined when PagedSplats was given no `rootUrl`, which is the case
+ * where the consumer itself is the source of the bytes - a member inside a
+ * container, a `File` the user picked, OPFS, IndexedDB.
+ *
+ * `offset` and `bytes` are the range; both undefined asks for the whole file.
+ * `requestHeader` and `withCredentials` are the ones PagedSplats was built
+ * with, passed on so a replacement can honour them. `signal` is the
+ * PagedSplats' own, aborted on dispose.
+ */
+export interface FetchRangeRequest {
+  url?: string;
+  offset?: number;
+  bytes?: number;
+  requestHeader?: Record<string, string>;
+  withCredentials?: boolean;
+  signal?: AbortSignal;
+}
+
+/**
+ * Supplies the bytes of a range, in place of Spark's own ranged fetch.
+ *
+ * Returning FEWER bytes than asked for is allowed and means the range ran
+ * past the end of the file - the header probe uses that to stop early on a
+ * small file - but returning more is not.
+ */
+export type FetchRange = (req: FetchRangeRequest) => Promise<Uint8Array>;
+
 export interface PagedSplatsOptions {
   pager?: SplatPager;
   rootUrl?: string;
@@ -31,6 +62,15 @@ export interface PagedSplatsOptions {
   withCredentials?: boolean;
   fileBytes?: Uint8Array;
   fileType?: SplatFileType;
+  /**
+   * Read every range through this instead of Spark's own ranged fetch:
+   * decryption, signed requests, a custom CDN, a test double, or a source
+   * that has no URL at all. RAD only.
+   *
+   * With no `rootUrl`, `fileType` must be given - there are no bytes to sniff
+   * before the first read - and the request's `url` is undefined.
+   */
+  fetchRange?: FetchRange;
   maxSh?: number;
 }
 
@@ -45,6 +85,7 @@ export class PagedSplats implements SplatSource {
   withCredentials?: boolean;
   fileBytes?: Uint8Array;
   fileType?: SplatFileType;
+  fetchRange?: FetchRange;
 
   numSh: number;
   maxSh: number;
@@ -94,6 +135,7 @@ export class PagedSplats implements SplatSource {
     this.shMax = new dyno.DynoVec3({ value: new THREE.Vector3() });
 
     this.fileBytes = options.fileBytes;
+    this.fetchRange = options.fetchRange;
     this.fileType = options.fileType;
     if (!this.fileType && this.fileBytes) {
       this.fileType = getSplatFileType(this.fileBytes);
@@ -102,7 +144,11 @@ export class PagedSplats implements SplatSource {
       this.fileType = getSplatFileTypeFromPath(this.rootUrl);
     }
     if (!this.fileType) {
-      throw new Error("Unable to determine file type");
+      throw new Error(
+        this.fetchRange && !this.rootUrl
+          ? "A fetchRange source cannot be sniffed for a file type: pass fileType"
+          : "Unable to determine file type",
+      );
     }
     if (this.fileType === SplatFileType.RAD) {
       this.radMetaPromise = this.getRadMeta();
@@ -122,6 +168,23 @@ export class PagedSplats implements SplatSource {
     this.maxSh = maxSh;
   }
 
+  /** One range read, through the consumer's hook when it set one. */
+  private readRange(req: FetchRangeRequest): Promise<Uint8Array> {
+    const full = {
+      requestHeader: this.requestHeader,
+      withCredentials: this.withCredentials,
+      signal: this.abortController.signal,
+      ...req,
+    };
+    if (this.fetchRange) {
+      return this.fetchRange(full);
+    }
+    if (full.url === undefined) {
+      throw new Error("No url, fileBytes or fetchRange provided");
+    }
+    return fetchRange({ ...full, url: full.url });
+  }
+
   getRadMeta(): Promise<{ meta: RadMeta; chunksStart: number }> {
     if (this.radMetaPromise) {
       return this.radMetaPromise;
@@ -138,23 +201,27 @@ export class PagedSplats implements SplatSource {
         }
         throw new Error("Failed to decode RAD header");
       }
-      if (!this.rootUrl) {
-        throw new Error("No url or fileBytes provided");
+      if (!this.rootUrl && !this.fetchRange) {
+        throw new Error("No url, fileBytes or fetchRange provided");
       }
 
       // We don't know how big the header will be. Most likely 64KB will be enough,
       // but try larger blocks in backoff if it wasn't enough.
       for (const tryBytes of [65536, 256 * 1024, 1024 * 1024]) {
-        const bytes = await fetchRange({
+        const bytes = await this.readRange({
           url: this.rootUrl,
-          requestHeader: this.requestHeader,
-          withCredentials: this.withCredentials,
           offset: 0,
           bytes: tryBytes,
         });
         const metaStart = decode_rad_header(bytes);
         if (metaStart) {
           return metaStart;
+        }
+        // A source can hand back a short read when the file ends first, and
+        // that IS the answer: stop rather than ask for more of a file that is
+        // over.
+        if (bytes.length < tryBytes) {
+          break;
         }
       }
       throw new Error("Failed to decode RAD header");
@@ -192,17 +259,17 @@ export class PagedSplats implements SplatSource {
         if (this.fileBytes) {
           throw new Error("Chunked RAD file not supported with fileBytes");
         }
+        if (!this.rootUrl) {
+          throw new Error(
+            "Chunked RAD file needs a rootUrl to resolve its sibling files",
+          );
+        }
         const resolvedRoot = new URL(
           this.rootUrl,
           window.location.href,
         ).toString();
         const chunkUrl = new URL(filename, resolvedRoot).toString();
-        decodeBytes = await fetchRange({
-          url: chunkUrl,
-          requestHeader: this.requestHeader,
-          withCredentials: this.withCredentials,
-          signal: this.abortController.signal,
-        });
+        decodeBytes = await this.readRange({ url: chunkUrl });
       } else {
         offset += chunksStart;
         // console.log(`Fetching chunk ${chunk} at offset ${offset} with bytes ${bytes}`);
@@ -213,19 +280,16 @@ export class PagedSplats implements SplatSource {
             );
           }
           decodeBytes = this.fileBytes.slice(offset, offset + bytes);
-        } else if (this.rootUrl) {
-          decodeBytes = await fetchRange({
+        } else {
+          decodeBytes = await this.readRange({
             url: this.rootUrl,
-            requestHeader: this.requestHeader,
-            withCredentials: this.withCredentials,
             offset,
             bytes,
-            signal: this.abortController.signal,
           });
-        } else {
-          throw new Error("No url or fileBytes provided");
         }
       }
+    } else if (this.fetchRange) {
+      throw new Error("fetchRange is supported for RAD files only");
     } else if (this.fileBytes) {
       // Fall through
     } else if (this.rootUrl) {
