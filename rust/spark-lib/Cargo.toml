@@ -37,3 +37,4 @@ image = { workspace = true, optional = true }
 hnsw.workspace = true
 rand_pcg.workspace = true
 space.workspace = true
+zstd.workspace = true
