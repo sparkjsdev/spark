@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { isCamera } from "./threeGuards";
 import { isAndroid, isIos } from "./utils";
 
 // Spark controls for keyboard + mouse, game pad, or mobile multi-touch
@@ -713,8 +714,7 @@ export class PointerControls {
           .add(this.sliding.last)
           .multiplyScalar(0.5);
         let midpointDir = new THREE.Vector3();
-        const theCamera =
-          camera ?? (control instanceof THREE.Camera ? control : undefined);
+        const theCamera = camera ?? (isCamera(control) ? control : undefined);
         if (theCamera) {
           const ndcMidpoint = new THREE.Vector2(
             (midpoint.x / this.canvas.clientWidth) * 2 - 1,
@@ -821,8 +821,7 @@ export class PointerControls {
         const target = new THREE.Vector3();
         if (this.sliding || this.rotating) {
           const point = this.lastDown?.last ?? new THREE.Vector2();
-          const theCamera =
-            camera ?? (control instanceof THREE.Camera ? control : undefined);
+          const theCamera = camera ?? (isCamera(control) ? control : undefined);
           if (theCamera) {
             const ndcPoint = this.pressMoveCenter
               ? new THREE.Vector2(0, 0)

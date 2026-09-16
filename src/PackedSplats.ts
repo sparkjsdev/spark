@@ -44,6 +44,7 @@ import {
   splitGsplat,
 } from "./dyno/splats";
 import { getShaders } from "./shaders";
+import { isTexture } from "./threeGuards";
 import { getTextureSize, setPackedSplat, unpackSplat } from "./utils";
 
 // Initialize a PackedSplats collection from source data via
@@ -292,7 +293,7 @@ export class PackedSplats implements SplatSource {
       >;
       if (dyno instanceof DynoUniform) {
         const texture = dyno.value;
-        if (texture?.isTexture) {
+        if (isTexture(texture)) {
           texture.dispose();
           texture.source.data = null;
         }

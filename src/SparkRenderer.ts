@@ -14,6 +14,12 @@ import { SplatWorker } from "./SplatWorker";
 import { SPLAT_TEX_HEIGHT, SPLAT_TEX_WIDTH } from "./defines";
 import { getShaders } from "./shaders";
 import {
+  isMesh,
+  isMeshStandardMaterial,
+  isOrthographicCamera,
+  isPerspectiveCamera,
+} from "./threeGuards";
+import {
   isAndroid,
   isIos,
   isMobile,
@@ -1146,10 +1152,10 @@ export class SparkRenderer extends THREE.Mesh {
     const maxSplats = splatCount * this.lodSplatScale;
 
     let pixelScaleLimit = 0.0;
-    if (camera instanceof THREE.PerspectiveCamera) {
+    if (isPerspectiveCamera(camera)) {
       const tanYfov = Math.tan((0.5 * camera.fov * Math.PI) / 180);
       pixelScaleLimit = (2.0 * tanYfov) / this.renderSize.y;
-    } else if (camera instanceof THREE.OrthographicCamera) {
+    } else if (isOrthographicCamera(camera)) {
       // Effective visible size after zoom
       const viewHeight = (camera.top - camera.bottom) / camera.zoom;
       const viewWidth = (camera.right - camera.left) / camera.zoom;
@@ -2009,15 +2015,15 @@ export class SparkRenderer extends THREE.Mesh {
   // THREE.MeshStandardMaterial within the subtree of root.
   recurseSetEnvMap(root: THREE.Object3D, envMap: THREE.Texture) {
     root.traverse((node) => {
-      if (node instanceof THREE.Mesh) {
+      if (isMesh(node)) {
         if (Array.isArray(node.material)) {
           for (const material of node.material) {
-            if (material instanceof THREE.MeshStandardMaterial) {
+            if (isMeshStandardMaterial(material)) {
               material.envMap = envMap;
             }
           }
         } else {
-          if (node.material instanceof THREE.MeshStandardMaterial) {
+          if (isMeshStandardMaterial(node.material)) {
             node.material.envMap = envMap;
           }
         }

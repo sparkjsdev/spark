@@ -1,5 +1,12 @@
-import * as THREE from "three";
-
+import {
+  isMatrix2,
+  isMatrix3,
+  isMatrix4,
+  isQuaternion,
+  isVector2,
+  isVector3,
+  isVector4,
+} from "../threeGuards";
 import type { Dyno, IOTypes } from "./base";
 import {
   type DynoJsType,
@@ -97,21 +104,21 @@ export class DynoConst<T extends DynoType> extends DynoLiteral<T> {
         return `bvec2(${v[0]}, ${v[1]})`;
       }
       case "uvec2": {
-        if (value instanceof THREE.Vector2) {
+        if (isVector2(value)) {
           return `uvec2(${numberAsUint(value.x)}, ${numberAsUint(value.y)})`;
         }
         const v = value as [number, number] | Uint32Array;
         return `uvec2(${numberAsUint(v[0])}, ${numberAsUint(v[1])})`;
       }
       case "ivec2": {
-        if (value instanceof THREE.Vector2) {
+        if (isVector2(value)) {
           return `ivec2(${numberAsInt(value.x)}, ${numberAsInt(value.y)})`;
         }
         const v = value as [number, number] | Int32Array;
         return `ivec2(${numberAsInt(v[0])}, ${numberAsInt(v[1])})`;
       }
       case "vec2": {
-        if (value instanceof THREE.Vector2) {
+        if (isVector2(value)) {
           return `vec2(${numberAsFloat(value.x)}, ${numberAsFloat(value.y)})`;
         }
         const v = value as [number, number] | Float32Array;
@@ -122,21 +129,21 @@ export class DynoConst<T extends DynoType> extends DynoLiteral<T> {
         return `bvec3(${v[0]}, ${v[1]}, ${v[2]})`;
       }
       case "uvec3": {
-        if (value instanceof THREE.Vector3) {
+        if (isVector3(value)) {
           return `uvec3(${numberAsUint(value.x)}, ${numberAsUint(value.y)}, ${numberAsUint(value.z)})`;
         }
         const v = value as [number, number, number] | Uint32Array;
         return `uvec3(${numberAsUint(v[0])}, ${numberAsUint(v[1])}, ${numberAsUint(v[2])})`;
       }
       case "ivec3": {
-        if (value instanceof THREE.Vector3) {
+        if (isVector3(value)) {
           return `ivec3(${numberAsInt(value.x)}, ${numberAsInt(value.y)}, ${numberAsInt(value.z)})`;
         }
         const v = value as [number, number, number] | Int32Array;
         return `ivec3(${numberAsInt(v[0])}, ${numberAsInt(v[1])}, ${numberAsInt(v[2])})`;
       }
       case "vec3": {
-        if (value instanceof THREE.Vector3) {
+        if (isVector3(value)) {
           return `vec3(${numberAsFloat(value.x)}, ${numberAsFloat(value.y)}, ${numberAsFloat(value.z)})`;
         }
         const v = value as [number, number, number] | Float32Array;
@@ -147,24 +154,24 @@ export class DynoConst<T extends DynoType> extends DynoLiteral<T> {
         return `bvec4(${v[0]}, ${v[1]}, ${v[2]}, ${v[3]})`;
       }
       case "uvec4": {
-        if (value instanceof THREE.Vector4) {
+        if (isVector4(value)) {
           return `uvec4(${numberAsUint(value.x)}, ${numberAsUint(value.y)}, ${numberAsUint(value.z)}, ${numberAsUint(value.w)})`;
         }
         const v = value as [number, number, number, number] | Uint32Array;
         return `uvec4(${numberAsUint(v[0])}, ${numberAsUint(v[1])}, ${numberAsUint(v[2])}, ${numberAsUint(v[3])})`;
       }
       case "ivec4": {
-        if (value instanceof THREE.Vector4) {
+        if (isVector4(value)) {
           return `ivec4(${numberAsInt(value.x)}, ${numberAsInt(value.y)}, ${numberAsInt(value.z)}, ${numberAsInt(value.w)})`;
         }
         const v = value as [number, number, number, number] | Int32Array;
         return `ivec4(${numberAsInt(v[0])}, ${numberAsInt(v[1])}, ${numberAsInt(v[2])}, ${numberAsInt(v[3])})`;
       }
       case "vec4": {
-        if (value instanceof THREE.Vector4) {
+        if (isVector4(value)) {
           return `vec4(${numberAsFloat(value.x)}, ${numberAsFloat(value.y)}, ${numberAsFloat(value.z)}, ${numberAsFloat(value.w)})`;
         }
-        if (value instanceof THREE.Quaternion) {
+        if (isQuaternion(value)) {
           return `vec4(${numberAsFloat(value.x)}, ${numberAsFloat(value.y)}, ${numberAsFloat(value.z)}, ${numberAsFloat(value.w)})`;
         }
         const v = value as [number, number, number, number] | Float32Array;
@@ -173,8 +180,7 @@ export class DynoConst<T extends DynoType> extends DynoLiteral<T> {
       case "mat2":
       case "mat2x2": {
         const m = value as DynoJsType<"mat2">;
-        const e =
-          m instanceof THREE.Matrix2 ? m.elements : (value as Float32Array);
+        const e = isMatrix2(m) ? m.elements : (value as Float32Array);
         const arg = new Array(4).fill(0).map((_, i) => numberAsFloat(e[i]));
         return `${type as string}(${arg.join(", ")})`;
       }
@@ -191,8 +197,7 @@ export class DynoConst<T extends DynoType> extends DynoLiteral<T> {
       case "mat3":
       case "mat3x3": {
         const m = value as DynoJsType<"mat3">;
-        const e =
-          m instanceof THREE.Matrix3 ? m.elements : (value as Float32Array);
+        const e = isMatrix3(m) ? m.elements : (value as Float32Array);
         const arg = new Array(9).fill(0).map((_, i) => numberAsFloat(e[i]));
         return `${type as string}(${arg.join(", ")})`;
       }
@@ -209,8 +214,7 @@ export class DynoConst<T extends DynoType> extends DynoLiteral<T> {
       case "mat4":
       case "mat4x4": {
         const m = value as DynoJsType<"mat4">;
-        const e =
-          m instanceof THREE.Matrix4 ? m.elements : (value as Float32Array);
+        const e = isMatrix4(m) ? m.elements : (value as Float32Array);
         const arg = new Array(16).fill(0).map((_, i) => numberAsFloat(e[i]));
         return `${type as string}(${arg.join(", ")})`;
       }

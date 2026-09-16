@@ -24,6 +24,7 @@ import {
   unindent,
   unindentLines,
 } from "./dyno";
+import { isTexture } from "./threeGuards";
 import { decodeExtSplat, encodeExtSplat, getTextureSize } from "./utils";
 
 export type ExtSplatsOptions = {
@@ -230,7 +231,7 @@ export class ExtSplats implements SplatSource {
       >;
       if (dyno instanceof DynoUniform) {
         const texture = dyno.value;
-        if (texture?.isTexture) {
+        if (isTexture(texture)) {
           texture.dispose();
           texture.source.data = null;
         }
