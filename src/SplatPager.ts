@@ -24,6 +24,29 @@ import {
 } from "./utils";
 import * as wasm from "./wasm";
 
+/**
+ * Supplies a RAD file's bytes, in place of Spark fetching ranges from a URL.
+ *
+ * Called with a byte range of the file: `(offset, bytes)` asks for
+ * `bytes` bytes starting at `offset`, and both undefined asks for the whole
+ * file. Returning FEWER bytes than asked for is allowed and means the range
+ * ran past the end of the file - the header probe uses that to stop early on
+ * a small file - but returning more is not.
+ *
+ * `signal` is the PagedSplats' own abort signal, aborted on dispose, so a
+ * read in flight can be cancelled the way the URL path's fetch is.
+ *
+ * This is the hook for a RAD that is not a plain ranged URL: one stored
+ * inside a container or archive, one in OPFS or IndexedDB, one behind
+ * bespoke authentication, or a local file the user picked, which has no URL
+ * at all and can be read with `File.slice`.
+ */
+export type FetchBytes = (
+  offset?: number,
+  bytes?: number,
+  signal?: AbortSignal,
+) => Promise<Uint8Array>;
+
 export interface PagedSplatsOptions {
   pager?: SplatPager;
   rootUrl?: string;
@@ -31,6 +54,12 @@ export interface PagedSplatsOptions {
   withCredentials?: boolean;
   fileBytes?: Uint8Array;
   fileType?: SplatFileType;
+  /**
+   * Read the file's bytes through this instead of fetching `rootUrl`. RAD
+   * only, and `fileType` must be given because the type cannot be sniffed
+   * before the first read. Sibling-file chunked RAD is not supported.
+   */
+  fetchBytes?: FetchBytes;
   maxSh?: number;
 }
 
@@ -45,6 +74,7 @@ export class PagedSplats implements SplatSource {
   withCredentials?: boolean;
   fileBytes?: Uint8Array;
   fileType?: SplatFileType;
+  fetchBytes?: FetchBytes;
 
   numSh: number;
   maxSh: number;
@@ -94,6 +124,7 @@ export class PagedSplats implements SplatSource {
     this.shMax = new dyno.DynoVec3({ value: new THREE.Vector3() });
 
     this.fileBytes = options.fileBytes;
+    this.fetchBytes = options.fetchBytes;
     this.fileType = options.fileType;
     if (!this.fileType && this.fileBytes) {
       this.fileType = getSplatFileType(this.fileBytes);
@@ -102,7 +133,11 @@ export class PagedSplats implements SplatSource {
       this.fileType = getSplatFileTypeFromPath(this.rootUrl);
     }
     if (!this.fileType) {
-      throw new Error("Unable to determine file type");
+      throw new Error(
+        this.fetchBytes
+          ? "fetchBytes cannot be sniffed for a file type: pass fileType"
+          : "Unable to determine file type",
+      );
     }
     if (this.fileType === SplatFileType.RAD) {
       this.radMetaPromise = this.getRadMeta();
@@ -138,8 +173,28 @@ export class PagedSplats implements SplatSource {
         }
         throw new Error("Failed to decode RAD header");
       }
+      if (this.fetchBytes) {
+        // Same backoff as the URL path below, except that a source can hand
+        // back a short read when the file ends first - which is the answer
+        // itself, so stop rather than ask for more of a file that is over.
+        for (const tryBytes of [65536, 256 * 1024, 1024 * 1024]) {
+          const bytes = await this.fetchBytes(
+            0,
+            tryBytes,
+            this.abortController.signal,
+          );
+          const metaStart = decode_rad_header(bytes);
+          if (metaStart) {
+            return metaStart;
+          }
+          if (bytes.length < tryBytes) {
+            break;
+          }
+        }
+        throw new Error("Failed to decode RAD header");
+      }
       if (!this.rootUrl) {
-        throw new Error("No url or fileBytes provided");
+        throw new Error("No url, fileBytes or fetchBytes provided");
       }
 
       // We don't know how big the header will be. Most likely 64KB will be enough,
@@ -192,6 +247,9 @@ export class PagedSplats implements SplatSource {
         if (this.fileBytes) {
           throw new Error("Chunked RAD file not supported with fileBytes");
         }
+        if (this.fetchBytes) {
+          throw new Error("Chunked RAD file not supported with fetchBytes");
+        }
         const resolvedRoot = new URL(
           this.rootUrl,
           window.location.href,
@@ -206,7 +264,13 @@ export class PagedSplats implements SplatSource {
       } else {
         offset += chunksStart;
         // console.log(`Fetching chunk ${chunk} at offset ${offset} with bytes ${bytes}`);
-        if (this.fileBytes) {
+        if (this.fetchBytes) {
+          decodeBytes = await this.fetchBytes(
+            offset,
+            bytes,
+            this.abortController.signal,
+          );
+        } else if (this.fileBytes) {
           if (offset < 0 || offset + bytes > this.fileBytes.length) {
             throw new Error(
               `Invalid chunk offset or bytes: ${offset} + ${bytes} > ${this.fileBytes.length}`,
@@ -223,9 +287,11 @@ export class PagedSplats implements SplatSource {
             signal: this.abortController.signal,
           });
         } else {
-          throw new Error("No url or fileBytes provided");
+          throw new Error("No url, fileBytes or fetchBytes provided");
         }
       }
+    } else if (this.fetchBytes) {
+      throw new Error("fetchBytes is supported for RAD files only");
     } else if (this.fileBytes) {
       // Fall through
     } else if (this.rootUrl) {
