@@ -877,7 +877,15 @@ export class SplatPager {
     const emptyShTextures = this.extSplats
       ? SplatPager.emptyExtShTextures
       : SplatPager.emptyShTextures;
-    for (let i = 0; i < this.curSh; i++) {
+    // curSh is a DEGREE, not a texture count: extSplats splits degree 3 across
+    // two textures (SH3A, SH3B). Allocating only `curSh` of them left SH3B as
+    // the empty placeholder, and the first degree-3 page upload overflowed it
+    // ("RangeError: offset is out of bounds" in uploadTextureLayer).
+    const numTextures = Math.min(
+      this.extSplats && this.curSh >= 3 ? this.curSh + 1 : this.curSh,
+      this.shTextures.length,
+    );
+    for (let i = 0; i < numTextures; i++) {
       if (this.shTextures[i].value === emptyShTextures[i]) {
         const elementsPerSplat =
           this.shTextures[i].value === SplatPager.emptyUint32x2 ? 2 : 4;
