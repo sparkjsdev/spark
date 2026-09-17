@@ -62,9 +62,15 @@ pub fn transform_gsplatarray(gsplats: &mut GsplatArray, transform_options: Trans
         gsplats.set_rgb(out_index, 1, &rgb.to_array());
         gsplats.set_opacity(out_index, 1, &[opacity]);
 
-        gsplats.set_sh1(out_index, 1, gsplats.get_sh1(splat_index).as_slice());
-        gsplats.set_sh2(out_index, 1, gsplats.get_sh2(splat_index).as_slice());
-        gsplats.set_sh3(out_index, 1, gsplats.get_sh3(splat_index).as_slice());
+        if gsplats.max_sh_degree >= 1 {
+            gsplats.set_sh1(out_index, 1, gsplats.get_sh1(splat_index).as_slice());
+        }
+        if gsplats.max_sh_degree >= 2 {
+            gsplats.set_sh2(out_index, 1, gsplats.get_sh2(splat_index).as_slice());
+        }
+        if gsplats.max_sh_degree >= 3 {
+            gsplats.set_sh3(out_index, 1, gsplats.get_sh3(splat_index).as_slice());
+        }
 
         out_index += 1;
     }
