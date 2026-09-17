@@ -6,8 +6,11 @@ import {
 } from "./SplatLoader";
 
 import { decode_to_gsplatarray, packedsplats_to_gsplatarray } from "spark-rs";
+import * as wasm from "./wasm";
 
 export async function transcodeSpz(input: TranscodeSpzInput) {
+  await wasm.initialization;
+
   const splatArrays = [];
   const {
     inputs,
