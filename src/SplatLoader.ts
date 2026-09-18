@@ -5,7 +5,6 @@ import { PackedSplats, type PackedSplatsOptions } from "./PackedSplats";
 import { SplatMesh } from "./SplatMesh";
 import { workerPool } from "./SplatWorker";
 import { type ExtResult, type PackedResult, SplatFileType } from "./defines";
-import type { SpzWriteVersion } from "./spz";
 import { decompressPartialGzip, getTextureSize } from "./utils";
 
 // SplatLoader implements the THREE.Loader interface and supports loading a variety
@@ -625,19 +624,3 @@ export class SplatData {
     }
   }
 }
-
-export type FileInput = {
-  fileBytes: Uint8Array;
-  fileType?: SplatFileType;
-  pathOrUrl?: string;
-  transform?: { translate?: number[]; quaternion?: number[]; scale?: number };
-};
-
-export type TranscodeSpzInput = {
-  inputs: FileInput[];
-  maxSh?: number;
-  clipXyz?: { min: number[]; max: number[] };
-  fractionalBits?: number;
-  opacityThreshold?: number;
-  version?: SpzWriteVersion;
-};
