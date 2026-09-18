@@ -529,6 +529,7 @@ pub fn extsplats_to_gsplatarray(num_splats: u32, ext1: Uint32Array, ext2: Uint32
     };
     Ok(GsplatArray::new(splats))
 }
+stub_fn!(feature = "gsplat", extsplats_to_gsplatarray);
 
 #[wasm_bindgen]
 #[cfg(all(feature = "csplat", feature = "tiny_lod"))]

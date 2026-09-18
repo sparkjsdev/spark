@@ -1,8 +1,13 @@
-import type { PackedSplats } from "./PackedSplats";
+import { ExtSplats } from "./ExtSplats";
+import { PackedSplats } from "./PackedSplats";
 import { getSplatFileType, getSplatFileTypeFromPath } from "./SplatLoader";
 import type { SplatFileType } from "./defines";
 
-import { decode_to_gsplatarray, packedsplats_to_gsplatarray } from "spark-rs";
+import {
+  decode_to_gsplatarray,
+  extsplats_to_gsplatarray,
+  packedsplats_to_gsplatarray,
+} from "spark-rs";
 import * as wasm from "./wasm";
 
 export type SpzWriteVersion = 2 | 3;
@@ -91,36 +96,52 @@ export type WriteSpzOptions = {
 };
 
 export function writeSpz(
-  packedSplats: PackedSplats,
+  splats: PackedSplats | ExtSplats,
   maxSh?: number,
   fractionalBits?: number,
 ): { fileBytes: Uint8Array };
 export function writeSpz(
-  packedSplats: PackedSplats,
+  splats: PackedSplats | ExtSplats,
   options?: WriteSpzOptions,
 ): { fileBytes: Uint8Array };
 export function writeSpz(
-  packedSplats: PackedSplats,
+  splats: PackedSplats | ExtSplats,
   maxShOrOptions?: number | WriteSpzOptions,
   fractionalBits?: number,
 ) {
-  if (!packedSplats.packedArray) {
-    throw new Error("");
-  }
   const options: WriteSpzOptions =
     typeof maxShOrOptions === "number"
       ? { maxSh: maxShOrOptions, fractionalBits }
       : (maxShOrOptions ?? {});
-  const gsplats = packedsplats_to_gsplatarray(
-    packedSplats.numSplats,
-    packedSplats.packedArray,
-    packedSplats.extra,
-    packedSplats.splatEncoding,
-  );
-  const spzBytes = gsplats.encode_to_spz(
-    options.maxSh ?? 3,
-    options.fractionalBits ?? 12,
-    options.version,
-  );
-  return { fileBytes: spzBytes };
+  const shDegree = options.maxSh ?? 3;
+  const bits = options.fractionalBits ?? 12;
+
+  if (splats instanceof ExtSplats) {
+    const gsplats = extsplats_to_gsplatarray(
+      splats.numSplats,
+      splats.extArrays[0],
+      splats.extArrays[1],
+      splats.extra,
+    );
+    return {
+      fileBytes: gsplats.encode_to_spz(shDegree, bits, options.version),
+    };
+  }
+
+  if (splats instanceof PackedSplats) {
+    if (!splats.packedArray) {
+      throw new Error("PackedSplats has no splat data");
+    }
+    const gsplats = packedsplats_to_gsplatarray(
+      splats.numSplats,
+      splats.packedArray,
+      splats.extra,
+      splats.splatEncoding,
+    );
+    return {
+      fileBytes: gsplats.encode_to_spz(shDegree, bits, options.version),
+    };
+  }
+
+  throw new Error("writeSpz requires PackedSplats or ExtSplats");
 }
