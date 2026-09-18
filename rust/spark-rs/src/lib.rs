@@ -354,7 +354,11 @@ stub_fn!(feature = "gsplat", decode_to_gsplatarray);
 #[wasm_bindgen]
 #[cfg(all(feature = "csplat", feature = "gsplat"))]
 pub fn packedsplats_to_gsplatarray(num_splats: u32, packed: Uint32Array, extra: Option<Object>, encoding: JsValue) -> Result<GsplatArray, JsValue> {
-    let encoding = serde_wasm_bindgen::from_value(encoding)?;
+    let encoding = if encoding.is_falsy() {
+        SplatEncoding::default()
+    } else {
+        serde_wasm_bindgen::from_value(encoding)?
+    };
     let mut receiver = match PackedSplatsData::from_js_arrays(packed, num_splats as usize, extra.as_ref(), encoding) {
         Ok(receiver) => receiver,
         Err(err) => { return Err(JsValue::from(err.to_string())); }
@@ -492,7 +496,11 @@ stub_fn!(feature = "csplat", decode_to_csplatarray);
 #[wasm_bindgen]
 #[cfg(feature = "csplat")]
 pub fn packedsplats_to_csplatarray(num_splats: u32, packed: Uint32Array, extra: Option<Object>, encoding: JsValue) -> Result<CsplatArray, JsValue> {
-    let encoding = serde_wasm_bindgen::from_value(encoding)?;
+    let encoding = if encoding.is_falsy() {
+        SplatEncoding::default()
+    } else {
+        serde_wasm_bindgen::from_value(encoding)?
+    };
     let mut receiver = match PackedSplatsData::from_js_arrays(packed, num_splats as usize, extra.as_ref(), encoding) {
         Ok(receiver) => receiver,
         Err(err) => { return Err(JsValue::from(err.to_string())); }
