@@ -40,6 +40,7 @@
     "site:serve": "node scripts/serve-site.js site",
     "start": "npm run dev",
     "test": "vitest run --reporter=dot test/",
+    "test:rust": "cargo test --locked --manifest-path rust/Cargo.toml --workspace",
     "types": "tsc -p tsconfig.json --noEmit"
   },
   "repository": "sparkjsdev/spark",
