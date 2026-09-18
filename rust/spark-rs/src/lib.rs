@@ -315,10 +315,14 @@ impl GsplatArray {
     }
 
     #[cfg(feature = "spz")]
-    pub fn encode_to_spz(mut self, max_sh: u32, fractional_bits: u8) -> Result<Uint8Array, JsValue> {
+    pub fn encode_to_spz(mut self, max_sh: u32, fractional_bits: u8, version: Option<u32>) -> Result<Uint8Array, JsValue> {
         self.inner.clamp_sh_degree(max_sh as usize);
         self.maxShDegree = self.inner.max_sh_degree;
-        let encoded = match SpzEncoder::new(self.inner).with_max_sh(max_sh as usize).with_fractional_bits(fractional_bits).encode() {
+        let mut encoder = SpzEncoder::new(self.inner).with_max_sh(max_sh as usize).with_fractional_bits(fractional_bits);
+        if let Some(version) = version {
+            encoder = encoder.with_version(version);
+        }
+        let encoded = match encoder.encode() {
             Err(err) => { return Err(JsValue::from(err.to_string())); },
             Ok(encoded) => encoded
         };

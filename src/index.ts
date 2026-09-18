@@ -12,7 +12,12 @@ export {
   SplatLoader,
   getSplatFileType,
 } from "./SplatLoader";
-export { transcodeSpz, writeSpz } from "./spz";
+export {
+  transcodeSpz,
+  writeSpz,
+  type SpzWriteVersion,
+  type WriteSpzOptions,
+} from "./spz";
 
 export { PackedSplats, type PackedSplatsOptions } from "./PackedSplats";
 export { ExtSplats, type ExtSplatsOptions } from "./ExtSplats";
