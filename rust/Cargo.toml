@@ -11,7 +11,7 @@ rust-version = "1.82"
 edition = "2021"
 license = "MIT"
 authors = ["World Labs Technologies"]
-repository = "https://github.com/sparkjs-dev/spark"
+repository = "https://github.com/sparkjsdev/spark"
 
 [workspace.dependencies]
 ahash = { version = "0.8.12", default-features = false, features = ["std", "compile-time-rng"] }

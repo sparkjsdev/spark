@@ -40,7 +40,7 @@
     "start": "npm run dev",
     "test": "node --no-warnings --loader ts-node/esm --test test/**/*.test.ts"
   },
-  "repository": "sparkjs-dev/spark",
+  "repository": "sparkjsdev/spark",
   "files": ["dist"],
   "license": "MIT",
   "devDependencies": {
