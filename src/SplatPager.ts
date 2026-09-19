@@ -74,7 +74,7 @@ export class PagedSplats implements SplatSource {
     this.requestHeader = options.requestHeader;
     this.withCredentials = options.withCredentials;
     this.numSh = 0;
-    this.maxSh = options.pager?.maxSh ?? 3;
+    this.maxSh = options.maxSh ?? 3;
 
     this.numSplats = 0;
 
