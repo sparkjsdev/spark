@@ -871,13 +871,11 @@ export class SplatPager {
     }
   }
 
-  private ensureShTextures(numSh: number) {
-    this.curSh = Math.max(this.curSh, numSh);
-
+  private ensureShTextures(numTextures: number) {
     const emptyShTextures = this.extSplats
       ? SplatPager.emptyExtShTextures
       : SplatPager.emptyShTextures;
-    for (let i = 0; i < this.curSh; i++) {
+    for (let i = 0; i < numTextures; i++) {
       if (this.shTextures[i].value === emptyShTextures[i]) {
         const elementsPerSplat =
           this.shTextures[i].value === SplatPager.emptyUint32x2 ? 2 : 4;
@@ -996,9 +994,9 @@ export class SplatPager {
       uploadTextureLayer(this.extTexture, page, pageBase * 4, extArray);
     }
 
-    // In case of extSplats there can be 4 shArrays for 3 sh degrees
-    const numSh = Math.min(shArrays.length, 3);
-    this.ensureShTextures(numSh);
+    // With extSplats SH3 spans two textures: four arrays, three degrees.
+    this.curSh = Math.max(this.curSh, Math.min(shArrays.length, 3));
+    this.ensureShTextures(shArrays.length);
 
     for (let i = 0; i < shArrays.length; i++) {
       const array = shArrays[i];
