@@ -22,8 +22,6 @@ import { PagedSplats, type PagedSplatsOptions, SplatPager } from "./SplatPager";
 import type { SplatSkinning } from "./SplatSkinning";
 import {
   DEFAULT_SPLAT_ENCODING,
-  LN_SCALE_MAX,
-  LN_SCALE_MIN,
   type SplatEncoding,
   type SplatFileType,
 } from "./defines";
@@ -114,7 +112,7 @@ export type SplatMeshOptions = {
   covWorldModifiers?: CovSplatModifier[];
   // Override the default splat encoding ranges for the PackedSplats.
   // (default: undefined)
-  splatEncoding?: SplatEncoding;
+  splatEncoding?: Partial<SplatEncoding>;
   // Set to true to load/use "extended splat" encoding with float32 x/y/z
   extSplats?: boolean | ExtSplats;
   // Set to true to output covariance splats for anisotropic scaling
@@ -350,8 +348,9 @@ export class SplatMesh extends SplatGenerator {
       this.splats = this.extSplats;
     } else if (options.packedSplats) {
       this.packedSplats = options.packedSplats;
-      this.packedSplats.splatEncoding = options.splatEncoding ?? {
+      this.packedSplats.splatEncoding = {
         ...DEFAULT_SPLAT_ENCODING,
+        ...options.splatEncoding,
       };
       this.splats = this.packedSplats;
     } else {
@@ -1057,9 +1056,10 @@ export class SplatMesh extends SplatGenerator {
       if (!packed) {
         return;
       }
-      const splatEncoding = paged
-        ? this.paged?.splatEncoding
-        : this.packedSplats?.splatEncoding;
+      const splatEncoding =
+        (paged
+          ? this.paged?.splatEncoding
+          : this.packedSplats?.splatEncoding) ?? DEFAULT_SPLAT_ENCODING;
       for (let base = 0; base < numSplats; base += bufferSize) {
         const count = Math.min(bufferSize, numSplats - base);
         if (!indices) {
@@ -1087,9 +1087,9 @@ export class SplatMesh extends SplatGenerator {
           near,
           far,
           count,
-          splatEncoding?.lnScaleMin ?? LN_SCALE_MIN,
-          splatEncoding?.lnScaleMax ?? LN_SCALE_MAX,
-          splatEncoding?.lodOpacity ?? false,
+          splatEncoding.lnScaleMin,
+          splatEncoding.lnScaleMax,
+          splatEncoding.lodOpacity,
         );
         intersections = this.appendRaycastBuffer(
           intersections,

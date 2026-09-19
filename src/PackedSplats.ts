@@ -8,8 +8,6 @@ import type { SplatSource } from "./SplatMesh";
 import { workerPool } from "./SplatWorker";
 import {
   DEFAULT_SPLAT_ENCODING,
-  LN_SCALE_MAX,
-  LN_SCALE_MIN,
   SPLAT_TEX_HEIGHT,
   SPLAT_TEX_WIDTH,
   type SplatEncoding,
@@ -86,7 +84,7 @@ export type PackedSplatsOptions = {
   extra?: Record<string, unknown>;
   // Override the default splat encoding ranges for the PackedSplats.
   // (default: undefined)
-  splatEncoding?: SplatEncoding;
+  splatEncoding?: Partial<SplatEncoding>;
   // Enable LOD. If a number is provided, it will be used as LoD level base,
   // otherwise the default 1.5 is used. When loading a file without pre-computed
   // LoD it will use the "quick lod" algorithm to generate one on-the-fly with
@@ -113,7 +111,7 @@ export class PackedSplats implements SplatSource {
   packedArray: Uint32Array | null = null;
   extra: Record<string, unknown>;
   maxSh = 3;
-  splatEncoding?: SplatEncoding;
+  splatEncoding: SplatEncoding;
   lod?: boolean | "quality";
   nonLod?: boolean;
   lodSplats?: PackedSplats;
@@ -138,15 +136,19 @@ export class PackedSplats implements SplatSource {
   constructor(options: PackedSplatsOptions = {}) {
     this.extra = {};
     this.dyno = new DynoPackedSplats({ packedSplats: this });
+    this.splatEncoding = {
+      ...DEFAULT_SPLAT_ENCODING,
+      ...options.splatEncoding,
+    };
     this.dynoRgbMinMaxLnScaleMinMax = new DynoVec4({
       key: "rgbMinMaxLnScaleMinMax",
-      value: new THREE.Vector4(0.0, 1.0, LN_SCALE_MIN, LN_SCALE_MAX),
+      value: new THREE.Vector4(),
       update: (value) => {
         value.set(
-          this.splatEncoding?.rgbMin ?? 0.0,
-          this.splatEncoding?.rgbMax ?? 1.0,
-          this.splatEncoding?.lnScaleMin ?? LN_SCALE_MIN,
-          this.splatEncoding?.lnScaleMax ?? LN_SCALE_MAX,
+          this.splatEncoding.rgbMin,
+          this.splatEncoding.rgbMax,
+          this.splatEncoding.lnScaleMin,
+          this.splatEncoding.lnScaleMax,
         );
         return value;
       },
@@ -163,9 +165,9 @@ export class PackedSplats implements SplatSource {
       value: new THREE.Vector3(),
       update: (value) => {
         value.set(
-          this.splatEncoding?.sh1Max ?? 1.0,
-          this.splatEncoding?.sh2Max ?? 1.0,
-          this.splatEncoding?.sh3Max ?? 1.0,
+          this.splatEncoding.sh1Max,
+          this.splatEncoding.sh2Max,
+          this.splatEncoding.sh3Max,
         );
         return value;
       },
@@ -181,7 +183,10 @@ export class PackedSplats implements SplatSource {
 
     this.extra = {};
     this.maxSplats = options.maxSplats ?? 0;
-    this.splatEncoding = options.splatEncoding;
+    this.splatEncoding = {
+      ...DEFAULT_SPLAT_ENCODING,
+      ...options.splatEncoding,
+    };
     this.lod = options.lod;
     this.nonLod = options.nonLod;
 
@@ -205,7 +210,9 @@ export class PackedSplats implements SplatSource {
 
   initialize(options: PackedSplatsOptions) {
     this.extra = options.extra ?? {};
-    this.splatEncoding = options.splatEncoding ?? this.splatEncoding;
+    this.splatEncoding = options.splatEncoding
+      ? { ...DEFAULT_SPLAT_ENCODING, ...options.splatEncoding }
+      : this.splatEncoding;
     this.lodSplats = options.lodSplats;
 
     if (options.packedArray) {
@@ -922,7 +929,7 @@ export class PackedSplats implements SplatSource {
           extra,
           lodBase,
           rgba,
-          encoding: this.splatEncoding ?? DEFAULT_SPLAT_ENCODING,
+          encoding: this.splatEncoding,
         },
       );
     });
@@ -1036,26 +1043,22 @@ export class DynoPackedSplats extends DynoUniform<
       value: {
         textureArray: PackedSplats.getEmptyArray,
         numSplats: 0,
-        rgbMinMaxLnScaleMinMax: new THREE.Vector4(
-          0,
-          1,
-          LN_SCALE_MIN,
-          LN_SCALE_MAX,
-        ),
+        rgbMinMaxLnScaleMinMax: new THREE.Vector4(),
         lodOpacity: false,
       },
       update: (value) => {
+        const splatEncoding =
+          this.packedSplats?.splatEncoding ?? DEFAULT_SPLAT_ENCODING;
         value.textureArray =
           this.packedSplats?.getTexture() ?? PackedSplats.getEmptyArray;
         value.numSplats = this.packedSplats?.numSplats ?? 0;
         value.rgbMinMaxLnScaleMinMax.set(
-          this.packedSplats?.splatEncoding?.rgbMin ?? 0,
-          this.packedSplats?.splatEncoding?.rgbMax ?? 1,
-          this.packedSplats?.splatEncoding?.lnScaleMin ?? LN_SCALE_MIN,
-          this.packedSplats?.splatEncoding?.lnScaleMax ?? LN_SCALE_MAX,
+          splatEncoding.rgbMin,
+          splatEncoding.rgbMax,
+          splatEncoding.lnScaleMin,
+          splatEncoding.lnScaleMax,
         );
-        value.lodOpacity =
-          this.packedSplats?.splatEncoding?.lodOpacity ?? false;
+        value.lodOpacity = splatEncoding.lodOpacity;
         return value;
       },
     });
