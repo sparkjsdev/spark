@@ -2073,6 +2073,8 @@ export class SparkRenderer extends THREE.Mesh {
   }
 }
 
+// Three.js sets this property on the ordinary THREE.WebGLRenderTarget it
+// creates for an XR session, so instanceof cannot identify it.
 function checkIsXRRenderTarget(renderTarget: THREE.RenderTarget | null) {
   return (renderTarget as unknown as Record<string, boolean>)?.isXRRenderTarget;
 }

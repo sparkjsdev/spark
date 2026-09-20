@@ -230,7 +230,7 @@ export class ExtSplats implements SplatSource {
       >;
       if (dyno instanceof DynoUniform) {
         const texture = dyno.value;
-        if (texture?.isTexture) {
+        if (texture instanceof THREE.Texture) {
           texture.dispose();
           texture.source.data = null;
         }
