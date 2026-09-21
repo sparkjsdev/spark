@@ -74,7 +74,7 @@ export class PagedSplats implements SplatSource {
     this.requestHeader = options.requestHeader;
     this.withCredentials = options.withCredentials;
     this.numSh = 0;
-    this.maxSh = options.pager?.maxSh ?? 3;
+    this.maxSh = options.maxSh ?? 3;
 
     this.numSplats = 0;
 
@@ -384,7 +384,7 @@ export class PagedSplats implements SplatSource {
     if (!this.pager) {
       return false;
     }
-    return Math.min(this.numSh, this.pager.maxSh) > 0;
+    return Math.min(this.numSh, this.maxSh, this.pager.maxSh) > 0;
   }
 
   getNumSh(): number {
