@@ -1,5 +1,5 @@
-import { SparkRenderer, SparkRendererOptions } from './SparkRenderer';
 import * as THREE from "three";
+import { SparkRenderer, type SparkRendererOptions } from "./SparkRenderer";
 /**
  * Fragment shader for portal disk clipping.
  * - diskRadius > 0: render "behind portal" only through the disk

@@ -1,5 +1,5 @@
-import { CovSplat, DynoUniform, DynoVal, Gsplat } from './dyno';
 import * as THREE from "three";
+import { CovSplat, DynoUniform, type DynoVal, Gsplat } from "./dyno";
 export declare enum SplatEditSdfType {
     ALL = "all",
     PLANE = "plane",
@@ -24,6 +24,7 @@ export type SplatEditSdfOptions = {
     radius?: number;
 };
 export declare class SplatEditSdf extends THREE.Object3D {
+    readonly isSplatEditSdf = true;
     type: SplatEditSdfType;
     invert: boolean;
     opacity: number;
@@ -32,6 +33,7 @@ export declare class SplatEditSdf extends THREE.Object3D {
     radius: number;
     constructor(options?: SplatEditSdfOptions);
 }
+export declare function isSplatEditSdf(obj: THREE.Object3D): obj is SplatEditSdf;
 export type SplatEditOptions = {
     name?: string;
     rgbaBlendMode?: SplatEditRgbaBlendMode;
@@ -41,6 +43,7 @@ export type SplatEditOptions = {
     sdfs?: SplatEditSdf[];
 };
 export declare class SplatEdit extends THREE.Object3D {
+    readonly isSplatEdit = true;
     ordering: number;
     rgbaBlendMode: SplatEditRgbaBlendMode;
     sdfSmooth: number;
@@ -52,6 +55,7 @@ export declare class SplatEdit extends THREE.Object3D {
     addSdf(sdf: SplatEditSdf): void;
     removeSdf(sdf: SplatEditSdf): void;
 }
+export declare function isSplatEdit(obj: THREE.Object3D): obj is SplatEdit;
 export declare class SplatEdits {
     maxSdfs: number;
     numSdfs: number;

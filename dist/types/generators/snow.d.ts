@@ -1,5 +1,5 @@
-import { SplatGenerator } from '../SplatGenerator';
 import * as THREE from "three";
+import { SplatGenerator } from "../SplatGenerator";
 export declare const DEFAULT_SNOW: {
     box: THREE.Box3;
     density: number;
@@ -48,18 +48,18 @@ export declare function snowBox({ box, minY, numSplats, density, anisoScale, min
     }) => void;
 }): {
     snow: SplatGenerator;
-    min: import('../dyno').DynoVec3<THREE.Vector3, string>;
-    max: import('../dyno').DynoVec3<THREE.Vector3, string>;
-    minY: import('../dyno').DynoFloat<string>;
-    color1: import('../dyno').DynoVec3<THREE.Color, string>;
-    color2: import('../dyno').DynoVec3<THREE.Color, string>;
-    opacity: import('../dyno').DynoFloat<string>;
-    fallVelocity: import('../dyno').DynoFloat<string>;
-    wanderVariance: import('../dyno').DynoFloat<string>;
-    wanderScale: import('../dyno').DynoFloat<string>;
-    fallDirection: import('../dyno').DynoVec3<THREE.Vector3, string>;
-    minScale: import('../dyno').DynoFloat<string>;
-    maxScale: import('../dyno').DynoFloat<string>;
-    anisoScale: import('../dyno').DynoVec3<THREE.Vector3, string>;
+    min: import("../dyno").DynoVec3<THREE.Vector3, string>;
+    max: import("../dyno").DynoVec3<THREE.Vector3, string>;
+    minY: import("../dyno").DynoFloat<string>;
+    color1: import("../dyno").DynoVec3<THREE.Color, string>;
+    color2: import("../dyno").DynoVec3<THREE.Color, string>;
+    opacity: import("../dyno").DynoFloat<string>;
+    fallVelocity: import("../dyno").DynoFloat<string>;
+    wanderVariance: import("../dyno").DynoFloat<string>;
+    wanderScale: import("../dyno").DynoFloat<string>;
+    fallDirection: import("../dyno").DynoVec3<THREE.Vector3, string>;
+    minScale: import("../dyno").DynoFloat<string>;
+    maxScale: import("../dyno").DynoFloat<string>;
+    anisoScale: import("../dyno").DynoVec3<THREE.Vector3, string>;
 };
 export type SNOW_RESULT_TYPE = ReturnType<typeof snowBox>;

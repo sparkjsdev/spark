@@ -1,6 +1,6 @@
-import { SplatMesh } from './SplatMesh';
-import { CovSplat, DynoUniform, DynoVal, Gsplat } from './dyno';
 import * as THREE from "three";
+import type { SplatMesh } from "./SplatMesh";
+import { CovSplat, DynoUniform, type DynoVal, Gsplat } from "./dyno";
 export declare enum SplatSkinningMode {
     DUAL_QUATERNION = "dual_quaternion",
     LINEAR_BLEND = "linear_blend"
@@ -41,11 +41,11 @@ export declare class SplatSkinning {
     setBoneMatrix(boneIndex: number, matrix: THREE.Matrix4): void;
     setSplatBones(splatIndex: number, boneIndices: THREE.Vector4, weights: THREE.Vector4): void;
     updateBones(): void;
-    private static UNIT_SCALE;
-    private static relQuat;
-    private static relPos;
-    private static dual;
-    private static skinMat;
+    private static readonly UNIT_SCALE;
+    private static readonly relQuat;
+    private static readonly relPos;
+    private static readonly dual;
+    private static readonly skinMat;
 }
 export declare const GsplatSkinning: {
     type: "GsplatSkinning";

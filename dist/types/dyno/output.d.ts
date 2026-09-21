@@ -1,6 +1,6 @@
-import { Dyno } from './base';
-import { CovSplat, Gsplat } from './splats';
-import { DynoVal, DynoValue, HasDynoOut } from './value';
+import { Dyno } from "./base";
+import { CovSplat, Gsplat } from "./splats";
+import { type DynoVal, type DynoValue, type HasDynoOut } from "./value";
 export declare const outputPackedSplat: (gsplat: DynoVal<typeof Gsplat>, rgbMinMaxLnScaleMinMax: DynoVal<"vec4">) => OutputPackedSplat;
 export declare const outputCovSplat: (covsplat: DynoVal<typeof CovSplat>, rgbMinMaxLnScaleMinMax: DynoVal<"vec4">) => OutputCovSplat;
 export declare const outputExtendedSplat: (gsplat: DynoVal<typeof Gsplat>) => OutputExtendedSplat;

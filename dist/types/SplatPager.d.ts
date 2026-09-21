@@ -1,7 +1,7 @@
-import { dyno } from '.';
-import { SplatSource } from './SplatMesh';
-import { ExtResult, PackedResult, RadMeta, SplatEncoding, SplatFileType } from './defines';
 import * as THREE from "three";
+import { dyno } from ".";
+import type { SplatSource } from "./SplatMesh";
+import { type ExtResult, type PackedResult, type RadMeta, type SplatEncoding, SplatFileType } from "./defines";
 export interface PagedSplatsOptions {
     pager?: SplatPager;
     rootUrl?: string;
@@ -44,7 +44,7 @@ export declare class PagedSplats implements SplatSource {
         chunksStart: number;
     }>;
     chunkUrl(chunk: number): string;
-    fetchDecodeChunk(chunk: number): Promise<PackedResult | ExtResult>;
+    fetchDecodeChunk(chunk: number): Promise<ExtResult | PackedResult>;
     update(numSplats: number, indices: Uint32Array): void;
     prepareFetchSplat(): void;
     getNumSplats(): number;

@@ -1,6 +1,6 @@
-import { PackedSplats } from './PackedSplats';
-import { SplatMesh } from './SplatMesh';
 import * as THREE from "three";
+import { PackedSplats } from "./PackedSplats";
+import { SplatMesh } from "./SplatMesh";
 export declare function constructGrid({ splats, extents, stepSize, pointRadius, pointShadowScale, opacity, color, }: {
     splats: PackedSplats;
     extents: THREE.Box3;

@@ -1,5 +1,5 @@
-import { Dyno, IOTypes } from './base';
-import { DynoJsType, DynoType, SimpleTypes } from './types';
+import type { Dyno, IOTypes } from "./base";
+import { type DynoJsType, type DynoType, type SimpleTypes } from "./types";
 export type DynoVal<T extends DynoType> = DynoValue<T> | HasDynoOut<T>;
 export declare function valType<T extends DynoType>(val: DynoVal<T>): T;
 export interface HasDynoOut<T extends DynoType> {

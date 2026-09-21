@@ -1,9 +1,9 @@
-import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
-import { Readback } from './Readback';
-import { CovSplatGenerator, GsplatGenerator, SplatGenerator } from './SplatGenerator';
-import { SplatMesh } from './SplatMesh';
-import { DynoBool, DynoProgram, DynoProgramTemplate, DynoUsampler2DArray, DynoVec3 } from './dyno';
 import * as THREE from "three";
+import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
+import { Readback } from "./Readback";
+import { type CovSplatGenerator, type GsplatGenerator, SplatGenerator } from "./SplatGenerator";
+import { SplatMesh } from "./SplatMesh";
+import { DynoBool, DynoProgram, DynoProgramTemplate, DynoUsampler2DArray, DynoVec3 } from "./dyno";
 export type GeneratorMapping = {
     node: SplatGenerator;
     generator?: GsplatGenerator;
@@ -58,7 +58,7 @@ export declare class SplatAccumulator {
     };
     static programExtTemplate: DynoProgramTemplate;
     static programTemplate: DynoProgramTemplate;
-    static generatorProgram: WeakMap<GsplatGenerator | CovSplatGenerator, DynoProgram>;
+    static generatorProgram: WeakMap<CovSplatGenerator | GsplatGenerator, DynoProgram>;
     static fullScreenQuad: FullScreenQuad;
     generate({ generator, covGenerator, base, count, renderer, }: {
         generator?: GsplatGenerator;

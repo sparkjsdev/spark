@@ -1,11 +1,11 @@
-import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
-import { RgbaArray } from './RgbaArray';
-import { GsplatGenerator } from './SplatGenerator';
-import { SplatSource } from './SplatMesh';
-import { SplatEncoding, SplatFileType } from './defines';
-import { DynoInt, DynoProgram, DynoProgramTemplate, DynoUniform, DynoUsampler2DArray, DynoVal, DynoVec3 } from './dyno';
-import { Gsplat, TPackedSplats } from './dyno/splats';
 import * as THREE from "three";
+import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
+import type { RgbaArray } from "./RgbaArray";
+import type { GsplatGenerator } from "./SplatGenerator";
+import type { SplatSource } from "./SplatMesh";
+import { type SplatEncoding, type SplatFileType } from "./defines";
+import { DynoInt, DynoProgram, DynoProgramTemplate, DynoUniform, DynoUsampler2DArray, type DynoVal, DynoVec3 } from "./dyno";
+import { type Gsplat, TPackedSplats } from "./dyno/splats";
 export type PackedSplatsOptions = {
     url?: string;
     fileBytes?: Uint8Array | ArrayBuffer;
@@ -19,7 +19,7 @@ export type PackedSplatsOptions = {
     construct?: (splats: PackedSplats) => Promise<void> | void;
     onProgress?: (event: ProgressEvent) => void;
     extra?: Record<string, unknown>;
-    splatEncoding?: SplatEncoding;
+    splatEncoding?: Partial<SplatEncoding>;
     lod?: boolean | "quality";
     nonLod?: boolean;
     lodAbove?: number;
@@ -31,7 +31,7 @@ export declare class PackedSplats implements SplatSource {
     packedArray: Uint32Array | null;
     extra: Record<string, unknown>;
     maxSh: number;
-    splatEncoding?: SplatEncoding;
+    splatEncoding: SplatEncoding;
     lod?: boolean | "quality";
     nonLod?: boolean;
     lodSplats?: PackedSplats;

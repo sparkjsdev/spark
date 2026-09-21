@@ -1,32 +1,32 @@
-import { Object3D, Quaternion, Vector3, WebXRManager } from 'three';
-import { SplatMesh } from './SplatMesh';
-export declare enum JointEnum {
-    w = "wrist",
-    t0 = "thumb-metacarpal",
-    t1 = "thumb-phalanx-proximal",
-    t2 = "thumb-phalanx-distal",
-    t3 = "thumb-tip",
-    i0 = "index-finger-metacarpal",
-    i1 = "index-finger-phalanx-proximal",
-    i2 = "index-finger-phalanx-intermediate",
-    i3 = "index-finger-phalanx-distal",
-    i4 = "index-finger-tip",
-    m0 = "middle-finger-metacarpal",
-    m1 = "middle-finger-phalanx-proximal",
-    m2 = "middle-finger-phalanx-intermediate",
-    m3 = "middle-finger-phalanx-distal",
-    m4 = "middle-finger-tip",
-    r0 = "ring-finger-metacarpal",
-    r1 = "ring-finger-phalanx-proximal",
-    r2 = "ring-finger-phalanx-intermediate",
-    r3 = "ring-finger-phalanx-distal",
-    r4 = "ring-finger-tip",
-    p0 = "pinky-finger-metacarpal",
-    p1 = "pinky-finger-phalanx-proximal",
-    p2 = "pinky-finger-phalanx-intermediate",
-    p3 = "pinky-finger-phalanx-distal",
-    p4 = "pinky-finger-tip"
-}
+import { type Object3D, Quaternion, Vector3, type WebXRManager } from "three";
+import { SplatMesh } from "./SplatMesh";
+export declare const JointEnum: {
+    readonly w: "wrist";
+    readonly t0: "thumb-metacarpal";
+    readonly t1: "thumb-phalanx-proximal";
+    readonly t2: "thumb-phalanx-distal";
+    readonly t3: "thumb-tip";
+    readonly i0: "index-finger-metacarpal";
+    readonly i1: "index-finger-phalanx-proximal";
+    readonly i2: "index-finger-phalanx-intermediate";
+    readonly i3: "index-finger-phalanx-distal";
+    readonly i4: "index-finger-tip";
+    readonly m0: "middle-finger-metacarpal";
+    readonly m1: "middle-finger-phalanx-proximal";
+    readonly m2: "middle-finger-phalanx-intermediate";
+    readonly m3: "middle-finger-phalanx-distal";
+    readonly m4: "middle-finger-tip";
+    readonly r0: "ring-finger-metacarpal";
+    readonly r1: "ring-finger-phalanx-proximal";
+    readonly r2: "ring-finger-phalanx-intermediate";
+    readonly r3: "ring-finger-phalanx-distal";
+    readonly r4: "ring-finger-tip";
+    readonly p0: "pinky-finger-metacarpal";
+    readonly p1: "pinky-finger-phalanx-proximal";
+    readonly p2: "pinky-finger-phalanx-intermediate";
+    readonly p3: "pinky-finger-phalanx-distal";
+    readonly p4: "pinky-finger-tip";
+};
 export type JointId = keyof typeof JointEnum;
 export declare const JOINT_IDS: JointId[];
 export declare const NUM_JOINTS: number;

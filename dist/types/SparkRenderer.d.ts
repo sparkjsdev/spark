@@ -1,7 +1,7 @@
-import { ExtSplats, PackedSplats, PagedSplats, SplatMesh, SplatPager } from '.';
-import { SplatAccumulator } from './SplatAccumulator';
-import { SplatWorker } from './SplatWorker';
 import * as THREE from "three";
+import { ExtSplats, PackedSplats, PagedSplats, SplatMesh, SplatPager } from ".";
+import { SplatAccumulator } from "./SplatAccumulator";
+import { SplatWorker } from "./SplatWorker";
 export interface SparkRendererOptions {
     /**
      * Pass in your THREE.WebGLRenderer instance so Spark can perform work

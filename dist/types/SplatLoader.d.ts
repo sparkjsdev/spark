@@ -1,8 +1,8 @@
-import { FileLoader, Loader, LoadingManager } from 'three';
-import { ExtSplats } from './ExtSplats';
-import { PackedSplats } from './PackedSplats';
-import { SplatMesh } from './SplatMesh';
-import { SplatFileType } from './defines';
+import { FileLoader, Loader, type LoadingManager } from "three";
+import { ExtSplats } from "./ExtSplats";
+import { PackedSplats } from "./PackedSplats";
+import { SplatMesh } from "./SplatMesh";
+import { SplatFileType } from "./defines";
 export declare class SplatLoader extends Loader {
     fileLoader: FileLoader;
     constructor(manager?: LoadingManager);

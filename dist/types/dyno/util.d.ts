@@ -1,6 +1,6 @@
-import { Dyno, DynoBlock } from './base';
-import { ValueTypes } from './types';
-import { DynoVal, DynoValue, HasDynoOut } from './value';
+import { Dyno, DynoBlock } from "./base";
+import { type ValueTypes } from "./types";
+import { type DynoVal, type DynoValue, type HasDynoOut } from "./value";
 export declare const remapIndex: (index: DynoVal<"int">, from: DynoVal<"int">, to: DynoVal<"int">) => DynoVal<"int">;
 export declare const pcgMix: <T extends ValueTypes>(value: DynoVal<T>) => DynoVal<"uint">;
 export declare const pcgNext: (state: DynoVal<"uint">) => DynoVal<"uint">;

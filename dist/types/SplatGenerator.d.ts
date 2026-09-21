@@ -1,6 +1,6 @@
-import { SplatEdit } from './SplatEdit';
-import { CovSplat, Dyno, DynoFloat, DynoMat3, DynoVal, DynoVec3, DynoVec4, Gsplat } from './dyno';
 import * as THREE from "three";
+import type { SplatEdit } from "./SplatEdit";
+import { CovSplat, Dyno, DynoFloat, DynoMat3, type DynoVal, DynoVec3, DynoVec4, Gsplat } from "./dyno";
 export type GsplatGenerator = Dyno<{
     index: "int";
 }, {

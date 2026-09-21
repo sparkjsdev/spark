@@ -1,5 +1,5 @@
-import { Dyno, UnaryOp } from './base';
-import { DynoVal, DynoValue, HasDynoOut } from './value';
+import { Dyno, UnaryOp } from "./base";
+import { type DynoVal, type DynoValue, type HasDynoOut } from "./value";
 export declare const Gsplat: {
     type: "Gsplat";
 };

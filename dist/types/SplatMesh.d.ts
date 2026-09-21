@@ -1,13 +1,13 @@
-import { ExtSplats } from './ExtSplats';
-import { PackedSplats } from './PackedSplats';
-import { RgbaArray, TRgbaArray } from './RgbaArray';
-import { SplatEdit, SplatEdits } from './SplatEdit';
-import { CovSplatModifier, CovSplatTransformer, FrameUpdateContext, GsplatModifier, SplatGenerator, SplatTransformer } from './SplatGenerator';
-import { PagedSplats, SplatPager } from './SplatPager';
-import { SplatSkinning } from './SplatSkinning';
-import { SplatEncoding, SplatFileType } from './defines';
-import { DynoBool, DynoFloat, DynoInt, DynoUsampler2D, DynoVal, DynoVec4, Gsplat } from './dyno';
 import * as THREE from "three";
+import { ExtSplats } from "./ExtSplats";
+import { PackedSplats } from "./PackedSplats";
+import { type RgbaArray, TRgbaArray } from "./RgbaArray";
+import { type SplatEdit, SplatEdits } from "./SplatEdit";
+import { type CovSplatModifier, CovSplatTransformer, type FrameUpdateContext, type GsplatModifier, SplatGenerator, SplatTransformer } from "./SplatGenerator";
+import { PagedSplats, SplatPager } from "./SplatPager";
+import type { SplatSkinning } from "./SplatSkinning";
+import { type SplatEncoding, type SplatFileType } from "./defines";
+import { DynoBool, DynoFloat, DynoInt, DynoUsampler2D, type DynoVal, DynoVec4, Gsplat } from "./dyno";
 export type SplatMeshOptions = {
     url?: string;
     fileBytes?: Uint8Array | ArrayBuffer;
@@ -35,7 +35,7 @@ export type SplatMeshOptions = {
     worldModifiers?: GsplatModifier[];
     covObjectModifiers?: CovSplatModifier[];
     covWorldModifiers?: CovSplatModifier[];
-    splatEncoding?: SplatEncoding;
+    splatEncoding?: Partial<SplatEncoding>;
     extSplats?: boolean | ExtSplats;
     covSplats?: boolean;
     lod?: boolean | "quality";

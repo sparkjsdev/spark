@@ -1,6 +1,6 @@
-import { BinaryOp, Dyno, TrinaryOp, UnaryOp } from './base';
-import { FloatTypes, IntTypes, MatFloatTypes, SquareMatTypes, UintTypes, VectorElementType, VectorTypes } from './types';
-import { DynoVal, DynoValue, HasDynoOut } from './value';
+import { BinaryOp, Dyno, TrinaryOp, UnaryOp } from "./base";
+import { type FloatTypes, type IntTypes, type MatFloatTypes, type SquareMatTypes, type UintTypes, type VectorElementType, type VectorTypes } from "./types";
+import { type DynoVal, type DynoValue, type HasDynoOut } from "./value";
 export declare const length: <A extends "vec2" | "vec3" | "vec4">(a: DynoVal<A>) => DynoVal<"float">;
 export declare const distance: <A extends "vec2" | "vec3" | "vec4">(a: DynoVal<A>, b: DynoVal<A>) => DynoVal<"float">;
 export declare const dot: <A extends "vec2" | "vec3" | "vec4">(a: DynoVal<A>, b: DynoVal<A>) => DynoVal<"float">;

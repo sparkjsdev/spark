@@ -1,6 +1,6 @@
-import { UnaryOp } from './base';
-import { SimpleTypes } from './types';
-import { DynoVal } from './value';
+import { UnaryOp } from "./base";
+import { type SimpleTypes } from "./types";
+import type { DynoVal } from "./value";
 export declare const bool: <T extends "bool" | "int" | "uint" | "float">(value: DynoVal<T>) => DynoVal<"bool">;
 export declare const int: <T extends "bool" | "int" | "uint" | "float">(value: DynoVal<T>) => DynoVal<"int">;
 export declare const uint: <T extends "bool" | "int" | "uint" | "float">(value: DynoVal<T>) => DynoVal<"uint">;

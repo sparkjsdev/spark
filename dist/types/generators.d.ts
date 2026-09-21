@@ -1,2 +1,2 @@
-export * from './generators/static';
-export * from './generators/snow';
+export * from "./generators/static";
+export * from "./generators/snow";

@@ -1,2 +1,2 @@
-export * from './modifiers/normalColor';
-export * from './modifiers/depthColor';
+export * from "./modifiers/normalColor";
+export * from "./modifiers/depthColor";

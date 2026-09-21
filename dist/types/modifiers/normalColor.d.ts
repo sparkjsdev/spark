@@ -1,6 +1,6 @@
-import { SplatTransformer } from '../SplatGenerator';
-import { SplatMesh } from '../SplatMesh';
-export declare function makeNormalColorModifier(splatToView: SplatTransformer): import('../dyno').DynoBlock<{
+import type { SplatTransformer } from "../SplatGenerator";
+import type { SplatMesh } from "../SplatMesh";
+export declare function makeNormalColorModifier(splatToView: SplatTransformer): import("../dyno").DynoBlock<{
     gsplat: {
         type: "Gsplat";
     };

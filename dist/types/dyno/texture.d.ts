@@ -1,6 +1,6 @@
-import { Dyno } from './base';
-import { AllSamplerTypes, IsamplerTypes, NormalSamplerTypes, Sampler2DArrayTypes, Sampler2DTypes, Sampler3DTypes, SamplerCubeTypes, SamplerShadowTypes, SamplerTypes, UsamplerTypes } from './types';
-import { DynoVal, DynoValue, HasDynoOut } from './value';
+import { Dyno } from "./base";
+import type { AllSamplerTypes, IsamplerTypes, NormalSamplerTypes, Sampler2DArrayTypes, Sampler2DTypes, Sampler3DTypes, SamplerCubeTypes, SamplerShadowTypes, SamplerTypes, UsamplerTypes } from "./types";
+import { type DynoVal, type DynoValue, type HasDynoOut } from "./value";
 export declare const textureSize: <T extends AllSamplerTypes>(texture: DynoVal<T>, lod?: DynoVal<"int">) => DynoVal<TextureSizeType<T>>;
 export declare const texture: <T extends AllSamplerTypes>(texture: DynoVal<T>, coord: DynoVal<TextureCoordType<T>>, bias?: DynoVal<"float">) => DynoVal<TextureReturnType<T>>;
 export declare const texelFetch: <T extends NormalSamplerTypes>(texture: DynoVal<T>, coord: DynoVal<TextureSizeType<T>>, lod?: DynoVal<"int">) => DynoVal<TextureReturnType<T>>;

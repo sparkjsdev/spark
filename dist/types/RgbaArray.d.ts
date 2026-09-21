@@ -1,7 +1,7 @@
-import { PackedSplats } from './PackedSplats';
-import { Readback, Rgba8Readback } from './Readback';
-import { DynoUniform, DynoVal } from './dyno';
 import * as THREE from "three";
+import { type PackedSplats } from "./PackedSplats";
+import { Readback, type Rgba8Readback } from "./Readback";
+import { DynoUniform, type DynoVal } from "./dyno";
 export type RgbaArrayOptions = {
     capacity?: number;
     array?: Uint8Array;

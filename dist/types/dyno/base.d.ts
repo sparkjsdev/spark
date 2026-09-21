@@ -1,6 +1,6 @@
-import { IUniform } from 'three';
-import { DynoType } from './types';
-import { DynoVal, DynoValue, HasDynoOut } from './value';
+import type { IUniform } from "three";
+import type { DynoType } from "./types";
+import { type DynoVal, DynoValue, type HasDynoOut } from "./value";
 export declare class Compilation {
     globals: Set<string>;
     statements: string[];

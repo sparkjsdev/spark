@@ -1,5 +1,5 @@
-import { PackedSplats } from './PackedSplats';
-import { TranscodeSpzInput } from './SplatLoader';
+import type { PackedSplats } from "./PackedSplats";
+import { type TranscodeSpzInput } from "./SplatLoader";
 export declare function transcodeSpz(input: TranscodeSpzInput): Promise<{
     fileBytes: any;
     clippedCount: number;

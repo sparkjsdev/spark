@@ -1,4 +1,4 @@
-import { rpcHandlers } from './worker';
+import type { rpcHandlers } from "./worker";
 type PromiseRecord = {
     resolve: (value: unknown) => void;
     reject: (reason?: unknown) => void;

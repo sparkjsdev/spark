@@ -1,7 +1,7 @@
-import { BinaryOp, Dyno, TrinaryOp, UnaryOp } from './base';
-import { AddOutput, ClampOutput, DivOutput, IModOutput, IsInfOutput, IsNanOutput, MaxOutput, MinOutput, MixOutput, ModOutput, MulOutput, SmoothstepOutput, StepOutput, SubOutput } from './mathTypes';
-import { AllIntTypes, AllSignedTypes, AllValueTypes, BoolTypes, FloatTypes, SignedTypes, ValueTypes } from './types';
-import { DynoVal } from './value';
+import { BinaryOp, Dyno, TrinaryOp, UnaryOp } from "./base";
+import { type AddOutput, type ClampOutput, type DivOutput, type IModOutput, type IsInfOutput, type IsNanOutput, type MaxOutput, type MinOutput, type MixOutput, type ModOutput, type MulOutput, type SmoothstepOutput, type StepOutput, type SubOutput } from "./mathTypes";
+import type { AllIntTypes, AllSignedTypes, AllValueTypes, BoolTypes, FloatTypes, SignedTypes, ValueTypes } from "./types";
+import { type DynoVal } from "./value";
 export declare const add: <A extends AllValueTypes, B extends AllValueTypes>(a: DynoVal<A>, b: DynoVal<B>) => DynoVal<AddOutput<A, B>>;
 export declare const sub: <A extends AllValueTypes, B extends AllValueTypes>(a: DynoVal<A>, b: DynoVal<B>) => DynoVal<SubOutput<A, B>>;
 export declare const mul: <A extends AllValueTypes, B extends AllValueTypes>(a: DynoVal<A>, b: DynoVal<B>) => DynoVal<MulOutput<A, B>>;

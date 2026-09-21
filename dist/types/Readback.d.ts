@@ -1,7 +1,7 @@
-import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
-import { Dyno } from './dyno';
-import { DynoProgram, DynoProgramTemplate } from './dyno/program';
 import * as THREE from "three";
+import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
+import { type Dyno } from "./dyno";
+import { DynoProgram, DynoProgramTemplate } from "./dyno/program";
 export type Rgba8Readback = Dyno<{
     index: "int";
 }, {

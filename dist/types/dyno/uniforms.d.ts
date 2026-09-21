@@ -1,6 +1,6 @@
-import { Dyno } from './base';
-import { DynoJsType, DynoType } from './types';
-import { DynoValue, HasDynoOut } from './value';
+import { Dyno } from "./base";
+import type { DynoJsType, DynoType } from "./types";
+import { type DynoValue, type HasDynoOut } from "./value";
 export declare const uniform: <V extends DynoJsType<DynoType>>(key: string, type: DynoType, value: V) => DynoUniform<DynoType, string, V>;
 export declare const dynoBool: (value?: boolean, key?: string) => DynoBool<string>;
 export declare const dynoUint: (value?: number, key?: string) => DynoUint<string>;

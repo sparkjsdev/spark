@@ -1,8 +1,8 @@
-import { RgbaArray } from './RgbaArray';
-import { SplatSource } from './SplatMesh';
-import { SplatFileType } from './defines';
-import { DynoInt, DynoUniform, DynoUsampler2DArray, DynoVal, Gsplat, TExtSplats } from './dyno';
 import * as THREE from "three";
+import type { RgbaArray } from "./RgbaArray";
+import type { SplatSource } from "./SplatMesh";
+import { type SplatFileType } from "./defines";
+import { DynoInt, DynoUniform, DynoUsampler2DArray, type DynoVal, type Gsplat, TExtSplats } from "./dyno";
 export type ExtSplatsOptions = {
     url?: string;
     fileBytes?: Uint8Array | ArrayBuffer;

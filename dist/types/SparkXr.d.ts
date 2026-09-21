@@ -1,5 +1,6 @@
-import { SplatMesh } from './SplatMesh';
 import * as THREE from "three";
+import { SplatMesh } from "./SplatMesh";
+import { Hand, type JointId } from "./hands";
 export interface SparkXrOptions {
     renderer: THREE.WebGLRenderer;
     element?: HTMLElement;
@@ -65,51 +66,6 @@ export declare const DEFAULT_CONTROLLER_GETMOVE: (gamepads: XrGamepads, sparkXr:
 export declare const DEFAULT_CONTROLLER_GETROTATE: (gamepads: XrGamepads, sparkXr: SparkXr) => THREE.Vector3;
 export declare const DEFAULT_CONTROLLER_GETFAST: (gamepads: XrGamepads, sparkXr: SparkXr) => boolean;
 export declare const DEFAULT_CONTROLLER_GETSLOW: (gamepads: XrGamepads, sparkXr: SparkXr) => boolean;
-export declare enum JointEnum {
-    w = "wrist",
-    t0 = "thumb-metacarpal",
-    t1 = "thumb-phalanx-proximal",
-    t2 = "thumb-phalanx-distal",
-    t3 = "thumb-tip",
-    i0 = "index-finger-metacarpal",
-    i1 = "index-finger-phalanx-proximal",
-    i2 = "index-finger-phalanx-intermediate",
-    i3 = "index-finger-phalanx-distal",
-    i4 = "index-finger-tip",
-    m0 = "middle-finger-metacarpal",
-    m1 = "middle-finger-phalanx-proximal",
-    m2 = "middle-finger-phalanx-intermediate",
-    m3 = "middle-finger-phalanx-distal",
-    m4 = "middle-finger-tip",
-    r0 = "ring-finger-metacarpal",
-    r1 = "ring-finger-phalanx-proximal",
-    r2 = "ring-finger-phalanx-intermediate",
-    r3 = "ring-finger-phalanx-distal",
-    r4 = "ring-finger-tip",
-    p0 = "pinky-finger-metacarpal",
-    p1 = "pinky-finger-phalanx-proximal",
-    p2 = "pinky-finger-phalanx-intermediate",
-    p3 = "pinky-finger-phalanx-distal",
-    p4 = "pinky-finger-tip"
-}
-export type JointId = keyof typeof JointEnum;
-export declare const JOINT_IDS: JointId[];
-export declare const NUM_JOINTS: number;
-export declare const JOINT_INDEX: {
-    [key in JointId]: number;
-};
-export declare const JOINT_RADIUS: {
-    [key in JointId]: number;
-};
-export declare const JOINT_SEGMENTS: JointId[][];
-export declare const JOINT_SEGMENT_STEPS: number[][];
-export declare const JOINT_TIPS: JointId[];
-export declare const FINGER_TIPS: JointId[];
-export declare enum Hand {
-    left = "left",
-    right = "right"
-}
-export declare const HANDS: Hand[];
 export type Joint = {
     position: THREE.Vector3;
     quaternion: THREE.Quaternion;
@@ -138,15 +94,36 @@ export declare class SparkXr {
     private updateElement;
     private static createButton;
     xrSupported(): boolean;
-    static JointEnum: typeof JointEnum;
-    static JOINT_IDS: ("w" | "t0" | "t1" | "t2" | "t3" | "i0" | "i1" | "i2" | "i3" | "i4" | "m0" | "m1" | "m2" | "m3" | "m4" | "r0" | "r1" | "r2" | "r3" | "r4" | "p0" | "p1" | "p2" | "p3" | "p4")[];
-    static NUM_JOINTS: number;
-    static JOINT_INDEX: {
-        w: number;
-        t0: number;
-        t1: number;
-        t2: number;
-        t3: number;
+    static readonly JointEnum: {
+        readonly w: "wrist";
+        readonly t0: "thumb-metacarpal";
+        readonly t1: "thumb-phalanx-proximal";
+        readonly t2: "thumb-phalanx-distal";
+        readonly t3: "thumb-tip";
+        readonly i0: "index-finger-metacarpal";
+        readonly i1: "index-finger-phalanx-proximal";
+        readonly i2: "index-finger-phalanx-intermediate";
+        readonly i3: "index-finger-phalanx-distal";
+        readonly i4: "index-finger-tip";
+        readonly m0: "middle-finger-metacarpal";
+        readonly m1: "middle-finger-phalanx-proximal";
+        readonly m2: "middle-finger-phalanx-intermediate";
+        readonly m3: "middle-finger-phalanx-distal";
+        readonly m4: "middle-finger-tip";
+        readonly r0: "ring-finger-metacarpal";
+        readonly r1: "ring-finger-phalanx-proximal";
+        readonly r2: "ring-finger-phalanx-intermediate";
+        readonly r3: "ring-finger-phalanx-distal";
+        readonly r4: "ring-finger-tip";
+        readonly p0: "pinky-finger-metacarpal";
+        readonly p1: "pinky-finger-phalanx-proximal";
+        readonly p2: "pinky-finger-phalanx-intermediate";
+        readonly p3: "pinky-finger-phalanx-distal";
+        readonly p4: "pinky-finger-tip";
+    };
+    static readonly JOINT_IDS: ("i0" | "i1" | "i2" | "i3" | "i4" | "m0" | "m1" | "m2" | "m3" | "m4" | "p0" | "p1" | "p2" | "p3" | "p4" | "r0" | "r1" | "r2" | "r3" | "r4" | "t0" | "t1" | "t2" | "t3" | "w")[];
+    static readonly NUM_JOINTS: number;
+    static readonly JOINT_INDEX: {
         i0: number;
         i1: number;
         i2: number;
@@ -157,23 +134,23 @@ export declare class SparkXr {
         m2: number;
         m3: number;
         m4: number;
-        r0: number;
-        r1: number;
-        r2: number;
-        r3: number;
-        r4: number;
         p0: number;
         p1: number;
         p2: number;
         p3: number;
         p4: number;
-    };
-    static JOINT_RADIUS: {
-        w: number;
+        r0: number;
+        r1: number;
+        r2: number;
+        r3: number;
+        r4: number;
         t0: number;
         t1: number;
         t2: number;
         t3: number;
+        w: number;
+    };
+    static readonly JOINT_RADIUS: {
         i0: number;
         i1: number;
         i2: number;
@@ -184,23 +161,28 @@ export declare class SparkXr {
         m2: number;
         m3: number;
         m4: number;
-        r0: number;
-        r1: number;
-        r2: number;
-        r3: number;
-        r4: number;
         p0: number;
         p1: number;
         p2: number;
         p3: number;
         p4: number;
+        r0: number;
+        r1: number;
+        r2: number;
+        r3: number;
+        r4: number;
+        t0: number;
+        t1: number;
+        t2: number;
+        t3: number;
+        w: number;
     };
-    static JOINT_SEGMENTS: ("w" | "t0" | "t1" | "t2" | "t3" | "i0" | "i1" | "i2" | "i3" | "i4" | "m0" | "m1" | "m2" | "m3" | "m4" | "r0" | "r1" | "r2" | "r3" | "r4" | "p0" | "p1" | "p2" | "p3" | "p4")[][];
-    static JOINT_SEGMENT_STEPS: number[][];
-    static JOINT_TIPS: ("w" | "t0" | "t1" | "t2" | "t3" | "i0" | "i1" | "i2" | "i3" | "i4" | "m0" | "m1" | "m2" | "m3" | "m4" | "r0" | "r1" | "r2" | "r3" | "r4" | "p0" | "p1" | "p2" | "p3" | "p4")[];
-    static FINGER_TIPS: ("w" | "t0" | "t1" | "t2" | "t3" | "i0" | "i1" | "i2" | "i3" | "i4" | "m0" | "m1" | "m2" | "m3" | "m4" | "r0" | "r1" | "r2" | "r3" | "r4" | "p0" | "p1" | "p2" | "p3" | "p4")[];
-    static Hand: typeof Hand;
-    static HANDS: Hand[];
+    static readonly JOINT_SEGMENTS: ("i0" | "i1" | "i2" | "i3" | "i4" | "m0" | "m1" | "m2" | "m3" | "m4" | "p0" | "p1" | "p2" | "p3" | "p4" | "r0" | "r1" | "r2" | "r3" | "r4" | "t0" | "t1" | "t2" | "t3" | "w")[][];
+    static readonly JOINT_SEGMENT_STEPS: number[][];
+    static readonly JOINT_TIPS: ("i0" | "i1" | "i2" | "i3" | "i4" | "m0" | "m1" | "m2" | "m3" | "m4" | "p0" | "p1" | "p2" | "p3" | "p4" | "r0" | "r1" | "r2" | "r3" | "r4" | "t0" | "t1" | "t2" | "t3" | "w")[];
+    static readonly FINGER_TIPS: ("i0" | "i1" | "i2" | "i3" | "i4" | "m0" | "m1" | "m2" | "m3" | "m4" | "p0" | "p1" | "p2" | "p3" | "p4" | "r0" | "r1" | "r2" | "r3" | "r4" | "t0" | "t1" | "t2" | "t3" | "w")[];
+    static readonly Hand: typeof Hand;
+    static readonly HANDS: Hand[];
     left(): XrHand;
     right(): XrHand;
     updateControllers(camera: THREE.Camera): void;

@@ -1,5 +1,5 @@
-import { Dyno, IOTypes } from './base';
 import * as THREE from "three";
+import { type Dyno, type IOTypes } from "./base";
 export declare class DynoProgram {
     graph: Dyno<IOTypes, IOTypes>;
     template: DynoProgramTemplate;
