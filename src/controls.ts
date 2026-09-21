@@ -276,11 +276,7 @@ export class FpsMovement {
 
     // Rotation
 
-    const rotate = new THREE.Vector3(
-      sticks[1].x,
-      sticks[1].y,
-      0,
-    ).multiplyScalar(this.rotateSpeed);
+    const rotate = new THREE.Vector3(sticks[1].x, sticks[1].y, 0);
 
     for (const [keycode, rot] of Object.entries(this.keycodeRotateMapping)) {
       if (this.keycode[keycode]) {
