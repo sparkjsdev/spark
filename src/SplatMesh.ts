@@ -9,7 +9,13 @@ import {
 import { ExtSplats } from "./ExtSplats";
 import { PackedSplats } from "./PackedSplats";
 import { type RgbaArray, TRgbaArray } from "./RgbaArray";
-import { SplatEdit, SplatEditSdf, SplatEdits } from "./SplatEdit";
+import {
+  type SplatEdit,
+  type SplatEditSdf,
+  SplatEdits,
+  isSplatEdit,
+  isSplatEditSdf,
+} from "./SplatEdit";
 import {
   type CovSplatModifier,
   CovSplatTransformer,
@@ -948,7 +954,7 @@ export class SplatMesh extends SplatGenerator {
     if (this.editable && !this.edits) {
       // If we haven't set any explicit edits, add any child SplatEdits
       this.traverseVisible((node) => {
-        if (node instanceof SplatEdit) {
+        if (isSplatEdit(node)) {
           edits.push(node);
         }
       });
@@ -961,7 +967,7 @@ export class SplatMesh extends SplatGenerator {
       }
       const sdfs: SplatEditSdf[] = [];
       edit.traverseVisible((node) => {
-        if (node instanceof SplatEditSdf) {
+        if (isSplatEditSdf(node)) {
           sdfs.push(node);
         }
       });

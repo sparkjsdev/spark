@@ -313,11 +313,11 @@ export class SplatSkinning {
     this.mesh.needsUpdate = true;
   }
 
-  private static UNIT_SCALE = new THREE.Vector3(1, 1, 1);
-  private static relQuat = new THREE.Quaternion();
-  private static relPos = new THREE.Vector3();
-  private static dual = new THREE.Quaternion();
-  private static skinMat = new THREE.Matrix4();
+  private static readonly UNIT_SCALE = /*@__PURE__*/ new THREE.Vector3(1, 1, 1);
+  private static readonly relQuat = /*@__PURE__*/ new THREE.Quaternion();
+  private static readonly relPos = /*@__PURE__*/ new THREE.Vector3();
+  private static readonly dual = /*@__PURE__*/ new THREE.Quaternion();
+  private static readonly skinMat = /*@__PURE__*/ new THREE.Matrix4();
 }
 
 // dyno program definitions for SplatSkinning
@@ -326,7 +326,7 @@ export const GsplatSkinning = { type: "GsplatSkinning" } as {
   type: "GsplatSkinning";
 };
 
-export const defineGsplatSkinning = unindent(/* glsl */ `
+export const defineGsplatSkinning = /*@__PURE__*/ unindent(/* glsl */ `
   struct GsplatSkinning {
     int numSplats;
     int numBones;
@@ -335,7 +335,7 @@ export const defineGsplatSkinning = unindent(/* glsl */ `
   };
 `);
 
-export const defineApplyGsplatSkinning = unindent(/* glsl */ `
+export const defineApplyGsplatSkinning = /*@__PURE__*/ unindent(/* glsl */ `
   void applyGsplatSkinning(
     int numSplats, int numBones,
     usampler2DArray skinTexture, sampler2D boneTexture,
@@ -426,7 +426,7 @@ function applyGsplatSkinning(
   return dyno.outputs.gsplat;
 }
 
-export const defineApplyCovSplatDQSkinning = unindent(/* glsl */ `
+export const defineApplyCovSplatDQSkinning = /*@__PURE__*/ unindent(/* glsl */ `
   void applyCovSplatDQSkinning(
     int numSplats, int numBones,
     usampler2DArray skinTexture, sampler2D boneTexture,
@@ -492,7 +492,7 @@ export const defineApplyCovSplatDQSkinning = unindent(/* glsl */ `
   }
 `);
 
-export const defineApplyCovSplatLBSkinning = unindent(/* glsl */ `
+export const defineApplyCovSplatLBSkinning = /*@__PURE__*/ unindent(/* glsl */ `
   void applyCovSplatLBSkinning(
     int numSplats, int numBones,
     usampler2DArray skinTexture, sampler2D boneTexture,

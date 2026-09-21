@@ -14,36 +14,42 @@ const DEFAULT_MOVE_INERTIA = 0.5;
 const DEFAULT_ROTATE_INERTIA = 0.5;
 const TOUCH_BIAS = 0.0;
 
-export enum JointEnum {
-  w = "wrist",
-  t0 = "thumb-metacarpal",
-  t1 = "thumb-phalanx-proximal",
-  t2 = "thumb-phalanx-distal",
-  t3 = "thumb-tip",
-  i0 = "index-finger-metacarpal",
-  i1 = "index-finger-phalanx-proximal",
-  i2 = "index-finger-phalanx-intermediate",
-  i3 = "index-finger-phalanx-distal",
-  i4 = "index-finger-tip",
-  m0 = "middle-finger-metacarpal",
-  m1 = "middle-finger-phalanx-proximal",
-  m2 = "middle-finger-phalanx-intermediate",
-  m3 = "middle-finger-phalanx-distal",
-  m4 = "middle-finger-tip",
-  r0 = "ring-finger-metacarpal",
-  r1 = "ring-finger-phalanx-proximal",
-  r2 = "ring-finger-phalanx-intermediate",
-  r3 = "ring-finger-phalanx-distal",
-  r4 = "ring-finger-tip",
-  p0 = "pinky-finger-metacarpal",
-  p1 = "pinky-finger-phalanx-proximal",
-  p2 = "pinky-finger-phalanx-intermediate",
-  p3 = "pinky-finger-phalanx-distal",
-  p4 = "pinky-finger-tip",
-}
+export const JointEnum = {
+  w: "wrist",
+  t0: "thumb-metacarpal",
+  t1: "thumb-phalanx-proximal",
+  t2: "thumb-phalanx-distal",
+  t3: "thumb-tip",
+  i0: "index-finger-metacarpal",
+  i1: "index-finger-phalanx-proximal",
+  i2: "index-finger-phalanx-intermediate",
+  i3: "index-finger-phalanx-distal",
+  i4: "index-finger-tip",
+  m0: "middle-finger-metacarpal",
+  m1: "middle-finger-phalanx-proximal",
+  m2: "middle-finger-phalanx-intermediate",
+  m3: "middle-finger-phalanx-distal",
+  m4: "middle-finger-tip",
+  r0: "ring-finger-metacarpal",
+  r1: "ring-finger-phalanx-proximal",
+  r2: "ring-finger-phalanx-intermediate",
+  r3: "ring-finger-phalanx-distal",
+  r4: "ring-finger-tip",
+  p0: "pinky-finger-metacarpal",
+  p1: "pinky-finger-phalanx-proximal",
+  p2: "pinky-finger-phalanx-intermediate",
+  p3: "pinky-finger-phalanx-distal",
+  p4: "pinky-finger-tip",
+} as const;
 export type JointId = keyof typeof JointEnum;
-export const JOINT_IDS = Object.keys(JointEnum) as JointId[];
-export const NUM_JOINTS = JOINT_IDS.length;
+
+export const JOINT_IDS = /*@__PURE__*/ Object.keys(JointEnum) as JointId[];
+// NOTE: Using .length prevents tree-shaking, hence a runtime computation which
+//       can be statically analysed and eliminated.
+export const NUM_JOINTS = /*@__PURE__*/ JOINT_IDS.reduce(
+  (acc, _) => acc + 1,
+  0,
+);
 
 export const JOINT_INDEX: { [key in JointId]: number } = {
   w: 0,
@@ -75,9 +81,9 @@ export const JOINT_INDEX: { [key in JointId]: number } = {
 
 export const JOINT_RADIUS: { [key in JointId]: number } = {
   w: 0.02,
-  t0: 0.02,
-  t1: 0.014,
-  t2: 0.0115,
+  t0: 0.015,
+  t1: 0.012,
+  t2: 0.0105,
   t3: 0.0085,
   i0: 0.022,
   i1: 0.012,
