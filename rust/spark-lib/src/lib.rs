@@ -173,6 +173,74 @@ mod tests {
         let got2 = out.sh2[0].to_array();
         for i in 0..15 { assert!(approx(got2[i], sh2_vals[i], 0.20), "sh2[{}] {} vs {}", i, got2[i], sh2_vals[i]); }
     }
+
+    // Undoes the gzip framing SpzEncoder puts around the payload
+    fn spz_payload(encoded: &[u8]) -> Vec<u8> {
+        miniz_oxide::inflate::decompress_to_vec(&encoded[10..encoded.len() - 8]).expect("inflate ok")
+    }
+
+    fn spz_version(payload: &[u8]) -> u32 {
+        u32::from_le_bytes(payload[4..8].try_into().unwrap())
+    }
+
+    #[test]
+    fn spz_roundtrip_version2_quaternion() {
+        let mut arr = GsplatArray::new_capacity(1, 0);
+        let quat = [0.1, 0.2, 0.3, 0.9273618];
+        arr.push_splat(make_splat([0.1, 0.2, 0.3], 0.7, [0.2, 0.5, 0.8], [0.5, 0.6, 0.7], quat), None, None, None);
+
+        let encoded = SpzEncoder::new(arr).with_version(2).with_fractional_bits(12).encode().expect("encode ok");
+        assert_eq!(spz_version(&spz_payload(&encoded)), 2);
+
+        let mut dec = SpzDecoder::new(GsplatArray::new());
+        dec.push(&encoded).expect("push ok");
+        dec.finish().expect("finish ok");
+        let out = dec.into_splats();
+
+        assert_eq!(out.len(), 1);
+        let got = out.splats[0].quaternion.map(|v| v.to_f32());
+        for i in 0..4 { assert!(approx(got[i], quat[i], 0.02), "quat[{}] {} vs {}", i, got[i], quat[i]); }
+    }
+
+    #[test]
+    fn spz_roundtrip_default_version_quaternion() {
+        // One case per largest component, which selects the packing. The largest
+        // decodes positive, so a negative one returns the negated rotation.
+        let cases = [
+            ([0.9273618, 0.1, 0.2, 0.3], [0.9273618, 0.1, 0.2, 0.3]),
+            ([0.1, 0.9273618, 0.2, 0.3], [0.1, 0.9273618, 0.2, 0.3]),
+            ([0.1, 0.2, 0.9273618, 0.3], [0.1, 0.2, 0.9273618, 0.3]),
+            ([0.1, 0.2, 0.3, 0.9273618], [0.1, 0.2, 0.3, 0.9273618]),
+            ([0.1, 0.2, 0.3, -0.9273618], [-0.1, -0.2, -0.3, 0.9273618]),
+            // Not unit length, so it has to be normalised before packing
+            ([0.2, 0.4, 0.6, 1.8547236], [0.1, 0.2, 0.3, 0.9273618]),
+        ];
+        let mut arr = GsplatArray::new_capacity(cases.len(), 0);
+        for (quat, _) in cases {
+            arr.push_splat(make_splat([0.1, 0.2, 0.3], 0.7, [0.2, 0.5, 0.8], [0.5, 0.6, 0.7], quat), None, None, None);
+        }
+
+        let encoded = SpzEncoder::new(arr).with_fractional_bits(12).encode().expect("encode ok");
+        assert_eq!(spz_version(&spz_payload(&encoded)), 3);
+
+        let mut dec = SpzDecoder::new(GsplatArray::new());
+        dec.push(&encoded).expect("push ok");
+        dec.finish().expect("finish ok");
+        let out = dec.into_splats();
+
+        assert_eq!(out.len(), cases.len());
+        for (s, (_, want)) in cases.iter().enumerate() {
+            let got = out.splats[s].quaternion.map(|v| v.to_f32());
+            for i in 0..4 { assert!(approx(got[i], want[i], 0.02), "splat {} quat[{}] {} vs {}", s, i, got[i], want[i]); }
+        }
+    }
+
+    #[test]
+    fn spz_rejects_unwritable_version() {
+        let mut arr = GsplatArray::new_capacity(1, 0);
+        arr.push_splat(make_splat([0.0, 0.0, 0.0], 0.5, [0.1, 0.2, 0.3], [0.4, 0.5, 0.6], [0.0, 0.0, 0.0, 1.0]), None, None, None);
+        assert!(SpzEncoder::new(arr).with_version(1).encode().is_err());
+    }
 }
 
 #[cfg(test)]

@@ -630,10 +630,11 @@ pub struct SpzEncoder<T: SplatGetter> {
     getter: T,
     max_sh_out: Option<usize>,
     fractional_bits: u8,
+    version: u32,
 }
 
 impl<T: SplatGetter> SpzEncoder<T> {
-    pub fn new(getter: T) -> Self { Self { getter, max_sh_out: None, fractional_bits: 12 } }
+    pub fn new(getter: T) -> Self { Self { getter, max_sh_out: None, fractional_bits: 12, version: 3 } }
 
     pub fn with_max_sh(mut self, max_sh: usize) -> Self {
         self.max_sh_out = Some(max_sh.min(3));
@@ -645,6 +646,11 @@ impl<T: SplatGetter> SpzEncoder<T> {
         self
     }
 
+    pub fn with_version(mut self, version: u32) -> Self {
+        self.version = version;
+        self
+    }
+
     pub fn encode(mut self) -> anyhow::Result<Vec<u8>> {
         let num_splats = self.getter.num_splats();
         let sh_src = self.getter.max_sh_degree();
@@ -652,7 +658,10 @@ impl<T: SplatGetter> SpzEncoder<T> {
         let fractional_bits = self.fractional_bits;
         let flag_antialias = self.getter.flag_antialias();
         let lod_tree = self.getter.has_lod_tree();
-        let version = 2u32; // fixed for now; encoder writes v2 layout by default
+        let version = self.version;
+        if version < 2 || version > 3 {
+            return Err(anyhow::anyhow!("Unsupported SPZ write version: {}", version));
+        }
 
         // Header (16 bytes)
         let mut raw = Vec::with_capacity(16 + num_splats * 64); // rough guess
@@ -763,20 +772,25 @@ impl<T: SplatGetter> SpzEncoder<T> {
                 self.getter.get_quat(base, count, &mut f32_buf[..count * 4]);
                 for i in 0..count {
                     let q = &mut f32_buf[i * 4..i * 4 + 4];
-                    // ensure unit and handle sign: choose largest index
+                    // The largest component is rebuilt from unit length, so normalise first
+                    let norm = (q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]).sqrt();
+                    if norm > 0.0 {
+                        for v in q.iter_mut() { *v /= norm; }
+                    }
                     let (idx, _) = (0..4)
                         .map(|k| (k, q[k].abs()))
                         .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
                         .unwrap();
-                    let mut comp: u32 = (idx as u32) << 30;
+                    // The largest decodes positive, and -q is the same rotation
+                    let negate = q[idx] < 0.0;
+                    let mut comp: u32 = idx as u32;
                     let max_value: f32 = std::f32::consts::FRAC_1_SQRT_2;
                     let value_mask: u32 = (1u32 << 9) - 1;
-                    for k in (0..4).rev() {
+                    for k in 0..4 {
                         if k == idx { continue; }
-                        let mut v = q[k].clamp(-max_value, max_value);
-                        let sign = v.is_sign_negative();
-                        if sign { v = -v; }
-                        let mag = (v / max_value * value_mask as f32).round().clamp(0.0, value_mask as f32) as u32;
+                        let v = q[k].clamp(-max_value, max_value);
+                        let sign = (v < 0.0) ^ negate;
+                        let mag = (v.abs() / max_value * value_mask as f32).round().clamp(0.0, value_mask as f32) as u32;
                         comp = (comp << 10) | ((sign as u32) << 9) | mag;
                     }
                     raw.extend_from_slice(&comp.to_le_bytes());

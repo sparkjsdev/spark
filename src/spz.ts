@@ -8,6 +8,8 @@ import {
 import { decode_to_gsplatarray, packedsplats_to_gsplatarray } from "spark-rs";
 import * as wasm from "./wasm";
 
+export type SpzWriteVersion = 2 | 3;
+
 export async function transcodeSpz(input: TranscodeSpzInput) {
   await wasm.initialization;
 
@@ -18,6 +20,7 @@ export async function transcodeSpz(input: TranscodeSpzInput) {
     maxSh,
     fractionalBits = 12,
     opacityThreshold,
+    version,
   } = input;
   for (const input of inputs) {
     const scale = input.transform?.scale ?? 1;
@@ -59,25 +62,52 @@ export async function transcodeSpz(input: TranscodeSpzInput) {
     finalSplats.concat(splatArrays[i]);
   }
 
-  const spzBytes = finalSplats.encode_to_spz(maxSh ?? 3, fractionalBits);
+  const spzBytes = finalSplats.encode_to_spz(
+    maxSh ?? 3,
+    fractionalBits,
+    version,
+  );
 
   return { fileBytes: spzBytes, clippedCount: 0 };
 }
+
+export type WriteSpzOptions = {
+  maxSh?: number;
+  fractionalBits?: number;
+  version?: SpzWriteVersion;
+};
 
 export function writeSpz(
   packedSplats: PackedSplats,
   maxSh?: number,
   fractionalBits?: number,
+): { fileBytes: Uint8Array };
+export function writeSpz(
+  packedSplats: PackedSplats,
+  options?: WriteSpzOptions,
+): { fileBytes: Uint8Array };
+export function writeSpz(
+  packedSplats: PackedSplats,
+  maxShOrOptions?: number | WriteSpzOptions,
+  fractionalBits?: number,
 ) {
   if (!packedSplats.packedArray) {
     throw new Error("");
   }
+  const options: WriteSpzOptions =
+    typeof maxShOrOptions === "number"
+      ? { maxSh: maxShOrOptions, fractionalBits }
+      : (maxShOrOptions ?? {});
   const gsplats = packedsplats_to_gsplatarray(
     packedSplats.numSplats,
     packedSplats.packedArray,
     packedSplats.extra,
     packedSplats.splatEncoding,
   );
-  const spzBytes = gsplats.encode_to_spz(maxSh ?? 3, fractionalBits ?? 12);
+  const spzBytes = gsplats.encode_to_spz(
+    options.maxSh ?? 3,
+    options.fractionalBits ?? 12,
+    options.version,
+  );
   return { fileBytes: spzBytes };
 }
