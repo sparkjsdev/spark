@@ -39,7 +39,8 @@
     "site:deploy": "npm run site:build && node scripts/deploy-site.js",
     "site:serve": "node scripts/serve-site.js site",
     "start": "npm run dev",
-    "test": "vitest run --reporter=dot test/"
+    "test": "vitest run --reporter=dot test/",
+    "types": "tsc -p tsconfig.json --noEmit"
   },
   "repository": "sparkjsdev/spark",
   "files": ["dist"],
