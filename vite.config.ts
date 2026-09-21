@@ -5,7 +5,7 @@ import arraybuffer from "vite-plugin-arraybuffer";
 import glsl from "vite-plugin-glsl";
 
 const sparkRsDirectory = "rust/spark-rs/pkg";
-if (!fs.existsSync(sparkRsDirectory)) {
+if (!fs.existsSync(sparkRsDirectory) && !process.env.VITEST) {
   console.error(
     "\x1b[31m************************************************************************\x1b[0m",
   );
