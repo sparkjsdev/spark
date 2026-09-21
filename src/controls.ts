@@ -704,7 +704,8 @@ export class PointerControls {
   }
 
   update(deltaTime: number, control: THREE.Object3D, camera?: THREE.Camera) {
-    if (!this.enable) {
+    // Velocities divide by the frame time.
+    if (!this.enable || !(deltaTime > 0)) {
       return false;
     }
 
