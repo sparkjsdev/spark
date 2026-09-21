@@ -61,6 +61,27 @@ const ARROW_KEYCODE_ROTATE = {
   Delete: new THREE.Vector3(1, 0, 0),
 };
 
+const EULER_YAW_AXIS = new THREE.Vector3(0, 1, 0);
+
+// Euler order YXZ yaws around +Y, so rotate about control.up instead.
+function yawAxisToUp(control: THREE.Object3D): THREE.Quaternion {
+  const up = control.up.clone().normalize();
+  if (control.parent) {
+    const parentRotation = new THREE.Quaternion();
+    control.parent.getWorldQuaternion(parentRotation);
+    up.applyQuaternion(parentRotation.invert()).normalize();
+  }
+  return new THREE.Quaternion().setFromUnitVectors(EULER_YAW_AXIS, up);
+}
+
+function eulersAboutUp(control: THREE.Object3D): THREE.Euler {
+  const quaternion = control.quaternion.clone();
+  return new THREE.Euler().setFromQuaternion(
+    quaternion.premultiply(yawAxisToUp(control).invert()),
+    "YXZ",
+  );
+}
+
 // SparkControls provides simple, intuitive controls for navigating 3D space that
 // use the keyboard + mouse, game pad, or mobile multi-touch. Internally it
 // instantiates and updates a `FpsMovement` and `PointerControls` instance.
@@ -287,17 +308,14 @@ export class FpsMovement {
 
     if (rotate.manhattanLength() > 0.0) {
       rotate.multiplyScalar(deltaTime);
-      const eulers = new THREE.Euler().setFromQuaternion(
-        control.quaternion,
-        "YXZ",
-      );
+      const eulers = eulersAboutUp(control);
       eulers.y -= rotate.x;
       eulers.x = Math.max(
         -Math.PI / 2,
         Math.min(Math.PI / 2, eulers.x - rotate.y),
       );
       eulers.z = Math.max(-Math.PI, Math.min(Math.PI, eulers.z + rotate.z));
-      control.quaternion.setFromEuler(eulers);
+      control.quaternion.setFromEuler(eulers).premultiply(yawAxisToUp(control));
     }
 
     // Movement
@@ -741,15 +759,14 @@ export class PointerControls {
           Math.atan(motionOrtho[1] / (0.5 * deltaDist)),
         ];
         const rotate = 0.5 * (angles[0] + angles[1]) * this.pointerRollScale;
-        const eulers = new THREE.Euler().setFromQuaternion(
-          control.quaternion,
-          "YXZ",
-        );
+        const eulers = eulersAboutUp(control);
         eulers.z = Math.max(
           -Math.PI,
           Math.min(Math.PI, eulers.z + 0.5 * rotate),
         );
-        control.quaternion.setFromEuler(eulers);
+        control.quaternion
+          .setFromEuler(eulers)
+          .premultiply(yawAxisToUp(control));
 
         if (Math.abs(rotate) > MOVEMENT_THRESHOLD) {
           updated = true;
@@ -786,17 +803,14 @@ export class PointerControls {
       }
 
       // Apply rotation in Euler angles space
-      const eulers = new THREE.Euler().setFromQuaternion(
-        control.quaternion,
-        "YXZ",
-      );
+      const eulers = eulersAboutUp(control);
       eulers.y -= rotate.x;
       eulers.x = Math.max(
         -Math.PI / 2,
         Math.min(Math.PI / 2, eulers.x - rotate.y),
       );
       eulers.z *= Math.exp(-DEFAULT_ROLL_SPRING * deltaTime);
-      control.quaternion.setFromEuler(eulers);
+      control.quaternion.setFromEuler(eulers).premultiply(yawAxisToUp(control));
 
       if (this.sliding && !this.dualPress) {
         const delta = this.sliding.position.clone().sub(this.sliding.last);
