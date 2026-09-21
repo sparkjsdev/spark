@@ -18,9 +18,10 @@
     "assets:clean": "node scripts/clean-assets.js",
     "assets:compress": "node scripts/compress-to-spz.js",
     "assets:download": "node scripts/download-assets.js",
-    "build": "npm run build:production && npm run build:dev",
+    "build": "npm run build:production && npm run build:dev && npm run build:types",
     "build:dev": "vite build --mode dev",
     "build:production": "vite build --mode production",
+    "build:types": "tsc",
     "build:wasm": "node rust/build_wasm.js",
     "build:watch": "onchange 'src/**/*.{ts,glsl}' -- npm run build:dev",
     "build-lod": "cargo run --manifest-path rust/build-lod/Cargo.toml --release --",
@@ -38,7 +39,7 @@
     "site:deploy": "npm run site:build && node scripts/deploy-site.js",
     "site:serve": "node scripts/serve-site.js site",
     "start": "npm run dev",
-    "test": "node --no-warnings --loader ts-node/esm --test test/**/*.test.ts"
+    "test": "vitest run --reporter=dot test/"
   },
   "repository": "sparkjsdev/spark",
   "files": ["dist"],
@@ -53,12 +54,11 @@
     "spark-rs": "file:rust/spark-rs/pkg",
     "stats.js": "^0.17.0",
     "three": "^0.180.0",
-    "ts-node": "10.9.2",
-    "typescript": "^5.7.3",
-    "vite": "^6.0.11",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0",
     "vite-plugin-arraybuffer": "^0.1.4",
-    "vite-plugin-dts": "^4.5.4",
-    "vite-plugin-glsl": "^1.3.1"
+    "vite-plugin-glsl": "^1.6.1",
+    "vitest": "^5.0.1"
   },
   "dependencies": {
     "fflate": "^0.8.2"

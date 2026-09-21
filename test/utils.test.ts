@@ -1,7 +1,11 @@
-import assert from "node:assert";
+import { describe, expect, test } from "vitest";
 import { floatToUint8 } from "../src/utils.js";
 
-assert.strictEqual(floatToUint8(0), 0, "floatToUint8 test 1 Failed");
-assert.strictEqual(floatToUint8(1), 255, "floatToUint8 test 2 Failed");
-
-console.log("✅ All test cases passed!");
+describe("floatToUint8", () => {
+  test("returns integer 0 for float value 0", () => {
+    expect(floatToUint8(0)).toBe(0);
+  });
+  test("returns integer 255 for float value 1", () => {
+    expect(floatToUint8(1)).toBe(255);
+  });
+});
