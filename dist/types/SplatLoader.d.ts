@@ -3,6 +3,7 @@ import { ExtSplats } from "./ExtSplats";
 import { PackedSplats } from "./PackedSplats";
 import { SplatMesh } from "./SplatMesh";
 import { SplatFileType } from "./defines";
+import type { SpzWriteVersion } from "./spz";
 export declare class SplatLoader extends Loader {
     fileLoader: FileLoader;
     constructor(manager?: LoadingManager);
@@ -161,4 +162,5 @@ export type TranscodeSpzInput = {
     };
     fractionalBits?: number;
     opacityThreshold?: number;
+    version?: SpzWriteVersion;
 };
