@@ -56,3 +56,6 @@ jobs:
 
       - name: Tests
         run: npm run test
+
+      - name: Rust tests
+        run: npm run test:rust
