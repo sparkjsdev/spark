@@ -17,6 +17,8 @@ export {
   writeSpz,
   type SpzWriteVersion,
   type WriteSpzOptions,
+  type TranscodeSpzFileInput,
+  type TranscodeSpzInput,
 } from "./spz";
 
 export { PackedSplats, type PackedSplatsOptions } from "./PackedSplats";
