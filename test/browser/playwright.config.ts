@@ -26,10 +26,11 @@ export default defineConfig({
     : "list",
   expect: {
     toMatchSnapshot: {
-      // SwiftShader renders are bit-exact between runs, so require an exact match:
-      // per-pixel YIQ color distance (0..1) and number of differing pixels.
-      maxDiffPixels: 0,
+      // Per-pixel comparison stays exact, but allow a scattering of differing
+      // pixels: SwiftShader on Linux x64 vs macOS arm64 flips ~6-16 of 65,536.
+      // Real regressions change thousands.
       threshold: 0,
+      maxDiffPixelRatio: 0.001, // 65 pixels at 256x256
     },
   },
   use: {
