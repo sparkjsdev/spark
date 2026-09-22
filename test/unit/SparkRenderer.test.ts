@@ -1,9 +1,13 @@
 import * as THREE from "three";
-import { expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { SparkRenderer } from "../../src/SparkRenderer";
 import { SplatGenerator } from "../../src/SplatGenerator";
 import { Dyno, dynoBlock } from "../../src/dyno/base";
 import { Gsplat } from "../../src/dyno/splats";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 const stubRenderer = {
   info: { render: { frame: 0 } },
@@ -56,6 +60,7 @@ async function setup(...meshes: THREE.Object3D[]) {
         replies.push(() => resolve({ ...args, activeSplats: args.numSplats })),
       );
     },
+    dispose() {},
   } as unknown as typeof spark.sortWorker;
 
   const frame = async () => {
@@ -165,4 +170,40 @@ test("a change during a sort is sorted after it", async () => {
 
   await finishSorts();
   expect(sorts.map((s) => s.version)).toEqual([v0 + 1, v0 + 2]);
+});
+
+async function expectNoUnhandledRejection(run: () => Promise<void>) {
+  const unhandled = vi.fn();
+  process.on("unhandledRejection", unhandled);
+  await run();
+  await flushPromises();
+  process.off("unhandledRejection", unhandled);
+  expect(unhandled).not.toHaveBeenCalled();
+}
+
+describe("a disposed SparkRenderer", () => {
+  test("does nothing when updated or rendered", async () => {
+    const spark = new SparkRenderer({ renderer: stubRenderer });
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera();
+    spark.dispose();
+
+    await spark.update({ scene, camera });
+    spark.onBeforeRender(stubRenderer, scene, camera);
+
+    expect(spark.current.target).toBeNull();
+    expect(spark.lodWorker).toBeNull();
+  });
+
+  test("creates no sort worker when disposed during the readback", async () => {
+    const { spark, camera, frame } = await setup(splatGenerator(64));
+    vi.spyOn(stubRenderer, "readRenderTargetPixelsAsync").mockImplementation(
+      async () => spark.dispose(),
+    );
+    camera.position.x += 1;
+
+    await expectNoUnhandledRejection(frame);
+
+    expect(spark.sortWorker).toBeNull();
+  });
 });

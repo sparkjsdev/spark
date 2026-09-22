@@ -375,6 +375,8 @@ export class SparkRenderer extends THREE.Mesh {
   current: SplatAccumulator;
   accumulators: SplatAccumulator[] = [];
 
+  private isDisposed = false;
+
   sorting = false;
   sortDirty = false;
   // Mapping version the latest update produced.
@@ -688,6 +690,8 @@ export class SparkRenderer extends THREE.Mesh {
   }
 
   dispose() {
+    this.isDisposed = true;
+
     // @ts-ignore Object3D has a dispose method in Three.js >= r186
     super.dispose?.();
 
@@ -937,6 +941,9 @@ export class SparkRenderer extends THREE.Mesh {
     camera: THREE.Camera;
     autoUpdate: boolean;
   }) {
+    if (this.isDisposed) {
+      return;
+    }
     const renderer = this.renderer;
     if (this.ownsTimer) {
       this.timer.update();
@@ -1044,6 +1051,7 @@ export class SparkRenderer extends THREE.Mesh {
 
   private async driveSort() {
     if (
+      this.isDisposed ||
       this.sorting ||
       !this.sortDirty ||
       this.latestMappingVersion !== this.current.mappingVersion ||
@@ -1077,6 +1085,10 @@ export class SparkRenderer extends THREE.Mesh {
       await new Promise((resolve) => setTimeout(resolve, this.readPause));
     }
 
+    if (this.isDisposed) {
+      return;
+    }
+
     const current = this.current;
 
     this.sortedCenter.copy(current.viewOrigin);
@@ -1102,6 +1114,9 @@ export class SparkRenderer extends THREE.Mesh {
       await new Promise((resolve) => setTimeout(resolve, this.sortPause));
     }
 
+    if (this.isDisposed) {
+      return;
+    }
     if (!this.sortWorker) {
       this.sortWorker = new SplatWorker();
     }
@@ -1113,6 +1128,10 @@ export class SparkRenderer extends THREE.Mesh {
 
     if (this.sortDelay > 0) {
       await new Promise((resolve) => setTimeout(resolve, this.sortDelay));
+    }
+
+    if (this.isDisposed) {
+      return;
     }
 
     this.readback32 = result.readback;
