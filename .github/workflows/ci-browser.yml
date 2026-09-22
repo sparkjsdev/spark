@@ -1,13 +1,13 @@
 name: Spark CI Browser
 on:
+  # Manual runs from the Actions tab or `gh workflow run ci-browser.yml --ref <branch>`.
+  # (Only listed there once this file exists on the default branch.)
+  workflow_dispatch:
+  # Auto-run while developing this branch. TODO: remove the push trigger once
+  # merged so the browser tests only run on demand from main.
   push:
     branches:
-      - main
-      # TODO: remove before merging; temporary so the workflow runs on this branch.
       - fix-paged-lod-browser-test
-  pull_request:
-    branches:
-      - main
 permissions:
   contents: read
 jobs:
