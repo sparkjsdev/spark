@@ -516,10 +516,10 @@ export interface SplatPagerOptions {
    */
   numFetchers?: number;
   /**
-   * Called when a fetched chunk is ready to be paged in and a frame is
-   * needed to consume it.
+   * Called after each chunk fetch attempt settles (success or failure);
+   * a render is needed to page in the chunk or retry.
    */
-  onDirty?: () => void;
+  onUpdate?: () => void;
 }
 
 interface PageUpload {
@@ -543,7 +543,7 @@ export class SplatPager {
 
   autoDrive: boolean;
   numFetchers: number;
-  onDirty?: () => void;
+  onUpdate?: () => void;
   fetchPause = 0;
 
   splatsChunkToPage: Map<
@@ -629,7 +629,7 @@ export class SplatPager {
 
     this.autoDrive = options.autoDrive ?? true;
     this.numFetchers = options.numFetchers ?? 3;
-    this.onDirty = options.onDirty;
+    this.onUpdate = options.onUpdate;
 
     this.splatsChunkToPage = new Map();
     this.pageToSplatsChunk = new Array(this.maxPages);
@@ -858,6 +858,7 @@ export class SplatPager {
   dispose() {
     this.autoDrive = false;
     this.numFetchers = 0;
+    this.onUpdate = undefined;
 
     this.packedTexture.value.dispose();
     this.packedTexture.value.source.data = null;
@@ -1112,8 +1113,7 @@ export class SplatPager {
             this.fetchers.length--;
 
             this.processFetched();
-            // A frame is needed to page in the fetched chunk (or retry a failed one).
-            this.onDirty?.();
+            this.onUpdate?.();
           });
 
         promise.then((data) => {

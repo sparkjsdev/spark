@@ -60,7 +60,8 @@ jobs:
         run: npm run test:browser
 
       - name: Upload Playwright report
-        if: always()
+        # Upload on success or failure, but not when the job was cancelled.
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
           name: playwright-report

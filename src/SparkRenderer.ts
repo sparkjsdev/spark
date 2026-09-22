@@ -32,7 +32,9 @@ export interface SparkRendererOptions {
   renderer: THREE.WebGLRenderer;
   /**
    * Callback function to be called when SparkRenderer needs to re-render,
-   * for example when splat sort order or LoD updates complete.
+   * for example when splat sort order or LoD updates complete. May fire
+   * several times per frame; schedule a single render rather than rendering
+   * inside the callback.
    */
   onDirty?: () => void;
   /**
@@ -1261,7 +1263,7 @@ export class SparkRenderer extends THREE.Mesh {
           extSplats: this.pagedExtSplats,
           maxSplats: this.maxPagedSplats,
           numFetchers: this.numLodFetchers,
-          onDirty: () => this.setDirty(),
+          onUpdate: () => this.setDirty(),
         });
 
         const { lodId } = await worker.call("newLodTree", {

@@ -39,7 +39,7 @@
     "site:deploy": "npm run site:build && node scripts/deploy-site.js",
     "site:serve": "node scripts/serve-site.js site",
     "start": "npm run dev",
-    "test": "vitest run --reporter=dot --exclude \"test/browser/**\" test/",
+    "test": "vitest run --reporter=dot --dir test/unit",
     "test:browser": "playwright test -c test/browser/playwright.config.ts",
     "test:browser:update": "playwright test -c test/browser/playwright.config.ts --update-snapshots",
     "test:rust": "cargo test --locked --manifest-path rust/Cargo.toml --workspace",

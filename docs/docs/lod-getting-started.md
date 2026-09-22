@@ -89,7 +89,7 @@ The above parameters adjust the global splat LoD parameters, but you can also ad
 
 ## On-demand rendering with LoD and streaming
 
-If your app renders only when something changes rather than on every animation frame, Spark needs a way to request frames as sorts, LoD updates and streamed chunks complete. Pass an `onDirty` callback to `SparkRenderer` and render once whenever it fires. See [On-demand rendering](on-demand-rendering.md) for details and examples with vanilla Three.js and React Three Fiber.
+If your app renders only when something changes rather than on every animation frame, Spark needs a way to request frames as sorts, LoD updates and streamed chunks complete. Pass an `onDirty` callback to `SparkRenderer` and schedule a render whenever it fires (it may fire several times per frame). See [On-demand rendering](on-demand-rendering.md) for details and examples with vanilla Three.js and React Three Fiber.
 
 ## `build-lod` command-line tool
 

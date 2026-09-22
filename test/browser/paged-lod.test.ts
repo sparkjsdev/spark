@@ -1,6 +1,6 @@
 import { expect, test } from "./harness.fixture.js";
 
-// Same scenes as lod.spec.ts, streamed from a chunked RAD with `paged: true`.
+// Same scenes as lod.test.ts, streamed from a chunked RAD with `paged: true`.
 // Once fully paged in, the render should match the non-paged LoD snapshots.
 for (const [lodSplatCount, snapshot] of [
   [1_000, "lod-1K.png"],
