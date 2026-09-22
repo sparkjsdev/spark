@@ -515,6 +515,11 @@ export interface SplatPagerOptions {
    * @default 3
    */
   numFetchers?: number;
+  /**
+   * Called when a fetched chunk is ready to be paged in and a frame is
+   * needed to consume it.
+   */
+  onDirty?: () => void;
 }
 
 interface PageUpload {
@@ -538,6 +543,7 @@ export class SplatPager {
 
   autoDrive: boolean;
   numFetchers: number;
+  onDirty?: () => void;
   fetchPause = 0;
 
   splatsChunkToPage: Map<
@@ -623,6 +629,7 @@ export class SplatPager {
 
     this.autoDrive = options.autoDrive ?? true;
     this.numFetchers = options.numFetchers ?? 3;
+    this.onDirty = options.onDirty;
 
     this.splatsChunkToPage = new Map();
     this.pageToSplatsChunk = new Array(this.maxPages);
@@ -1105,6 +1112,8 @@ export class SplatPager {
             this.fetchers.length--;
 
             this.processFetched();
+            // A frame is needed to page in the fetched chunk (or retry a failed one).
+            this.onDirty?.();
           });
 
         promise.then((data) => {
@@ -1238,6 +1247,17 @@ export class SplatPager {
       const { page, numSplats, packedArray, extArray, shArrays } = upload;
       this.uploadPage(page, packedArray, shArrays, extArray);
     }
+  }
+
+  /** True while chunks are being fetched or are waiting to be paged in. */
+  pending() {
+    return (
+      this.fetchers.length > 0 ||
+      this.fetched.length > 0 ||
+      this.newUploads.length > 0 ||
+      this.readyUploads.length > 0 ||
+      this.lodTreeUpdates.length > 0
+    );
   }
 
   consumeLodTreeUpdates() {

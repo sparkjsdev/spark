@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "emitDeclarationOnly": false,
+    "rootDir": "../..",
+    "types": [
+      "vite/client",
+      "vite-plugin-glsl/ext",
+      "vite-plugin-arraybuffer/types",
+      "node"
+    ]
+  },
+  "include": ["./**/*.ts"]
+}

@@ -8,3 +8,6 @@ site/
 site-repo/
 *.zip
 *.gltf
+test/browser/fixtures/
+test-results/
+playwright-report/

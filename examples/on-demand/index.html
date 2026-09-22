@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark • On-demand rendering</title>
+  <style>
+    body {
+      margin: 0;
+      background-color: black;
+    }
+    canvas {
+      display: block;
+      touch-action: none;
+    }
+    .overlay {
+      position: fixed;
+      margin: 12px;
+      bottom: 0;
+      color: white;
+      font-family: sans-serif;
+      pointer-events: none;
+    }
+    .overlay > * {
+      margin: 6px;
+    }
+  </style>
+</head>
+
+<body>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "../js/vendor/three/build/three.module.js",
+        "three/addons/": "../js/vendor/three/examples/jsm/",
+        "@sparkjsdev/spark": "../../dist/spark.module.js",
+        "lil-gui": "../js/vendor/lil-gui/dist/lil-gui.esm.js"
+      }
+    }
+  </script>
+  <div class="overlay">
+    <h2>On-demand rendering</h2>
+    <p>
+      No animation loop: frames are rendered only when the camera moves or when
+      Spark calls <code>onDirty</code> (sort finished, LoD updated, streamed
+      chunk landed, mesh loaded).
+    </p>
+    <p id="stats"></p>
+  </div>
+  <canvas id="canvas" tabindex="0" style="outline: none;"></canvas>
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+    import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
+    import GUI from "lil-gui";
+
+    const stats = document.getElementById("stats");
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color("#cafefe");
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 1000);
+    const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById("canvas") });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+
+    // Render at most once per animation frame, and only when asked to.
+    let renderScheduled = false;
+    let renders = 0;
+    let dirtyEvents = 0;
+    function requestRender() {
+      if (renderScheduled) return;
+      renderScheduled = true;
+      requestAnimationFrame(() => {
+        renderScheduled = false;
+        renders += 1;
+        renderer.render(scene, camera);
+        updateStats();
+      });
+    }
+
+    const spark = new SparkRenderer({
+      renderer,
+      // Spark asks for a frame whenever it has something new to show or needs
+      // another render() to make progress on sorting / LoD / streaming.
+      onDirty: () => {
+        dirtyEvents += 1;
+        requestRender();
+      },
+    });
+    scene.add(spark);
+
+    // Streamed (paged) LoD splats: chunks are fetched as needed and every
+    // landing chunk triggers onDirty so the scene refines without a loop.
+    const world = new SplatMesh({
+      url: "https://storage.googleapis.com/forge-dev-public/asundqui/rad/260217/coit-40m-sh1-lod.rad",
+      paged: true,
+    });
+    world.quaternion.set(1, 0, 0, 0);
+    world.scale.setScalar(10.0);
+    scene.add(world);
+
+    camera.position.set(-0.858, 2.203, -1.128);
+    camera.quaternion.set(-0.043, -0.909, -0.097, 0.402).normalize();
+
+    // Application-side changes must also request a render: Spark only notices
+    // camera / scene changes during render().
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.copy(camera.position).add(camera.getWorldDirection(new THREE.Vector3()));
+    controls.update();
+    controls.addEventListener("change", requestRender);
+
+    window.addEventListener("resize", () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      requestRender();
+    });
+
+    const gui = new GUI({ title: "Settings" });
+    gui.add(spark, "lodSplatScale", 0.01, 2.5, 0.001).name("Level of Detail").onChange(requestRender);
+
+    // Count animation frames so it is visible how many frames were skipped.
+    let ticks = 0;
+    function tick() {
+      ticks += 1;
+      if (ticks % 30 === 0) updateStats();
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+
+    function updateStats() {
+      stats.textContent =
+        `renders: ${renders} / animation frames: ${ticks}` +
+        ` | onDirty calls: ${dirtyEvents}` +
+        ` | LoD splats shown: ${world.paged?.numSplats ?? 0}`;
+    }
+
+    // Kick things off with one render; everything after this is on demand.
+    requestRender();
+  </script>
+</body>
+
+</html>
