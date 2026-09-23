@@ -1,8 +1,25 @@
+import net from "node:net";
 import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 
 const repoRoot = path.resolve(import.meta.dirname, "../..");
-const port = 8080;
+
+// Always start our own Vite (with SPARK_ENABLE_HOOKS) on a free port, so a
+// developer's `npm run dev` on 8080 is neither reused nor disturbed. This file
+// is evaluated in the runner and again in each worker, so the port chosen by
+// the runner is handed down through the environment.
+function freePort() {
+  return new Promise<number>((resolve, reject) => {
+    const server = net.createServer();
+    server.once("error", reject);
+    server.listen(0, () => {
+      const { port } = server.address() as net.AddressInfo;
+      server.close(() => resolve(port));
+    });
+  });
+}
+process.env.SPARK_TEST_PORT ??= String(await freePort());
+const port = Number(process.env.SPARK_TEST_PORT);
 const baseURL = `http://localhost:${port}`;
 
 export default defineConfig({
@@ -57,7 +74,8 @@ export default defineConfig({
     command: `npx vite --port ${port} --strictPort`,
     // Run Vite from the repo root so it picks up vite.config.ts and serves src/.
     cwd: repoRoot,
+    env: { SPARK_ENABLE_HOOKS: "1" },
     url: `${baseURL}/test/browser/harness.html`,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
   },
 });

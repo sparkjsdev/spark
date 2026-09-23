@@ -129,6 +129,11 @@ export default defineConfig(({ mode }) => {
       exclude: ["three"], // prevent Vite pre-bundling
     },
 
+    // Expose SPARK_* env vars on import.meta.env (e.g. SPARK_ENABLE_HOOKS for
+    // the test-only await points in src/hooks.ts). Unset vars are absent, so
+    // checks against them fold to false in normal builds.
+    envPrefix: ["VITE_", "SPARK_"],
+
     define: {
       sparkLocalAssets: localAssetsDirectoryExist,
     },

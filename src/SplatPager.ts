@@ -19,6 +19,7 @@ import { type DynoUsampler2DArray, pagedSplatTexCoord } from "./dyno";
 import {
   decodeExtSplat,
   getTextureSize,
+  removeWhere,
   unpackSplat,
   uploadU32DataTextureRows,
 } from "./utils";
@@ -37,6 +38,10 @@ export interface PagedSplatsOptions {
 const PAGE_WIDTH = 256;
 const PAGE_HEIGHT = 256;
 const PAGE_SPLATS = PAGE_WIDTH * PAGE_HEIGHT; // 65536
+
+// TEMPORARY: set false to reproduce chunks landing around LoD tree cleanup
+// (test/browser/paged-lod.test.ts). Remove once the fix is accepted.
+const FIX_LATE_CHUNKS = true;
 
 export class PagedSplats implements SplatSource {
   pager?: SplatPager;
@@ -525,7 +530,12 @@ export interface SplatPagerOptions {
    * Called after each chunk fetch attempt settles (success or failure);
    * a render is needed to page in the chunk or retry.
    */
-  onUpdate?: () => void;
+  onUpdate: () => void;
+  /**
+   * Whether a PagedSplats still has a LoD tree. Chunks that land for splats
+   * that are no longer active are dropped instead of being paged in.
+   */
+  isActive: (splats: PagedSplats) => boolean;
 }
 
 interface PageUpload {
@@ -550,6 +560,7 @@ export class SplatPager {
   autoDrive: boolean;
   numFetchers: number;
   onUpdate?: () => void;
+  isActive?: (splats: PagedSplats) => boolean;
   fetchPause = 0;
 
   splatsChunkToPage: Map<
@@ -636,6 +647,7 @@ export class SplatPager {
     this.autoDrive = options.autoDrive ?? true;
     this.numFetchers = options.numFetchers ?? 3;
     this.onUpdate = options.onUpdate;
+    this.isActive = options.isActive;
 
     this.splatsChunkToPage = new Map();
     this.pageToSplatsChunk = new Array(this.maxPages);
@@ -865,6 +877,7 @@ export class SplatPager {
     this.autoDrive = false;
     this.numFetchers = 0;
     this.onUpdate = undefined;
+    this.isActive = undefined;
 
     this.packedTexture.value.dispose();
     this.packedTexture.value.source.data = null;
@@ -992,6 +1005,19 @@ export class SplatPager {
     this.freeablePages = this.freeablePages.filter(
       (page) => !freedPages.has(page),
     );
+
+    if (FIX_LATE_CHUNKS) {
+      // Nothing queued may still refer to these splats or their freed pages:
+      // a chunk that landed after the last consume would otherwise be inserted
+      // into a future tree for the same splats, pointing at a page we no
+      // longer own.
+      removeWhere(this.fetched, (f) => f.splats === splats);
+      removeWhere(this.lodTreeUpdates, (u) => u.splats === splats);
+      removeWhere(this.newUploads, (u) => freedPages.has(u.page));
+      removeWhere(this.readyUploads, (u) => freedPages.has(u.page));
+      // Stop drawing indices into pages that no longer hold these splats.
+      splats.clear();
+    }
   }
 
   private uploadPage(
@@ -1088,8 +1114,12 @@ export class SplatPager {
           .fetchDecodeChunk(chunk)
           .then(
             async (data) => {
-              // Make sure the originating PagedSplat hasn't been disposed in the meantime
+              // Drop the chunk if the originating PagedSplats was disposed, or
+              // its LoD tree was cleaned up, while the fetch was in flight.
               if (splats.abortController.signal.aborted) {
+                return;
+              }
+              if (FIX_LATE_CHUNKS && !this.isActive?.(splats)) {
                 return;
               }
 
@@ -1255,15 +1285,27 @@ export class SplatPager {
     }
   }
 
-  /** True while chunks are being fetched or are waiting to be paged in. */
-  pending() {
+  /** True while chunk requests are in flight. */
+  isFetching() {
+    return this.fetchers.length > 0;
+  }
+
+  /**
+   * True while fetched chunks, uploads, or tree updates wait for Spark to
+   * consume them. Uploads already handed to Spark (flushed by its next LoD
+   * traverse via processUploads) are not counted.
+   */
+  hasQueued() {
     return (
-      this.fetchers.length > 0 ||
       this.fetched.length > 0 ||
       this.newUploads.length > 0 ||
-      this.readyUploads.length > 0 ||
       this.lodTreeUpdates.length > 0
     );
+  }
+
+  /** True while chunks are being fetched or are waiting to be paged in. */
+  isPending() {
+    return this.isFetching() || this.hasQueued();
   }
 
   consumeLodTreeUpdates() {

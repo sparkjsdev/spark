@@ -328,6 +328,13 @@ export function newArray<T>(
   return new Array(n).fill(null).map((_, i) => initFunction(i));
 }
 
+// Remove every element matching predicate from the array, in place
+export function removeWhere<T>(array: T[], predicate: (item: T) => boolean) {
+  for (let i = array.length - 1; i >= 0; i--) {
+    if (predicate(array[i])) array.splice(i, 1);
+  }
+}
+
 // A free list that has a pool of items of type T, with callbacks
 // for constructing, disposing, and checking if an item is valid for the given args.
 export class FreeList<T, Args> {
