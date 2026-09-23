@@ -25,3 +25,68 @@ for (const [lodSplatCount, snapshot] of [
     expect(pngBuffer(png)).toMatchSnapshot(snapshot);
   });
 }
+
+// One page of splat memory shared by two paged meshes, so whichever mesh is
+// shown last owns the page. Show left, then swap to right: right's root chunk
+// evicts left's. Swap back to left with fetching disabled: its root is gone,
+// so it must render nothing. (Before the fix it kept pointing at the evicted
+// page and drew right's data as a large stray splat.) Re-enable fetching and
+// left recovers to its original render.
+test("re-shows a paged mesh whose root page was evicted", async ({
+  harnessPage,
+}) => {
+  const { leftAlone, evicted, recovered } = await harnessPage.evaluate(
+    async () => {
+      const h = window.harness;
+      const spark = h.createSpark({
+        lodSplatCount: 10_000,
+        maxPagedSplats: 65536,
+        lodCleanupTimeoutMs: Number.POSITIVE_INFINITY,
+      });
+      const camera = h.createCamera({ fov: 60, position: [0, 0, 9] });
+      const url = "/test/browser/fixtures/chunked/furry-logo-pedestal-lod.rad";
+      const left = h.addSplatMesh({
+        url,
+        paged: true,
+        quaternion: [1, 0, 0, 0],
+        position: [-2, 0, 0],
+      });
+      const right = h.addSplatMesh({
+        url,
+        paged: true,
+        quaternion: [1, 0, 0, 0],
+        position: [2, 0, 0],
+        visible: false,
+      });
+      await h.settle();
+      const leftAlone = h.getPixels();
+
+      // right's root chunk takes the only page, evicting left's root chunk
+      left.visible = false;
+      right.visible = true;
+      await h.settle();
+
+      spark.enableLodFetching = false;
+      right.visible = false;
+      left.visible = true;
+      await h.settle();
+      const evicted = h.getPixels();
+
+      // Re-enabling fetching alone schedules nothing; the next LoD update
+      // (here, the camera moving) refetches left's root chunk.
+      spark.enableLodFetching = true;
+      camera.position.x += 1.0;
+      await h.settle();
+      camera.position.x -= 1.0;
+      await h.settle();
+      const recovered = h.getPixels();
+
+      return { leftAlone, evicted, recovered };
+    },
+  );
+
+  expect(pngBuffer(leftAlone)).toMatchSnapshot("paged-lod-left-alone.png");
+  // Reference is an empty frame; a failure here means a foreign splat was drawn.
+  expect(pngBuffer(evicted)).toMatchSnapshot("paged-lod-blank.png");
+  expect(pngBuffer(recovered)).toMatchSnapshot("paged-lod-left-alone.png");
+});

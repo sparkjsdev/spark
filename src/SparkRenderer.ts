@@ -225,6 +225,14 @@ export interface SparkRendererOptions {
    */
   numLodFetchers?: number;
   /**
+   * How long (ms) a LoD SplatMesh can go unrendered (hidden or removed from the
+   * scene) before its LoD state is released: the worker-side tree is dropped and,
+   * for paged meshes, its resident pages are freed for other meshes. Rendering it
+   * again rebuilds the tree and refetches pages. Set to Infinity to never release.
+   * @default 3000
+   */
+  lodCleanupTimeoutMs?: number;
+  /**
    * Full-width angle in degrees of fixed foveation cone along the view direction
    * with no foveation applied (full resolution, foveate=1.0). Set to 0 to disable.
    * @default 90.0
@@ -388,6 +396,7 @@ export class SparkRenderer extends THREE.Mesh {
   pagedExtSplats: boolean;
   maxPagedSplats: number;
   numLodFetchers: number;
+  lodCleanupTimeoutMs: number;
   behindFoveate: number;
   coneFov0: number;
   coneFov: number;
@@ -537,6 +546,7 @@ export class SparkRenderer extends THREE.Mesh {
     const defaultPages = isMobile() ? (isIos() ? 96 : 128) : 256;
     this.maxPagedSplats = options.maxPagedSplats ?? defaultPages * 65536;
     this.numLodFetchers = options.numLodFetchers ?? 3;
+    this.lodCleanupTimeoutMs = options.lodCleanupTimeoutMs ?? 3000;
     this.behindFoveate = options.behindFoveate ?? 0.2;
     this.coneFov0 = options.coneFov0 ?? 90.0;
     this.coneFov = options.coneFov ?? 120.0;
@@ -1302,6 +1312,12 @@ export class SparkRenderer extends THREE.Mesh {
           if (record) {
             if (lodTree && chunk === 0) {
               record.rootPage = page;
+            } else if (!lodTree && chunk === 0 && record.rootPage === page) {
+              // Root chunk evicted: forget the page (traversal skips this mesh
+              // until the root is refetched) and stop drawing indices into
+              // pages that no longer hold this mesh's data.
+              record.rootPage = undefined;
+              splats.clear();
             }
             this.lodUpdates.push({
               lodId: record.lodId,
@@ -1550,39 +1566,44 @@ export class SparkRenderer extends THREE.Mesh {
   }
 
   private async cleanupLodTrees(worker: SplatWorker) {
-    const DISPOSE_TIMEOUT_MS = 3000;
-    const now = performance.now();
+    // Dispose every expired tree, one at a time. The oldest record is re-evaluated
+    // after each await: lodIds is only added to/removed from inside this exclusive
+    // callback, but driveLod() may bump lastTouched between awaits, and a tree that
+    // was touched in the meantime must not be disposed.
+    while (true) {
+      const now = performance.now();
 
-    let oldest = null;
-    for (const [splats, record] of this.lodIds.entries()) {
-      if (oldest == null || record.lastTouched < oldest.lastTouched) {
-        oldest = {
-          splats,
-          lastTouched: record.lastTouched,
-          lodId: record.lodId,
-        };
+      let oldest = null;
+      for (const [splats, record] of this.lodIds.entries()) {
+        if (oldest == null || record.lastTouched < oldest.lastTouched) {
+          oldest = {
+            splats,
+            lastTouched: record.lastTouched,
+            lodId: record.lodId,
+          };
+        }
       }
-    }
-    if (!oldest || oldest.lastTouched > now - DISPOSE_TIMEOUT_MS) {
-      return;
-    }
-
-    this.lodIds.delete(oldest.splats);
-    this.lodIdToSplats.delete(oldest.lodId);
-
-    for (const [mesh, instance] of this.lodInstances.entries()) {
-      if (instance.lodId === oldest.lodId) {
-        instance.texture.dispose();
-        this.lodInstances.delete(mesh);
+      if (!oldest || oldest.lastTouched > now - this.lodCleanupTimeoutMs) {
+        return;
       }
-    }
 
-    if (oldest.splats instanceof PagedSplats) {
-      this.pager?.removeSplats(oldest.splats);
-    }
+      this.lodIds.delete(oldest.splats);
+      this.lodIdToSplats.delete(oldest.lodId);
 
-    await worker.call("disposeLodTree", { lodId: oldest.lodId });
-    // console.log("disposed lodTree", oldest.lodId);
+      for (const [mesh, instance] of this.lodInstances.entries()) {
+        if (instance.lodId === oldest.lodId) {
+          instance.texture.dispose();
+          this.lodInstances.delete(mesh);
+        }
+      }
+
+      if (oldest.splats instanceof PagedSplats) {
+        this.pager?.removeSplats(oldest.splats);
+      }
+
+      await worker.call("disposeLodTree", { lodId: oldest.lodId });
+      // console.log("disposed lodTree", oldest.lodId);
+    }
   }
 
   private updateLodIndices(
