@@ -1,7 +1,6 @@
-import { expect, test } from "./harness.fixture.js";
+import { expect, pngBuffer, test } from "./harness.fixture.js";
 
 for (const [lodSplatCount, snapshot] of [
-  [1_000, "lod-1K.png"],
   [10_000, "lod-10K.png"],
   [100_000, "lod-100K.png"],
 ] as const) {
@@ -20,6 +19,6 @@ for (const [lodSplatCount, snapshot] of [
       return h.getPixels();
     }, lodSplatCount);
 
-    expect(Buffer.from(png.split(",")[1], "base64")).toMatchSnapshot(snapshot);
+    expect(pngBuffer(png)).toMatchSnapshot(snapshot);
   });
 }

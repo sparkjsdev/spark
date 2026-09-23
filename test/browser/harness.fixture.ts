@@ -45,4 +45,9 @@ export const test = base.extend<Fixtures>({
   },
 });
 
+/** Decode the PNG data URL returned by `Harness.getPixels()` for `toMatchSnapshot`. */
+export function pngBuffer(dataUrl: string) {
+  return Buffer.from(dataUrl.split(",")[1], "base64");
+}
+
 export { expect };

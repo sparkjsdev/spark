@@ -1,4 +1,4 @@
-import { expect, test } from "./harness.fixture.js";
+import { expect, pngBuffer, test } from "./harness.fixture.js";
 
 test("renders furry-logo-pedestal", async ({ harnessPage }) => {
   const png = await harnessPage.evaluate(async () => {
@@ -13,7 +13,7 @@ test("renders furry-logo-pedestal", async ({ harnessPage }) => {
     return h.getPixels();
   });
 
-  expect(Buffer.from(png.split(",")[1], "base64")).toMatchSnapshot("basic.png");
+  expect(pngBuffer(png)).toMatchSnapshot("basic.png");
 });
 
 test("renders with object and camera transforms", async ({ harnessPage }) => {
@@ -36,9 +36,7 @@ test("renders with object and camera transforms", async ({ harnessPage }) => {
     return h.getPixels();
   });
 
-  expect(Buffer.from(png.split(",")[1], "base64")).toMatchSnapshot(
-    "basic-transformed.png",
-  );
+  expect(pngBuffer(png)).toMatchSnapshot("basic-transformed.png");
 });
 
 test("renders three overlapping instances of shared splats", async ({
@@ -69,7 +67,5 @@ test("renders three overlapping instances of shared splats", async ({
     return h.getPixels();
   });
 
-  expect(Buffer.from(png.split(",")[1], "base64")).toMatchSnapshot(
-    "basic-instances.png",
-  );
+  expect(pngBuffer(png)).toMatchSnapshot("basic-instances.png");
 });
