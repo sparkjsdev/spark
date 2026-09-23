@@ -774,7 +774,9 @@ impl<T: SplatGetter> SpzEncoder<T> {
                     let q = &mut f32_buf[i * 4..i * 4 + 4];
                     // The largest component is rebuilt from unit length, so normalise first
                     let norm = (q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]).sqrt();
-                    if norm > 0.0 {
+                    if !norm.is_finite() {
+                        q.copy_from_slice(&[0.0, 0.0, 0.0, 1.0]);
+                    } else if norm > 0.0 {
                         for v in q.iter_mut() { *v /= norm; }
                     }
                     let (idx, _) = (0..4)

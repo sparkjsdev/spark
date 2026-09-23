@@ -236,6 +236,37 @@ mod tests {
     }
 
     #[test]
+    fn spz_writes_non_finite_quaternion_as_identity() {
+        // One NaN or infinite component, in each position
+        let mut cases = Vec::new();
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            for k in 0..4 {
+                let mut quat = [0.0, 0.0, 0.0, 1.0];
+                quat[k] = bad;
+                cases.push(quat);
+            }
+        }
+        let mut arr = GsplatArray::new_capacity(cases.len(), 0);
+        for &quat in &cases {
+            arr.push_splat(make_splat([0.1, 0.2, 0.3], 0.7, [0.2, 0.5, 0.8], [0.5, 0.6, 0.7], quat), None, None, None);
+        }
+
+        let encoded = SpzEncoder::new(arr).with_fractional_bits(12).encode().expect("encode ok");
+        assert_eq!(spz_version(&spz_payload(&encoded)), 3);
+
+        let mut dec = SpzDecoder::new(GsplatArray::new());
+        dec.push(&encoded).expect("push ok");
+        dec.finish().expect("finish ok");
+        let out = dec.into_splats();
+
+        assert_eq!(out.len(), cases.len());
+        for (s, quat) in cases.iter().enumerate() {
+            let got = out.splats[s].quaternion.map(|v| v.to_f32());
+            assert_eq!(got, [0.0, 0.0, 0.0, 1.0], "splat {} from {:?}", s, quat);
+        }
+    }
+
+    #[test]
     fn spz_rejects_unwritable_version() {
         let mut arr = GsplatArray::new_capacity(1, 0);
         arr.push_splat(make_splat([0.0, 0.0, 0.0], 0.5, [0.1, 0.2, 0.3], [0.4, 0.5, 0.6], [0.0, 0.0, 0.0, 1.0]), None, None, None);
