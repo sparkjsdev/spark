@@ -706,8 +706,11 @@ export function setPackedSplatOpacity(
   packedSplats: Uint32Array,
   index: number,
   opacity: number,
+  encoding?: {
+    lodOpacity?: boolean;
+  },
 ) {
-  const uA = floatToUint8(opacity);
+  const uA = floatToUint8(encoding?.lodOpacity ? 0.5 * opacity : opacity);
 
   const i4 = index * 4;
   packedSplats[i4] = (packedSplats[i4] & 0x00ffffff) | (uA << 24);
