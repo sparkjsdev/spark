@@ -8,6 +8,7 @@ on:
   push:
     branches:
       - fix-paged-lod-browser-test
+      - fix-paged-root-eviction
 permissions:
   contents: read
 jobs:

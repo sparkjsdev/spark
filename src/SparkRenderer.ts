@@ -1566,43 +1566,48 @@ export class SparkRenderer extends THREE.Mesh {
   }
 
   private async cleanupLodTrees(worker: SplatWorker) {
-    // Dispose every expired tree, one at a time. The oldest record is re-evaluated
-    // after each await: lodIds is only added to/removed from inside this exclusive
-    // callback, but driveLod() may bump lastTouched between awaits, and a tree that
-    // was touched in the meantime must not be disposed.
-    while (true) {
-      const now = performance.now();
-
-      let oldest = null;
-      for (const [splats, record] of this.lodIds.entries()) {
-        if (oldest == null || record.lastTouched < oldest.lastTouched) {
-          oldest = {
-            splats,
-            lastTouched: record.lastTouched,
-            lodId: record.lodId,
-          };
-        }
+    // Release every expired tree. Meshes in the current render set are never
+    // candidates, regardless of lastTouched (which is stamped in the prelude,
+    // before `now` below), so a timeout of 0 means "as soon as the mesh stops
+    // being rendered".
+    const rendered = new Set(
+      this.lodMeshes.map(
+        ({ mesh }) =>
+          mesh.packedSplats?.lodSplats ??
+          mesh.extSplats?.lodSplats ??
+          mesh.paged,
+      ),
+    );
+    const now = performance.now();
+    const expired = [];
+    for (const [splats, record] of this.lodIds.entries()) {
+      if (rendered.has(splats)) continue;
+      if (record.lastTouched <= now - this.lodCleanupTimeoutMs) {
+        expired.push({ splats, lodId: record.lodId });
       }
-      if (!oldest || oldest.lastTouched > now - this.lodCleanupTimeoutMs) {
-        return;
-      }
+    }
 
-      this.lodIds.delete(oldest.splats);
-      this.lodIdToSplats.delete(oldest.lodId);
+    // All bookkeeping happens synchronously, before any await: driveLod() may
+    // run between awaits and must see a consistent lodIds. Only the worker
+    // disposals, which nothing references anymore, are awaited afterwards.
+    for (const { splats, lodId } of expired) {
+      this.lodIds.delete(splats);
+      this.lodIdToSplats.delete(lodId);
 
       for (const [mesh, instance] of this.lodInstances.entries()) {
-        if (instance.lodId === oldest.lodId) {
+        if (instance.lodId === lodId) {
           instance.texture.dispose();
           this.lodInstances.delete(mesh);
         }
       }
 
-      if (oldest.splats instanceof PagedSplats) {
-        this.pager?.removeSplats(oldest.splats);
+      if (splats instanceof PagedSplats) {
+        this.pager?.removeSplats(splats);
       }
+    }
 
-      await worker.call("disposeLodTree", { lodId: oldest.lodId });
-      // console.log("disposed lodTree", oldest.lodId);
+    for (const { lodId } of expired) {
+      await worker.call("disposeLodTree", { lodId });
     }
   }
 

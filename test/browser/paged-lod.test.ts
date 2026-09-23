@@ -40,7 +40,7 @@ test("re-shows a paged mesh whose root page was evicted", async ({
       const h = window.harness;
       const spark = h.createSpark({
         lodSplatCount: 10_000,
-        maxPagedSplats: 65536,
+        maxPagedSplats: 65536 /* 1 page */,
         lodCleanupTimeoutMs: Number.POSITIVE_INFINITY,
       });
       const camera = h.createCamera({ fov: 60, position: [0, 0, 9] });
