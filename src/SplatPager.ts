@@ -984,33 +984,33 @@ export class SplatPager {
   }
 
   removeSplats(splats: PagedSplats) {
-    const chunks = this.splatsChunkToPage.get(splats);
-    if (!chunks) {
-      return;
-    }
-
     const freedPages = new Set<number>();
 
-    while (chunks.length > 0) {
-      const chunk = chunks.pop();
-      if (chunk) {
-        const { page } = chunk;
-        this.pageToSplatsChunk[page] = undefined;
-        freedPages.add(page);
-        this.pageFreelist.push(page);
-        this.pageLru.delete(chunk);
+    const chunks = this.splatsChunkToPage.get(splats);
+    if (chunks) {
+      while (chunks.length > 0) {
+        const chunk = chunks.pop();
+        if (chunk) {
+          const { page } = chunk;
+          this.pageToSplatsChunk[page] = undefined;
+          freedPages.add(page);
+          this.pageFreelist.push(page);
+          this.pageLru.delete(chunk);
+        }
       }
+      this.splatsChunkToPage.delete(splats);
+      this.freeablePages = this.freeablePages.filter(
+        (page) => !freedPages.has(page),
+      );
     }
-    this.splatsChunkToPage.delete(splats);
-    this.freeablePages = this.freeablePages.filter(
-      (page) => !freedPages.has(page),
-    );
 
     if (FIX_LATE_CHUNKS) {
       // Nothing queued may still refer to these splats or their freed pages:
       // a chunk that landed after the last consume would otherwise be inserted
       // into a future tree for the same splats, pointing at a page we no
-      // longer own.
+      // longer own. This must run even when no pages are mapped yet: the root
+      // chunk may be sitting in `fetched`, and processFetched would map it for
+      // splats that no longer have a tree.
       removeWhere(this.fetched, (f) => f.splats === splats);
       removeWhere(this.lodTreeUpdates, (u) => u.splats === splats);
       removeWhere(this.newUploads, (u) => freedPages.has(u.page));
