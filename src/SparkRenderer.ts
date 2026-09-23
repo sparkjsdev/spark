@@ -677,13 +677,13 @@ export class SparkRenderer extends THREE.Mesh {
     // @ts-ignore Object3D has a dispose method in Three.js >= r186
     super.dispose?.();
 
-    if (this.updateTimeoutId !== -1) {
+    if (this.updateTimeoutId !== undefined) {
       clearTimeout(this.updateTimeoutId);
-      this.updateTimeoutId = -1;
+      this.updateTimeoutId = undefined;
     }
-    if (this.sortTimeoutId !== -1) {
+    if (this.sortTimeoutId !== undefined) {
       clearTimeout(this.sortTimeoutId);
-      this.sortTimeoutId = -1;
+      this.sortTimeoutId = undefined;
     }
 
     this.geometry.dispose();
