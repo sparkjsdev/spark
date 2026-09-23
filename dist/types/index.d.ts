@@ -3,7 +3,7 @@ export { SplatAccumulator, type GeneratorMapping } from "./SplatAccumulator";
 export * as dyno from "./dyno";
 export { RgbaArray, readRgbaArray } from "./RgbaArray";
 export { SplatLoader, getSplatFileType, } from "./SplatLoader";
-export { transcodeSpz, writeSpz, type SpzWriteVersion, type WriteSpzOptions, } from "./spz";
+export { transcodeSpz, writeSpz, type SpzWriteVersion, type WriteSpzOptions, type TranscodeSpzFileInput, type TranscodeSpzInput, } from "./spz";
 export { PackedSplats, type PackedSplatsOptions } from "./PackedSplats";
 export { ExtSplats, type ExtSplatsOptions } from "./ExtSplats";
 export * from "./SplatPager";

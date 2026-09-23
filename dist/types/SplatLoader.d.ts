@@ -3,7 +3,6 @@ import { ExtSplats } from "./ExtSplats";
 import { PackedSplats } from "./PackedSplats";
 import { SplatMesh } from "./SplatMesh";
 import { SplatFileType } from "./defines";
-import type { SpzWriteVersion } from "./spz";
 export declare class SplatLoader extends Loader {
     fileLoader: FileLoader;
     constructor(manager?: LoadingManager);
@@ -143,24 +142,3 @@ export declare class SplatData {
     setSh2(index: number, sh2: Float32Array): void;
     setSh3(index: number, sh3: Float32Array): void;
 }
-export type FileInput = {
-    fileBytes: Uint8Array;
-    fileType?: SplatFileType;
-    pathOrUrl?: string;
-    transform?: {
-        translate?: number[];
-        quaternion?: number[];
-        scale?: number;
-    };
-};
-export type TranscodeSpzInput = {
-    inputs: FileInput[];
-    maxSh?: number;
-    clipXyz?: {
-        min: number[];
-        max: number[];
-    };
-    fractionalBits?: number;
-    opacityThreshold?: number;
-    version?: SpzWriteVersion;
-};
