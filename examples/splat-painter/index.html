@@ -487,7 +487,7 @@
           
           // Now export the PackedSplats to SPZ
           console.log("Writing splats to SPZ...");
-          const { fileBytes: spzBytes } = writeSpz(newPackedSplats, ioOptions.maxSh, ioOptions.fractionalBits);
+          const { fileBytes: spzBytes } = await writeSpz(newPackedSplats, ioOptions.maxSh, ioOptions.fractionalBits);
 
           console.log("Creating download...");
           const blob = new Blob([spzBytes], { type: "application/octet-stream" });

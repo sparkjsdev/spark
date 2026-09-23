@@ -99,16 +99,18 @@ export function writeSpz(
   splats: PackedSplats | ExtSplats,
   maxSh?: number,
   fractionalBits?: number,
-): { fileBytes: Uint8Array };
+): Promise<{ fileBytes: Uint8Array }>;
 export function writeSpz(
   splats: PackedSplats | ExtSplats,
   options?: WriteSpzOptions,
-): { fileBytes: Uint8Array };
-export function writeSpz(
+): Promise<{ fileBytes: Uint8Array }>;
+export async function writeSpz(
   splats: PackedSplats | ExtSplats,
   maxShOrOptions?: number | WriteSpzOptions,
   fractionalBits?: number,
 ) {
+  await wasm.initialization;
+
   const options: WriteSpzOptions =
     typeof maxShOrOptions === "number"
       ? { maxSh: maxShOrOptions, fractionalBits }
