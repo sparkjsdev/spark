@@ -201,7 +201,7 @@ test("pages in a chunk that landed while the LoD callback was busy", async ({
     const h = window.harness;
     const spark = h.createSpark({ lodSplatCount: 10_000 });
     h.createCamera({ fov: 60, position: [0, 0, 7] });
-    
+
     const chunk0 = await h.holdRequest("**/furry-logo-pedestal-lod-0.radc");
     h.addSplatMesh({
       url: "/test/browser/fixtures/chunked/furry-logo-pedestal-lod.rad",
