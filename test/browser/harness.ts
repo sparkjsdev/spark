@@ -180,35 +180,45 @@ export class Harness {
    * pending, no sort or LoD work in flight, and no paged chunks being fetched
    * or waiting to be paged in. Pass `waitForFetches: false` to ignore chunk
    * requests still in flight (e.g. ones a test is deliberately holding back).
+   * Pass `requestRender: false` to only wait for work Spark started on its own,
+   * and `ignorePendingLod: true` to treat LoD work that only a render can pick
+   * up (lodDirty, chunk data queued for the LoD callback) as settled.
    */
   async settle({
     timeoutMs = 60_000,
     waitForFetches = true,
-  }: { timeoutMs?: number; waitForFetches?: boolean } = {}) {
+    requestRender = true,
+    ignorePendingLod = false,
+  }: {
+    timeoutMs?: number;
+    waitForFetches?: boolean;
+    requestRender?: boolean;
+    ignorePendingLod?: boolean;
+  } = {}) {
     const { spark } = this;
     if (!spark) throw new Error("createSpark() must be called before settle()");
     if (!this.camera) {
       throw new Error("createCamera() must be called before settle()");
     }
+
     await Promise.all(this.meshes.map((mesh) => mesh.initialized));
-    this.requestRender();
+    if (requestRender) this.requestRender();
+
     await this.waitUntil(
       () => {
         const { pager } = spark;
-        const pagerBusy = waitForFetches
-          ? pager?.isPending()
-          : pager?.hasQueued();
+        const fetching = waitForFetches && (pager?.isFetching() ?? false);
+        const pendingLod = spark.lodDirty || (pager?.hasQueued() ?? false);
         return !(
           this.renderScheduled ||
           spark.sorting ||
           spark.sortDirty ||
-          spark.lodDirty ||
           spark.lodWorker?.queue != null ||
-          pagerBusy
+          fetching ||
+          (pendingLod && !ignorePendingLod)
         );
       },
-      timeoutMs,
-      "Spark to settle",
+      { timeoutMs, what: "Spark to settle" },
     );
   }
 
@@ -218,8 +228,10 @@ export class Harness {
    */
   async waitUntil(
     predicate: () => boolean,
-    timeoutMs = 60_000,
-    what = "condition",
+    {
+      timeoutMs = 60_000,
+      what = "condition",
+    }: { timeoutMs?: number; what?: string } = {},
   ) {
     const deadline = performance.now() + timeoutMs;
     let quietFrames = 0;

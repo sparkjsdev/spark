@@ -10,6 +10,7 @@ on:
       - fix-paged-lod-browser-test
       - fix-paged-root-eviction
       - fix-paged-late-chunks-add-spark-hooks
+      - fix-lod-dirty-stall
 permissions:
   contents: read
 jobs:

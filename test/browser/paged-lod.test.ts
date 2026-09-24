@@ -148,6 +148,7 @@ test("purges queued updates when a LoD tree is cleaned up mid-callback", async (
       lodCleanupTimeoutMs: 0,
     });
     const camera = h.createCamera({ fov: 60, position: [0, 0, 7] });
+
     const chunk0 = await h.holdRequest("**/furry-logo-pedestal-lod-0.radc");
     const mesh = h.addSplatMesh({
       url: "/test/browser/fixtures/chunked/furry-logo-pedestal-lod.rad",
@@ -186,4 +187,45 @@ test("purges queued updates when a LoD tree is cleaned up mid-callback", async (
 
   expect(pngBuffer(evicted)).toMatchSnapshot("paged-lod-blank.png");
   expect(pngBuffer(recovered)).toMatchSnapshot("lod-10K.png");
+});
+
+// A chunk that lands after the callback has consumed the pager queues is
+// announced through onUpdate, but that render finds the LoD worker busy and
+// skips it. When the callback finishes it must request another render, or the
+// chunk waits for an unrelated one: with nothing else going on, the mesh
+// would stay blank.
+test("pages in a chunk that landed while the LoD callback was busy", async ({
+  harnessPage,
+}) => {
+  const png = await harnessPage.evaluate(async () => {
+    const h = window.harness;
+    const spark = h.createSpark({ lodSplatCount: 10_000 });
+    h.createCamera({ fov: 60, position: [0, 0, 7] });
+    
+    const chunk0 = await h.holdRequest("**/furry-logo-pedestal-lod-0.radc");
+    h.addSplatMesh({
+      url: "/test/browser/fixtures/chunked/furry-logo-pedestal-lod.rad",
+      paged: true,
+      quaternion: [1, 0, 0, 0],
+    });
+    // Tree created and chunk 0 requested (held back).
+    await h.settle({ waitForFetches: false });
+
+    // Pause the LoD callback after it has consumed the pager queues.
+    const cleanup = h.holdHook("lod.beforeCleanup");
+    h.requestRender();
+    await cleanup.reached;
+
+    // Chunk 0 lands and is queued; its onUpdate render finds the worker busy.
+    await chunk0.release();
+    await h.waitUntil(() => spark.pager?.hasQueued() ?? false);
+
+    // Spark must re-drive LoD on its own: settle without requesting a render,
+    // and accept queued chunk data so the blank image is what fails the test.
+    cleanup.release();
+    await h.settle({ requestRender: false, ignorePendingLod: true });
+    return h.getPixels();
+  });
+
+  expect(pngBuffer(png)).toMatchSnapshot("lod-10K.png");
 });
