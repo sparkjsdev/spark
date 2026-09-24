@@ -1275,7 +1275,6 @@ export class SparkRenderer extends THREE.Mesh {
           maxSplats: this.maxPagedSplats,
           numFetchers: this.numLodFetchers,
           onUpdate: () => this.setDirty(),
-          isActive: (splats) => this.lodIds.has(splats),
         });
 
         const { lodId } = await worker.call("newLodTree", {

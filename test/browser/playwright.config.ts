@@ -1,25 +1,12 @@
-import net from "node:net";
 import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 
 const repoRoot = path.resolve(import.meta.dirname, "../..");
 
-// Always start our own Vite (with SPARK_ENABLE_HOOKS) on a free port, so a
-// developer's `npm run dev` on 8080 is neither reused nor disturbed. This file
-// is evaluated in the runner and again in each worker, so the port chosen by
-// the runner is handed down through the environment.
-function freePort() {
-  return new Promise<number>((resolve, reject) => {
-    const server = net.createServer();
-    server.once("error", reject);
-    server.listen(0, () => {
-      const { port } = server.address() as net.AddressInfo;
-      server.close(() => resolve(port));
-    });
-  });
-}
-process.env.SPARK_TEST_PORT ??= String(await freePort());
-const port = Number(process.env.SPARK_TEST_PORT);
+// Always start our own Vite (with SPARK_ENABLE_HOOKS) on a port of its own, so
+// a developer's `npm run dev` on 8080 (or 8081 if Vite had to move it) is
+// neither reused nor disturbed. Set SPARK_TEST_PORT if 8090 is taken.
+const port = Number(process.env.SPARK_TEST_PORT ?? 8090);
 const baseURL = `http://localhost:${port}`;
 
 export default defineConfig({

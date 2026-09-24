@@ -39,10 +39,6 @@ const PAGE_WIDTH = 256;
 const PAGE_HEIGHT = 256;
 const PAGE_SPLATS = PAGE_WIDTH * PAGE_HEIGHT; // 65536
 
-// TEMPORARY: set false to reproduce chunks landing around LoD tree cleanup
-// (test/browser/paged-lod.test.ts). Remove once the fix is accepted.
-const FIX_LATE_CHUNKS = true;
-
 export class PagedSplats implements SplatSource {
   pager?: SplatPager;
   rootUrl: string;
@@ -531,11 +527,6 @@ export interface SplatPagerOptions {
    * a render is needed to page in the chunk or retry.
    */
   onUpdate: () => void;
-  /**
-   * Whether a PagedSplats still has a LoD tree. Chunks that land for splats
-   * that are no longer active are dropped instead of being paged in.
-   */
-  isActive: (splats: PagedSplats) => boolean;
 }
 
 interface PageUpload {
@@ -560,7 +551,6 @@ export class SplatPager {
   autoDrive: boolean;
   numFetchers: number;
   onUpdate?: () => void;
-  isActive?: (splats: PagedSplats) => boolean;
   fetchPause = 0;
 
   splatsChunkToPage: Map<
@@ -647,7 +637,6 @@ export class SplatPager {
     this.autoDrive = options.autoDrive ?? true;
     this.numFetchers = options.numFetchers ?? 3;
     this.onUpdate = options.onUpdate;
-    this.isActive = options.isActive;
 
     this.splatsChunkToPage = new Map();
     this.pageToSplatsChunk = new Array(this.maxPages);
@@ -877,7 +866,6 @@ export class SplatPager {
     this.autoDrive = false;
     this.numFetchers = 0;
     this.onUpdate = undefined;
-    this.isActive = undefined;
 
     this.packedTexture.value.dispose();
     this.packedTexture.value.source.data = null;
@@ -1004,20 +992,23 @@ export class SplatPager {
       );
     }
 
-    if (FIX_LATE_CHUNKS) {
-      // Nothing queued may still refer to these splats or their freed pages:
-      // a chunk that landed after the last consume would otherwise be inserted
-      // into a future tree for the same splats, pointing at a page we no
-      // longer own. This must run even when no pages are mapped yet: the root
-      // chunk may be sitting in `fetched`, and processFetched would map it for
-      // splats that no longer have a tree.
-      removeWhere(this.fetched, (f) => f.splats === splats);
-      removeWhere(this.lodTreeUpdates, (u) => u.splats === splats);
-      removeWhere(this.newUploads, (u) => freedPages.has(u.page));
-      removeWhere(this.readyUploads, (u) => freedPages.has(u.page));
-      // Stop drawing indices into pages that no longer hold these splats.
-      splats.clear();
-    }
+    // Nothing queued may still refer to these splats or their freed pages:
+    // a chunk that landed after the last consume would otherwise be inserted
+    // into a future tree for the same splats, pointing at a page we no
+    // longer own. This must run even when no pages are mapped yet: the root
+    // chunk may be sitting in `fetched`, and processFetched would map it for
+    // splats that no longer have a tree.
+    removeWhere(this.fetched, (f) => f.splats === splats);
+    removeWhere(this.lodTreeUpdates, (u) => u.splats === splats);
+    removeWhere(this.newUploads, (u) => freedPages.has(u.page));
+    removeWhere(this.readyUploads, (u) => freedPages.has(u.page));
+    // Fetches still in flight drop their chunk when they find themselves no
+    // longer in `fetchers`. `fetchPriority` is stale until the next traverse,
+    // so autoDrive must not start new fetches from it either.
+    removeWhere(this.fetchers, (f) => f.splats === splats);
+    removeWhere(this.fetchPriority, (p) => p.splats === splats);
+    // Stop drawing indices into pages that no longer hold these splats.
+    splats.clear();
   }
 
   private uploadPage(
@@ -1115,11 +1106,11 @@ export class SplatPager {
           .then(
             async (data) => {
               // Drop the chunk if the originating PagedSplats was disposed, or
-              // its LoD tree was cleaned up, while the fetch was in flight.
-              if (splats.abortController.signal.aborted) {
-                return;
-              }
-              if (FIX_LATE_CHUNKS && !this.isActive?.(splats)) {
+              // removed from the pager, while the fetch was in flight.
+              if (
+                splats.abortController.signal.aborted ||
+                !this.fetchers.includes(fetcher)
+              ) {
                 return;
               }
 
@@ -1143,10 +1134,14 @@ export class SplatPager {
             },
           )
           .finally(() => {
-            // Remove this fetcher from active fetchers list
+            // Remove this fetcher from active fetchers list, unless
+            // removeSplats already did
             const fetchIndex = this.fetchers.indexOf(fetcher);
-            this.fetchers[fetchIndex] = this.fetchers[this.fetchers.length - 1];
-            this.fetchers.length--;
+            if (fetchIndex >= 0) {
+              this.fetchers[fetchIndex] =
+                this.fetchers[this.fetchers.length - 1];
+              this.fetchers.length--;
+            }
 
             this.processFetched();
             this.onUpdate?.();
