@@ -329,6 +329,12 @@ export class PagedSplats implements SplatSource {
     });
   }
 
+  /** Draw nothing until the next update(), keeping the indices texture allocated. */
+  clear() {
+    this.numSplats = 0;
+    this.dynoNumSplats.value = 0;
+  }
+
   update(numSplats: number, indices: Uint32Array) {
     if (!this.pager) {
       throw new Error("PagedSplats.pager not set");
