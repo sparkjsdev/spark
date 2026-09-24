@@ -1,15 +1,12 @@
 import * as THREE from "three";
-import {
-  ExtSplats,
-  PackedSplats,
-  PagedSplats,
-  Readback,
-  type SplatGenerator,
-  SplatMesh,
-  SplatPager,
-} from ".";
+import { ExtSplats } from "./ExtSplats";
+import { PackedSplats } from "./PackedSplats";
+import { Readback } from "./Readback";
 import { SplatAccumulator } from "./SplatAccumulator";
+import type { SplatGenerator } from "./SplatGenerator";
 import { SplatGeometry } from "./SplatGeometry";
+import { SplatMesh } from "./SplatMesh";
+import { PagedSplats, SplatPager } from "./SplatPager";
 import { SplatWorker } from "./SplatWorker";
 import { SPLAT_TEX_HEIGHT, SPLAT_TEX_WIDTH } from "./defines";
 import { getShaders } from "./shaders";
