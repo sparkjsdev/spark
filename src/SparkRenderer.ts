@@ -23,6 +23,9 @@ import {
   uploadU32DataTextureRows,
 } from "./utils";
 
+// TEMPORARY: set to false to reproduce the stall this fixes; remove before merge.
+const FIX_MESH_INIT_RENDER = true;
+
 export interface SparkRendererOptions {
   /**
    * Pass in your THREE.WebGLRenderer instance so Spark can perform work
@@ -385,6 +388,9 @@ export class SparkRenderer extends THREE.Mesh {
   sortedCenter = new THREE.Vector3().setScalar(Number.NEGATIVE_INFINITY);
   sortedDir = new THREE.Vector3().setScalar(0);
   readback32 = new Uint32Array(0);
+
+  // Meshes seen while still loading; a render is requested when they finish.
+  private initWatched = new WeakSet<SplatMesh>();
 
   enableLod: boolean;
   enableDriveLod: boolean;
@@ -968,6 +974,24 @@ export class SparkRenderer extends THREE.Mesh {
         previous: this.current,
         lodInstances: this.enableLod ? this.lodInstances : undefined,
       });
+
+    // Meshes still loading contribute nothing this frame; request a render
+    // when they finish so on-demand apps show them without other input.
+    if (FIX_MESH_INIT_RENDER) {
+      for (const generator of visibleGenerators) {
+        if (
+          generator instanceof SplatMesh &&
+          !generator.isInitialized &&
+          !this.initWatched.has(generator)
+        ) {
+          this.initWatched.add(generator);
+          generator.initialized.then(
+            () => this.setDirty(),
+            () => {}, // load errors are reported by the mesh itself
+          );
+        }
+      }
+    }
 
     let doUpdate = true;
     const needsUpdate = viewChanged || version !== this.current.version;

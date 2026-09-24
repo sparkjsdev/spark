@@ -69,3 +69,32 @@ test("renders three overlapping instances of shared splats", async ({
 
   expect(pngBuffer(png)).toMatchSnapshot("basic-instances.png");
 });
+
+// A mesh that finishes loading after the last render has nothing to prompt
+// one: the file lands, the mesh is initialized, and it stays invisible until
+// something else triggers a render. Spark must request one itself.
+test("shows a mesh that finished loading after the last render", async ({
+  harnessPage,
+}) => {
+  const png = await harnessPage.evaluate(async () => {
+    const h = window.harness;
+    h.createSpark();
+    h.createCamera({ fov: 60, position: [0, 0, 7] });
+
+    const file = await h.holdRequest("**/furry-logo-pedestal.spz");
+    h.addSplatMesh({
+      url: "/test/browser/fixtures/furry-logo-pedestal.spz",
+      quaternion: [1, 0, 0, 0],
+    });
+
+    // Render once with the file still held back, and go quiet.
+    await h.settle({ waitForLoads: false });
+
+    // The file lands; Spark must request the render that shows the mesh.
+    await file.release();
+    await h.settle({ requestRender: false });
+    return h.getPixels();
+  });
+
+  expect(pngBuffer(png)).toMatchSnapshot("basic.png");
+});

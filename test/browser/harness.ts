@@ -178,19 +178,22 @@ export class Harness {
   /**
    * Render until Spark has nothing more to show: all meshes loaded, no render
    * pending, no sort or LoD work in flight, and no paged chunks being fetched
-   * or waiting to be paged in. Pass `waitForFetches: false` to ignore chunk
-   * requests still in flight (e.g. ones a test is deliberately holding back).
+   * or waiting to be paged in. Pass `waitForLoads: false` to not wait for
+   * meshes still loading, or `waitForFetches: false` to ignore chunk requests
+   * still in flight (e.g. ones a test is deliberately holding back).
    * Pass `requestRender: false` to only wait for work Spark started on its own,
    * and `ignorePendingLod: true` to treat LoD work that only a render can pick
    * up (lodDirty, chunk data queued for the LoD callback) as settled.
    */
   async settle({
     timeoutMs = 60_000,
+    waitForLoads = true,
     waitForFetches = true,
     requestRender = true,
     ignorePendingLod = false,
   }: {
     timeoutMs?: number;
+    waitForLoads?: boolean;
     waitForFetches?: boolean;
     requestRender?: boolean;
     ignorePendingLod?: boolean;
@@ -201,7 +204,9 @@ export class Harness {
       throw new Error("createCamera() must be called before settle()");
     }
 
-    await Promise.all(this.meshes.map((mesh) => mesh.initialized));
+    if (waitForLoads) {
+      await Promise.all(this.meshes.map((mesh) => mesh.initialized));
+    }
     if (requestRender) this.requestRender();
 
     await this.waitUntil(
