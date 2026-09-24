@@ -160,7 +160,7 @@ pub fn encode_ext_splat_rgb(ext_b: &mut [u32], rgb: [f32; 3]) {
 
 pub fn decode_ext_splat_rgb(ext_b: &[u32]) -> [f32; 3] {
     [ext_b[0] as u16, (ext_b[0] >> 16) as u16, ext_b[1] as u16]
-        .map(|x| f16::from_bits(x as u16).to_f32())
+        .map(|x| f16::from_bits(x).to_f32())
 }
 
 pub fn encode_ext_splat_rgba(ext_a: &mut [u32], ext_b: &mut [u32], rgba: [f32; 4]) {
@@ -180,7 +180,7 @@ pub fn encode_ext_splat_scale(ext_b: &mut [u32], scale: [f32; 3]) {
 
 pub fn decode_ext_splat_scale(ext_b: &[u32]) -> [f32; 3] {
     [(ext_b[1] >> 16) as u16, ext_b[2] as u16, (ext_b[2] >> 16) as u16]
-        .map(|x| f16::from_bits(x as u16).to_f32().exp())
+        .map(|x| f16::from_bits(x).to_f32().exp())
 }
 
 pub fn encode_ext_splat_quat(ext_b: &mut [u32], quat_xyzw: [f32; 4]) {
@@ -488,11 +488,11 @@ pub fn encode_lod_tree(buffer: &mut [u32], center: &[f32], opacity: f32, scale: 
     buffer[0] = (center[0].to_bits() as u32) | ((center[1].to_bits() as u32) << 16);
     buffer[1] = (center[2].to_bits() as u32) | ((size.to_bits() as u32) << 16);
     buffer[2] = child_count as u32;
-    buffer[3] = child_start as u32;
+    buffer[3] = child_start;
 }
 
 pub fn decode_lod_tree_children(buffer: &[u32]) -> (u16, u32) {
     let child_count = (buffer[2] & 0xffff) as u16;
-    let child_start = buffer[3] as u32;
+    let child_start = buffer[3];
     (child_count, child_start)
 }

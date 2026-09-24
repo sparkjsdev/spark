@@ -59,7 +59,7 @@ pub fn morton_coord64_to_index([x, y, z]: [u64; 3]) -> [u64; 3] {
 
     fn or_shift_u64_into_u192_le(out: &mut [u64; 3], v: u64, shift: u32) {
         let limb = (shift / 64) as usize;
-        let off = (shift % 64) as u32;
+        let off = shift % 64;
 
         out[limb] |= v << off;
         if off != 0 && limb + 1 < 3 {
