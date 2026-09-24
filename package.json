@@ -39,15 +39,19 @@
     "site:deploy": "npm run site:build && node scripts/deploy-site.js",
     "site:serve": "node scripts/serve-site.js site",
     "start": "npm run dev",
-    "test": "vitest run --reporter=dot test/",
+    "test": "vitest run --reporter=dot --dir test/unit",
+    "test:browser": "playwright test -c test/browser/playwright.config.ts",
+    "test:browser:update": "playwright test -c test/browser/playwright.config.ts --update-snapshots",
     "test:rust": "cargo test --locked --manifest-path rust/Cargo.toml --workspace",
-    "types": "tsc -p tsconfig.json --noEmit"
+    "types": "tsc -p tsconfig.json --noEmit && tsc -p test/browser/tsconfig.json"
   },
   "repository": "sparkjsdev/spark",
   "files": ["dist"],
   "license": "MIT",
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^26.6.2",
     "@types/three": "0.180.0",
     "fflate": "^0.8.2",
     "lefthook": "1.11.12",

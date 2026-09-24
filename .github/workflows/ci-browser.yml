@@ -1,0 +1,69 @@
+name: Spark CI Browser
+on:
+  # Manual runs from the Actions tab or `gh workflow run ci-browser.yml --ref <branch>`.
+  # (Only listed there once this file exists on the default branch.)
+  workflow_dispatch:
+  # Auto-run while developing this branch. TODO: remove the push trigger once
+  # merged so the browser tests only run on demand from main.
+  push:
+    branches:
+      - fix-paged-lod-browser-test
+permissions:
+  contents: read
+jobs:
+  browser:
+    name: browser tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v7
+
+      - name: Use Node.js 22.x
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22.x'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Cache Rust build
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            rust/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Add Rust wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: command -v wasm-pack || cargo install wasm-pack --locked
+
+      - name: Build spark-rs
+        run: npm run build:wasm
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser tests
+        run: npm run test:browser
+
+      - name: Upload Playwright report
+        # Upload on success or failure, but not when the job was cancelled.
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: test/browser/playwright-report/
+          retention-days: 14

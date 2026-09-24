@@ -32,7 +32,9 @@ export interface SparkRendererOptions {
   renderer: THREE.WebGLRenderer;
   /**
    * Callback function to be called when SparkRenderer needs to re-render,
-   * for example when splat sort order or LoD updates complete.
+   * for example when splat sort order or LoD updates complete. May fire
+   * several times per frame; schedule a single render rather than rendering
+   * inside the callback.
    */
   onDirty?: () => void;
   /**
@@ -354,7 +356,7 @@ export class SparkRenderer extends THREE.Mesh {
   readonly timer: THREE.Timer;
   private readonly ownsTimer: boolean;
   lastFrame = -1;
-  updateTimeoutId = -1;
+  updateTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
   onDirty?: () => void;
   dirty: boolean;
 
@@ -370,7 +372,7 @@ export class SparkRenderer extends THREE.Mesh {
   sortDirty = false;
   lastSortTime = 0;
   sortWorker: SplatWorker | null = null;
-  sortTimeoutId = -1;
+  sortTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
   sortedCenter = new THREE.Vector3().setScalar(Number.NEGATIVE_INFINITY);
   sortedDir = new THREE.Vector3().setScalar(0);
   readback32 = new Uint32Array(0);
@@ -675,13 +677,13 @@ export class SparkRenderer extends THREE.Mesh {
     // @ts-ignore Object3D has a dispose method in Three.js >= r186
     super.dispose?.();
 
-    if (this.updateTimeoutId !== -1) {
+    if (this.updateTimeoutId !== undefined) {
       clearTimeout(this.updateTimeoutId);
-      this.updateTimeoutId = -1;
+      this.updateTimeoutId = undefined;
     }
-    if (this.sortTimeoutId !== -1) {
+    if (this.sortTimeoutId !== undefined) {
       clearTimeout(this.sortTimeoutId);
-      this.sortTimeoutId = -1;
+      this.sortTimeoutId = undefined;
     }
 
     this.geometry.dispose();
@@ -761,9 +763,9 @@ export class SparkRenderer extends THREE.Mesh {
           autoUpdate: true,
         });
       } else {
-        if (spark.updateTimeoutId === -1) {
+        if (spark.updateTimeoutId === undefined) {
           spark.updateTimeoutId = setTimeout(() => {
-            spark.updateTimeoutId = -1;
+            spark.updateTimeoutId = undefined;
             spark.updateInternal({
               scene,
               camera: useCamera,
@@ -1010,9 +1012,9 @@ export class SparkRenderer extends THREE.Mesh {
       return;
     }
 
-    if (this.sortTimeoutId !== -1) {
+    if (this.sortTimeoutId !== undefined) {
       clearTimeout(this.sortTimeoutId);
-      this.sortTimeoutId = -1;
+      this.sortTimeoutId = undefined;
     }
 
     const now = performance.now();
@@ -1021,7 +1023,7 @@ export class SparkRenderer extends THREE.Mesh {
       : now;
     if (now < nextSortTime) {
       this.sortTimeoutId = setTimeout(() => {
-        this.sortTimeoutId = -1;
+        this.sortTimeoutId = undefined;
         this.driveSort();
       }, nextSortTime - now);
       return;
@@ -1261,6 +1263,7 @@ export class SparkRenderer extends THREE.Mesh {
           extSplats: this.pagedExtSplats,
           maxSplats: this.maxPagedSplats,
           numFetchers: this.numLodFetchers,
+          onUpdate: () => this.setDirty(),
         });
 
         const { lodId } = await worker.call("newLodTree", {

@@ -65,6 +65,7 @@ This will run a Web server at [http://localhost:8080/](http://localhost:8080/) w
 - [Spark Overview](overview.md)
 - [System Design](system-design.md)
 - [SparkRenderer](spark-renderer.md)
+- [On-demand rendering](on-demand-rendering.md)
 - [SplatMesh](splat-mesh.md)
 - [PackedSplats](packed-splats.md)
 - [ExtSplats](ext-splats.md)
