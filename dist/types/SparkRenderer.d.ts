@@ -196,6 +196,14 @@ export interface SparkRendererOptions {
      */
     numLodFetchers?: number;
     /**
+     * How long (ms) a LoD SplatMesh can go unrendered (hidden or removed from the
+     * scene) before its LoD state is released: the worker-side tree is dropped and,
+     * for paged meshes, its resident pages are freed for other meshes. Rendering it
+     * again rebuilds the tree and refetches pages. Set to Infinity to never release.
+     * @default 3000
+     */
+    lodCleanupTimeoutMs?: number;
+    /**
      * Full-width angle in degrees of fixed foveation cone along the view direction
      * with no foveation applied (full resolution, foveate=1.0). Set to 0 to disable.
      * @default 90.0
@@ -349,6 +357,7 @@ export declare class SparkRenderer extends THREE.Mesh {
     pagedExtSplats: boolean;
     maxPagedSplats: number;
     numLodFetchers: number;
+    lodCleanupTimeoutMs: number;
     behindFoveate: number;
     coneFov0: number;
     coneFov: number;

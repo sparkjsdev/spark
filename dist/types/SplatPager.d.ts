@@ -45,6 +45,8 @@ export declare class PagedSplats implements SplatSource {
     }>;
     chunkUrl(chunk: number): string;
     fetchDecodeChunk(chunk: number): Promise<ExtResult | PackedResult>;
+    /** Draw nothing until the next update(), keeping the indices texture allocated. */
+    clear(): void;
     update(numSplats: number, indices: Uint32Array): void;
     prepareFetchSplat(): void;
     getNumSplats(): number;
