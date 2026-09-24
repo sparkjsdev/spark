@@ -432,6 +432,7 @@ export class SplatMesh extends SplatGenerator {
         this.updateGenerator();
 
         this.isInitialized = true;
+        this.dispatchEvent({ type: "initialized" });
         if (options.onLoad) {
           const maybePromise = options.onLoad(this);
           if (maybePromise instanceof Promise) {

@@ -262,7 +262,16 @@ export interface FrameUpdateContext {
   lodIndices?: { numSplats: number; texture: THREE.DataTexture };
 }
 
-export class SplatGenerator extends THREE.Object3D {
+export interface SplatGeneratorEventMap extends THREE.Object3DEventMap {
+  /**
+   * Dispatched when asynchronous initialization completes and the splats are
+   * ready to render. Not dispatched for splats that are initialized on
+   * construction
+   */
+  initialized: object;
+}
+
+export class SplatGenerator extends THREE.Object3D<SplatGeneratorEventMap> {
   numSplats: number;
   generator?: GsplatGenerator;
   covGenerator?: CovSplatGenerator;

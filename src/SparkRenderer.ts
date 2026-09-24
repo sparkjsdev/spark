@@ -977,6 +977,8 @@ export class SparkRenderer extends THREE.Mesh {
 
     // Meshes still loading contribute nothing this frame; request a render
     // when they finish so on-demand apps show them without other input.
+    // Listen for the event rather than mesh.initialized: attaching to that
+    // promise would mark a load failure as handled and silence its report.
     if (FIX_MESH_INIT_RENDER) {
       for (const generator of visibleGenerators) {
         if (
@@ -985,10 +987,11 @@ export class SparkRenderer extends THREE.Mesh {
           !this.initWatched.has(generator)
         ) {
           this.initWatched.add(generator);
-          generator.initialized.then(
-            () => this.setDirty(),
-            () => {}, // load errors are reported by the mesh itself
-          );
+          const onInitialized = () => {
+            generator.removeEventListener("initialized", onInitialized);
+            this.setDirty();
+          };
+          generator.addEventListener("initialized", onInitialized);
         }
       }
     }
