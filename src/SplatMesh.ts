@@ -58,6 +58,11 @@ export type SplatMeshOptions = {
   // URL to fetch a Gaussian splat file from(supports .ply, .splat, .ksplat,
   // .spz formats). (default: undefined)
   url?: string;
+  // Extra HTTP headers to send when fetching from url. (default: undefined)
+  requestHeader?: Record<string, string>;
+  // Send cookies and other credentials when fetching from url, including
+  // cross-origin requests. (default: false)
+  withCredentials?: boolean;
   // Raw bytes of a Gaussian splat file to decode directly instead of fetching
   // from URL. (default: undefined)
   fileBytes?: Uint8Array | ArrayBuffer;
@@ -332,6 +337,8 @@ export class SplatMesh extends SplatGenerator {
       } else {
         const pagedSplatOptions: PagedSplatsOptions = {
           rootUrl,
+          requestHeader: options.requestHeader,
+          withCredentials: options.withCredentials,
         };
         if (options.paged instanceof SplatPager) {
           pagedSplatOptions.pager = options.paged;
@@ -463,6 +470,8 @@ export class SplatMesh extends SplatGenerator {
       fileName,
       stream,
       streamLength,
+      requestHeader,
+      withCredentials,
       maxSplats,
       constructSplats,
       onProgress,
@@ -480,6 +489,8 @@ export class SplatMesh extends SplatGenerator {
           fileName,
           stream,
           streamLength,
+          requestHeader,
+          withCredentials,
           maxSplats,
           construct: constructSplats,
           onProgress,
@@ -504,6 +515,8 @@ export class SplatMesh extends SplatGenerator {
           fileName,
           stream,
           streamLength,
+          requestHeader,
+          withCredentials,
           maxSplats,
           construct,
           onProgress,

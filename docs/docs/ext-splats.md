@@ -11,6 +11,8 @@ Each splat is stored across two `Uint32Array`s:
 ```typescript
 const extSplats = new ExtSplats({
   url?: string;
+  requestHeader?: Record<string, string>;
+  withCredentials?: boolean;
   fileBytes?: Uint8Array | ArrayBuffer;
   fileType?: SplatFileType;
   fileName?: string;
@@ -38,6 +40,8 @@ Like `PackedSplats`, you can create a `new ExtSplats()` with no options, which c
 | **Parameter**     | Description |
 | ----------------- | ----------- |
 | **url**           | URL to fetch a Gaussian splat file from (supports `.ply`, `.spz`, `.splat`, `.ksplat`, `.sog`/PC-SOGS zip, and `.rad`; PC-SOGS JSON can be loaded with `fileType`). (default: `undefined`)
+| **requestHeader** | Extra HTTP headers to send when fetching from `url`. (default: `undefined`)
+| **withCredentials** | Send cookies and other credentials when fetching from `url`, including cross-origin requests. (default: `false`)
 | **fileBytes**     | Raw bytes of a Gaussian splat file to decode directly instead of fetching from URL. (default: `undefined`)
 | **fileType**      | Override the file type detection for formats that can't be reliably auto-detected (especially `.splat`, `.ksplat`, and extension-less inputs). (default: `undefined` auto-detects when possible)
 | **fileName**      | Optional file name hint used for type detection. (default: `undefined`)
