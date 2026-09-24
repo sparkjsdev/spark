@@ -12,7 +12,9 @@ export interface SparkRendererOptions {
     renderer: THREE.WebGLRenderer;
     /**
      * Callback function to be called when SparkRenderer needs to re-render,
-     * for example when splat sort order or LoD updates complete.
+     * for example when splat sort order or LoD updates complete. May fire
+     * several times per frame; schedule a single render rather than rendering
+     * inside the callback.
      */
     onDirty?: () => void;
     /**
@@ -319,7 +321,7 @@ export declare class SparkRenderer extends THREE.Mesh {
     readonly timer: THREE.Timer;
     private readonly ownsTimer;
     lastFrame: number;
-    updateTimeoutId: number;
+    updateTimeoutId: ReturnType<typeof setTimeout> | undefined;
     onDirty?: () => void;
     dirty: boolean;
     orderingTexture: THREE.DataTexture | null;
@@ -332,7 +334,7 @@ export declare class SparkRenderer extends THREE.Mesh {
     sortDirty: boolean;
     lastSortTime: number;
     sortWorker: SplatWorker | null;
-    sortTimeoutId: number;
+    sortTimeoutId: ReturnType<typeof setTimeout> | undefined;
     sortedCenter: THREE.Vector3;
     sortedDir: THREE.Vector3;
     readback32: Uint32Array<ArrayBuffer>;

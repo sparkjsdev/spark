@@ -86,6 +86,11 @@ export interface SplatPagerOptions {
      * @default 3
      */
     numFetchers?: number;
+    /**
+     * Called after each chunk fetch attempt settles (success or failure);
+     * a render is needed to page in the chunk or retry.
+     */
+    onUpdate?: () => void;
 }
 export declare class SplatPager {
     readonly renderer: THREE.WebGLRenderer;
@@ -97,6 +102,7 @@ export declare class SplatPager {
     curSh: number;
     autoDrive: boolean;
     numFetchers: number;
+    onUpdate?: () => void;
     fetchPause: number;
     splatsChunkToPage: Map<PagedSplats, ({
         page: number;
@@ -186,6 +192,8 @@ export declare class SplatPager {
     private allocateFreeable;
     private processFetched;
     processUploads(): void;
+    /** True while chunks are being fetched or are waiting to be paged in. */
+    pending(): boolean;
     consumeLodTreeUpdates(): {
         splats: PagedSplats;
         page: number;
