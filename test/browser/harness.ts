@@ -1,13 +1,12 @@
 import * as THREE from "three";
+import { SPARK_ENABLE_HOOKS, setSparkHook } from "../../src/hooks.js";
 import {
   PackedSplats,
   type PackedSplatsOptions,
-  SPARK_ENABLE_HOOKS,
   SparkRenderer,
   type SparkRendererOptions,
   SplatMesh,
   type SplatMeshOptions,
-  setSparkHook,
 } from "../../src/index.js";
 
 declare global {

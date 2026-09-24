@@ -12,11 +12,13 @@ export type SparkHook = (
   context?: Record<string, unknown>,
 ) => void | Promise<void>;
 
-// import.meta.env only exists under Vite/Vitest; plain Node has no env object.
-const env = (import.meta as { env?: Record<string, unknown> }).env;
-
-/** True only when built with SPARK_ENABLE_HOOKS=1. Gates every hook point. */
-export const SPARK_ENABLE_HOOKS: boolean = env?.SPARK_ENABLE_HOOKS === "1";
+/**
+ * True only when built with SPARK_ENABLE_HOOKS=1. Gates every hook point.
+ * Read as a direct `import.meta.env.<KEY>` so Vite replaces it with a literal
+ * at build time and the hook code is compiled out of normal builds.
+ */
+export const SPARK_ENABLE_HOOKS: boolean =
+  import.meta.env.SPARK_ENABLE_HOOKS === "1";
 
 let hook: SparkHook | undefined;
 

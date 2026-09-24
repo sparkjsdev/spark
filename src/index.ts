@@ -111,8 +111,6 @@ export { LN_SCALE_MIN, LN_SCALE_MAX, SplatFileType } from "./defines";
 
 export * as defines from "./defines";
 
-export { SPARK_ENABLE_HOOKS, setSparkHook, type SparkHook } from "./hooks";
-
 export {
   SparkPortals,
   type SparkPortalsOptions,
