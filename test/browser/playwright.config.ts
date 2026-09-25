@@ -2,7 +2,11 @@ import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 
 const repoRoot = path.resolve(import.meta.dirname, "../..");
-const port = 8080;
+
+// Always start our own Vite (with SPARK_ENABLE_HOOKS) on a port of its own, so
+// a developer's `npm run dev` on 8080 (or 8081 if Vite had to move it) is
+// neither reused nor disturbed. Set SPARK_TEST_PORT if 8090 is taken.
+const port = Number(process.env.SPARK_TEST_PORT ?? 8090);
 const baseURL = `http://localhost:${port}`;
 
 export default defineConfig({
@@ -57,7 +61,8 @@ export default defineConfig({
     command: `npx vite --port ${port} --strictPort`,
     // Run Vite from the repo root so it picks up vite.config.ts and serves src/.
     cwd: repoRoot,
+    env: { SPARK_ENABLE_HOOKS: "1" },
     url: `${baseURL}/test/browser/harness.html`,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
   },
 });

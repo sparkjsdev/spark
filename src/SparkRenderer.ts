@@ -12,6 +12,7 @@ import { SplatAccumulator } from "./SplatAccumulator";
 import { SplatGeometry } from "./SplatGeometry";
 import { SplatWorker } from "./SplatWorker";
 import { SPLAT_TEX_HEIGHT, SPLAT_TEX_WIDTH } from "./defines";
+import { SPARK_ENABLE_HOOKS, sparkHook } from "./hooks";
 import { getShaders } from "./shaders";
 import {
   isAndroid,
@@ -1369,6 +1370,10 @@ export class SparkRenderer extends THREE.Mesh {
         this.setDirty();
       }
 
+      if (SPARK_ENABLE_HOOKS) {
+        const p = sparkHook("lod.beforeCleanup", { spark: this });
+        if (p) await p;
+      }
       await this.cleanupLodTrees(worker);
     });
   }

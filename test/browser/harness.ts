@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { SPARK_ENABLE_HOOKS, setSparkHook } from "../../src/hooks.js";
 import {
   PackedSplats,
   type PackedSplatsOptions,
@@ -11,7 +12,33 @@ import {
 declare global {
   interface Window {
     harness: Harness;
+    // Installed by harness.fixture.ts; see Harness.holdRequest().
+    __holdRequest: (url: string) => Promise<number>;
+    __awaitRequested: (id: number) => Promise<void>;
+    __releaseRequest: (id: number) => Promise<void>;
   }
+}
+
+/** A hook point Spark will pause at; see Harness.holdHook(). */
+export type HookHold = {
+  /** Resolves once Spark is paused at the hook point. */
+  reached: Promise<void>;
+  /** Let Spark continue. */
+  release: () => void;
+};
+
+type ArmedHold = {
+  match?: (context?: Record<string, unknown>) => boolean;
+  reached: () => void;
+  releasePromise: Promise<void>;
+};
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
 }
 
 export type Transform = {
@@ -46,12 +73,17 @@ export class Harness {
   camera?: THREE.Camera;
   private meshes: SplatMesh[] = [];
   private renderScheduled = false;
+  /** Hook holds armed by holdHook(), by hook name, in arming order. */
+  private holds = new Map<string, ArmedHold[]>();
 
   constructor(width = 256, height = 256) {
     this.renderer = new THREE.WebGLRenderer({ preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(1);
     this.renderer.setSize(width, height);
     document.body.appendChild(this.renderer.domElement);
+    if (SPARK_ENABLE_HOOKS) {
+      setSparkHook((name, context) => this.onHook(name, context));
+    }
   }
 
   createSpark(options: Partial<Omit<SparkRendererOptions, "renderer">> = {}) {
@@ -145,33 +177,104 @@ export class Harness {
 
   /**
    * Render until Spark has nothing more to show: all meshes loaded, no render
-   * pending, and no sort in flight. Note: gaps between streamed chunks of a
-   * paged mesh can look quiet, so this may return early for paged meshes.
+   * pending, no sort or LoD work in flight, and no paged chunks being fetched
+   * or waiting to be paged in. Pass `waitForFetches: false` to ignore chunk
+   * requests still in flight (e.g. ones a test is deliberately holding back).
    */
-  async settle(timeoutMs = 60_000) {
+  async settle({
+    timeoutMs = 60_000,
+    waitForFetches = true,
+  }: { timeoutMs?: number; waitForFetches?: boolean } = {}) {
     const { spark } = this;
     if (!spark) throw new Error("createSpark() must be called before settle()");
     if (!this.camera) {
       throw new Error("createCamera() must be called before settle()");
     }
     await Promise.all(this.meshes.map((mesh) => mesh.initialized));
+    this.requestRender();
+    await this.waitUntil(
+      () => {
+        const { pager } = spark;
+        const pagerBusy = waitForFetches
+          ? pager?.isPending()
+          : pager?.hasQueued();
+        return !(
+          this.renderScheduled ||
+          spark.sorting ||
+          spark.sortDirty ||
+          spark.lodDirty ||
+          spark.lodWorker?.queue != null ||
+          pagerBusy
+        );
+      },
+      timeoutMs,
+      "Spark to settle",
+    );
+  }
+
+  /**
+   * Wait until `predicate` holds for two consecutive animation frames.
+   * `what` names the condition in the timeout error.
+   */
+  async waitUntil(
+    predicate: () => boolean,
+    timeoutMs = 60_000,
+    what = "condition",
+  ) {
     const deadline = performance.now() + timeoutMs;
     let quietFrames = 0;
-    this.requestRender();
     while (quietFrames < 2) {
       await nextFrame();
-      const busy =
-        this.renderScheduled ||
-        spark.sorting ||
-        spark.sortDirty ||
-        spark.lodDirty ||
-        spark.lodWorker?.queue != null ||
-        spark.pager?.pending();
-      quietFrames = busy ? 0 : quietFrames + 1;
+      quietFrames = predicate() ? quietFrames + 1 : 0;
       if (performance.now() > deadline) {
-        throw new Error("Timed out waiting for Spark to settle");
+        throw new Error(`Timed out waiting for ${what}`);
       }
     }
+  }
+
+  /** Whether the library was built with hook points (SPARK_ENABLE_HOOKS=1). */
+  get hooksEnabled() {
+    return SPARK_ENABLE_HOOKS;
+  }
+
+  /**
+   * Pause Spark the next time it reaches the named hook point, or the next
+   * time `match` accepts the hook's context if given. Each hold fires once.
+   */
+  holdHook(name: string, match?: ArmedHold["match"]): HookHold {
+    const reached = deferred();
+    const release = deferred();
+    const armed = this.holds.get(name) ?? [];
+    armed.push({
+      match,
+      reached: reached.resolve,
+      releasePromise: release.promise,
+    });
+    this.holds.set(name, armed);
+    return { reached: reached.promise, release: release.resolve };
+  }
+
+  /** Spark hook callback: pause at the first armed hold that matches, if any. */
+  private onHook(name: string, context?: Record<string, unknown>) {
+    const armed = this.holds.get(name);
+    const index = armed?.findIndex((hold) => hold.match?.(context) ?? true);
+    if (!armed || index === undefined || index < 0) return undefined;
+    const [hold] = armed.splice(index, 1);
+    hold.reached();
+    return hold.releasePromise;
+  }
+
+  /**
+   * Hold back the first request matching the URL glob until `release()`;
+   * later matching requests pass through. Await this before triggering the
+   * request. `requested` resolves once the held request has been issued.
+   */
+  async holdRequest(url: string) {
+    const id = await window.__holdRequest(url);
+    return {
+      requested: window.__awaitRequested(id),
+      release: () => window.__releaseRequest(id),
+    };
   }
 
   /** The current canvas contents as a PNG data URL. */

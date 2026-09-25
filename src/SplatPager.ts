@@ -19,6 +19,7 @@ import { type DynoUsampler2DArray, pagedSplatTexCoord } from "./dyno";
 import {
   decodeExtSplat,
   getTextureSize,
+  removeWhere,
   unpackSplat,
   uploadU32DataTextureRows,
 } from "./utils";
@@ -525,7 +526,7 @@ export interface SplatPagerOptions {
    * Called after each chunk fetch attempt settles (success or failure);
    * a render is needed to page in the chunk or retry.
    */
-  onUpdate?: () => void;
+  onUpdate: () => void;
 }
 
 interface PageUpload {
@@ -971,27 +972,43 @@ export class SplatPager {
   }
 
   removeSplats(splats: PagedSplats) {
-    const chunks = this.splatsChunkToPage.get(splats);
-    if (!chunks) {
-      return;
-    }
-
     const freedPages = new Set<number>();
 
-    while (chunks.length > 0) {
-      const chunk = chunks.pop();
-      if (chunk) {
-        const { page } = chunk;
-        this.pageToSplatsChunk[page] = undefined;
-        freedPages.add(page);
-        this.pageFreelist.push(page);
-        this.pageLru.delete(chunk);
+    const chunks = this.splatsChunkToPage.get(splats);
+    if (chunks) {
+      while (chunks.length > 0) {
+        const chunk = chunks.pop();
+        if (chunk) {
+          const { page } = chunk;
+          this.pageToSplatsChunk[page] = undefined;
+          freedPages.add(page);
+          this.pageFreelist.push(page);
+          this.pageLru.delete(chunk);
+        }
       }
+      this.splatsChunkToPage.delete(splats);
+      this.freeablePages = this.freeablePages.filter(
+        (page) => !freedPages.has(page),
+      );
     }
-    this.splatsChunkToPage.delete(splats);
-    this.freeablePages = this.freeablePages.filter(
-      (page) => !freedPages.has(page),
-    );
+
+    // Nothing queued may still refer to these splats or their freed pages:
+    // a chunk that landed after the last consume would otherwise be inserted
+    // into a future tree for the same splats, pointing at a page we no
+    // longer own. This must run even when no pages are mapped yet: the root
+    // chunk may be sitting in `fetched`, and processFetched would map it for
+    // splats that no longer have a tree.
+    removeWhere(this.fetched, (f) => f.splats === splats);
+    removeWhere(this.lodTreeUpdates, (u) => u.splats === splats);
+    removeWhere(this.newUploads, (u) => freedPages.has(u.page));
+    removeWhere(this.readyUploads, (u) => freedPages.has(u.page));
+    // Fetches still in flight drop their chunk when they find themselves no
+    // longer in `fetchers`. `fetchPriority` is stale until the next traverse,
+    // so autoDrive must not start new fetches from it either.
+    removeWhere(this.fetchers, (f) => f.splats === splats);
+    removeWhere(this.fetchPriority, (p) => p.splats === splats);
+    // Stop drawing indices into pages that no longer hold these splats.
+    splats.clear();
   }
 
   private uploadPage(
@@ -1088,8 +1105,12 @@ export class SplatPager {
           .fetchDecodeChunk(chunk)
           .then(
             async (data) => {
-              // Make sure the originating PagedSplat hasn't been disposed in the meantime
-              if (splats.abortController.signal.aborted) {
+              // Drop the chunk if the originating PagedSplats was disposed, or
+              // removed from the pager, while the fetch was in flight.
+              if (
+                splats.abortController.signal.aborted ||
+                !this.fetchers.includes(fetcher)
+              ) {
                 return;
               }
 
@@ -1113,10 +1134,14 @@ export class SplatPager {
             },
           )
           .finally(() => {
-            // Remove this fetcher from active fetchers list
+            // Remove this fetcher from active fetchers list, unless
+            // removeSplats already did
             const fetchIndex = this.fetchers.indexOf(fetcher);
-            this.fetchers[fetchIndex] = this.fetchers[this.fetchers.length - 1];
-            this.fetchers.length--;
+            if (fetchIndex >= 0) {
+              this.fetchers[fetchIndex] =
+                this.fetchers[this.fetchers.length - 1];
+              this.fetchers.length--;
+            }
 
             this.processFetched();
             this.onUpdate?.();
@@ -1255,15 +1280,27 @@ export class SplatPager {
     }
   }
 
-  /** True while chunks are being fetched or are waiting to be paged in. */
-  pending() {
+  /** True while chunk requests are in flight. */
+  isFetching() {
+    return this.fetchers.length > 0;
+  }
+
+  /**
+   * True while fetched chunks, uploads, or tree updates wait for Spark to
+   * consume them. Uploads already handed to Spark (flushed by its next LoD
+   * traverse via processUploads) are not counted.
+   */
+  hasQueued() {
     return (
-      this.fetchers.length > 0 ||
       this.fetched.length > 0 ||
       this.newUploads.length > 0 ||
-      this.readyUploads.length > 0 ||
       this.lodTreeUpdates.length > 0
     );
+  }
+
+  /** True while chunks are being fetched or are waiting to be paged in. */
+  isPending() {
+    return this.isFetching() || this.hasQueued();
   }
 
   consumeLodTreeUpdates() {

@@ -3,6 +3,7 @@
   "compilerOptions": {
     "noEmit": true,
     "emitDeclarationOnly": false,
+    "module": "ESNext",
     "rootDir": "../..",
     "types": [
       "vite/client",

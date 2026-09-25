@@ -9,6 +9,7 @@ on:
     branches:
       - fix-paged-lod-browser-test
       - fix-paged-root-eviction
+      - fix-paged-late-chunks-add-spark-hooks
 permissions:
   contents: read
 jobs:
