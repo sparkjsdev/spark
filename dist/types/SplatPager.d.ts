@@ -92,7 +92,7 @@ export interface SplatPagerOptions {
      * Called after each chunk fetch attempt settles (success or failure);
      * a render is needed to page in the chunk or retry.
      */
-    onUpdate?: () => void;
+    onUpdate: () => void;
 }
 export declare class SplatPager {
     readonly renderer: THREE.WebGLRenderer;
@@ -194,8 +194,16 @@ export declare class SplatPager {
     private allocateFreeable;
     private processFetched;
     processUploads(): void;
+    /** True while chunk requests are in flight. */
+    isFetching(): boolean;
+    /**
+     * True while fetched chunks, uploads, or tree updates wait for Spark to
+     * consume them. Uploads already handed to Spark (flushed by its next LoD
+     * traverse via processUploads) are not counted.
+     */
+    hasQueued(): boolean;
     /** True while chunks are being fetched or are waiting to be paged in. */
-    pending(): boolean;
+    isPending(): boolean;
     consumeLodTreeUpdates(): {
         splats: PagedSplats;
         page: number;
