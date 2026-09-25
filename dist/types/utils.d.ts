@@ -79,7 +79,9 @@ export declare function setPackedSplatRgb(packedSplats: Uint32Array, index: numb
     rgbMin?: number;
     rgbMax?: number;
 }): void;
-export declare function setPackedSplatOpacity(packedSplats: Uint32Array, index: number, opacity: number): void;
+export declare function setPackedSplatOpacity(packedSplats: Uint32Array, index: number, opacity: number, encoding?: {
+    lodOpacity?: boolean;
+}): void;
 export declare function unpackSplat(packedSplats: Uint32Array, index: number, encoding?: {
     rgbMin?: number;
     rgbMax?: number;
