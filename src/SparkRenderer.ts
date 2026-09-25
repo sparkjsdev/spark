@@ -822,7 +822,7 @@ export class SparkRenderer extends THREE.Mesh {
     geometry.instanceCount = spark.activeSplats;
 
     const accumToWorld = new THREE.Matrix4();
-    if (!this.display.extSplats) {
+    if (!spark.display.extSplats) {
       accumToWorld.makeTranslation(spark.display.viewOrigin);
     }
     const cameraToWorld = camera.matrixWorld.clone();
@@ -861,9 +861,9 @@ export class SparkRenderer extends THREE.Mesh {
 
     this.uniforms.ordering.value =
       spark.orderingTexture ?? SparkRenderer.emptyOrdering;
-    this.uniforms.enableExtSplats.value = this.display.extSplats;
-    this.uniforms.enableCovSplats.value = this.display.covSplats;
-    if (this.display.extSplats) {
+    this.uniforms.enableExtSplats.value = spark.display.extSplats;
+    this.uniforms.enableCovSplats.value = spark.display.covSplats;
+    if (spark.display.extSplats) {
       const extSplats = spark.display.getTextures();
       this.uniforms.extSplats.value = extSplats[0];
       this.uniforms.extSplats2.value = extSplats[1];
