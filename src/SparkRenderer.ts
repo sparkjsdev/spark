@@ -23,9 +23,6 @@ import {
   uploadU32DataTextureRows,
 } from "./utils";
 
-// TEMPORARY: set to false to reproduce the stall this fixes; remove before merge.
-const FIX_MESH_INIT_RENDER = true;
-
 export interface SparkRendererOptions {
   /**
    * Pass in your THREE.WebGLRenderer instance so Spark can perform work
@@ -389,8 +386,8 @@ export class SparkRenderer extends THREE.Mesh {
   sortedDir = new THREE.Vector3().setScalar(0);
   readback32 = new Uint32Array(0);
 
-  // Meshes seen while still loading; a render is requested when they finish.
-  private initWatched = new WeakSet<SplatMesh>();
+  // Meshes still loading; a render is requested when they finish.
+  private readonly initWatched = new WeakSet<SplatMesh>();
 
   enableLod: boolean;
   enableDriveLod: boolean;
@@ -979,20 +976,19 @@ export class SparkRenderer extends THREE.Mesh {
     // when they finish so on-demand apps show them without other input.
     // Listen for the event rather than mesh.initialized: attaching to that
     // promise would mark a load failure as handled and silence its report.
-    if (FIX_MESH_INIT_RENDER) {
-      for (const generator of visibleGenerators) {
-        if (
-          generator instanceof SplatMesh &&
-          !generator.isInitialized &&
-          !this.initWatched.has(generator)
-        ) {
-          this.initWatched.add(generator);
-          const onInitialized = () => {
-            generator.removeEventListener("initialized", onInitialized);
-            this.setDirty();
-          };
-          generator.addEventListener("initialized", onInitialized);
-        }
+    for (const generator of visibleGenerators) {
+      if (
+        generator instanceof SplatMesh &&
+        !generator.isInitialized &&
+        !this.initWatched.has(generator)
+      ) {
+        this.initWatched.add(generator);
+        const onInitialized = () => {
+          generator.removeEventListener("initialized", onInitialized);
+          this.initWatched.delete(generator);
+          this.setDirty();
+        };
+        generator.addEventListener("initialized", onInitialized);
       }
     }
 
