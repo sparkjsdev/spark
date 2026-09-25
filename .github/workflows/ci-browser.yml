@@ -10,6 +10,8 @@ on:
       - fix-paged-lod-browser-test
       - fix-paged-root-eviction
       - fix-paged-late-chunks-add-spark-hooks
+      - fix-lod-dirty-stall
+      - fix-on-demand-mesh-init
 permissions:
   contents: read
 jobs:

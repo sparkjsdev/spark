@@ -383,6 +383,9 @@ export class SparkRenderer extends THREE.Mesh {
   sortedDir = new THREE.Vector3().setScalar(0);
   readback32 = new Uint32Array(0);
 
+  // Meshes still loading; a render is requested when they finish.
+  private readonly initWatched = new WeakSet<SplatMesh>();
+
   enableLod: boolean;
   enableDriveLod: boolean;
   enableLodFetching: boolean;
@@ -966,6 +969,26 @@ export class SparkRenderer extends THREE.Mesh {
         lodInstances: this.enableLod ? this.lodInstances : undefined,
       });
 
+    // Meshes still loading contribute nothing this frame; request a render
+    // when they finish so on-demand apps show them without other input.
+    // Listen for the event rather than mesh.initialized: attaching to that
+    // promise would mark a load failure as handled and silence its report.
+    for (const generator of visibleGenerators) {
+      if (
+        generator instanceof SplatMesh &&
+        !generator.isInitialized &&
+        !this.initWatched.has(generator)
+      ) {
+        this.initWatched.add(generator);
+        const onInitialized = () => {
+          generator.removeEventListener("initialized", onInitialized);
+          this.initWatched.delete(generator);
+          this.setDirty();
+        };
+        generator.addEventListener("initialized", onInitialized);
+      }
+    }
+
     let doUpdate = true;
     const needsUpdate = viewChanged || version !== this.current.version;
     const mappingUpdated = mappingVersion !== this.display.mappingVersion;
@@ -1265,114 +1288,157 @@ export class SparkRenderer extends THREE.Mesh {
     }
 
     this.ensureLodWorker().tryExclusive(async (worker) => {
-      if (hasPaged && !this.pager) {
-        this.pager = new SplatPager({
-          renderer: this.renderer,
-          extSplats: this.pagedExtSplats,
-          maxSplats: this.maxPagedSplats,
-          numFetchers: this.numLodFetchers,
-          onUpdate: () => this.setDirty(),
-        });
-
-        const { lodId } = await worker.call("newLodTree", {
-          capacity: this.pager.maxSplats,
-        });
-        this.pagerId = lodId;
-      }
-
-      // Assign pager to any new meshes that don't have one yet
-      // (must run every frame, not just when pager is first created)
-      if (this.pager) {
-        for (const { mesh } of this.lodMeshes) {
-          if (mesh.paged && !mesh.paged.pager) {
-            mesh.paged.pager = this.pager;
-          }
-        }
-      }
-
-      if (this.lodInitQueue.length > 0) {
-        const lodInitQueue = this.lodInitQueue;
-        this.lodInitQueue = [];
-        while (lodInitQueue.length > 0) {
-          const splats = lodInitQueue.shift();
-          if (splats) {
-            await this.initLodTree(worker, splats);
-            this.lodDirty = true;
-          }
-        }
-      }
-
-      if (this.pager) {
-        const updates = this.pager.consumeLodTreeUpdates();
-
-        for (const { splats, page, chunk, numSplats, lodTree } of updates) {
-          const record = this.lodIds.get(splats);
-          if (record) {
-            if (lodTree && chunk === 0) {
-              record.rootPage = page;
-            } else if (!lodTree && chunk === 0 && record.rootPage === page) {
-              // Root chunk evicted: forget the page (traversal skips this mesh
-              // until the root is refetched) and stop drawing indices into
-              // pages that no longer hold this mesh's data.
-              record.rootPage = undefined;
-              splats.clear();
-            }
-            this.lodUpdates.push({
-              lodId: record.lodId,
-              pageBase: page * this.pager.pageSplats,
-              chunkBase: chunk * this.pager.pageSplats,
-              count: numSplats,
-              lodTreeData: lodTree,
-            });
-          }
-        }
-      }
-
-      if (this.lodUpdates.length > 0) {
-        const lodUpdates = this.lodUpdates;
-        this.lodUpdates = [];
-        await worker.call("updateLodTrees", { ranges: lodUpdates });
-        this.lodDirty = true;
-      }
-
-      if (this.lodDirty) {
-        const now = performance.now();
-        const deltaPred = new THREE.Vector3();
-        if (this.lastLod) {
-          const deltaTime = Math.max(1, now - this.lastLod.timestamp);
-          deltaPred
-            .copy(viewPos)
-            .sub(this.lastLod.pos)
-            .multiplyScalar(this.lastTraverseTime / deltaTime);
-        }
-        this.lastLod = {
-          pos: viewPos,
-          quat: viewQuat,
-          pixelScaleLimit,
-          maxSplats,
-          timestamp: now,
-        };
-        this.lodDirty = false;
-
-        await this.updateLodInstances(
-          worker,
-          deltaPred,
+      try {
+        await this.driveLodExclusive(worker, {
+          hasPaged,
           lodMeshes,
-          maxSplats,
           viewPos,
           viewQuat,
           pixelScaleLimit,
-        );
-        this.currentLod = this.lastLod;
-        this.setDirty();
+          maxSplats,
+        });
+      } finally {
+        // driveLod() skips tryExclusive while this runs, so work it flagged
+        // (lodDirty, lodInitQueue) would otherwise wait for an unrelated render.
+        // Likewise chunk data that landed after consumeLodTreeUpdates: its
+        // onUpdate render already happened and found the worker busy.
+        if (
+          this.lodDirty ||
+          this.lodInitQueue.length > 0 ||
+          this.pager?.hasQueued()
+        ) {
+          this.setDirty();
+        }
       }
-
-      if (SPARK_ENABLE_HOOKS) {
-        const p = sparkHook("lod.beforeCleanup", { spark: this });
-        if (p) await p;
-      }
-      await this.cleanupLodTrees(worker);
     });
+  }
+
+  /** Body of the LoD update, run with exclusive access to the LoD worker. */
+  private async driveLodExclusive(
+    worker: SplatWorker,
+    {
+      hasPaged,
+      lodMeshes,
+      viewPos,
+      viewQuat,
+      pixelScaleLimit,
+      maxSplats,
+    }: {
+      hasPaged: boolean;
+      lodMeshes: SplatMesh[];
+      viewPos: THREE.Vector3;
+      viewQuat: THREE.Quaternion;
+      pixelScaleLimit: number;
+      maxSplats: number;
+    },
+  ) {
+    if (hasPaged && !this.pager) {
+      this.pager = new SplatPager({
+        renderer: this.renderer,
+        extSplats: this.pagedExtSplats,
+        maxSplats: this.maxPagedSplats,
+        numFetchers: this.numLodFetchers,
+        onUpdate: () => this.setDirty(),
+      });
+
+      const { lodId } = await worker.call("newLodTree", {
+        capacity: this.pager.maxSplats,
+      });
+      this.pagerId = lodId;
+    }
+
+    // Assign pager to any new meshes that don't have one yet
+    // (must run every frame, not just when pager is first created)
+    if (this.pager) {
+      for (const { mesh } of this.lodMeshes) {
+        if (mesh.paged && !mesh.paged.pager) {
+          mesh.paged.pager = this.pager;
+        }
+      }
+    }
+
+    if (this.lodInitQueue.length > 0) {
+      const lodInitQueue = this.lodInitQueue;
+      this.lodInitQueue = [];
+      while (lodInitQueue.length > 0) {
+        const splats = lodInitQueue.shift();
+        if (splats) {
+          await this.initLodTree(worker, splats);
+          this.lodDirty = true;
+        }
+      }
+    }
+
+    if (this.pager) {
+      const updates = this.pager.consumeLodTreeUpdates();
+
+      for (const { splats, page, chunk, numSplats, lodTree } of updates) {
+        const record = this.lodIds.get(splats);
+        if (record) {
+          if (lodTree && chunk === 0) {
+            record.rootPage = page;
+          } else if (!lodTree && chunk === 0 && record.rootPage === page) {
+            // Root chunk evicted: forget the page (traversal skips this mesh
+            // until the root is refetched) and stop drawing indices into
+            // pages that no longer hold this mesh's data.
+            record.rootPage = undefined;
+            splats.clear();
+          }
+          this.lodUpdates.push({
+            lodId: record.lodId,
+            pageBase: page * this.pager.pageSplats,
+            chunkBase: chunk * this.pager.pageSplats,
+            count: numSplats,
+            lodTreeData: lodTree,
+          });
+        }
+      }
+    }
+
+    if (this.lodUpdates.length > 0) {
+      const lodUpdates = this.lodUpdates;
+      this.lodUpdates = [];
+      await worker.call("updateLodTrees", { ranges: lodUpdates });
+      this.lodDirty = true;
+    }
+
+    if (this.lodDirty) {
+      const now = performance.now();
+      const deltaPred = new THREE.Vector3();
+      if (this.lastLod) {
+        const deltaTime = Math.max(1, now - this.lastLod.timestamp);
+        deltaPred
+          .copy(viewPos)
+          .sub(this.lastLod.pos)
+          .multiplyScalar(this.lastTraverseTime / deltaTime);
+      }
+      this.lastLod = {
+        pos: viewPos,
+        quat: viewQuat,
+        pixelScaleLimit,
+        maxSplats,
+        timestamp: now,
+      };
+      this.lodDirty = false;
+
+      await this.updateLodInstances(
+        worker,
+        deltaPred,
+        lodMeshes,
+        maxSplats,
+        viewPos,
+        viewQuat,
+        pixelScaleLimit,
+      );
+      this.currentLod = this.lastLod;
+      this.setDirty();
+    }
+
+    if (SPARK_ENABLE_HOOKS) {
+      const p = sparkHook("lod.beforeCleanup", { spark: this });
+      if (p) await p;
+    }
+    await this.cleanupLodTrees(worker);
   }
 
   private async initLodTree(
