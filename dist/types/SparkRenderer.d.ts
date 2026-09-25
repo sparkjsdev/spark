@@ -349,6 +349,7 @@ export declare class SparkRenderer extends THREE.Mesh {
     sortedCenter: THREE.Vector3;
     sortedDir: THREE.Vector3;
     readback32: Uint32Array<ArrayBuffer>;
+    private readonly initWatched;
     enableLod: boolean;
     enableDriveLod: boolean;
     enableLodFetching: boolean;
@@ -530,6 +531,8 @@ export declare class SparkRenderer extends THREE.Mesh {
     private ensureLodWorker;
     defaultSplatTarget(): 500000 | 750000 | 1000000 | 1500000 | 2500000;
     private driveLod;
+    /** Body of the LoD update, run with exclusive access to the LoD worker. */
+    private driveLodExclusive;
     private initLodTree;
     private pageSizeWarning;
     private updateLodInstances;
