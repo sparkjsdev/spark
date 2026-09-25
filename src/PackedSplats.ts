@@ -52,6 +52,11 @@ export type PackedSplatsOptions = {
   // URL to fetch a Gaussian splat file from (supports .ply, .splat, .ksplat,
   // .spz formats). (default: undefined)
   url?: string;
+  // Extra HTTP headers to send when fetching from url. (default: undefined)
+  requestHeader?: Record<string, string>;
+  // Send cookies and other credentials when fetching from url, including
+  // cross-origin requests. (default: false)
+  withCredentials?: boolean;
   // Raw bytes of a Gaussian splat file to decode directly instead of fetching
   // from URL. (default: undefined)
   fileBytes?: Uint8Array | ArrayBuffer;
@@ -243,6 +248,8 @@ export class PackedSplats implements SplatSource {
       fileName,
       stream,
       streamLength,
+      requestHeader,
+      withCredentials,
       construct,
       lod,
       nonLod,
@@ -252,6 +259,10 @@ export class PackedSplats implements SplatSource {
     this.nonLod = nonLod;
 
     const loader = new SplatLoader();
+    if (requestHeader) {
+      loader.setRequestHeader(requestHeader);
+    }
+    loader.setWithCredentials(withCredentials ?? false);
     if (fileBytes || url || stream) {
       await loader.loadInternalAsync({
         packedSplats: this,

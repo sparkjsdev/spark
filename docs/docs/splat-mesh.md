@@ -12,6 +12,10 @@ The usual THREE.js properties `position`, `quaternion`, `rotation` behave as you
 const splats = new SplatMesh({
   // Fetch PLY/SPZ/SPLAT/KSPLAT/SOG/ZIP/RAD file from URL
   url?: string;
+  // Extra HTTP headers to send with the fetch
+  requestHeader?: Record<string, string>;
+  // Send cookies with the fetch, including cross-origin
+  withCredentials?: boolean;
   // Decode raw PLY/SPZ/SPLAT/KSPLAT/SOG/ZIP/RAD file bytes
   fileBytes?: Uint8Array | ArrayBuffer;
   // ReadableStream to read file from
@@ -80,6 +84,8 @@ Constructor callbacks include `constructSplats` (procedural creation), `onProgre
 | **Parameter** | Description |
 | ------------- | ----------- |
 | **url** | `string` URL to fetch a splat file from (`.ply`, `.splat`, `.ksplat`, `.spz`, `.sog`, `.zip`, `.rad`). (default: `undefined`) |
+| **requestHeader** | `Record<string, string>` extra HTTP headers to send when fetching from `url`. (default: `undefined`) |
+| **withCredentials** | `boolean` send cookies and other credentials when fetching from `url`, including cross-origin requests. (default: `false`) |
 | **fileBytes** | `Uint8Array | ArrayBuffer` raw file bytes to decode directly instead of fetching from URL. (default: `undefined`) |
 | **fileType** | `SplatFileType` override for file type detection. Use this for formats like `.splat` / `.ksplat` that may not be reliably auto-detected from content alone. (default: `undefined`) |
 | **fileName** | `string` filename hint used for `.splat` / `.ksplat` type inference when using bytes/streams (other file types can usually be detected from content). (default: `undefined`) |

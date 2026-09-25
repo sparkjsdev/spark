@@ -137,5 +137,9 @@ export default defineConfig(({ mode }) => {
     define: {
       sparkLocalAssets: localAssetsDirectoryExist,
     },
+
+    test: {
+      setupFiles: ["test/unit/setup.ts"],
+    },
   };
 });
