@@ -10,6 +10,8 @@ import { type SplatEncoding, type SplatFileType } from "./defines";
 import { DynoBool, DynoFloat, DynoInt, DynoUsampler2D, type DynoVal, DynoVec4, Gsplat } from "./dyno";
 export type SplatMeshOptions = {
     url?: string;
+    requestHeader?: Record<string, string>;
+    withCredentials?: boolean;
     fileBytes?: Uint8Array | ArrayBuffer;
     fileType?: SplatFileType;
     fileName?: string;

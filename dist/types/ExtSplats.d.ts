@@ -5,6 +5,8 @@ import { type SplatFileType } from "./defines";
 import { DynoInt, DynoUniform, DynoUsampler2DArray, type DynoVal, type Gsplat, TExtSplats } from "./dyno";
 export type ExtSplatsOptions = {
     url?: string;
+    requestHeader?: Record<string, string>;
+    withCredentials?: boolean;
     fileBytes?: Uint8Array | ArrayBuffer;
     fileType?: SplatFileType;
     fileName?: string;

@@ -1,7 +1,7 @@
 import * as THREE from "three";
-import { dyno } from ".";
 import type { SplatSource } from "./SplatMesh";
 import { type ExtResult, type PackedResult, type RadMeta, type SplatEncoding, SplatFileType } from "./defines";
+import * as dyno from "./dyno";
 export interface PagedSplatsOptions {
     pager?: SplatPager;
     rootUrl?: string;

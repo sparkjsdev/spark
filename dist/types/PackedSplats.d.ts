@@ -8,6 +8,8 @@ import { DynoInt, DynoProgram, DynoProgramTemplate, DynoUniform, DynoUsampler2DA
 import { type Gsplat, TPackedSplats } from "./dyno/splats";
 export type PackedSplatsOptions = {
     url?: string;
+    requestHeader?: Record<string, string>;
+    withCredentials?: boolean;
     fileBytes?: Uint8Array | ArrayBuffer;
     fileType?: SplatFileType;
     fileName?: string;

@@ -1,6 +1,9 @@
 import * as THREE from "three";
-import { ExtSplats, PackedSplats, PagedSplats, SplatMesh, SplatPager } from ".";
+import { ExtSplats } from "./ExtSplats";
+import { PackedSplats } from "./PackedSplats";
 import { SplatAccumulator } from "./SplatAccumulator";
+import { SplatMesh } from "./SplatMesh";
+import { PagedSplats, SplatPager } from "./SplatPager";
 import { SplatWorker } from "./SplatWorker";
 export interface SparkRendererOptions {
     /**
