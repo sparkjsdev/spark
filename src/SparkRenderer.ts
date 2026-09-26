@@ -1045,7 +1045,8 @@ export class SparkRenderer extends THREE.Mesh {
     if (
       this.sorting ||
       !this.sortDirty ||
-      this.frameMapping !== this.current.mappingVersion
+      this.frameMapping !== this.current.mappingVersion ||
+      this.current.mappingChanged()
     ) {
       return;
     }

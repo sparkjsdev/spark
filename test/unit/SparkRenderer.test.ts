@@ -95,6 +95,23 @@ test("a new mapping that appears during a sort is sorted next", async () => {
   expect(sorts.map((s) => s.mappingVersion)).toEqual([m0, m0 + 1]);
 });
 
+// A LoD result can change a mesh mapping between frames, just before a sort
+// ends. The new mapping must still be sorted next.
+test("a new mapping that appears between frames, just before a sort ends, is sorted next", async () => {
+  const mesh = splatGenerator(64);
+  const { spark, camera, sorts, frame, finishSorts } = await setup(mesh);
+  const m0 = spark.display.mappingVersion;
+
+  camera.position.x += 1;
+  await frame();
+  camera.position.x += 1;
+  await frame();
+  mesh.updateMappingVersion();
+
+  await finishSorts();
+  expect(sorts.map((s) => s.mappingVersion)).toEqual([m0, m0 + 1]);
+});
+
 // Hiding and showing a mesh during a sort must not lose the sort that a
 // content change asked for. The camera stays still, as a move would ask again.
 test("with a still camera, a mapping that changes back during a sort keeps its sort", async () => {
