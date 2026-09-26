@@ -13,7 +13,7 @@ use crate::ply::{PLY_MAGIC, PlyDecoder};
 #[cfg(feature = "rad")]
 use crate::rad::{RAD_CHUNK_MAGIC, RAD_MAGIC, RadDecoder};
 #[cfg(feature = "sogs")]
-use crate::sogs::{PK_MAGIC, SogsDecoder};
+use crate::sogs::{PK_MAGIC, CUSTOM_SOGS_MAGIC, SogsDecoder};
 #[cfg(feature = "spz")]
 use crate::spz::{SPZ_MAGIC, SpzDecoder};
 
@@ -377,7 +377,7 @@ impl SplatFileType {
             #[cfg(feature = "ksplat")]
             "ksplat" => Ok(Self::KSPLAT),
             #[cfg(feature = "sogs")]
-            "pcsogszip" => Ok(Self::SOGS),
+            "pcsogs" | "pcsogszip" => Ok(Self::SOGS),
             #[cfg(feature = "rad")]
             "rad" => Ok(Self::RAD),
             _ => Err(anyhow::anyhow!("Invalid file type: {}", enum_str)),
@@ -537,6 +537,10 @@ impl<T: SplatReceiver> ChunkReceiver for MultiDecoder<T> {
                             return self.init_file_type(SplatFileType::SOGS);
                         }
                     }
+                }
+                #[cfg(feature = "sogs")]
+                (CUSTOM_SOGS_MAGIC, _) => {
+                    return self.init_file_type(SplatFileType::SOGS);
                 }
                 #[cfg(feature = "rad")]
                 (RAD_MAGIC, _) | (RAD_CHUNK_MAGIC, _) => {
