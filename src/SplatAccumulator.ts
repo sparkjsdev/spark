@@ -692,4 +692,11 @@ export class SplatAccumulator {
     });
     return { splatsUpdated, mappingUpdated };
   }
+
+  // True when a mesh changed its mapping after this accumulator was generated.
+  mappingChanged() {
+    return this.mapping.some(
+      ({ node, mappingVersion }) => node.mappingVersion !== mappingVersion,
+    );
+  }
 }
