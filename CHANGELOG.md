@@ -1,3 +1,43 @@
+## 2.3.0 (Sep 29, 2026)
+
+Bug fixes and improvements
+
+
+### Enhancements
+
+- Fix / Enable on-demand rendering: Render a frame only when explicitly requested (#449, #451, #452) (fix #298) (@asundqui, @onderilkesever, @mrxz, @oscarlorentzon)
+- Make members of SplatEncoding non-optional to avoid repeated fallback handling (#415) (@mrxz)
+- Tree shaking improvements by focussing on classes that users might not need or use. (#417) (@mrxz)
+- Update dev dependencies: TypeScript and Vite, use Vitest for tests (#445) (@mrxz)
+- Use `instanceof` instead of `isTexture` flag for THREE.js type checking (#446) (@oscarlorentzon
+)
+- Add typechecking to CI (#427) (@oscarlorentzon)
+- Take extended splats (`ExtSplats`) when writing SPZ. `writeSpz` only took `PackedSplats` (#440) (@oscarlorentzon)
+- Accept cookie and header options when loading splats (#459) (@oscarlorentzon)
+- Use the calling renderer's encoding for its splats. Fix issue when using two `SparkRenderers` as when rendering two different viewpoints simultaneously (#453) (@oscarlorentzon)
+- Run the Rust tests in Linux CI (#444) (@oscarlorentzon)
+- Docs improvements (@mrxz, @oscarlorentzon, @mrxz)
+- Improve tests (@mrxz, @oscarlorentzon, @mrxz)
+
+### Bug Fixes
+
+- Fix a GPU resource memory leak. Dispose geometry and material in `SparkRenderer.dispose()` (#410) (@ArisLiWind, @mrxz)
+- Fix references to repo URL (#426) (@oscarlorentzon)
+- Write non-finite SPZ rotations as the identity. Issue when writting SPZ v3 (#454) (@oscarlorentzon)
+- Allocate missing SH3 data texture for paged ext splats. Addresses `RangeError: offset is out of bounds` error (#424) (@oscarlorentzon)
+- Await WebAssembly initialization and check sh degress in `transcodeSpz` (#438) (fix #437) (@mrxz)
+- Await for WebAssembly initialization before writing SPZ (#448) (@oscarlorentzon)
+- Make built-in controls rotate around the controlled object's up axis instead of world y axis (#434) (fix #300) (@dev-xdh, @oscarlorentzon)
+- Read and apply maxSh passed in PagedSplats options. Previously ignored and SplatPager limit applied instead (#447) (@oscarlorentzon)
+- Fix wrong raycaster direction for pinch and press movement under a rotated parent (#435) (@oscarlorentzon)
+- Controls: Skip pointer frames that took no time (#436) (@oscarlorentzon)
+- Apply default encoding when none is given when writting `PackedSplats` (#439) (@oscarlorentzon)
+- Make rotation speed of keys and gamepad (XR controllers) consistent (#442) (@oscarlorentzon)
+- Regression. Restore v3 as the default version when outputting SPZ format (#441) (@oscarlorentzon)
+- Cancel scheduled work (spark updates, splat sorting) when disposing the renderer (#450) (@oscarlorentzon)
+
+
+
 ## 2.2.0 (Sep 11, 2026)
 
 Bug fixes and polish
