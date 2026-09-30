@@ -41,6 +41,7 @@ mod tests {
         spz::{SpzDecoder, SpzEncoder},
     };
     use super::decoder::ChunkReceiver;
+    use super::splat_encode::{decode_ext_rgb, encode_ext_rgb};
     use glam::{Quat, Vec3A};
     use crate::tsplat::TsplatArray;
 
@@ -271,6 +272,41 @@ mod tests {
         let mut arr = GsplatArray::new_capacity(1, 0);
         arr.push_splat(make_splat([0.0, 0.0, 0.0], 0.5, [0.1, 0.2, 0.3], [0.4, 0.5, 0.6], [0.0, 0.0, 0.0, 1.0]), None, None, None);
         assert!(SpzEncoder::new(arr).with_version(1).encode().is_err());
+    }
+
+    #[test]
+    fn ext_rgb_roundtrip_within_half_step() {
+        // Magnitude steps per channel
+        const STEPS: f32 = 255.0;
+        // Lowest and highest ceilings, 2^-15 and 2^16
+        const LOWEST_CEILING: f32 = 1.0 / 32768.0;
+        const HIGHEST_CEILING: f32 = 65536.0;
+        // Each input with the smallest ceiling that holds its largest channel
+        let cases: [([f32; 3], f32); 10] = [
+            ([0.9, -0.6, -0.2], 1.0),
+            ([0.999, -0.6, -0.2], 1.0),
+            ([1.9, -1.2, -0.7], 2.0),
+            ([0.04, -0.035, -0.01], 0.0625),
+            ([0.5, -0.25, -0.1], 0.5),
+            ([0.5000001, -0.3, -0.1], 1.0),
+            ([5e-5, -4e-5, -1e-5], 2.0 * LOWEST_CEILING),
+            ([0.0, 0.0, 0.0], LOWEST_CEILING),
+            ([1e-6, -5e-7, -1e-7], LOWEST_CEILING),
+            ([60000.0, -30000.0, -1000.0], HIGHEST_CEILING),
+        ];
+        for (rgb, ceiling) in cases {
+            let half_step = ceiling / STEPS / 2.0;
+            // Also negated, and with the largest channel in each position
+            for [a, b, c] in [rgb, rgb.map(|x| -x)] {
+                for input in [[a, b, c], [c, a, b], [b, c, a]] {
+                    let decoded = decode_ext_rgb(encode_ext_rgb(input));
+                    for i in 0..3 {
+                        assert!(approx(decoded[i], input[i], half_step), "{:?}[{}] decoded as {}", input, i, decoded[i]);
+                        assert!(decoded[i] == 0.0 || (decoded[i] < 0.0) == (input[i] < 0.0), "{:?}[{}] sign lost", input, i);
+                    }
+                }
+            }
+        }
     }
 }
 

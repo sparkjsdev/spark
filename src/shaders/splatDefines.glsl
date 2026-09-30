@@ -402,7 +402,7 @@ uint encodeExtRgb(vec3 rgb) {
     vec3 absRgb = abs(rgb);
     float maxAbs = max(absRgb.r, max(absRgb.g, absRgb.b));
 
-    int base = clamp(int(floor(log2(maxAbs))) + 15, 0, 31);
+    int base = clamp(int(ceil(log2(maxAbs))) + 15, 0, 31);
     float divisor = exp2(float(base - 15)) / 255.0;
 
     uvec3 uRgb = uvec3(round(clamp(absRgb / divisor, 0.0, 255.0)));
