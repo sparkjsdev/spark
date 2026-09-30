@@ -23,17 +23,25 @@ export interface PagedSplatsOptions {
   requestHeader?: Record<string, string>;
   withCredentials?: boolean;
   fileBytes?: Uint8Array;
+  fetchSource?: FetchSource;
   fileType?: SplatFileType;
   maxSh?: number;
 }
 
+export interface FetchSource {
+  fetchRange(
+    abortSignal: AbortSignal,
+    offset: number,
+    bytes: number,
+  ): Promise<Uint8Array>;
+  fetchChunkFile(abortSignal: AbortSignal, chunk: string): Promise<Uint8Array>;
+  fetchChunkById(abortSignal: AbortSignal, chunk: number): Promise<Uint8Array>;
+}
+
 export class PagedSplats implements SplatSource {
   pager?: SplatPager;
-  rootUrl: string;
-  requestHeader?: Record<string, string>;
-  withCredentials?: boolean;
-  fileBytes?: Uint8Array;
-  fileType?: SplatFileType;
+  readonly fileType: SplatFileType;
+  readonly fetchSource: FetchSource;
 
   numSh: number;
   maxSh: number;
@@ -45,23 +53,20 @@ export class PagedSplats implements SplatSource {
   splatEncoding?: SplatEncoding;
   radMetaPromise?: Promise<{ meta: RadMeta; chunksStart: number }>;
 
-  dynoNumSplats: dyno.DynoInt<"numSplats">;
-  dynoIndices: dyno.DynoUsampler2D<"indices", THREE.DataTexture>;
-  rgbMinMaxLnScaleMinMax: dyno.DynoVec4<
+  readonly dynoNumSplats: dyno.DynoInt<"numSplats">;
+  readonly dynoIndices: dyno.DynoUsampler2D<"indices", THREE.DataTexture>;
+  readonly rgbMinMaxLnScaleMinMax: dyno.DynoVec4<
     THREE.Vector4,
     "rgbMinMaxLnScaleMinMax"
   >;
-  lodOpacity: dyno.DynoBool<"lodOpacity">;
-  dynoNumSh: dyno.DynoInt<"numSh">;
-  shMax: dyno.DynoVec3<THREE.Vector3, "shMax">;
+  readonly lodOpacity: dyno.DynoBool<"lodOpacity">;
+  readonly dynoNumSh: dyno.DynoInt<"numSh">;
+  readonly shMax: dyno.DynoVec3<THREE.Vector3, "shMax">;
 
   readonly abortController: AbortController = new AbortController();
 
   constructor(options: PagedSplatsOptions) {
     this.pager = options.pager;
-    this.rootUrl = options.rootUrl ?? "";
-    this.requestHeader = options.requestHeader;
-    this.withCredentials = options.withCredentials;
     this.numSh = 0;
     this.maxSh = options.maxSh ?? 3;
 
@@ -82,17 +87,28 @@ export class PagedSplats implements SplatSource {
     this.dynoNumSh = new dyno.DynoInt({ value: 0 });
     this.shMax = new dyno.DynoVec3({ value: new THREE.Vector3() });
 
-    this.fileBytes = options.fileBytes;
-    this.fileType = options.fileType;
-    if (!this.fileType && this.fileBytes) {
-      this.fileType = getSplatFileType(this.fileBytes);
+    let fileType = options.fileType;
+    if (options.fileBytes) {
+      fileType ??= getSplatFileType(options.fileBytes);
+      this.fetchSource = new FileBytesFetchSource(options.fileBytes);
+    } else if (options.rootUrl) {
+      fileType ??= getSplatFileTypeFromPath(options.rootUrl);
+      this.fetchSource = new UrlFetchSource(
+        options.rootUrl,
+        options.requestHeader,
+        options.withCredentials,
+      );
+    } else if (options.fetchSource) {
+      this.fetchSource = options.fetchSource;
+    } else {
+      throw new Error("No url, fileBytes or fetchSource provided");
     }
-    if (!this.fileType && this.rootUrl) {
-      this.fileType = getSplatFileTypeFromPath(this.rootUrl);
-    }
-    if (!this.fileType) {
+
+    if (!fileType) {
       throw new Error("Unable to determine file type");
     }
+    this.fileType = fileType;
+
     if (this.fileType === SplatFileType.RAD) {
       this.radMetaPromise = this.getRadMeta();
     }
@@ -119,31 +135,21 @@ export class PagedSplats implements SplatSource {
     this.radMetaPromise = (async () => {
       await wasm.initialization;
 
-      if (this.fileBytes) {
-        // Shouldn't be more than 1 MB, so don't send more data than that.
-        const metaStart = decode_rad_header(this.fileBytes.slice(0, 1048576));
-        if (metaStart) {
-          return metaStart;
-        }
-        throw new Error("Failed to decode RAD header");
-      }
-      if (!this.rootUrl) {
-        throw new Error("No url or fileBytes provided");
-      }
-
       // We don't know how big the header will be. Most likely 64KB will be enough,
       // but try larger blocks in backoff if it wasn't enough.
       for (const tryBytes of [65536, 256 * 1024, 1024 * 1024]) {
-        const bytes = await fetchRange({
-          url: this.rootUrl,
-          requestHeader: this.requestHeader,
-          withCredentials: this.withCredentials,
-          offset: 0,
-          bytes: tryBytes,
-        });
+        const bytes = await this.fetchSource.fetchRange(
+          this.abortController.signal,
+          0,
+          tryBytes,
+        );
         const metaStart = decode_rad_header(bytes);
         if (metaStart) {
           return metaStart;
+        }
+        // Skip larger attempts when the current one already returned fewer bytes.
+        if (bytes.length < tryBytes) {
+          break;
         }
       }
       throw new Error("Failed to decode RAD header");
@@ -161,10 +167,6 @@ export class PagedSplats implements SplatSource {
     return this.radMetaPromise;
   }
 
-  chunkUrl(chunk: number): string {
-    return this.rootUrl.replace(/-lod-0\./, `-lod-${chunk}.`);
-  }
-
   async fetchDecodeChunk(chunk: number) {
     let decodeBytes = undefined;
 
@@ -178,63 +180,24 @@ export class PagedSplats implements SplatSource {
       let { offset, bytes, filename } = meta.chunks[chunk];
 
       if (filename) {
-        if (this.fileBytes) {
-          throw new Error("Chunked RAD file not supported with fileBytes");
-        }
-        const resolvedRoot = new URL(
-          this.rootUrl,
-          window.location.href,
-        ).toString();
-        const chunkUrl = new URL(filename, resolvedRoot).toString();
-        decodeBytes = await fetchRange({
-          url: chunkUrl,
-          requestHeader: this.requestHeader,
-          withCredentials: this.withCredentials,
-          signal: this.abortController.signal,
-        });
+        decodeBytes = await this.fetchSource.fetchChunkFile(
+          this.abortController.signal,
+          filename,
+        );
       } else {
         offset += chunksStart;
         // console.log(`Fetching chunk ${chunk} at offset ${offset} with bytes ${bytes}`);
-        if (this.fileBytes) {
-          if (offset < 0 || offset + bytes > this.fileBytes.length) {
-            throw new Error(
-              `Invalid chunk offset or bytes: ${offset} + ${bytes} > ${this.fileBytes.length}`,
-            );
-          }
-          decodeBytes = this.fileBytes.slice(offset, offset + bytes);
-        } else if (this.rootUrl) {
-          decodeBytes = await fetchRange({
-            url: this.rootUrl,
-            requestHeader: this.requestHeader,
-            withCredentials: this.withCredentials,
-            offset,
-            bytes,
-            signal: this.abortController.signal,
-          });
-        } else {
-          throw new Error("No url or fileBytes provided");
-        }
-      }
-    } else if (this.fileBytes) {
-      // Fall through
-    } else if (this.rootUrl) {
-      const url = this.chunkUrl(chunk);
-      const request = new Request(url, {
-        headers: this.requestHeader
-          ? new Headers(this.requestHeader)
-          : undefined,
-        credentials: this.withCredentials ? "include" : "same-origin",
-        signal: this.abortController.signal,
-      });
-      const response = await fetch(request);
-      if (!response.ok || !response.body) {
-        throw new Error(
-          `Failed to fetch "${url}": ${response.status} ${response.statusText}`,
+        decodeBytes = await this.fetchSource.fetchRange(
+          this.abortController.signal,
+          offset,
+          bytes,
         );
       }
-      decodeBytes = new Uint8Array(await response.arrayBuffer());
     } else {
-      throw new Error("No url or fileBytes provided");
+      decodeBytes = await this.fetchSource.fetchChunkById(
+        this.abortController.signal,
+        chunk,
+      );
     }
 
     return await workerPool.withWorker(async (worker) => {
@@ -244,7 +207,7 @@ export class PagedSplats implements SplatSource {
       if (!this.pager.extSplats) {
         const result = await worker.call("loadPackedSplats", {
           fileBytes: decodeBytes,
-          pathName: this.chunkUrl(chunk),
+          fileType: this.fileType,
           sh1Codes: this.sh1Codes?.slice(),
           sh2Codes: this.sh2Codes?.slice(),
           sh3Codes: (this.sh3Codes as Uint32Array | undefined)?.slice(),
@@ -289,7 +252,7 @@ export class PagedSplats implements SplatSource {
       const sh3Codes = this.sh3Codes as [Uint32Array, Uint32Array] | undefined;
       const result = await worker.call("loadExtSplats", {
         fileBytes: decodeBytes,
-        pathName: this.chunkUrl(chunk),
+        fileType: this.fileType,
         sh1Codes: this.sh1Codes?.slice(),
         sh2Codes: this.sh2Codes?.slice(),
         sh3Codes: sh3Codes
@@ -490,34 +453,120 @@ export class PagedSplats implements SplatSource {
   })();
 }
 
-async function fetchRange({
-  url,
-  requestHeader,
-  withCredentials,
-  offset,
-  bytes,
-  signal,
-}: {
-  url: string;
-  requestHeader?: Record<string, string>;
-  withCredentials?: boolean;
-  offset?: number;
-  bytes?: number;
-  signal?: AbortSignal;
-}): Promise<Uint8Array> {
-  const request = new Request(url, {
-    headers: requestHeader ? new Headers(requestHeader) : undefined,
-    credentials: withCredentials ? "include" : "same-origin",
+export class FileBytesFetchSource implements FetchSource {
+  private readonly fileBytes: Uint8Array;
+
+  constructor(fileBytes: Uint8Array) {
+    this.fileBytes = fileBytes;
+  }
+
+  async fetchRange(abortSignal: AbortSignal, offset: number, bytes: number) {
+    if (offset < 0 || (offset > 0 && offset + bytes > this.fileBytes.length)) {
+      throw new Error(
+        `Invalid chunk offset or bytes: ${offset} + ${bytes} > ${this.fileBytes.length}`,
+      );
+    }
+
+    return this.fileBytes.slice(offset, offset + bytes);
+  }
+
+  async fetchChunkFile(
+    abortSignal: AbortSignal,
+    chunk: string,
+  ): Promise<Uint8Array> {
+    throw new Error("Chunked RAD file not supported with fileBytes");
+  }
+
+  async fetchChunkById(
+    abortSignal: AbortSignal,
+    chunk: number,
+  ): Promise<Uint8Array> {
+    throw new Error("Chunked RAD file not supported with fileBytes");
+  }
+}
+
+export class UrlFetchSource implements FetchSource {
+  readonly rootUrl: string;
+  readonly requestHeader: Record<string, string> | undefined;
+  readonly withCredentials: boolean | undefined;
+
+  constructor(
+    rootUrl: string,
+    requestHeader: Record<string, string> | undefined,
+    withCredentials: boolean | undefined,
+  ) {
+    this.rootUrl = rootUrl;
+    this.requestHeader = requestHeader;
+    this.withCredentials = withCredentials;
+  }
+
+  async fetchRange(abortSignal: AbortSignal, offset: number, bytes: number) {
+    return await this.fetchRangeImpl({
+      url: this.rootUrl,
+      requestHeader: this.requestHeader,
+      withCredentials: this.withCredentials,
+      signal: abortSignal,
+      offset,
+      bytes,
+    });
+  }
+
+  async fetchChunkFile(
+    abortSignal: AbortSignal,
+    chunk: string,
+  ): Promise<Uint8Array> {
+    const resolvedRoot = new URL(this.rootUrl, window.location.href).toString();
+    const chunkUrl = new URL(chunk, resolvedRoot).toString();
+    return await this.fetchRangeImpl({
+      url: chunkUrl,
+      requestHeader: this.requestHeader,
+      withCredentials: this.withCredentials,
+      signal: abortSignal,
+    });
+  }
+
+  async fetchChunkById(
+    abortSignal: AbortSignal,
+    chunk: number,
+  ): Promise<Uint8Array> {
+    const chunkUrl = this.rootUrl.replace(/-lod-0\./, `-lod-${chunk}.`);
+    return await this.fetchRangeImpl({
+      url: chunkUrl,
+      requestHeader: this.requestHeader,
+      withCredentials: this.withCredentials,
+      signal: abortSignal,
+    });
+  }
+
+  async fetchRangeImpl({
+    url,
+    requestHeader,
+    withCredentials,
+    offset,
+    bytes,
     signal,
-  });
-  if (offset !== undefined && bytes !== undefined) {
-    request.headers.set("Range", `bytes=${offset}-${offset + bytes - 1}`);
+  }: {
+    url: string;
+    requestHeader?: Record<string, string>;
+    withCredentials?: boolean;
+    offset?: number;
+    bytes?: number;
+    signal?: AbortSignal;
+  }): Promise<Uint8Array> {
+    const request = new Request(url, {
+      headers: requestHeader ? new Headers(requestHeader) : undefined,
+      credentials: withCredentials ? "include" : "same-origin",
+      signal,
+    });
+    if (offset !== undefined && bytes !== undefined) {
+      request.headers.set("Range", `bytes=${offset}-${offset + bytes - 1}`);
+    }
+    const response = await fetch(request);
+    if (!response.ok || !response.body) {
+      throw new Error(
+        `Failed to fetch "${url}": ${response.status} ${response.statusText}`,
+      );
+    }
+    return new Uint8Array(await response.arrayBuffer());
   }
-  const response = await fetch(request);
-  if (!response.ok || !response.body) {
-    throw new Error(
-      `Failed to fetch "${url}": ${response.status} ${response.statusText}`,
-    );
-  }
-  return new Uint8Array(await response.arrayBuffer());
 }

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { ExtSplats } from "../../src/ExtSplats";
 import { PackedSplats } from "../../src/PackedSplats";
-import { PagedSplats } from "../../src/PagedSplats";
+import { PagedSplats, UrlFetchSource } from "../../src/PagedSplats";
 import { SplatMesh } from "../../src/SplatMesh";
 
 const url = "https://assets.invalid/scene.spz";
@@ -28,15 +28,19 @@ describe("SplatMesh credentials", () => {
 
   test("reach the PagedSplats it builds", () => {
     const { paged } = new SplatMesh({ url, paged: true, ...credentials });
-    expect(paged?.withCredentials).toBe(true);
-    expect(paged?.requestHeader).toEqual(requestHeader);
+    expect(paged?.fetchSource).toBeInstanceOf(UrlFetchSource);
+    const urlFetchSource = paged?.fetchSource as UrlFetchSource;
+    expect(urlFetchSource.withCredentials).toBe(true);
+    expect(urlFetchSource.requestHeader).toEqual(requestHeader);
   });
 
   test("leave a PagedSplats passed in unchanged", () => {
     const paged = new PagedSplats({ rootUrl: url });
     const mesh = new SplatMesh({ url, paged, ...credentials });
     expect(mesh.paged).toBe(paged);
-    expect(paged.withCredentials).toBeUndefined();
-    expect(paged.requestHeader).toBeUndefined();
+    expect(paged.fetchSource).toBeInstanceOf(UrlFetchSource);
+    const urlFetchSource = paged.fetchSource as UrlFetchSource;
+    expect(urlFetchSource.withCredentials).toBeUndefined();
+    expect(urlFetchSource.requestHeader).toBeUndefined();
   });
 });
