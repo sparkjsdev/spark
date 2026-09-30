@@ -8,6 +8,7 @@ use crate::decoder::{ChunkReceiver, SplatGetter, SplatInit, SplatProps, SplatRec
 
 pub const PLY_MAGIC: u32 = 0x00796c70; // "ply"
 const MAX_SPLAT_CHUNK: usize = 65536;
+#[allow(clippy::excessive_precision)]
 const SH_C0: f32 = 0.28209479177387814;
 const SUPER_CHUNK_SIZE: usize = 256;
 const POINT_CLOUD_PROPERTIES: [&str; 6] = ["x", "y", "z", "red", "green", "blue"];
@@ -351,6 +352,7 @@ impl<T: SplatReceiver> ChunkReceiver for PlyDecoder<T> {
 }
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 enum PlyState {
     PointCloud(PointCloudDecoderState),
     Standard(PlyDecoderState),
@@ -657,13 +659,13 @@ impl SuperSplatState {
             let sh2_props: Vec<usize> = (0..5).flat_map(|k| (0..3).map(move |d| 3 + k + d * stride)).collect();
             let sh3_props: Vec<usize> = (0..7).flat_map(|k| (0..3).map(move |d| 8 + k + d * stride)).collect();
 
-            Some(SuperSplatShProps {
+            (max_sh_degree > 0).then_some(SuperSplatShProps {
                 f_rest,
                 sh1_props,
                 sh2_props,
                 sh3_props,
                 num_f_rest,
-            }).filter(|_| max_sh_degree > 0)
+            })
         } else {
             None
         };

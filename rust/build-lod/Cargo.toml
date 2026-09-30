@@ -19,3 +19,6 @@ wgpu = { workspace = true, optional = true }
 pollster = { workspace = true, optional = true }
 bytemuck = { workspace = true, optional = true }
 half = { workspace = true, optional = true }
+
+[lints]
+workspace = true

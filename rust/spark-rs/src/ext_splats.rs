@@ -267,7 +267,7 @@ impl ExtSplatsData {
                 for i in 0..count {
                     let i9 = i * 9;
                     let values = splats.get_sh1(base + i);
-                    batch[i9..i9 + 9].copy_from_slice(&values)
+                    batch[i9..i9 + 9].copy_from_slice(&values);
                 }
                 receiver.set_sh1(base, count, &batch);
                 base += count;
@@ -764,7 +764,7 @@ impl SplatReceiver for ExtSplatsData {
                 let label = sh_labels[i] as usize;
                 let i4 = i * 4;
                 let l4 = label * 4;
-                buffer_a[i4..i4 + 4].copy_from_slice(&self.sh1_codes[l4..l4 + 4])
+                buffer_a[i4..i4 + 4].copy_from_slice(&self.sh1_codes[l4..l4 + 4]);
             }
 
             if self.max_sh_degree == 1 {
@@ -815,7 +815,7 @@ impl SplatReceiver for ExtSplatsData {
             self.child_counts = Some(vec![0; self.num_splats]);
         }
         let counts = self.child_counts.as_mut().unwrap();
-        counts[base..base + count].copy_from_slice(&child_count[..count])
+        counts[base..base + count].copy_from_slice(&child_count[..count]);
     }
 
     fn set_child_start(&mut self, base: usize, count: usize, child_start: &[usize]) {
