@@ -17,7 +17,7 @@ jobs:
         node-version: ['22.x']
     steps:
       - name: Use Node.js ${{ matrix['node-version'] }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix['node-version'] }}
 
@@ -25,10 +25,10 @@ jobs:
         run: |
           git config --global core.autocrlf false
           git config --global core.eol lf
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Checkout Repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install dependencies
         run: npm install
