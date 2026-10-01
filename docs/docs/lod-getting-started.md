@@ -128,6 +128,7 @@ The most important options are:
 - `--quality`: Use the higher-quality, slower `bhatt-lod` method. Recommended for offline LoD tree building and streaming.
 - `--max-sh=#`: Limit the maximum Spherical Harmonics encoded, from 0..3.
 - `--rad-chunked`: Output a chunked RAD file for streaming, with .RAD header and .RADC chunk files.
+- `--zstd` (`--zstd-level=#`, default 9): Compress the RAD property blobs with zstd instead of deflate. On scenes with third-band Spherical Harmonics this writes a file around 25% smaller that also decodes about twice as fast, which matters most when streaming; a scene without SH gains little. Note that a zstd RAD file cannot be read by Spark versions older than this option.
 
 When using `--rad-chunked` the resulting files will be a small header file `my-splats-lod.rad` and chunks in `my-splats-lod-0.radc`, `...-lod-1.radc`, etc. Use the `my-splats-lod.rad` file as URL with `paged: true` and Spark will automatically fetch the chunks as needed.
 

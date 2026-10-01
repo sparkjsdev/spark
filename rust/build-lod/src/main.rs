@@ -3,7 +3,7 @@ use std::io::{BufReader, BufWriter, Read, Write};
 
 use spark_lib::{chunk_tree, sh_clustering};
 use spark_lib::decoder::{SplatEncoding, SplatGetter, SplatReceiver};
-use spark_lib::rad::RadEncoder;
+use spark_lib::rad::{RadChunkPropertyCompression, RadEncoder};
 use spark_lib::{
     decoder::{ChunkReceiver, MultiDecoder},
     gsplat::GsplatArray,
@@ -64,6 +64,8 @@ struct BuildLodOptions {
     within_dist: Option<([f32; 3], f32)>,
     skip_validate: bool,
     inflate: bool,
+    zstd: bool,
+    zstd_level: i32,
     cluster_sh: Option<usize>,
     cluster_sh_cpu: bool,
     cluster_sh_f16: Option<bool>,
@@ -320,6 +322,13 @@ fn process_file_lod_tsplat<TS: SplatReceiver + TsplatArray + SplatGetter>(filena
             if let Some(sh_clusters) = sh_clusters {
                 encoder = encoder.with_sh_clusters(sh_clusters);
             }
+            if options.zstd {
+                let level = if options.zstd_level > 0 { options.zstd_level } else { 9 };
+                encoder = encoder
+                    .with_compression(RadChunkPropertyCompression::Zstd)
+                    .with_zstd_level(level);
+                println!("Using zstd compression (level {})", level);
+            }
 
             let input_encoding = serde_json::json!({
                 "center": encoder.center_encoding,
@@ -414,6 +423,7 @@ fn show_usage_exit() {
     eprintln!("  [--within-dist=<x>,<y>,<z>,<radius>]            // Crop input file to within radius of a point");
     eprintln!("  [--skip-validate]                               // Skip validation of input file");
     eprintln!("  [--inflate]                                     // Inflate scales to output normal splat opacity 0..1");
+    eprintln!("  [--zstd] [--zstd-level=<n>]                      // Compress .rad property blobs with zstd (default level 9) instead of gz");
     eprintln!("  [--cluster-sh[=<iterations>]]                   // Cluster SH coefficients into <=64K codebook (default 10 iterations)");
     eprintln!("  [--cluster-sh-cpu[=<iterations>]]               // Cluster SH coefficients using CPU");
     eprintln!("  [--cluster-sh-f16[=auto,true,false]]            // Force GPU SH coefficients to use float16 (default if available)");
@@ -562,6 +572,23 @@ fn main() {
         if arg == "--inflate" {
             options.inflate = true;
             println!("Using --inflate: Inflate scales to output normal splat opacity 0..1");
+            continue;
+        }
+        if arg == "--zstd" {
+            options.zstd = true;
+            continue;
+        }
+        if let Some(rest) = arg.strip_prefix("--zstd-level=") {
+            match rest.parse::<i32>() {
+                Ok(v) => {
+                    options.zstd = true;
+                    options.zstd_level = v;
+                }
+                Err(_) => {
+                    eprintln!("Invalid --zstd-level value: {}", rest);
+                    show_usage_exit();
+                }
+            }
             continue;
         }
         if let Some(rest) = arg.strip_prefix("--cluster-sh-cpu") {
