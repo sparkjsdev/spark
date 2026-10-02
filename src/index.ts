@@ -23,6 +23,7 @@ export {
 
 export { PackedSplats, type PackedSplatsOptions } from "./PackedSplats";
 export { ExtSplats, type ExtSplatsOptions } from "./ExtSplats";
+export * from "./PagedSplats";
 export * from "./SplatPager";
 export {
   SplatGenerator,

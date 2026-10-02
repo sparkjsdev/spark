@@ -8,6 +8,7 @@ import {
 } from "spark-rs";
 import { ExtSplats } from "./ExtSplats";
 import { PackedSplats } from "./PackedSplats";
+import { PagedSplats, type PagedSplatsOptions } from "./PagedSplats";
 import { type RgbaArray, TRgbaArray } from "./RgbaArray";
 import {
   type SplatEdit,
@@ -24,7 +25,7 @@ import {
   SplatGenerator,
   SplatTransformer,
 } from "./SplatGenerator";
-import { PagedSplats, type PagedSplatsOptions, SplatPager } from "./SplatPager";
+import { SplatPager } from "./SplatPager";
 import type { SplatSkinning } from "./SplatSkinning";
 import {
   DEFAULT_SPLAT_ENCODING,
