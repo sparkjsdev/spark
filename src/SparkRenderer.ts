@@ -376,6 +376,8 @@ export class SparkRenderer extends THREE.Mesh {
 
   sorting = false;
   sortDirty = false;
+  // Mapping version the latest update produced.
+  private latestMappingVersion = -1;
   lastSortTime = 0;
   sortWorker: SplatWorker | null = null;
   sortTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
@@ -992,6 +994,7 @@ export class SparkRenderer extends THREE.Mesh {
     let doUpdate = true;
     const needsUpdate = viewChanged || version !== this.current.version;
     const mappingUpdated = mappingVersion !== this.display.mappingVersion;
+    this.latestMappingVersion = mappingVersion;
 
     if (autoUpdate && !needsUpdate) {
       // Triggered by auto-update but no change
@@ -1039,7 +1042,12 @@ export class SparkRenderer extends THREE.Mesh {
   }
 
   private async driveSort() {
-    if (this.sorting || !this.sortDirty) {
+    if (
+      this.sorting ||
+      !this.sortDirty ||
+      this.latestMappingVersion !== this.current.mappingVersion ||
+      this.current.mappingChanged()
+    ) {
       return;
     }
 
