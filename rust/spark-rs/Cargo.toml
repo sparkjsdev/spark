@@ -42,3 +42,6 @@ serde_json.workspace = true
 serde.workspace = true
 itertools.workspace = true
 console_error_panic_hook = "0.1"
+
+[lints]
+workspace = true

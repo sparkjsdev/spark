@@ -1,5 +1,8 @@
 pre-commit:
   jobs:
+    - name: lint:rust
+      run: npm run lint:rust
+      glob: rust/**
     - name: lint
       run: npm run lint
     - name: test

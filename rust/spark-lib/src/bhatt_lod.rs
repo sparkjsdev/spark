@@ -19,7 +19,7 @@ pub fn compute_lod_tree<TA: TsplatArray>(splats: &mut TA, lod_base: f32, logger:
 
     splats.sort_by(|s| s.feature_size());
     splats.prepare_children();
-    logger(&format!("Sorted and prepared splats"));
+    logger("Sorted and prepared splats");
 
     let mut is_active = Vec::with_capacity(splats.len() * 2 - 1);
     is_active.resize(splats.len(), true);
@@ -195,7 +195,7 @@ pub fn compute_lod_tree<TA: TsplatArray>(splats: &mut TA, lod_base: f32, logger:
     let mut indices = Vec::new();
 
     fn recurse_indices<TA: TsplatArray>(
-        splats: &mut TA, index: usize, to_output: &Vec<bool>, indices: &mut Vec<usize>,
+        splats: &mut TA, index: usize, _to_output: &Vec<bool>, indices: &mut Vec<usize>,
         limit_size: f32, frontier: &mut Vec<usize>,
     ) {
         if splats.get(index).feature_size() < limit_size {
@@ -217,7 +217,7 @@ pub fn compute_lod_tree<TA: TsplatArray>(splats: &mut TA, lod_base: f32, logger:
         }
 
         for child in children {
-            recurse_indices(splats, child, to_output, indices, limit_size, frontier);
+            recurse_indices(splats, child, _to_output, indices, limit_size, frontier);
         }
     }
 
@@ -235,7 +235,7 @@ pub fn compute_lod_tree<TA: TsplatArray>(splats: &mut TA, lod_base: f32, logger:
         if next_frontier.is_empty() {
             break;
         }
-        limit_size = limit_size / 4.0;
+        limit_size /= 4.0;
         frontier = next_frontier;
     }
 

@@ -65,7 +65,7 @@ pub fn compute_sh_clusters<FNC: FindNearestClusters, TA: TsplatArray>(
         let last_iteration = iteration == num_iterations;
 
         fnc.set_clusters(dims, &clusters)?;
-        logger(&format!("sh_clustering: Initialized centroids"));
+        logger("sh_clustering: Initialized centroids");
 
         cluster_weight.fill(0.0);
         cluster_count.fill(0);

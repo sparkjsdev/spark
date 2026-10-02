@@ -9,6 +9,7 @@ use crate::decoder::{ChunkReceiver, SetSplatEncoding, SplatGetter, SplatInit, Sp
 use miniz_oxide::deflate::compress_to_vec;
 
 pub const SPZ_MAGIC: u32 = 0x5053474e; // "NGSP"
+#[allow(clippy::excessive_precision)]
 const SH_C0: f32 = 0.28209479177387814;
 const MAX_SPLAT_CHUNK: usize = 65536;
 
@@ -78,7 +79,7 @@ impl<T: SplatReceiver> SpzDecoder<T> {
         let _reserved = self.buffer[15];
 
         self.buffer.drain(..16);
-        let state = SpzDecoderState::new(version as u32, num_splats, sh_degree, fractional_bits, flags)?;
+        let state = SpzDecoderState::new(version, num_splats, sh_degree, fractional_bits, flags)?;
         self.state = Some(state);
 
         self.splats.init_splats(&SplatInit {

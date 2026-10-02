@@ -42,3 +42,17 @@ bytemuck = { version = "1.25.0", features = ["derive"] }
 opt-level = 3
 lto = "fat"
 codegen-units = 1
+
+[workspace.lints.clippy]
+identity_op = "allow"
+len_without_is_empty = "allow"
+new_without_default = "allow"
+needless_range_loop = "allow"
+too_many_arguments = "allow"
+let_and_return = "allow"
+clone_on_copy = "allow"
+type_complexity = "allow"
+wrong_self_convention = "allow"
+collapsible_if = "allow"
+needless_return = "allow"
+manual_range_contains = "allow"

@@ -127,7 +127,7 @@ pub fn compute_lod_tree<SA: TsplatArray>(splats: &mut SA, lod_base: f32, merge_f
 
         let grid_range = (grid_min_max[1] - grid_min_max[0]).max_element();
         if grid_range <= 1 {
-            logger(&format!("Grid range is 1, making root"));
+            logger("Grid range is 1, making root");
             make_root = true;
         }
     }
