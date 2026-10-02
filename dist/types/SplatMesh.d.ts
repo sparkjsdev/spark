@@ -1,10 +1,11 @@
 import * as THREE from "three";
 import { ExtSplats } from "./ExtSplats";
 import { PackedSplats } from "./PackedSplats";
+import { PagedSplats } from "./PagedSplats";
 import { type RgbaArray, TRgbaArray } from "./RgbaArray";
 import { type SplatEdit, SplatEdits } from "./SplatEdit";
 import { type CovSplatModifier, CovSplatTransformer, type FrameUpdateContext, type GsplatModifier, SplatGenerator, SplatTransformer } from "./SplatGenerator";
-import { PagedSplats, SplatPager } from "./SplatPager";
+import { SplatPager } from "./SplatPager";
 import type { SplatSkinning } from "./SplatSkinning";
 import { type SplatEncoding, type SplatFileType } from "./defines";
 import { DynoBool, DynoFloat, DynoInt, DynoUsampler2D, type DynoVal, DynoVec4, Gsplat } from "./dyno";

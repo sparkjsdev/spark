@@ -93,4 +93,5 @@ export declare class SplatAccumulator {
         splatsUpdated: boolean;
         mappingUpdated: boolean;
     };
+    mappingChanged(): boolean;
 }

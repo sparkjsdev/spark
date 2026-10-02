@@ -1,9 +1,10 @@
 import * as THREE from "three";
 import { ExtSplats } from "./ExtSplats";
 import { PackedSplats } from "./PackedSplats";
+import { PagedSplats } from "./PagedSplats";
 import { SplatAccumulator } from "./SplatAccumulator";
 import { SplatMesh } from "./SplatMesh";
-import { PagedSplats, SplatPager } from "./SplatPager";
+import { SplatPager } from "./SplatPager";
 import { SplatWorker } from "./SplatWorker";
 export interface SparkRendererOptions {
     /**
@@ -343,6 +344,7 @@ export declare class SparkRenderer extends THREE.Mesh {
     accumulators: SplatAccumulator[];
     sorting: boolean;
     sortDirty: boolean;
+    private latestMappingVersion;
     lastSortTime: number;
     sortWorker: SplatWorker | null;
     sortTimeoutId: ReturnType<typeof setTimeout> | undefined;
