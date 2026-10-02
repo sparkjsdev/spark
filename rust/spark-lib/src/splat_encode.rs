@@ -300,7 +300,7 @@ pub fn decode_scale8(scale: u8, ln_scale_min: f32, ln_scale_max: f32) -> f32 {
 pub fn encode_ext_rgb(rgb: [f32; 3]) -> u32 {
     let abs_rgb = rgb.map(|x| x.abs());
     let max_abs = abs_rgb[0].max(abs_rgb[1].max(abs_rgb[2]));
-    let base = (max_abs.log2().floor() + 15.0).clamp(0.0, 31.0).round() as i32;
+    let base = (max_abs.log2().ceil() + 15.0).clamp(0.0, 31.0).round() as i32;
     let divisor = ((base - 15) as f32).exp2() / 255.0;
     let u_rgb = abs_rgb.map(|x| (x / divisor).clamp(0.0, 255.0).round() as u32);
     let exp_signs = ((base as u32) << 3)

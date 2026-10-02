@@ -1503,7 +1503,7 @@ export function encodeExtRgb(r: number, g: number, b: number): number {
   const ag = Math.abs(g);
   const ab = Math.abs(b);
   const maxAbs = Math.max(ar, ag, ab);
-  const base = Math.floor(Math.log2(maxAbs));
+  const base = Math.ceil(Math.log2(maxAbs));
   const biasedBase = Math.max(0, Math.min(31, base + 15));
   const divisor = 2 ** (biasedBase - 15) / 255;
   const uR = Math.round(Math.max(0, Math.min(255, ar / divisor)));
