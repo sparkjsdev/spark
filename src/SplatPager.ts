@@ -1234,10 +1234,10 @@ export class SplatPager {
         const packedArray = extArrays[0];
         const extArray = extArrays[1];
         const shArrays = [
-          data.extra.sh1 as Uint32Array,
-          data.extra.sh2 as Uint32Array,
-          data.extra.sh3a as Uint32Array,
-          data.extra.sh3b as Uint32Array,
+          data.extra.sh1,
+          data.extra.sh2,
+          data.extra.sh3a,
+          data.extra.sh3b,
         ];
         // findIndex returns -1 when all SH arrays are present — keep the full list
         // (Array.length = -1 throws a RangeError)
@@ -1248,15 +1248,11 @@ export class SplatPager {
           numSplats,
           packedArray,
           extArray,
-          shArrays,
+          shArrays: shArrays as Array<Uint32Array>,
         });
       } else {
         const packedArray = data.packedArray;
-        const shArrays = [
-          data.extra.sh1 as Uint32Array,
-          data.extra.sh2 as Uint32Array,
-          data.extra.sh3 as Uint32Array,
-        ];
+        const shArrays = [data.extra.sh1, data.extra.sh2, data.extra.sh3];
         // findIndex returns -1 when all SH arrays are present — keep the full list
         // (Array.length = -1 throws a RangeError)
         const firstMissingSh = shArrays.findIndex((sh) => !sh);
@@ -1265,7 +1261,7 @@ export class SplatPager {
           page,
           numSplats,
           packedArray,
-          shArrays,
+          shArrays: shArrays as Array<Uint32Array>,
         });
       }
     }

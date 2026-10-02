@@ -194,14 +194,14 @@ async function decodeBytesUrl({
 
 type DecodedPackedResult = {
   readonly numSplats: number;
-  readonly packed: Uint32Array;
-  readonly sh1?: Uint32Array;
-  readonly sh2?: Uint32Array;
-  readonly sh3?: Uint32Array;
-  readonly sh1Codes?: Uint32Array;
-  readonly sh2Codes?: Uint32Array;
-  readonly sh3Codes?: Uint32Array;
-  readonly lodTree?: Uint32Array;
+  readonly packed: Uint32Array<ArrayBuffer>;
+  readonly sh1?: Uint32Array<ArrayBuffer>;
+  readonly sh2?: Uint32Array<ArrayBuffer>;
+  readonly sh3?: Uint32Array<ArrayBuffer>;
+  readonly sh1Codes?: Uint32Array<ArrayBuffer>;
+  readonly sh2Codes?: Uint32Array<ArrayBuffer>;
+  readonly sh3Codes?: Uint32Array<ArrayBuffer>;
+  readonly lodTree?: Uint32Array<ArrayBuffer>;
   readonly splatEncoding: SplatEncoding;
 };
 
@@ -354,16 +354,16 @@ async function loadPackedSplats(
 
 type DecodedExtResult = {
   numSplats: number;
-  ext0: Uint32Array;
-  ext1: Uint32Array;
-  sh1?: Uint32Array;
-  sh2?: Uint32Array;
-  sh3a?: Uint32Array;
-  sh3b?: Uint32Array;
-  sh1Codes?: Uint32Array;
-  sh2Codes?: Uint32Array;
-  sh3Codes?: [Uint32Array, Uint32Array];
-  lodTree?: Uint32Array;
+  ext0: Uint32Array<ArrayBuffer>;
+  ext1: Uint32Array<ArrayBuffer>;
+  sh1?: Uint32Array<ArrayBuffer>;
+  sh2?: Uint32Array<ArrayBuffer>;
+  sh3a?: Uint32Array<ArrayBuffer>;
+  sh3b?: Uint32Array<ArrayBuffer>;
+  sh1Codes?: Uint32Array<ArrayBuffer>;
+  sh2Codes?: Uint32Array<ArrayBuffer>;
+  sh3Codes?: [Uint32Array<ArrayBuffer>, Uint32Array<ArrayBuffer>];
+  lodTree?: Uint32Array<ArrayBuffer>;
 };
 
 function toExtResult(packed: DecodedExtResult): ExtResult {
