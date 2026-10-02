@@ -1,12 +1,13 @@
 import * as THREE from "three";
 import { ExtSplats } from "./ExtSplats";
 import { PackedSplats } from "./PackedSplats";
+import { PagedSplats } from "./PagedSplats";
 import { Readback } from "./Readback";
 import { SplatAccumulator } from "./SplatAccumulator";
 import type { SplatGenerator } from "./SplatGenerator";
 import { SplatGeometry } from "./SplatGeometry";
 import { SplatMesh } from "./SplatMesh";
-import { PagedSplats, SplatPager } from "./SplatPager";
+import { SplatPager } from "./SplatPager";
 import { SplatWorker } from "./SplatWorker";
 import { SPLAT_TEX_HEIGHT, SPLAT_TEX_WIDTH } from "./defines";
 import { SPARK_ENABLE_HOOKS, sparkHook } from "./hooks";
