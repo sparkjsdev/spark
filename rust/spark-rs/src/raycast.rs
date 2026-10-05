@@ -99,20 +99,21 @@ fn raycast_ellipsoid(
         }
         Some(t)
     } else {
-        let inv_scale = [1.0 / scale[0], 1.0 / scale[1], 1.0 / scale[2]];
-        let local_origin = vec3_mul(local_origin, inv_scale);
-        let local_dir = vec3_mul(local_dir, inv_scale);
+        // f64 + Lagrange identity: b*b - a*c suffers catastrophic cancellation
+        // in f32 when |o| >> 1 (small splats seen from far away).
+        let o = [local_origin[0] as f64 / scale[0] as f64, local_origin[1] as f64 / scale[1] as f64, local_origin[2] as f64 / scale[2] as f64];
+        let d = [local_dir[0] as f64 / scale[0] as f64, local_dir[1] as f64 / scale[1] as f64, local_dir[2] as f64 / scale[2] as f64];
 
-        let a = vec3_dot(local_dir, local_dir);
-        let b = vec3_dot(local_origin, local_dir);
-        let c = vec3_dot(local_origin, local_origin) - 1.0;
-        let discriminant = b * b - a * c;
+        let a = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+        let b = o[0] * d[0] + o[1] * d[1] + o[2] * d[2];
+        let cross = [o[1] * d[2] - o[2] * d[1], o[2] * d[0] - o[0] * d[2], o[0] * d[1] - o[1] * d[0]];
+        let discriminant = a - (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]);
         if discriminant < 0.0 {
             return None;
         }
 
         let t = (-b - discriminant.sqrt()) / a;
-        Some(t)
+        Some(t as f32)
     }
 }
 
@@ -122,14 +123,6 @@ fn sqr(x: f32) -> f32 {
 
 fn vec3_sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
     [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-
-fn vec3_mul(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
-    [a[0] * b[0], a[1] * b[1], a[2] * b[2]]
-}
-
-fn vec3_dot(a: [f32; 3], b: [f32; 3]) -> f32 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
 
 fn vec3_cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
@@ -149,4 +142,31 @@ fn quat_vec(q: [f32; 4], v: [f32; 3]) -> [f32; 3] {
         v[1] + 2.0 * (q[3] * uv[1] + uuv[1]),
         v[2] + 2.0 * (q[3] * uv[2] + uuv[2]),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A tiny splat far from the ray origin: |local_origin| >> 1 in the unit-sphere
+    // frame, so b*b - a*c cancels to noise in f32 even though the ray is aimed
+    // exactly at the splat center. Fails with the old f32 discriminant, passes
+    // with the f64 Lagrange-identity version.
+    #[test]
+    fn raycast_hits_tiny_distant_splat_aimed_at_center() {
+        let center = [1000.0_f32, 0.0, 1000.0];
+        let dist = (center[0] * center[0] + center[2] * center[2]).sqrt();
+        let dir = [center[0] / dist, 0.0, center[2] / dist];
+        let origin = [0.0_f32, 0.0, 0.0];
+        let scale = [0.005_f32, 0.005, 0.005];
+        let quat = [0.0_f32, 0.0, 0.0, 1.0]; // identity rotation
+        let opacity = 1.0_f32;
+
+        let hit = raycast_ellipsoid(origin, dir, opacity, center, scale, quat);
+        assert!(hit.is_some(), "expected a hit on a tiny distant splat aimed at its center");
+
+        let t = hit.unwrap();
+        let expected = dist - scale[0]; // near-surface hit, one radius short of the center
+        assert!((t - expected).abs() < 0.01, "t={t} expected~{expected}");
+    }
 }
