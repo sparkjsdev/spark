@@ -101,13 +101,14 @@ fn raycast_ellipsoid(
     } else {
         // f64 + Lagrange identity: b*b - a*c suffers catastrophic cancellation
         // in f32 when |o| >> 1 (small splats seen from far away).
-        let o = [local_origin[0] as f64 / scale[0] as f64, local_origin[1] as f64 / scale[1] as f64, local_origin[2] as f64 / scale[2] as f64];
-        let d = [local_dir[0] as f64 / scale[0] as f64, local_dir[1] as f64 / scale[1] as f64, local_dir[2] as f64 / scale[2] as f64];
+        let inv_scale = scale.map(|s| 1.0 / s as f64);
+        let o = vec3_mul(local_origin.map(|v| v as f64), inv_scale);
+        let d = vec3_mul(local_dir.map(|v| v as f64), inv_scale);
 
-        let a = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
-        let b = o[0] * d[0] + o[1] * d[1] + o[2] * d[2];
-        let cross = [o[1] * d[2] - o[2] * d[1], o[2] * d[0] - o[0] * d[2], o[0] * d[1] - o[1] * d[0]];
-        let discriminant = a - (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]);
+        let a = vec3_dot(d, d);
+        let b = vec3_dot(o, d);
+        let cross = vec3_cross(o, d);
+        let discriminant = a - vec3_dot(cross, cross);
         if discriminant < 0.0 {
             return None;
         }
@@ -125,7 +126,15 @@ fn vec3_sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
     [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 }
 
-fn vec3_cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+fn vec3_mul<T: Copy + std::ops::Mul<Output = T>>(a: [T; 3], b: [T; 3]) -> [T; 3] {
+    [a[0] * b[0], a[1] * b[1], a[2] * b[2]]
+}
+
+fn vec3_dot<T: Copy + std::ops::Mul<Output = T> + std::ops::Add<Output = T>>(a: [T; 3], b: [T; 3]) -> T {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+fn vec3_cross<T: Copy + std::ops::Mul<Output = T> + std::ops::Sub<Output = T>>(a: [T; 3], b: [T; 3]) -> [T; 3] {
     [
         a[1] * b[2] - a[2] * b[1],
         a[2] * b[0] - a[0] * b[2],
