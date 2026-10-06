@@ -99,22 +99,22 @@ fn raycast_ellipsoid(
         }
         Some(t)
     } else {
-        // f64 + Lagrange identity: b*b - a*c suffers catastrophic cancellation
-        // in f32 when |o| >> 1 (small splats seen from far away).
-        let inv_scale = scale.map(|s| 1.0 / s as f64);
-        let o = vec3_mul(local_origin.map(|v| v as f64), inv_scale);
-        let d = vec3_mul(local_dir.map(|v| v as f64), inv_scale);
+        let inv_scale = [1.0 / scale[0], 1.0 / scale[1], 1.0 / scale[2]];
+        let local_origin = vec3_mul(local_origin, inv_scale);
+        let local_dir = vec3_mul(local_dir, inv_scale);
 
-        let a = vec3_dot(d, d);
-        let b = vec3_dot(o, d);
-        let cross = vec3_cross(o, d);
+        let a = vec3_dot(local_dir, local_dir);
+        let b = vec3_dot(local_origin, local_dir);
+        // Lagrange identity: b*b - a*c cancels catastrophically when |o| >> 1
+        // (small splats seen from far away); a - |o x d|^2 is equivalent and stable.
+        let cross = vec3_cross(local_origin, local_dir);
         let discriminant = a - vec3_dot(cross, cross);
         if discriminant < 0.0 {
             return None;
         }
 
         let t = (-b - discriminant.sqrt()) / a;
-        Some(t as f32)
+        Some(t)
     }
 }
 
@@ -126,15 +126,15 @@ fn vec3_sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
     [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 }
 
-fn vec3_mul<T: Copy + std::ops::Mul<Output = T>>(a: [T; 3], b: [T; 3]) -> [T; 3] {
+fn vec3_mul(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
     [a[0] * b[0], a[1] * b[1], a[2] * b[2]]
 }
 
-fn vec3_dot<T: Copy + std::ops::Mul<Output = T> + std::ops::Add<Output = T>>(a: [T; 3], b: [T; 3]) -> T {
+fn vec3_dot(a: [f32; 3], b: [f32; 3]) -> f32 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
 
-fn vec3_cross<T: Copy + std::ops::Mul<Output = T> + std::ops::Sub<Output = T>>(a: [T; 3], b: [T; 3]) -> [T; 3] {
+fn vec3_cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
     [
         a[1] * b[2] - a[2] * b[1],
         a[2] * b[0] - a[0] * b[2],
@@ -159,8 +159,8 @@ mod tests {
 
     // A tiny splat far from the ray origin: |local_origin| >> 1 in the unit-sphere
     // frame, so b*b - a*c cancels to noise in f32 even though the ray is aimed
-    // exactly at the splat center. Fails with the old f32 discriminant, passes
-    // with the f64 Lagrange-identity version.
+    // exactly at the splat center. Fails with the old b*b - a*c discriminant,
+    // passes with the Lagrange-identity version (a - |o x d|^2).
     #[test]
     fn raycast_hits_tiny_distant_splat_aimed_at_center() {
         let center = [1000.0_f32, 0.0, 1000.0];
