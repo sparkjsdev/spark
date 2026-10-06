@@ -44,6 +44,15 @@ import {
 import { getShaders } from "./shaders";
 import { getTextureSize, setPackedSplat, unpackSplat } from "./utils";
 
+type PackedSplatsExtra = {
+  sh1?: Uint32Array;
+  sh2?: Uint32Array;
+  sh3?: Uint32Array;
+  sh1Texture?: DynoUsampler2DArray<"sh1", THREE.DataArrayTexture>;
+  sh2Texture?: DynoUsampler2DArray<"sh2", THREE.DataArrayTexture>;
+  sh3Texture?: DynoUsampler2DArray<"sh3", THREE.DataArrayTexture>;
+} & Record<string, unknown>;
+
 // Initialize a PackedSplats collection from source data via
 // url, fileBytes, or packedArray. Creates an empty array if none are set,
 // and splat data can be constructed using pushSplat()/setSplat(). The maximum
@@ -86,7 +95,7 @@ export type PackedSplatsOptions = {
   // Callback function called while downloading and initializing (default: undefined)
   onProgress?: (event: ProgressEvent) => void;
   // Additional splat data, such as spherical harmonics components (sh1, sh2, sh3). (default: {})
-  extra?: Record<string, unknown>;
+  extra?: PackedSplatsExtra;
   // Override the default splat encoding ranges for the PackedSplats.
   // (default: undefined)
   splatEncoding?: Partial<SplatEncoding>;
@@ -114,7 +123,7 @@ export class PackedSplats implements SplatSource {
   maxSplats = 0;
   numSplats = 0;
   packedArray: Uint32Array | null = null;
-  extra: Record<string, unknown>;
+  extra: PackedSplatsExtra;
   maxSh = 3;
   splatEncoding: SplatEncoding;
   lod?: boolean | "quality";
@@ -378,11 +387,9 @@ export class PackedSplats implements SplatSource {
       return {};
     }
 
-    let sh1Texture = this.extra.sh1Texture as
-      | DynoUsampler2DArray<"sh1", THREE.DataArrayTexture>
-      | undefined;
+    let sh1Texture = this.extra.sh1Texture;
     if (!sh1Texture) {
-      let sh1 = this.extra.sh1 as Uint32Array<ArrayBuffer>;
+      let sh1 = this.extra.sh1;
       const { width, height, depth, maxSplats } = getTextureSize(
         sh1.length / 2,
       );
@@ -393,7 +400,12 @@ export class PackedSplats implements SplatSource {
         sh1 = newSh1;
       }
 
-      const texture = new THREE.DataArrayTexture(sh1, width, height, depth);
+      const texture = new THREE.DataArrayTexture(
+        sh1 as Uint32Array<ArrayBuffer>,
+        width,
+        height,
+        depth,
+      );
       texture.format = THREE.RGIntegerFormat;
       texture.type = THREE.UnsignedIntType;
       texture.internalFormat = "RG32UI";
@@ -410,11 +422,9 @@ export class PackedSplats implements SplatSource {
       return { sh1Texture };
     }
 
-    let sh2Texture = this.extra.sh2Texture as
-      | DynoUsampler2DArray<"sh2", THREE.DataArrayTexture>
-      | undefined;
+    let sh2Texture = this.extra.sh2Texture;
     if (!sh2Texture) {
-      let sh2 = this.extra.sh2 as Uint32Array<ArrayBuffer>;
+      let sh2 = this.extra.sh2;
       const { width, height, depth, maxSplats } = getTextureSize(
         sh2.length / 4,
       );
@@ -425,7 +435,12 @@ export class PackedSplats implements SplatSource {
         sh2 = newSh2;
       }
 
-      const texture = new THREE.DataArrayTexture(sh2, width, height, depth);
+      const texture = new THREE.DataArrayTexture(
+        sh2 as Uint32Array<ArrayBuffer>,
+        width,
+        height,
+        depth,
+      );
       texture.format = THREE.RGBAIntegerFormat;
       texture.type = THREE.UnsignedIntType;
       texture.internalFormat = "RGBA32UI";
@@ -442,11 +457,9 @@ export class PackedSplats implements SplatSource {
       return { sh1Texture, sh2Texture };
     }
 
-    let sh3Texture = this.extra.sh3Texture as
-      | DynoUsampler2DArray<"sh3", THREE.DataArrayTexture>
-      | undefined;
+    let sh3Texture = this.extra.sh3Texture;
     if (!sh3Texture) {
-      let sh3 = this.extra.sh3 as Uint32Array<ArrayBuffer>;
+      let sh3 = this.extra.sh3;
       const { width, height, depth, maxSplats } = getTextureSize(
         sh3.length / 4,
       );
@@ -457,7 +470,12 @@ export class PackedSplats implements SplatSource {
         sh3 = newSh3;
       }
 
-      const texture = new THREE.DataArrayTexture(sh3, width, height, depth);
+      const texture = new THREE.DataArrayTexture(
+        sh3 as Uint32Array<ArrayBuffer>,
+        width,
+        height,
+        depth,
+      );
       texture.format = THREE.RGBAIntegerFormat;
       texture.type = THREE.UnsignedIntType;
       texture.internalFormat = "RGBA32UI";
@@ -502,7 +520,7 @@ export class PackedSplats implements SplatSource {
   // Ensure the extra array for the given level is large enough to hold numSplats
   ensureSplatsSh(level: number, numSplats: number): Uint32Array {
     let wordsPerSplat: number;
-    let key: string;
+    let key: "sh1" | "sh2" | "sh3";
     if (level === 0) {
       return this.ensureSplats(numSplats);
     }
@@ -523,19 +541,18 @@ export class PackedSplats implements SplatSource {
     }
 
     // Figure out our current and desired maxSplats
-    let maxSplats: number = !this.extra[key]
-      ? 0
-      : (this.extra[key] as Uint32Array).length / wordsPerSplat;
+    const shArray = this.extra[key];
+    let maxSplats: number = !shArray ? 0 : shArray.length / wordsPerSplat;
     const targetSize =
       numSplats <= maxSplats ? maxSplats : Math.max(numSplats, 2 * maxSplats);
 
-    if (!this.extra[key] || targetSize > maxSplats) {
+    if (!shArray || targetSize > maxSplats) {
       // Reallocate the array
       maxSplats = getTextureSize(targetSize).maxSplats;
       const newArray = new Uint32Array(maxSplats * wordsPerSplat);
-      if (this.extra[key]) {
+      if (shArray) {
         // Copy over existing data
-        newArray.set(this.extra[key] as Uint32Array);
+        newArray.set(shArray);
       }
       this.extra[key] = newArray;
     }
@@ -926,10 +943,10 @@ export class PackedSplats implements SplatSource {
           : 1.5;
     const packedArray = (this.packedArray as Uint32Array).slice();
     const rgba = rgbaArray ? (await rgbaArray.getArray()).slice() : undefined;
-    const extra = {
-      sh1: this.extra.sh1 ? (this.extra.sh1 as Uint32Array).slice() : undefined,
-      sh2: this.extra.sh2 ? (this.extra.sh2 as Uint32Array).slice() : undefined,
-      sh3: this.extra.sh3 ? (this.extra.sh3 as Uint32Array).slice() : undefined,
+    const extra: Pick<PackedSplatsExtra, "sh1" | "sh2" | "sh3"> = {
+      sh1: this.extra.sh1?.slice(),
+      sh2: this.extra.sh2?.slice(),
+      sh3: this.extra.sh3?.slice(),
     };
     const decoded = await workerPool.withWorker(async (worker) => {
       return await worker.call(

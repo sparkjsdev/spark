@@ -82,13 +82,13 @@ export type RadMeta = {
 };
 
 export type PackedExtra = {
-  readonly sh1?: Uint32Array;
-  readonly sh2?: Uint32Array;
-  readonly sh3?: Uint32Array;
-  readonly sh1Codes?: Uint32Array;
-  readonly sh2Codes?: Uint32Array;
-  readonly sh3Codes?: Uint32Array;
-  readonly lodTree?: Uint32Array;
+  readonly sh1?: Uint32Array<ArrayBuffer>;
+  readonly sh2?: Uint32Array<ArrayBuffer>;
+  readonly sh3?: Uint32Array<ArrayBuffer>;
+  readonly sh1Codes?: Uint32Array<ArrayBuffer>;
+  readonly sh2Codes?: Uint32Array<ArrayBuffer>;
+  readonly sh3Codes?: Uint32Array<ArrayBuffer>;
+  readonly lodTree?: Uint32Array<ArrayBuffer>;
   readonly radMeta?: RadMeta;
 };
 
@@ -100,14 +100,14 @@ export type PackedResult = {
 };
 
 export type ExtExtra = {
-  readonly sh1?: Uint32Array;
-  readonly sh2?: Uint32Array;
-  readonly sh3a?: Uint32Array;
-  readonly sh3b?: Uint32Array;
-  readonly sh1Codes?: Uint32Array;
-  readonly sh2Codes?: Uint32Array;
-  readonly sh3Codes?: [Uint32Array, Uint32Array];
-  readonly lodTree?: Uint32Array;
+  readonly sh1?: Uint32Array<ArrayBuffer>;
+  readonly sh2?: Uint32Array<ArrayBuffer>;
+  readonly sh3a?: Uint32Array<ArrayBuffer>;
+  readonly sh3b?: Uint32Array<ArrayBuffer>;
+  readonly sh1Codes?: Uint32Array<ArrayBuffer>;
+  readonly sh2Codes?: Uint32Array<ArrayBuffer>;
+  readonly sh3Codes?: [Uint32Array<ArrayBuffer>, Uint32Array<ArrayBuffer>];
+  readonly lodTree?: Uint32Array<ArrayBuffer>;
   readonly radMeta?: RadMeta;
 };
 
