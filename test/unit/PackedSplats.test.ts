@@ -33,3 +33,33 @@ describe("PackedSplats credentials", () => {
     expect(loader().requestHeader).toEqual({});
   });
 });
+
+// The WebGL upload reads getTextureSize(maxSplats) splats from packedArray.
+describe("PackedSplats from a caller's packedArray", () => {
+  const LAYER = 2048 * 2048;
+
+  test("pads an array past one layer to whole layers, keeping every splat", () => {
+    const n = LAYER + 3000;
+    const packed = new Uint32Array(n * 4);
+    packed[(n - 1) * 4] = 7;
+    const splats = new PackedSplats({ packedArray: packed, numSplats: n });
+    expect(splats.numSplats).toBe(n);
+    expect(splats.maxSplats).toBe(2 * LAYER);
+    expect(splats.packedArray?.length).toBe(2 * LAYER * 4);
+    expect(splats.packedArray?.[(n - 1) * 4]).toBe(7);
+  });
+
+  test("pads a short array to whole rows instead of dropping the tail", () => {
+    const splats = new PackedSplats({ packedArray: new Uint32Array(1000 * 4) });
+    expect(splats.numSplats).toBe(1000);
+    expect(splats.maxSplats).toBe(2048);
+  });
+
+  test("keeps an array that is already texture-sized", () => {
+    const packed = new Uint32Array(2048 * 3 * 4);
+    const splats = new PackedSplats({ packedArray: packed, numSplats: 5000 });
+    expect(splats.packedArray).toBe(packed);
+    expect(splats.numSplats).toBe(5000);
+    expect(splats.maxSplats).toBe(2048 * 3);
+  });
+});

@@ -221,17 +221,21 @@ export class PackedSplats implements SplatSource {
     this.lodSplats = options.lodSplats;
 
     if (options.packedArray) {
-      this.packedArray = options.packedArray;
-      this.numSplats = options.numSplats ?? this.packedArray.length / 4;
-
-      // Calculate number of horizontal texture rows that could fit in array.
-      // A properly initialized packedArray should already take into account the
-      // width and height of the texture and be rounded up with padding.
-      this.maxSplats = Math.floor(this.packedArray.length / 4);
-      this.maxSplats =
-        Math.floor(this.maxSplats / SPLAT_TEX_WIDTH) * SPLAT_TEX_WIDTH;
+      // The texture upload reads maxSplats (whole rows, and whole 2048x2048
+      // layers past the first) from the array. Arrays Spark allocates are
+      // already that size; a caller's unpadded one is copied into one that
+      // is, rather than truncated to whole rows (dropping splats) or read
+      // past its end (texSubImage3D "ArrayBufferView not big enough").
+      const capacity = Math.floor(options.packedArray.length / 4);
+      this.maxSplats = getTextureSize(capacity).maxSplats;
+      if (this.maxSplats === capacity) {
+        this.packedArray = options.packedArray;
+      } else {
+        this.packedArray = new Uint32Array(this.maxSplats * 4);
+        this.packedArray.set(options.packedArray.subarray(0, capacity * 4));
+      }
       this.numSplats = Math.min(
-        this.maxSplats,
+        capacity,
         options.numSplats ?? Number.POSITIVE_INFINITY,
       );
     } else {
