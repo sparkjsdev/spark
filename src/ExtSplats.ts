@@ -27,10 +27,10 @@ import {
 import { decodeExtSplat, encodeExtSplat, getTextureSize } from "./utils";
 
 type ExtSplatsExtra = {
-  sh1?: Uint32Array<ArrayBuffer>;
-  sh2?: Uint32Array<ArrayBuffer>;
-  sh3a?: Uint32Array<ArrayBuffer>;
-  sh3b?: Uint32Array<ArrayBuffer>;
+  sh1?: Uint32Array;
+  sh2?: Uint32Array;
+  sh3a?: Uint32Array;
+  sh3b?: Uint32Array;
   sh1Texture?: DynoUsampler2DArray<"sh1", THREE.DataArrayTexture>;
   sh2Texture?: DynoUsampler2DArray<"sh2", THREE.DataArrayTexture>;
   sh3TextureA?: DynoUsampler2DArray<"sh3", THREE.DataArrayTexture>;

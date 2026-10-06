@@ -45,9 +45,9 @@ import { getShaders } from "./shaders";
 import { getTextureSize, setPackedSplat, unpackSplat } from "./utils";
 
 type PackedSplatsExtra = {
-  sh1?: Uint32Array<ArrayBuffer>;
-  sh2?: Uint32Array<ArrayBuffer>;
-  sh3?: Uint32Array<ArrayBuffer>;
+  sh1?: Uint32Array;
+  sh2?: Uint32Array;
+  sh3?: Uint32Array;
   sh1Texture?: DynoUsampler2DArray<"sh1", THREE.DataArrayTexture>;
   sh2Texture?: DynoUsampler2DArray<"sh2", THREE.DataArrayTexture>;
   sh3Texture?: DynoUsampler2DArray<"sh3", THREE.DataArrayTexture>;
@@ -400,7 +400,12 @@ export class PackedSplats implements SplatSource {
         sh1 = newSh1;
       }
 
-      const texture = new THREE.DataArrayTexture(sh1, width, height, depth);
+      const texture = new THREE.DataArrayTexture(
+        sh1 as Uint32Array<ArrayBuffer>,
+        width,
+        height,
+        depth,
+      );
       texture.format = THREE.RGIntegerFormat;
       texture.type = THREE.UnsignedIntType;
       texture.internalFormat = "RG32UI";
@@ -430,7 +435,12 @@ export class PackedSplats implements SplatSource {
         sh2 = newSh2;
       }
 
-      const texture = new THREE.DataArrayTexture(sh2, width, height, depth);
+      const texture = new THREE.DataArrayTexture(
+        sh2 as Uint32Array<ArrayBuffer>,
+        width,
+        height,
+        depth,
+      );
       texture.format = THREE.RGBAIntegerFormat;
       texture.type = THREE.UnsignedIntType;
       texture.internalFormat = "RGBA32UI";
@@ -460,7 +470,12 @@ export class PackedSplats implements SplatSource {
         sh3 = newSh3;
       }
 
-      const texture = new THREE.DataArrayTexture(sh3, width, height, depth);
+      const texture = new THREE.DataArrayTexture(
+        sh3 as Uint32Array<ArrayBuffer>,
+        width,
+        height,
+        depth,
+      );
       texture.format = THREE.RGBAIntegerFormat;
       texture.type = THREE.UnsignedIntType;
       texture.internalFormat = "RGBA32UI";
