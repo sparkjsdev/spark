@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { SparkRenderer } from "../../src/SparkRenderer";
 import { SplatGenerator } from "../../src/SplatGenerator";
 import { Dyno, dynoBlock } from "../../src/dyno/base";
@@ -165,4 +165,31 @@ test("a change during a sort is sorted after it", async () => {
 
   await finishSorts();
   expect(sorts.map((s) => s.version)).toEqual([v0 + 1, v0 + 2]);
+});
+
+// SparkRenderer updates the timer it creates, so generators see time pass,
+// and leaves a timer passed in to the app that owns it.
+test("only a timer SparkRenderer created is updated each frame", async () => {
+  const { spark, frame } = await setup(splatGenerator(8));
+  const update = vi.spyOn(spark.timer, "update");
+  await frame();
+  expect(update).toHaveBeenCalled();
+
+  const timer = new THREE.Timer();
+  const appUpdate = vi.spyOn(timer, "update");
+  const owned = new SparkRenderer({
+    renderer: stubRenderer,
+    enableLod: false,
+    timer,
+  });
+  owned.sortWorker = {
+    call: () => new Promise(() => {}),
+  } as unknown as typeof owned.sortWorker;
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera();
+  scene.add(owned, camera);
+  stubRenderer.info.render.frame += 1;
+  owned.onBeforeRender(stubRenderer, scene, camera);
+  await flushPromises();
+  expect(appUpdate).not.toHaveBeenCalled();
 });

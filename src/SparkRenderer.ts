@@ -565,7 +565,8 @@ export class SparkRenderer extends THREE.Mesh {
     this.lodRaycastIntervalMs = options.lodRaycastIntervalMs ?? 500;
 
     this.timer = options.timer ?? new THREE.Timer();
-    this.ownsTimer = !!options.timer;
+    // Update the timer only when we created it; a passed one is the app's.
+    this.ownsTimer = !options.timer;
 
     const accumulatorOptions = {
       extSplats: this.accumExtSplats,
