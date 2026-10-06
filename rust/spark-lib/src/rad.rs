@@ -1,21 +1,13 @@
 use std::array;
-use std::io::Write;
+use std::io::{Read, Write};
 
 use half::f16;
 
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
-use miniz_oxide::deflate::compress_to_vec;
-use miniz_oxide::inflate::decompress_to_vec;
-
-// fn compress_to_vec(data: &[u8], _level: u8) -> Vec<u8> {
-//     data.to_vec()
-// }
-
-// use zstd::encode_all;
-// fn compress_to_vec(data: &[u8], _level: u8) -> Vec<u8> {
-//     encode_all(data, 19).unwrap()
-// }
+use flate2::Compression;
+use flate2::read::DeflateEncoder;
+use flate2::read::DeflateDecoder;
 
 use crate::decoder::{ChunkReceiver, SetSplatEncoding, SplatEncoding, SplatGetter, SplatInit, SplatReceiver};
 use crate::sh_clustering::ShClusters;
@@ -24,8 +16,19 @@ use crate::splat_encode::{self, decode_scale8, encode_scale8_zero};
 pub const RAD_MAGIC: u32 = 0x30444152; // 'RAD0'
 pub const RAD_CHUNK_MAGIC: u32 = 0x43444152; // 'RADC'
 
-const GZ_LEVEL: u8 = 6;
+const GZ_LEVEL: u32 = 6;
 
+fn compress_to_vec(bytes: &[u8]) -> Vec<u8> {
+    let mut encoder = DeflateEncoder::new(bytes, Compression::new(GZ_LEVEL));
+    let mut buffer = Vec::new();
+    encoder.read_to_end(&mut buffer).map(|_| buffer).unwrap()
+}
+
+fn decompress_to_vec(bytes: &[u8]) -> std::io::Result<Vec<u8>> {
+    let mut decoder = DeflateDecoder::new(bytes);
+    let mut buffer = Vec::new();
+    decoder.read_to_end(&mut buffer).map(|_| buffer)
+}
 
 pub struct RadEncoder<T: SplatGetter> {
     pub getter: T,
@@ -621,7 +624,7 @@ impl<T: SplatGetter> RadEncoder<T> {
             compression: Some(RadChunkPropertyCompression::Gz),
             ..Default::default()
         };
-        (meta, compress_to_vec(&bytes, GZ_LEVEL))
+        (meta, compress_to_vec(&bytes))
     }
 
     fn encode_chunk_alpha(&mut self, base: usize, count: usize, buffer: &mut Vec<f32>) -> (RadChunkProperty, Vec<u8>) {
@@ -645,7 +648,7 @@ impl<T: SplatGetter> RadEncoder<T> {
             max,
             ..Default::default()
         };
-        (meta, compress_to_vec(&bytes, GZ_LEVEL))
+        (meta, compress_to_vec(&bytes))
     }
 
     fn encode_chunk_rgb(&mut self, base: usize, count: usize, buffer: &mut Vec<f32>, encoding: &SplatEncoding) -> (RadChunkProperty, Vec<u8>) {
@@ -669,7 +672,7 @@ impl<T: SplatGetter> RadEncoder<T> {
             max,
             ..Default::default()
         };
-        (meta, compress_to_vec(&bytes, GZ_LEVEL))
+        (meta, compress_to_vec(&bytes))
     }
 
     fn encode_chunk_scales(&mut self, base: usize, count: usize, buffer: &mut Vec<f32>, encoding: &SplatEncoding) -> (RadChunkProperty, Vec<u8>) {
@@ -692,7 +695,7 @@ impl<T: SplatGetter> RadEncoder<T> {
             max,
             ..Default::default()
         };
-        (meta, compress_to_vec(&bytes, GZ_LEVEL))
+        (meta, compress_to_vec(&bytes))
     }
 
     fn encode_chunk_orientation(&mut self, base: usize, count: usize, buffer: &mut Vec<f32>) -> (RadChunkProperty, Vec<u8>) {
@@ -709,7 +712,7 @@ impl<T: SplatGetter> RadEncoder<T> {
                 compression: Some(RadChunkPropertyCompression::Gz),
                 ..Default::default()
             };
-            (meta, compress_to_vec(&bytes, GZ_LEVEL))
+            (meta, compress_to_vec(&bytes))
         } else {
             for i in 0..count {
                 for d in 0..3 {
@@ -727,7 +730,7 @@ impl<T: SplatGetter> RadEncoder<T> {
                 compression: Some(RadChunkPropertyCompression::Gz),
                 ..Default::default()
             };
-            (meta, compress_to_vec(&bytes, GZ_LEVEL))
+            (meta, compress_to_vec(&bytes))
         }
     }
 
@@ -785,7 +788,7 @@ impl<T: SplatGetter> RadEncoder<T> {
             max,
             ..Default::default()
         };
-        (meta, compress_to_vec(&bytes, GZ_LEVEL))
+        (meta, compress_to_vec(&bytes))
     }
 
     fn encode_chunk_sh_label(&mut self, base: usize, count: usize, buffer: &mut Vec<usize>) -> (RadChunkProperty, Vec<u8>) {
@@ -809,7 +812,7 @@ impl<T: SplatGetter> RadEncoder<T> {
             compression: Some(RadChunkPropertyCompression::Gz),
             ..Default::default()
         };
-        (meta, compress_to_vec(&bytes, GZ_LEVEL))
+        (meta, compress_to_vec(&bytes))
     }
 
     fn encode_chunk_child_count(&mut self, base: usize, count: usize, buffer: &mut Vec<u16>) -> (RadChunkProperty, Vec<u8>) {
@@ -825,7 +828,7 @@ impl<T: SplatGetter> RadEncoder<T> {
             compression: Some(RadChunkPropertyCompression::Gz),
             ..Default::default()
         };
-        (meta, compress_to_vec(&bytes, GZ_LEVEL))
+        (meta, compress_to_vec(&bytes))
     }
 
     fn encode_chunk_child_start(&mut self, base: usize, count: usize, buffer: &mut Vec<usize>) -> (RadChunkProperty, Vec<u8>) {
@@ -841,7 +844,7 @@ impl<T: SplatGetter> RadEncoder<T> {
             compression: Some(RadChunkPropertyCompression::Gz),
             ..Default::default()
         };
-        (meta, compress_to_vec(&bytes, GZ_LEVEL))
+        (meta, compress_to_vec(&bytes))
     }
 
     fn encode_chunk(

@@ -12,7 +12,7 @@ default = ["antisplat", "ksplat", "ply", "rad", "sogs", "spz", "csplat", "gsplat
 antisplat = []
 ksplat = []
 ply = []
-rad = ["dep:miniz_oxide"]
+rad = ["dep:flate2"]
 sogs = ["dep:zip", "dep:image"]
 spz = ["dep:miniz_oxide"]
 csplat = []
@@ -27,6 +27,7 @@ anyhow.workspace = true
 glam.workspace = true
 half.workspace = true
 ordered-float.workspace = true
+flate2 = { workspace = true, optional = true }
 miniz_oxide = { workspace = true, optional = true }
 serde.workspace = true
 smallvec.workspace = true
