@@ -1,7 +1,9 @@
 import * as THREE from "three";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { PackedSplats } from "../../src/PackedSplats";
 import { SparkRenderer } from "../../src/SparkRenderer";
 import { SplatGenerator } from "../../src/SplatGenerator";
+import { SplatMesh } from "../../src/SplatMesh";
 import { Dyno, dynoBlock } from "../../src/dyno/base";
 import { Gsplat } from "../../src/dyno/splats";
 
@@ -80,6 +82,33 @@ async function setup(...meshes: THREE.Object3D[]) {
   await finishSorts();
   sorts.length = 0;
   return { spark, camera, sorts, frame, finishSorts };
+}
+
+async function setupLod() {
+  const mesh = new SplatMesh({
+    packedSplats: new PackedSplats({
+      lodSplats: new PackedSplats({ extra: { lodTree: new Uint32Array(4) } }),
+    }),
+  });
+  const { spark, frame } = await setup(mesh);
+  const lodWorker = {
+    tryExclusive: (run: (worker: unknown) => unknown) => run(lodWorker),
+    call: async () => ({
+      lodId: 1,
+      keyIndices: {
+        [mesh.uuid]: {
+          lodId: 1,
+          numSplats: 0,
+          indices: new Uint32Array(16384),
+        },
+      },
+    }),
+    dispose() {},
+  };
+  spark.lodWorker = lodWorker as unknown as SparkRenderer["lodWorker"];
+  spark.enableLod = true;
+  spark.enableDriveLod = true;
+  return { spark, frame, mesh };
 }
 
 // A camera move during a sort asks for another sort. If a new mapping then
@@ -182,6 +211,17 @@ async function expectNoUnhandledRejection(run: () => Promise<void>) {
 }
 
 describe("a disposed SparkRenderer", () => {
+  test("disposes its LoD index textures", async () => {
+    const { spark, frame, mesh } = await setupLod();
+    await frame();
+    const disposed = vi.fn();
+    spark.lodInstances.get(mesh)?.texture.addEventListener("dispose", disposed);
+
+    spark.dispose();
+
+    expect(disposed).toHaveBeenCalledOnce();
+  });
+
   test("does nothing when updated or rendered", async () => {
     const spark = new SparkRenderer({ renderer: stubRenderer });
     const scene = new THREE.Scene();
