@@ -422,6 +422,7 @@ export class SparkRenderer extends THREE.Mesh {
   lodIdToSplats: Map<number, PackedSplats | ExtSplats | PagedSplats> =
     new Map();
   lodInitQueue: (PackedSplats | ExtSplats | PagedSplats)[] = [];
+  private lodInitFailed = new WeakSet<PackedSplats | ExtSplats | PagedSplats>();
   lastLod?: {
     pos: THREE.Vector3;
     quat: THREE.Quaternion;
@@ -1309,7 +1310,7 @@ export class SparkRenderer extends THREE.Mesh {
         const record = this.lodIds.get(splats);
         if (record) {
           record.lastTouched = now;
-        } else {
+        } else if (!this.lodInitFailed.has(splats)) {
           this.lodInitQueue.push(splats);
         }
       }
@@ -1391,8 +1392,16 @@ export class SparkRenderer extends THREE.Mesh {
       while (lodInitQueue.length > 0) {
         const splats = lodInitQueue.shift();
         if (splats) {
-          await this.initLodTree(worker, splats);
-          this.lodDirty = true;
+          try {
+            await this.initLodTree(worker, splats);
+            this.lodDirty = true;
+          } catch (error) {
+            if (this.isDisposed) {
+              return;
+            }
+            this.lodInitFailed.add(splats);
+            console.error("initLodTree error", error);
+          }
         }
       }
     }
