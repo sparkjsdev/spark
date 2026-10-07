@@ -342,6 +342,7 @@ export declare class SparkRenderer extends THREE.Mesh {
     display: SplatAccumulator;
     current: SplatAccumulator;
     accumulators: SplatAccumulator[];
+    private isDisposed;
     sorting: boolean;
     sortDirty: boolean;
     private latestMappingVersion;
