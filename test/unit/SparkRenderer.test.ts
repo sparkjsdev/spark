@@ -206,4 +206,15 @@ describe("a disposed SparkRenderer", () => {
 
     expect(spark.sortWorker).toBeNull();
   });
+
+  test("requests no render", () => {
+    const onDirty = vi.fn();
+    const spark = new SparkRenderer({ renderer: stubRenderer, onDirty });
+    spark.dirty = false;
+    spark.dispose();
+
+    spark.setDirty();
+
+    expect(onDirty).not.toHaveBeenCalled();
+  });
 });

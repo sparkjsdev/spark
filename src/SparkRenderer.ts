@@ -751,7 +751,7 @@ export class SparkRenderer extends THREE.Mesh {
   }
 
   setDirty() {
-    if (!this.dirty) {
+    if (!this.isDisposed && !this.dirty) {
       this.dirty = true;
       this.onDirty?.();
     }
