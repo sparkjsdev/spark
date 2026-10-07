@@ -67,7 +67,10 @@ async function onMessage(event: MessageEvent) {
     self.postMessage({ id, result }, { transfer: getTransferable(result) });
   } catch (error) {
     console.warn(`Worker error: ${error}`);
-    self.postMessage({ id, error }, { transfer: getTransferable(error) });
+    self.postMessage(
+      { id, error, trapped: error instanceof WebAssembly.RuntimeError },
+      { transfer: getTransferable(error) },
+    );
   }
 }
 
