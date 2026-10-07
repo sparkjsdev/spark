@@ -59,30 +59,31 @@ See `examples/on-demand/` for a complete example with a streamed `.rad` file and
 
 ## React Three Fiber
 
-The same pattern maps directly onto React Three Fiber's on-demand mode: set `frameloop="demand"` on the `Canvas` and wire `onDirty` to R3F's `invalidate()`, which schedules exactly one frame and automatically coalesces multiple calls during the same frame. Add both objects to the scene with `<primitive>` so R3F manages their lifetime:
+The same pattern maps directly onto React Three Fiber's on-demand mode: set `frameloop="demand"` on the `Canvas` and wire `onDirty` to R3F's `invalidate()`, which schedules exactly one frame and automatically coalesces multiple calls during the same frame. Register both classes with `extend` and declare them as elements, so R3F creates and disposes them. Memoize the options in `args`, since R3F recreates an element whenever an entry in `args` changes:
 
 ```jsx
-import { Canvas, useThree } from "@react-three/fiber";
+import { Canvas, extend, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
 import { useEffect, useMemo } from "react";
 
+extend({ SparkRenderer, SplatMesh });
+
 function Splats({ url }) {
   const { gl, invalidate } = useThree();
-
-  const spark = useMemo(
-    () => new SparkRenderer({ renderer: gl, onDirty: invalidate }),
+  const sparkOptions = useMemo(
+    () => ({ renderer: gl, onDirty: invalidate }),
     [gl, invalidate],
   );
-  const splats = useMemo(() => new SplatMesh({ url, paged: true }), [url]);
+  const splatOptions = useMemo(() => ({ url, paged: true }), [url]);
 
-  useEffect(() => () => spark.dispose(), [spark]);
-  useEffect(() => () => splats.dispose(), [splats]);
+  // R3F does not redraw when these are removed.
+  useEffect(() => () => invalidate(), [invalidate]);
 
   return (
     <>
-      <primitive object={spark} />
-      <primitive object={splats} />
+      <sparkRenderer args={[sparkOptions]} />
+      <splatMesh args={[splatOptions]} />
     </>
   );
 }
@@ -100,7 +101,7 @@ export function App() {
 
 R3F renders once on mount, that render kicks off Spark's loading, sorting and LoD work, and each completed step calls `invalidate()` to request the next frame. As in the vanilla example, Spark only sees your application's changes during a render, so you must call `invalidate()` after any of the changes listed above: the camera moving, a `SplatMesh` or other object being added, removed, or transformed, `SplatMesh` properties like `opacity` or `recolor` changing, and so on.
 
-Changes made through React props (for example `<primitive object={splats} position={[x, y, z]} />`) trigger this automatically, since R3F calls `invalidate()` when it applies props in demand mode. Changes made imperatively, such as setting `splats.position` or `splats.opacity` from an event handler or effect, do not; call `invalidate()` yourself afterwards. Drei's controls already call `invalidate()` on camera change.
+Changes made through React props (for example `<splatMesh args={[splatOptions]} position={[x, y, z]} />`) trigger this automatically, since R3F calls `invalidate()` when it applies props in demand mode. Changes made imperatively, such as setting `position` or `opacity` on a `SplatMesh` from an event handler or effect, do not; call `invalidate()` yourself afterwards. Drei's controls already call `invalidate()` on camera change.
 
 ## Related
 
