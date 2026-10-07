@@ -310,4 +310,38 @@ describe("a disposed SparkRenderer", () => {
 
     expect(onDirty).not.toHaveBeenCalled();
   });
+
+  test("drops a LoD rejection that arrives after it", async () => {
+    const spark = new SparkRenderer({ renderer: stubRenderer });
+    const lodWorker = {
+      tryExclusive: (run: (worker: unknown) => unknown) => run(lodWorker),
+      call: async () => {
+        spark.dispose();
+        throw new Error("Worker terminate");
+      },
+      dispose() {},
+    };
+    spark.lodWorker = lodWorker as unknown as SparkRenderer["lodWorker"];
+    spark.lodDirty = true;
+
+    await expectNoUnhandledRejection(() =>
+      spark.update({
+        scene: new THREE.Scene(),
+        camera: new THREE.PerspectiveCamera(),
+      }),
+    );
+  });
+
+  test("drops a sort rejection that arrives after it", async () => {
+    const { spark, camera, frame } = await setup(splatGenerator(64));
+    vi.spyOn(stubRenderer, "readRenderTargetPixelsAsync").mockImplementation(
+      () => {
+        spark.dispose();
+        return Promise.reject();
+      },
+    );
+    camera.position.x += 1;
+
+    await expectNoUnhandledRejection(frame);
+  });
 });
