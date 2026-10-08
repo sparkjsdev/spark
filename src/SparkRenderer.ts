@@ -730,11 +730,10 @@ export class SparkRenderer extends THREE.Mesh {
       accumulator.dispose();
     }
 
-    const instances = this.lodInstances.values();
-    this.lodInstances.clear();
-    for (const instance of instances) {
+    for (const instance of this.lodInstances.values()) {
       instance.texture.dispose();
     }
+    this.lodInstances.clear();
 
     if (this.sortWorker) {
       this.sortWorker.dispose();
