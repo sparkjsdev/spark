@@ -249,7 +249,7 @@ void main() {
     float halfDiagDiff = 0.5 * (a - d);
     float eigenDelta = sqrt(sqr(halfDiagDiff) + sqr(b));
     float eigen1 = eigenAvg + eigenDelta;
-    float eigen2 = max(0.0, eigenAvg - eigenDelta);
+    float eigen2 = max(0.0, det / eigen1);
 
     vec2 eigenVec1Unnorm = (halfDiagDiff >= 0.0)
         ? vec2(eigenDelta + halfDiagDiff, b)
