@@ -1,7 +1,9 @@
 import * as THREE from "three";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { PackedSplats } from "../../src/PackedSplats";
 import { SparkRenderer } from "../../src/SparkRenderer";
 import { SplatGenerator } from "../../src/SplatGenerator";
+import { SplatMesh } from "../../src/SplatMesh";
 import { Dyno, dynoBlock } from "../../src/dyno/base";
 import { Gsplat } from "../../src/dyno/splats";
 
@@ -170,6 +172,59 @@ test("a change during a sort is sorted after it", async () => {
 
   await finishSorts();
   expect(sorts.map((s) => s.version)).toEqual([v0 + 1, v0 + 2]);
+});
+
+describe("a LoD tree that fails to initialize", () => {
+  async function render(...lodTrees: unknown[]) {
+    const { spark, frame } = await setup(
+      ...lodTrees.map(
+        (lodTree) =>
+          new SplatMesh({
+            packedSplats: new PackedSplats({
+              lodSplats: new PackedSplats({ extra: { lodTree } }),
+            }),
+          }),
+      ),
+    );
+    const lodWorker = {
+      tryExclusive: (run: (worker: unknown) => unknown) => run(lodWorker),
+      call: async () => ({ lodId: 1, keyIndices: {}, chunks: [] }),
+      dispose() {},
+    };
+    spark.lodWorker = lodWorker as unknown as SparkRenderer["lodWorker"];
+    spark.enableLod = true;
+    spark.enableDriveLod = true;
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    return { spark, frame, lodWorker, error };
+  }
+
+  test("is logged once and not tried again, and the others still initialize", async () => {
+    const failing = {
+      slice: vi.fn(() => {
+        throw new RangeError("Array buffer allocation failed");
+      }),
+    };
+    const { spark, frame, error } = await render(failing, new Uint32Array(4));
+
+    await frame();
+    await frame();
+
+    expect(failing.slice).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(spark.lodIds.size).toBe(1);
+  });
+
+  test("is not logged when dispose() interrupts it", async () => {
+    const { spark, frame, lodWorker, error } = await render(new Uint32Array(4));
+    vi.spyOn(lodWorker, "call").mockImplementation(async () => {
+      spark.dispose();
+      throw new Error("Worker terminate");
+    });
+
+    await frame();
+
+    expect(error).not.toHaveBeenCalled();
+  });
 });
 
 async function expectNoUnhandledRejection(run: () => Promise<void>) {
