@@ -79,7 +79,7 @@ async function setup(...meshes: THREE.Object3D[]) {
 
   await finishSorts();
   sorts.length = 0;
-  return { spark, camera, sorts, frame, finishSorts };
+  return { spark, scene, camera, sorts, frame, finishSorts };
 }
 
 // A camera move during a sort asks for another sort. If a new mapping then
@@ -181,6 +181,15 @@ async function expectNoUnhandledRejection(run: () => Promise<void>) {
   expect(unhandled).not.toHaveBeenCalled();
 }
 
+function failReadbackAfterDispose(spark: SparkRenderer) {
+  return vi
+    .spyOn(stubRenderer, "readRenderTargetPixelsAsync")
+    .mockImplementation(() => {
+      spark.dispose();
+      return Promise.reject();
+    });
+}
+
 describe("a disposed SparkRenderer", () => {
   test("does nothing when updated or rendered", async () => {
     const spark = new SparkRenderer({ renderer: stubRenderer });
@@ -216,5 +225,44 @@ describe("a disposed SparkRenderer", () => {
     spark.setDirty();
 
     expect(onDirty).not.toHaveBeenCalled();
+  });
+
+  test("drops a LoD rejection that arrives after it", async () => {
+    const spark = new SparkRenderer({ renderer: stubRenderer });
+    const lodWorker = {
+      tryExclusive: (run: (worker: unknown) => unknown) => run(lodWorker),
+      call: async () => {
+        spark.dispose();
+        throw new Error("Worker terminate");
+      },
+      dispose() {},
+    };
+    spark.lodWorker = lodWorker as unknown as SparkRenderer["lodWorker"];
+    spark.lodDirty = true;
+
+    await expectNoUnhandledRejection(() =>
+      spark.update({
+        scene: new THREE.Scene(),
+        camera: new THREE.PerspectiveCamera(),
+      }),
+    );
+  });
+
+  test("drops a sort rejection that arrives after it", async () => {
+    const { spark, camera, frame } = await setup(splatGenerator(64));
+    failReadbackAfterDispose(spark);
+    camera.position.x += 1;
+
+    await expectNoUnhandledRejection(frame);
+  });
+
+  test("resolves an update that dispose() interrupts", async () => {
+    const { spark, scene, camera } = await setup(splatGenerator(64));
+    const readback = failReadbackAfterDispose(spark);
+    camera.position.x += 1;
+
+    await spark.update({ scene, camera });
+
+    expect(readback).toHaveBeenCalled();
   });
 });
