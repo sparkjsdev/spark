@@ -13,6 +13,7 @@ export class SplatWorker {
   worker: Worker;
   queue: (() => void)[] | null = null;
   messages: Record<number, PromiseRecord> = {};
+  trapped = false;
   static currentId = 0;
 
   constructor() {
@@ -24,7 +25,10 @@ export class SplatWorker {
   }
 
   onMessage(event: MessageEvent) {
-    const { id, result, error, status } = event.data;
+    const { id, result, error, status, trapped } = event.data;
+    if (trapped) {
+      this.trapped = true;
+    }
     const promise = this.messages[id];
     if (promise) {
       if (error !== undefined) {
@@ -142,6 +146,13 @@ export class SplatWorkerPool {
     if (this.numWorkers > this.maxWorkers) {
       // Worker no longer needed
       this.numWorkers -= 1;
+      return;
+    }
+
+    if (worker.trapped) {
+      // A trap leaves the WebAssembly instance unusable
+      worker.dispose();
+      this.freeWorker(new SplatWorker());
       return;
     }
 
