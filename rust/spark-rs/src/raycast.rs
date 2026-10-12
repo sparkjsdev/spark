@@ -105,8 +105,10 @@ fn raycast_ellipsoid(
 
         let a = vec3_dot(local_dir, local_dir);
         let b = vec3_dot(local_origin, local_dir);
-        let c = vec3_dot(local_origin, local_origin) - 1.0;
-        let discriminant = b * b - a * c;
+        // Lagrange identity: b*b - a*c cancels catastrophically when |o| >> 1
+        // (small splats seen from far away); a - |o x d|^2 is equivalent and stable.
+        let cross = vec3_cross(local_origin, local_dir);
+        let discriminant = a - vec3_dot(cross, cross);
         if discriminant < 0.0 {
             return None;
         }
@@ -149,4 +151,31 @@ fn quat_vec(q: [f32; 4], v: [f32; 3]) -> [f32; 3] {
         v[1] + 2.0 * (q[3] * uv[1] + uuv[1]),
         v[2] + 2.0 * (q[3] * uv[2] + uuv[2]),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A tiny splat far from the ray origin: |local_origin| >> 1 in the unit-sphere
+    // frame, so b*b - a*c cancels to noise in f32 even though the ray is aimed
+    // exactly at the splat center. Fails with the old b*b - a*c discriminant,
+    // passes with the Lagrange-identity version (a - |o x d|^2).
+    #[test]
+    fn raycast_hits_tiny_distant_splat_aimed_at_center() {
+        let center = [1000.0_f32, 0.0, 1000.0];
+        let dist = (center[0] * center[0] + center[2] * center[2]).sqrt();
+        let dir = [center[0] / dist, 0.0, center[2] / dist];
+        let origin = [0.0_f32, 0.0, 0.0];
+        let scale = [0.005_f32, 0.005, 0.005];
+        let quat = [0.0_f32, 0.0, 0.0, 1.0]; // identity rotation
+        let opacity = 1.0_f32;
+
+        let hit = raycast_ellipsoid(origin, dir, opacity, center, scale, quat);
+        assert!(hit.is_some(), "expected a hit on a tiny distant splat aimed at its center");
+
+        let t = hit.unwrap();
+        let expected = dist - scale[0]; // near-surface hit, one radius short of the center
+        assert!((t - expected).abs() < 0.01, "t={t} expected~{expected}");
+    }
 }
