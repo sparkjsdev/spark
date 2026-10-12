@@ -8,6 +8,7 @@ export declare class SplatWorker {
     worker: Worker;
     queue: (() => void)[] | null;
     messages: Record<number, PromiseRecord>;
+    trapped: boolean;
     static currentId: number;
     constructor();
     onMessage(event: MessageEvent): void;
