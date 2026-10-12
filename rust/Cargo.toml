@@ -16,7 +16,7 @@ repository = "https://github.com/sparkjsdev/spark"
 [workspace.dependencies]
 ahash = { version = "0.8.12", default-features = false, features = ["std", "compile-time-rng"] }
 anyhow = "1.0.98"
-#flate2 = { version = "1.1.2", default-features = false, features = ["rust_backend"] }
+flate2 = { version = "1.1.10", default-features = false, features = ["zlib-rs"] }
 glam = "0.30.8"
 half = { version = "2.6.0", features = ["std"] }
 itertools = "0.14.0"
@@ -29,7 +29,7 @@ serde-wasm-bindgen = "0.6.5"
 smallvec = "1.15.1"
 wasm-bindgen = "0.2.100"
 web-sys = { version = "0.3.77", features = ["console"] }
-zip = { version = "7.0.0", default-features = false, features = ["deflate"] }
+zip = { version = "7.0.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 image = { version = "0.25.9", default-features = false, features = ["png", "webp"] }
 hnsw = "0.11.0"
 rand_pcg = "0.3.1"
