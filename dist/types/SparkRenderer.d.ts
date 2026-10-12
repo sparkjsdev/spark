@@ -385,6 +385,7 @@ export declare class SparkRenderer extends THREE.Mesh {
     }>;
     lodIdToSplats: Map<number, PackedSplats | ExtSplats | PagedSplats>;
     lodInitQueue: (PackedSplats | ExtSplats | PagedSplats)[];
+    private lodInitFailed;
     lastLod?: {
         pos: THREE.Vector3;
         quat: THREE.Quaternion;
