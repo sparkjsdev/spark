@@ -82,7 +82,10 @@ export class UrlPagedSplatsFetcher implements PagedSplatsFetcher {
     abortSignal: AbortSignal,
     chunk: string,
   ): Promise<Uint8Array> {
-    const resolvedRoot = new URL(this.rootUrl, window.location.href).toString();
+    const resolvedRoot = new URL(
+      this.rootUrl,
+      globalThis.location.href,
+    ).toString();
     const chunkUrl = new URL(chunk, resolvedRoot).toString();
     return await this.fetchRangeImpl({
       url: chunkUrl,
