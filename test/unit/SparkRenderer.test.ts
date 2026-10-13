@@ -1,15 +1,11 @@
 import * as THREE from "three";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { PackedSplats } from "../../src/PackedSplats";
 import { SparkRenderer } from "../../src/SparkRenderer";
 import { SplatGenerator } from "../../src/SplatGenerator";
 import { SplatMesh } from "../../src/SplatMesh";
 import { Dyno, dynoBlock } from "../../src/dyno/base";
 import { Gsplat } from "../../src/dyno/splats";
-
-afterEach(() => {
-  vi.restoreAllMocks();
-});
 
 const stubRenderer = {
   info: { render: { frame: 0 } },

@@ -143,6 +143,7 @@ export default defineConfig(({ mode }) => {
       coverage: {
         provider: "v8",
       },
+      restoreMocks: true,
     },
   };
 });

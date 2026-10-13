@@ -1,13 +1,9 @@
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { ExtSplats } from "../../src/ExtSplats";
 import { SplatLoader } from "../../src/SplatLoader";
 
 const url = "https://assets.invalid/scene.spz";
 const requestHeader = { Authorization: "Bearer token" };
-
-afterEach(() => {
-  vi.restoreAllMocks();
-});
 
 // Returns the loader a load goes through, as it was when the load started.
 function spyOnLoad() {
