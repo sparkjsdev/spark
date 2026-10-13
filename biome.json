@@ -21,7 +21,8 @@
       "examples/**/*.json",
       "examples/**/pkg",
       "test-results",
-      "playwright-report"
+      "playwright-report",
+      "coverage"
     ]
   },
   "formatter": {
