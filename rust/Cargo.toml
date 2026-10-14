@@ -21,7 +21,6 @@ glam = "0.30.8"
 half = { version = "2.6.0", features = ["std"] }
 itertools = "0.14.0"
 js-sys = "0.3.77"
-miniz_oxide = "0.8.9"
 ordered-float = "5.1.0"
 ruzstd = { version = "0.9.1", default-features = false, features = ["std"] }
 serde = { version = "1.0.228", features = ["derive"] }

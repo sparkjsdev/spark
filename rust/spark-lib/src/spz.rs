@@ -1,13 +1,10 @@
-use miniz_oxide::inflate::core::{decompress, DecompressorOxide};
-use miniz_oxide::inflate::core::inflate_flags::{
-    TINFL_FLAG_HAS_MORE_INPUT,
-    TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF,
-};
-use miniz_oxide::inflate::TINFLStatus;
-use std::io::Read;
-
 use crate::decoder::{ChunkReceiver, SetSplatEncoding, SplatGetter, SplatInit, SplatReceiver};
-use miniz_oxide::deflate::compress_to_vec;
+
+use std::io::{Read, Write};
+
+use flate2::Compression;
+use flate2::read::GzEncoder;
+use flate2::write::GzDecoder;
 
 pub const GZIP_MAGIC: u32 = 0x00088b1f; // Gzip deflate
 pub const SPZ_MAGIC: u32 = 0x5053474e; // "NGSP"
@@ -60,16 +57,14 @@ pub struct SpzDecoder<T: SplatReceiver> {
     splats: T,
     format: SpzFormat,
     compressed: Vec<u8>,
-    decompressed: Vec<u8>,
-    out_pos: usize,
     // Gzip path state (v1-v3)
-    decompressor: DecompressorOxide,
-    gzip_header_done: bool,
+    decompressor: GzDecoder<Vec<u8>>,
     // V4 decoding state
     v4_stage: V4Stage,
     // Shared
     buffer: Vec<u8>,
     state: Option<SpzDecoderState>,
+    out_pos: usize,
     done: bool,
 }
 
@@ -78,12 +73,10 @@ impl<T: SplatReceiver> SpzDecoder<T> {
         Self {
             splats,
             format: SpzFormat::Unknown,
-            decompressor: DecompressorOxide::new(),
             compressed: Vec::new(),
-            decompressed: vec![0u8; 128 * 1024],
+            decompressor: GzDecoder::new(Vec::new()),
             buffer: Vec::new(),
             state: None,
-            gzip_header_done: false,
             out_pos: 0,
             done: false,
             v4_stage: V4Stage::NeedHeader,
@@ -546,63 +539,24 @@ impl<T: SplatReceiver> SpzDecoder<T> {
     }
 
     fn poll_decompress(&mut self) -> anyhow::Result<()> {
-        if !self.gzip_header_done {
-            if !parse_gzip_header(&mut self.compressed)? {
-                return Ok(());
-            }
-            self.gzip_header_done = true;
+        if self.compressed.is_empty() {
+            self.decompressor.try_finish()?;
+            self.done = true;
+            return Ok(());
         }
-        let mut in_offset = 0;
-        let flags: u32 = TINFL_FLAG_HAS_MORE_INPUT | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
-        loop {
-            if in_offset >= self.compressed.len() { break; }
-            // Ensure at least 64 KiB free space; keep last 32 KiB history at buffer start
-            const WINDOW: usize = 32 * 1024;
-            let free = self.decompressed.len().saturating_sub(self.out_pos);
-            if free < 64 * 1024 {
-                let keep_start = self.out_pos.saturating_sub(WINDOW);
-                let keep_len = self.out_pos - keep_start;
-                // Move last WINDOW bytes to beginning
-                if keep_len > 0 {
-                    // Use copy_within handles overlap
-                    self.decompressed.copy_within(keep_start..self.out_pos, 0);
-                }
-                self.out_pos = keep_len;
-            }
 
-            let (status, in_consumed, out_written) = decompress(
-                &mut self.decompressor,
-                &self.compressed[in_offset..],
-                &mut self.decompressed,
-                self.out_pos,
-                flags,
-            );
+        self.decompressor.write_all(&self.compressed)?;
+        self.decompressor.flush()?;
+        self.compressed.clear();
 
-            if out_written > 0 {
-                self.buffer.extend_from_slice(&self.decompressed[self.out_pos..self.out_pos + out_written]);
-                self.out_pos += out_written;
-                self.poll()?;
-            }
-
-            in_offset += in_consumed;
-            match status {
-                TINFLStatus::Done => {
-                    self.done = true;
-                    let remaining = self.compressed.len().saturating_sub(in_offset);
-                    if remaining >= 8 { in_offset += 8; }
-                    break;
-                }
-                TINFLStatus::NeedsMoreInput => {
-                    if in_consumed == 0 && out_written == 0 { break; }
-                }
-                TINFLStatus::HasMoreOutput => {
-                    // Continue with same input, will loop again; ensure space on next iteration
-                    continue;
-                }
-                _ => return Err(anyhow::anyhow!("Decompression failed: {:?}", status)),
-            }
+        let decompressed = self.decompressor.get_ref();
+        let out_written = decompressed.len() - self.out_pos;
+        if out_written > 0 {
+            self.buffer.extend_from_slice(&decompressed[self.out_pos..self.out_pos + out_written]);
+            self.out_pos += out_written;
+            self.poll()?;
         }
-        if in_offset > 0 { self.compressed.drain(..in_offset); }
+
         Ok(())
     }
 }
@@ -705,74 +659,6 @@ fn walk_v4_toc(
             .ok_or_else(|| anyhow::anyhow!("SPZ v4 stream offset overflow"))?;
     }
     Ok((compressed_offsets, data_cursor))
-}
-
-fn parse_gzip_header(buffer: &mut Vec<u8>) -> anyhow::Result<bool> {
-    if buffer.len() < 10 {
-        return Ok(false);
-    }
-    if buffer[0] != 0x1f || buffer[1] != 0x8b || buffer[2] != 8 {
-        return Err(anyhow::anyhow!("Invalid gzip header"));
-    }
-
-    let flags = buffer[3];
-    let mut end = 10;
-
-    if (flags & 0x04) != 0 {
-        if buffer.len() < end + 2 {
-            return Ok(false);
-        }
-        let extra_len = (buffer[end] as usize) | ((buffer[end + 1] as usize) << 8);
-        end += 2;
-        if buffer.len() < end + extra_len {
-            return Ok(false);
-        }
-        end += extra_len;
-    }
-
-    if (flags & 0x08) != 0 {
-        let mut null = end;
-        let mut found = false;
-        while null < buffer.len() {
-            if buffer[null] == 0 {
-                null += 1;
-                found = true;
-                break;
-            }
-            null += 1;
-        }
-        if !found {
-            return Ok(false);
-        }
-        end = null;
-    }
-
-    if (flags & 0x10) != 0 {
-        let mut null = end;
-        let mut found = false;
-        while null < buffer.len() {
-            if buffer[null] == 0 {
-                null += 1;
-                found = true;
-                break;
-            }
-            null += 1;
-        }
-        if !found {
-            return Ok(false);
-        }
-        end = null;
-    }
-
-    if (flags & 0x02) != 0 {
-        if buffer.len() < end + 2 {
-            return Ok(false);
-        }
-        end += 2;
-    }
-    
-    buffer.drain(..end);
-    Ok(true)
 }
 
 impl<T: SplatReceiver> ChunkReceiver for SpzDecoder<T> {
@@ -1166,17 +1052,9 @@ impl<T: SplatGetter> SpzEncoder<T> {
             }
         }
 
-        // gzip: header + deflate(raw) + trailer(CRC32, ISIZE)
-        let mut out = Vec::with_capacity(raw.len() / 2);
-        // Header (no extra fields)
-        out.extend_from_slice(&[0x1f, 0x8b, 0x08, 0x00, 0, 0, 0, 0, 0x00, 0xff]);
-        // Deflate payload (level 6 as a balanced default)
-        let deflated = compress_to_vec(&raw, 6);
-        out.extend_from_slice(&deflated);
-        // Trailer
-        let crc = crc32(&raw);
-        out.extend_from_slice(&crc.to_le_bytes());
-        out.extend_from_slice(&(raw.len() as u32).to_le_bytes());
+        let mut encoder = GzEncoder::<&[u8]>::new(&raw, Compression::new(6));
+        let mut out = Vec::new();
+        encoder.read_to_end(&mut out)?;
         Ok(out)
     }
 }
@@ -1213,29 +1091,4 @@ fn quantize_sh_byte(sh: f32, bits: u8) -> u8 {
     let bucket = 1u32 << (8 - bits);
     value = ((value + (bucket as f32) / 2.0) / bucket as f32).floor() * bucket as f32;
     value.round().clamp(0.0, 255.0) as u8
-}
-
-// Simple CRC32 (IEEE, polynomial 0xEDB88320)
-#[inline]
-fn crc32(bytes: &[u8]) -> u32 {
-    const POLY: u32 = 0xEDB88320;
-    static mut TABLE: [u32; 256] = [0; 256];
-    static INIT: std::sync::Once = std::sync::Once::new();
-    unsafe {
-        INIT.call_once(|| {
-            for i in 0..256u32 {
-                let mut c = i;
-                for _ in 0..8 {
-                    c = if c & 1 != 0 { (c >> 1) ^ POLY } else { c >> 1 };
-                }
-                TABLE[i as usize] = c;
-            }
-        });
-        let mut crc: u32 = 0xFFFF_FFFF;
-        for &b in bytes {
-            let idx = ((crc ^ b as u32) & 0xFF) as usize;
-            crc = (crc >> 8) ^ TABLE[idx];
-        }
-        !crc
-    }
 }
