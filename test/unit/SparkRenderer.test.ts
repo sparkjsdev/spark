@@ -90,7 +90,7 @@ async function setupLod() {
       lodSplats: new PackedSplats({ extra: { lodTree: new Uint32Array(4) } }),
     }),
   });
-  const { spark, frame } = await setup(mesh);
+  const { spark, camera, frame } = await setup(mesh);
   const lodWorker = {
     tryExclusive: (run: (worker: unknown) => unknown) => run(lodWorker),
     call: async () => ({
@@ -108,7 +108,7 @@ async function setupLod() {
   spark.lodWorker = lodWorker as unknown as SparkRenderer["lodWorker"];
   spark.enableLod = true;
   spark.enableDriveLod = true;
-  return { spark, frame, mesh };
+  return { spark, camera, frame, mesh };
 }
 
 // A camera move during a sort asks for another sort. If a new mapping then
@@ -252,6 +252,31 @@ describe("a LoD tree that fails to initialize", () => {
 
     expect(error).not.toHaveBeenCalled();
   });
+});
+
+test("the LoD pixel limit follows the camera projection, not its fov", async () => {
+  const { spark, camera, frame } = await setupLod();
+  const { near, far } = camera;
+  const tan48 = Math.tan(THREE.MathUtils.degToRad(48));
+  const t = near * tan48;
+  camera.projectionMatrix.makePerspective(-t, t, t, -t, near, far);
+
+  await frame();
+
+  expect(spark.lastLod?.pixelScaleLimit).toBeCloseTo(2 * tan48);
+});
+
+test("a small change in the camera projection does not rerun LoD", async () => {
+  const { spark, camera, frame } = await setupLod();
+  // LoD reruns until the mesh stops changing, which takes two frames
+  await frame();
+  await frame();
+  const lastLod = spark.lastLod;
+
+  camera.projectionMatrix.elements[5] *= 1 + 1e-6;
+  await frame();
+
+  expect(spark.lastLod).toBe(lastLod);
 });
 
 async function expectNoUnhandledRejection(run: () => Promise<void>) {

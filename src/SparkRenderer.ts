@@ -1231,7 +1231,8 @@ export class SparkRenderer extends THREE.Mesh {
 
     let pixelScaleLimit = 0.0;
     if (camera instanceof THREE.PerspectiveCamera) {
-      const tanYfov = Math.tan((0.5 * camera.fov * Math.PI) / 180);
+      // three.js leaves fov at its default on the WebXR camera
+      const tanYfov = 1.0 / camera.projectionMatrix.elements[5];
       pixelScaleLimit = (2.0 * tanYfov) / this.renderSize.y;
     } else if (camera instanceof THREE.OrthographicCamera) {
       // Effective visible size after zoom
@@ -1257,9 +1258,12 @@ export class SparkRenderer extends THREE.Mesh {
     }
 
     if (this.lastLod) {
+      if (this.lastLod.maxSplats !== maxSplats) {
+        this.lodDirty = true;
+      }
       if (
-        this.lastLod.pixelScaleLimit !== pixelScaleLimit ||
-        this.lastLod.maxSplats !== maxSplats
+        Math.abs(this.lastLod.pixelScaleLimit - pixelScaleLimit) >
+        1e-5 * pixelScaleLimit
       ) {
         this.lodDirty = true;
       }
