@@ -750,6 +750,13 @@ export class SparkRenderer extends THREE.Mesh {
     }
   }
 
+  // dispose() rejects the work it interrupts.
+  private dropErrorIfDisposed(error: unknown) {
+    if (!this.isDisposed) {
+      throw error;
+    }
+  }
+
   setDirty() {
     if (!this.isDisposed && !this.dirty) {
       this.dirty = true;
@@ -775,20 +782,24 @@ export class SparkRenderer extends THREE.Mesh {
         ? renderer.xr.getCamera()
         : camera;
       if (preUpdate) {
-        spark.updateInternal({
-          scene,
-          camera: useCamera,
-          autoUpdate: true,
-        });
+        spark
+          .updateInternal({
+            scene,
+            camera: useCamera,
+            autoUpdate: true,
+          })
+          .catch((error) => spark.dropErrorIfDisposed(error));
       } else {
         if (spark.updateTimeoutId === undefined) {
           spark.updateTimeoutId = setTimeout(() => {
             spark.updateTimeoutId = undefined;
-            spark.updateInternal({
-              scene,
-              camera: useCamera,
-              autoUpdate: true,
-            });
+            spark
+              .updateInternal({
+                scene,
+                camera: useCamera,
+                autoUpdate: true,
+              })
+              .catch((error) => spark.dropErrorIfDisposed(error));
           }, 1);
         }
       }
@@ -1072,7 +1083,7 @@ export class SparkRenderer extends THREE.Mesh {
     if (now < nextSortTime) {
       this.sortTimeoutId = setTimeout(() => {
         this.sortTimeoutId = undefined;
-        this.driveSort();
+        this.driveSort().catch((error) => this.dropErrorIfDisposed(error));
       }, nextSortTime - now);
       return;
     }
@@ -1183,7 +1194,7 @@ export class SparkRenderer extends THREE.Mesh {
     this.sorting = false;
     this.setDirty();
 
-    this.driveSort();
+    this.driveSort().catch((error) => this.dropErrorIfDisposed(error));
   }
 
   private ensureLodWorker() {
@@ -1325,6 +1336,8 @@ export class SparkRenderer extends THREE.Mesh {
           pixelScaleLimit,
           maxSplats,
         });
+      } catch (error) {
+        this.dropErrorIfDisposed(error);
       } finally {
         // driveLod() skips tryExclusive while this runs, so work it flagged
         // (lodDirty, lodInitQueue) would otherwise wait for an unrelated render.
