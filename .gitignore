@@ -11,3 +11,4 @@ site-repo/
 test/browser/fixtures/
 test-results/
 playwright-report/
+coverage/
