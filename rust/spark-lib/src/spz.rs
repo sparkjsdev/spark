@@ -64,7 +64,6 @@ pub struct SpzDecoder<T: SplatReceiver> {
     // Shared
     buffer: Vec<u8>,
     state: Option<SpzDecoderState>,
-    out_pos: usize,
     done: bool,
 }
 
@@ -74,12 +73,11 @@ impl<T: SplatReceiver> SpzDecoder<T> {
             splats,
             format: SpzFormat::Unknown,
             compressed: Vec::new(),
-            decompressor: GzDecoder::new(Vec::new()),
+            decompressor: GzDecoder::new(Vec::with_capacity(128 * 1024)),
+            v4_stage: V4Stage::NeedHeader,
             buffer: Vec::new(),
             state: None,
-            out_pos: 0,
             done: false,
-            v4_stage: V4Stage::NeedHeader,
         }
     }
 
@@ -545,17 +543,19 @@ impl<T: SplatReceiver> SpzDecoder<T> {
             return Ok(());
         }
 
-        self.decompressor.write_all(&self.compressed)?;
-        self.decompressor.flush()?;
-        self.compressed.clear();
+        const CHUNK_SIZE: usize = 32 * 1024;
+        for start in (0..self.compressed.len()).step_by(CHUNK_SIZE) {
+            let end = (start + CHUNK_SIZE).min(self.compressed.len());
+            self.decompressor.write_all(&self.compressed[start..end])?;
+            self.decompressor.flush()?;
 
-        let decompressed = self.decompressor.get_ref();
-        let out_written = decompressed.len() - self.out_pos;
-        if out_written > 0 {
-            self.buffer.extend_from_slice(&decompressed[self.out_pos..self.out_pos + out_written]);
-            self.out_pos += out_written;
-            self.poll()?;
+            if !self.decompressor.get_ref().is_empty() {
+                std::mem::swap(self.decompressor.get_mut(), &mut self.buffer);
+                self.poll()?;
+                std::mem::swap(self.decompressor.get_mut(), &mut self.buffer);
+            }
         }
+        self.compressed.clear();
 
         Ok(())
     }

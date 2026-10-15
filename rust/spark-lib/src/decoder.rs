@@ -1,5 +1,5 @@
 use std::any::Any;
-use std::io::Read;
+use std::io::{ErrorKind, Read};
 
 #[cfg(feature = "spz")]
 use flate2::read::GzDecoder;
@@ -564,8 +564,11 @@ fn try_gunzip(buffer: &[u8], max_bytes: usize) -> anyhow::Result<Option<Vec<u8>>
         Ok(out_written) => {
             buffer_gz.truncate(out_written);
             Ok(Some(buffer_gz))
-        }
-        Err(_) => Ok(Some(Vec::new()))
+        },
+        Err(error) => match error.kind() {
+            ErrorKind::UnexpectedEof => Ok(None),
+            _ => Ok(Some(Vec::new()))
+        },
     }
 }
 
