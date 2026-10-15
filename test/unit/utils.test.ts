@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   decodeExtRgb,
   encodeExtRgb,
+  encodeExtSh12Rgb,
   floatToUint8,
   setPackedSplatOpacity,
   unpackSplat,
@@ -80,4 +81,20 @@ describe("encodeExtRgb", () => {
       }
     },
   );
+});
+
+describe("encodeExtSh12Rgb", () => {
+  test("stores each degree-2 coefficient's own RGB triple", () => {
+    const sh1 = new Uint32Array(4);
+    const sh2 = new Uint32Array(4);
+    const sh1Rgb = new Float32Array(9);
+    const sh2Rgb = Float32Array.from({ length: 15 }, (_, i) => (i + 1) / 16);
+    encodeExtSh12Rgb(sh1, sh2, 0, sh1Rgb, sh2Rgb);
+    const coeffs = [sh1[3], ...sh2].map((w) => decodeExtRgb(w).toArray());
+    coeffs.forEach((rgb, k) => {
+      rgb.forEach((v, c) => {
+        expect(v).toBeCloseTo(sh2Rgb[3 * k + c], 2);
+      });
+    });
+  });
 });

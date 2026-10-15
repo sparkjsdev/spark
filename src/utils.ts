@@ -1554,11 +1554,11 @@ export function encodeExtSh12Rgb(
   }
   sh1Array[i4 + 3] = encodeExtRgb(sh2Rgb[0], sh2Rgb[1], sh2Rgb[2]);
   for (let k = 1; k < 5; ++k) {
-    const k5 = k * 5;
+    const k3 = k * 3;
     sh2Array[i4 + (k - 1)] = encodeExtRgb(
-      sh2Rgb[k5],
-      sh2Rgb[k5 + 1],
-      sh2Rgb[k5 + 2],
+      sh2Rgb[k3],
+      sh2Rgb[k3 + 1],
+      sh2Rgb[k3 + 2],
     );
   }
 }
