@@ -246,12 +246,17 @@ void main() {
 
     // Compute the eigenvalue and eigenvectors of the 2D covariance matrix
     float eigenAvg = 0.5 * (a + d);
-    float eigenDelta = sqrt(max(0.0, eigenAvg * eigenAvg - det));
+    float halfDiagDiff = 0.5 * (a - d);
+    float eigenDelta = sqrt(sqr(halfDiagDiff) + sqr(b));
     float eigen1 = eigenAvg + eigenDelta;
-    float eigen2 = eigenAvg - eigenDelta;
+    float eigen2 = max(0.0, det / eigen1);
 
-    vec2 eigenVec1 = (abs(b) > 0.001) ? normalize(vec2(b, eigen1 - a))
-        : ((a >= d) ? vec2(1.0, 0.0) : vec2(0.0, 1.0));
+    vec2 eigenVec1Unnorm = (halfDiagDiff >= 0.0)
+        ? vec2(eigenDelta + halfDiagDiff, b)
+        : vec2(b, eigenDelta - halfDiagDiff);
+    float eigenVec1Len2 = dot(eigenVec1Unnorm, eigenVec1Unnorm);
+    vec2 eigenVec1 = (eigenVec1Len2 > 0.0)
+        ? eigenVec1Unnorm * inversesqrt(eigenVec1Len2) : vec2(1.0, 0.0);
     vec2 eigenVec2 = vec2(eigenVec1.y, -eigenVec1.x);
 
     float scale1 = min(maxPixelRadius, adjustedStdDev * sqrt(eigen1));
