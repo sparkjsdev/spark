@@ -15,7 +15,7 @@ use crate::rad::{RAD_CHUNK_MAGIC, RAD_MAGIC, RadDecoder};
 #[cfg(feature = "sogs")]
 use crate::sogs::{PK_MAGIC, SogsDecoder};
 #[cfg(feature = "spz")]
-use crate::spz::{SPZ_MAGIC, SpzDecoder};
+use crate::spz::{GZIP_MAGIC, SPZ_MAGIC, SpzDecoder};
 
 pub trait ChunkReceiver: Any {
     fn push(&mut self, bytes: &[u8]) -> anyhow::Result<()>;
@@ -451,8 +451,6 @@ impl<T: SplatReceiver> MultiDecoder<T> {
     }
 }
 
-const GZIP_MAGIC: u32 = 0x00088b1f; // Gzip deflate
-
 impl<T: SplatReceiver> ChunkReceiver for MultiDecoder<T> {
     fn push(&mut self, bytes: &[u8]) -> anyhow::Result<()> {
         if self.file_type.is_none() {
@@ -468,6 +466,11 @@ impl<T: SplatReceiver> ChunkReceiver for MultiDecoder<T> {
                 #[cfg(feature = "ply")]
                 (_, PLY_MAGIC) => {
                     return self.init_file_type(SplatFileType::PLY);
+                }
+                #[cfg(feature = "spz")]
+                (SPZ_MAGIC, _) => {
+                    // SPZ v4 files have NGSP magic at file start
+                    return self.init_file_type(SplatFileType::SPZ);
                 }
                 #[cfg(feature = "spz")]
                 (_, GZIP_MAGIC) => {
