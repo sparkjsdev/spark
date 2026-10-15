@@ -523,6 +523,7 @@ export declare class SparkRenderer extends THREE.Mesh {
         };
     };
     dispose(): void;
+    private dropErrorIfDisposed;
     setDirty(): void;
     onBeforeRender(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera): void;
     clearSplats(): void;
