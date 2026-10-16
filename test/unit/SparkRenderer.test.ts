@@ -20,6 +20,7 @@ const stubRenderer = {
   getActiveMipmapLevel: () => 0,
   setRenderTarget: () => {},
   getDrawingBufferSize: (size: THREE.Vector2) => size.set(1, 1),
+  getCurrentViewport: (viewport: THREE.Vector4) => viewport.set(0, 0, 1, 1),
   readRenderTargetPixelsAsync: async () => {},
   render: () => {},
   properties: new WeakMap(),
@@ -199,6 +200,36 @@ test("a change during a sort is sorted after it", async () => {
 
   await finishSorts();
   expect(sorts.map((s) => s.version)).toEqual([v0 + 1, v0 + 2]);
+});
+
+test("a WebXR eye is sized by its viewport, not the shared render target", async () => {
+  const { spark, camera, frame } = await setup();
+  vi.spyOn(stubRenderer, "getRenderTarget").mockReturnValue({
+    width: 200,
+    height: 100,
+    isXRRenderTarget: true,
+    texture: { colorSpace: THREE.SRGBColorSpace },
+  } as unknown as THREE.WebGLRenderTarget);
+  // As after a Reflector renders in this eye
+  vi.spyOn(stubRenderer, "getCurrentViewport").mockImplementation((viewport) =>
+    viewport.set(0, 0, 200, 100),
+  );
+  camera.viewport = new THREE.Vector4(100, 0, 100, 100);
+
+  await frame();
+
+  expect(spark.renderSize).toEqual(new THREE.Vector2(100, 100));
+});
+
+test("a camera drawn with setViewport is sized by that viewport", async () => {
+  const { spark, frame } = await setup();
+  vi.spyOn(stubRenderer, "getCurrentViewport").mockImplementation((viewport) =>
+    viewport.set(50, 0, 50, 40),
+  );
+
+  await frame();
+
+  expect(spark.renderSize).toEqual(new THREE.Vector2(50, 40));
 });
 
 describe("a LoD tree that fails to initialize", () => {

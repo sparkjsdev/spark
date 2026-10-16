@@ -808,7 +808,13 @@ export class SparkRenderer extends THREE.Mesh {
     // Determine render target
     const currentRenderTarget = renderer.getRenderTarget();
     const isXRRenderTarget = checkIsXRRenderTarget(currentRenderTarget);
-    if (currentRenderTarget) {
+    // Objects like Reflector reset the renderer's current viewport, so prefer
+    // the camera's own viewport.
+    const viewport =
+      camera.viewport ?? renderer.getCurrentViewport(new THREE.Vector4());
+    if (viewport.z > 1 && viewport.w > 1) {
+      spark.renderSize.set(viewport.z, viewport.w);
+    } else if (currentRenderTarget) {
       spark.renderSize.set(
         currentRenderTarget.width,
         currentRenderTarget.height,
