@@ -14,7 +14,7 @@ ksplat = []
 ply = []
 rad = ["dep:flate2"]
 sogs = ["dep:zip", "dep:image"]
-spz = ["dep:miniz_oxide", "dep:ruzstd"]
+spz = ["dep:flate2", "dep:ruzstd"]
 csplat = []
 gsplat = []
 quick_lod = ["gsplat"]
@@ -28,7 +28,6 @@ glam.workspace = true
 half.workspace = true
 ordered-float.workspace = true
 flate2 = { workspace = true, optional = true }
-miniz_oxide = { workspace = true, optional = true }
 ruzstd = { workspace = true, optional = true }
 serde.workspace = true
 smallvec.workspace = true

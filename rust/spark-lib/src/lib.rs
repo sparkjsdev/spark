@@ -34,6 +34,8 @@ compile_error!("at least one of \"gsplat\" and \"csplat\" must be enabled");
 
 #[cfg(test)]
 mod tests {
+    use std::io::Read;
+    use flate2::read::DeflateDecoder;
     use super::{
         antisplat::{AntiSplatDecoder, AntiSplatEncoder},
         gsplat::*,
@@ -177,7 +179,9 @@ mod tests {
 
     // Undoes the gzip framing SpzEncoder puts around the payload
     fn spz_payload(encoded: &[u8]) -> Vec<u8> {
-        miniz_oxide::inflate::decompress_to_vec(&encoded[10..encoded.len() - 8]).expect("inflate ok")
+        let mut decoder = DeflateDecoder::new(&encoded[10..encoded.len() - 8]);
+        let mut buffer = Vec::new();
+        decoder.read_to_end(&mut buffer).map(|_| buffer).expect("inflate ok")
     }
 
     fn spz_version(payload: &[u8]) -> u32 {
