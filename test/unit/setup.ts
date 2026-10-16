@@ -4,7 +4,10 @@ import { vi } from "vitest";
 
 // The JS wrapper. Its init must return a promise. Add an export here as a
 // vi.fn() when a test calls it, and set its result in the test.
-vi.mock("spark-rs", () => ({ default: vi.fn(async () => ({})) }));
+vi.mock("spark-rs", () => ({
+  default: vi.fn(async () => ({})),
+  decode_rad_header: vi.fn(async () => ({})),
+}));
 
 // The binary, compiled on load. An empty module: magic number and version 1.
 vi.mock("spark-rs/spark_rs_bg.wasm?arraybuffer&base64", () => ({

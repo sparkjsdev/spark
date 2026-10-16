@@ -24,6 +24,7 @@ export {
 export { PackedSplats, type PackedSplatsOptions } from "./PackedSplats";
 export { ExtSplats, type ExtSplatsOptions } from "./ExtSplats";
 export * from "./PagedSplats";
+export type { PagedSplatsFetcher } from "./PagedSplatsFetcher";
 export * from "./SplatPager";
 export {
   SplatGenerator,
