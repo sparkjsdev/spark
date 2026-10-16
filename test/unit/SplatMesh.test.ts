@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { ExtSplats } from "../../src/ExtSplats";
 import { PackedSplats } from "../../src/PackedSplats";
 import { PagedSplats } from "../../src/PagedSplats";
@@ -7,10 +7,6 @@ import { SplatMesh } from "../../src/SplatMesh";
 const url = "https://assets.invalid/scene.spz";
 const requestHeader = { Authorization: "Bearer token" };
 const credentials = { withCredentials: true, requestHeader };
-
-afterEach(() => {
-  vi.restoreAllMocks();
-});
 
 describe("SplatMesh credentials", () => {
   test.each([
