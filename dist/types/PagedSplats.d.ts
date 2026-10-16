@@ -1,24 +1,57 @@
 import * as THREE from "three";
+import { type PagedSplatsFetcher } from "./PagedSplatsFetcher";
 import type { SplatSource } from "./SplatMesh";
 import type { SplatPager } from "./SplatPager";
 import { type RadMeta, type SplatEncoding, SplatFileType } from "./defines";
 import * as dyno from "./dyno";
+/**
+ * Options for constructing {@link PagedSplats}. At least one source needs to be provided.
+ * When multiple sources are given, only one takes effect. Order of precedence:
+ *  * {@link PagedSplatsOptions#fileBytes `fileBytes`}
+ *  * {@link PagedSplatsOptions#fetchSource `fetchSource`}
+ *  * {@link PagedSplatsOptions#rootUrl `rootUrl`}
+ */
 export interface PagedSplatsOptions {
     pager?: SplatPager;
+    /**
+     * The root URL to fetch the paged splats from. Chunks are expected
+     * to be relative to this URL.
+     */
     rootUrl?: string;
+    /**
+     * Additional headers to set when making fetch requests.
+     * @note Only relevant when using a {@link PagedSplatsOptions#rootUrl `rootUrl`}.
+     */
     requestHeader?: Record<string, string>;
+    /**
+     * Whether credentials should be sent when making fetch requests.
+     * @note Only relevant when using a {@link PagedSplatsOptions#rootUrl `rootUrl`}.
+     */
     withCredentials?: boolean;
+    /**
+     * Raw bytes of the paged splats file.
+     */
     fileBytes?: Uint8Array;
+    /**
+     * Custom paged splats fetcher to use.
+     */
+    fetchSource?: PagedSplatsFetcher;
+    /**
+     * The file type of the paged splats. This is required when using a {@link PagedSplatsOptions#fetchSource `fetchSource`}.
+     * In case of {@link PagedSplatsOptions#fileBytes `fileBytes`} or a {@link PagedSplatsOptions#rootUrl `rootUrl`} the file type
+     * is optional and will be automatically inferred unless provided.
+     */
     fileType?: SplatFileType;
+    /**
+     * Maximum Spherical Harmonics level to use.
+     * @default 3
+     */
     maxSh?: number;
 }
 export declare class PagedSplats implements SplatSource {
     pager?: SplatPager;
-    rootUrl: string;
-    requestHeader?: Record<string, string>;
-    withCredentials?: boolean;
-    fileBytes?: Uint8Array;
-    fileType?: SplatFileType;
+    readonly fileType: SplatFileType;
+    readonly fetchSource: PagedSplatsFetcher;
     numSh: number;
     maxSh: number;
     sh1Codes?: Uint32Array;
@@ -30,12 +63,12 @@ export declare class PagedSplats implements SplatSource {
         meta: RadMeta;
         chunksStart: number;
     }>;
-    dynoNumSplats: dyno.DynoInt<"numSplats">;
-    dynoIndices: dyno.DynoUsampler2D<"indices", THREE.DataTexture>;
-    rgbMinMaxLnScaleMinMax: dyno.DynoVec4<THREE.Vector4, "rgbMinMaxLnScaleMinMax">;
-    lodOpacity: dyno.DynoBool<"lodOpacity">;
-    dynoNumSh: dyno.DynoInt<"numSh">;
-    shMax: dyno.DynoVec3<THREE.Vector3, "shMax">;
+    readonly dynoNumSplats: dyno.DynoInt<"numSplats">;
+    readonly dynoIndices: dyno.DynoUsampler2D<"indices", THREE.DataTexture>;
+    readonly rgbMinMaxLnScaleMinMax: dyno.DynoVec4<THREE.Vector4, "rgbMinMaxLnScaleMinMax">;
+    readonly lodOpacity: dyno.DynoBool<"lodOpacity">;
+    readonly dynoNumSh: dyno.DynoInt<"numSh">;
+    readonly shMax: dyno.DynoVec3<THREE.Vector3, "shMax">;
     readonly abortController: AbortController;
     constructor(options: PagedSplatsOptions);
     dispose(): void;
@@ -44,7 +77,6 @@ export declare class PagedSplats implements SplatSource {
         meta: RadMeta;
         chunksStart: number;
     }>;
-    chunkUrl(chunk: number): string;
     fetchDecodeChunk(chunk: number): Promise<import("./defines").ExtResult | import("./defines").PackedResult>;
     /** Draw nothing until the next update(), keeping the indices texture allocated. */
     clear(): void;

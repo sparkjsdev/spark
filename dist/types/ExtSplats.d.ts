@@ -3,6 +3,16 @@ import type { RgbaArray } from "./RgbaArray";
 import type { SplatSource } from "./SplatMesh";
 import { type SplatFileType } from "./defines";
 import { DynoInt, DynoUniform, DynoUsampler2DArray, type DynoVal, type Gsplat, TExtSplats } from "./dyno";
+type ExtSplatsExtra = {
+    sh1?: Uint32Array;
+    sh2?: Uint32Array;
+    sh3a?: Uint32Array;
+    sh3b?: Uint32Array;
+    sh1Texture?: DynoUsampler2DArray<"sh1", THREE.DataArrayTexture>;
+    sh2Texture?: DynoUsampler2DArray<"sh2", THREE.DataArrayTexture>;
+    sh3TextureA?: DynoUsampler2DArray<"sh3", THREE.DataArrayTexture>;
+    sh3TextureB?: DynoUsampler2DArray<"sh3b", THREE.DataArrayTexture>;
+} & Record<string, unknown>;
 export type ExtSplatsOptions = {
     url?: string;
     requestHeader?: Record<string, string>;
@@ -17,7 +27,7 @@ export type ExtSplatsOptions = {
     numSplats?: number;
     construct?: (splats: ExtSplats) => Promise<void> | void;
     onProgress?: (event: ProgressEvent) => void;
-    extra?: Record<string, unknown>;
+    extra?: ExtSplatsExtra;
     lod?: boolean | "quality";
     nonLod?: boolean;
     lodAbove?: number;
@@ -27,7 +37,7 @@ export declare class ExtSplats implements SplatSource {
     maxSplats: number;
     numSplats: number;
     extArrays: [Uint32Array, Uint32Array];
-    extra: Record<string, unknown>;
+    extra: ExtSplatsExtra;
     maxSh: number;
     lod?: boolean | "quality";
     nonLod?: boolean;
@@ -99,3 +109,4 @@ export declare function evaluateExtSH({ coord, viewDir, numSh, sh1Texture, sh2Te
 }): {
     rgb: DynoVal<"vec3">;
 };
+export {};
