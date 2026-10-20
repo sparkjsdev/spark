@@ -1,7 +1,39 @@
+## 2.4.0 (Oct 19, 2026)
+
+Bug fixes and improvements
+
+### Enhancements
+
+- Add SPZ v4 read support (#484) (@udwinj, @mrxz) 
+- Decouple and abstract paged splat load logic from `PagedSplat` into `FetchSource` that retrieves data from in-memory file, URL or any other custom mechanism (#463) (@mrxz, @xohm
+, @oscarlorentzon)
+- Switch to `flate2` from `zlib-rs` backend for RAD deflate compression. ~50% faster compression, ~2-5% smaller outputs and ~20% faster decoding (#474) (@mrxz, @oscarlorentzon)
+- Replace `miniz_oxide` with `flate2` for Gzip (de)compression of SPZ files. Remove `miniz_oxide` as dependency (#485) (@mrxz)
+- Address stutter during animations. Skip unnecessary splat sortings if the splat buffer needs or has changed like for example when LoD levels change or splats animate / move (#347) (#460) (@oscarlorentzon, @mrxz)
+- Refactor `PagedSplats` into its own separate file (#462) (@mrxz)
+- Remove outdated Github workflows CI commands (#464) (@mrxz)
+- Add Rust linter (#414) (@mrxz)
+- Improve tests (#483, #482) (@mrxz)
+- Improve docs (#478) (@oscarlorentzon)
+
+### Bug Fixes
+
+- (WebXR) Use camera projection projection matrix to calculate LoD pixel limit. The THREE.Camera fov value was incorrectly used before: It doesn't match the one reported by the WebXR API (#488) (@oscarlorentzon)
+- Adress view-dependent color precission loss due to unwanted SH coefficinets clamping (#465) (@oscarlorentzon) 
+- Dispose the LoD index textures when renderer is disposed (#479) (@oscarlorentzon)
+- Fix issue with Level 3 Spherical Harmonics (sh3) dropped due to incorrect type assertions. It introduces explicit types in `PackedSplats` and `ExtSplats` instead of loose types + assertions. (#467) (@mrxz, @oscarlorentzon)
+- (WebXR) Fix issue with splat size and anti-alias blur rendered at half the correct width. Use whole viewport width for calculations instead of half (#487) (@oscarlorentzon)
+- Ignore errors / rejections after `SparkRenderer` is disposed. This can happen when for instance there's pending LoD sorting in parallel in the worker when the renderered is disposed (#476) (@oscarlorentzon)
+- Replace workers that hit a fatal error / crash / trap. The pool tried to reuse those in a broken state (#480) (@oscarlorentzon)
+- Fix issue with long thin splats drawn off axis, too wide or too narrow. Compute 2D covariance eigenvectors without cancellation (#486) (@oscarlorentzon)
+- Stop retrying a failed level of detail tree on every update (#477) (@mrxz, @oscarlorentzon)
+- Address raycasting precission and speed issues (#469) (@n3ur0m4n, @oscarlorentzon)
+
+
+
 ## 2.3.1 (Oct 1, 2026)
 
 Fix builds
-
 
 
 ## 2.3.0 (Sep 29, 2026)
