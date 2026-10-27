@@ -145,7 +145,7 @@ impl<T: SplatReceiver> ChunkReceiver for SogsDecoder<T> {
 }
 
 fn decode_sogs<T: SplatReceiver>(bytes: Vec<u8>, splats: &mut T, _pathname: Option<&str>) -> anyhow::Result<()> {
-    let (meta, mut file_cache) = {
+    let (meta, file_cache) = {
         let mut zip = ZipArchive::new(Cursor::new(bytes.as_slice()))?;
 
         // Find meta.json entry and its prefix
@@ -170,7 +170,7 @@ fn decode_sogs<T: SplatReceiver>(bytes: Vec<u8>, splats: &mut T, _pathname: Opti
             .context("Failed to parse meta.json for SOGS")?;
 
         let mut file_cache: HashMap<String, Vec<u8>> = HashMap::new();
-        for f in meta_files(&meta) {
+        for f in meta_image_files(&meta) {
             preload_file(&mut zip, &prefix, &mut file_cache, f)?;
         }
         (meta, file_cache)
@@ -178,29 +178,22 @@ fn decode_sogs<T: SplatReceiver>(bytes: Vec<u8>, splats: &mut T, _pathname: Opti
     // Zip no longer needed: all compressed files are in the cache
     drop(bytes);
 
-    // Each file leaves the cache on its last request (a name can repeat in meta)
-    let mut uses: HashMap<String, usize> = HashMap::new();
-    for f in meta_files(&meta) {
-        *uses.entry(f.clone()).or_default() += 1;
-    }
-    let mut get_file = |name: &str| -> anyhow::Result<Vec<u8>> {
-        let left = uses.get_mut(name).ok_or_else(|| anyhow!("Missing file {name} in cache"))?;
-        *left -= 1;
-        if *left == 0 {
-            file_cache.remove(name)
-        } else {
-            file_cache.get(name).cloned()
-        }
-        .ok_or_else(|| anyhow!("Missing file {name} in cache"))
-    };
+    // Decode the images; each compressed buffer is dropped right after its decode
+    let images = file_cache
+        .into_iter()
+        .map(|(name, raw)| {
+            let img = decode_image(&raw).with_context(|| format!("decode {name}"))?;
+            Ok((name, img))
+        })
+        .collect::<anyhow::Result<HashMap<String, ImageData>>>()?;
 
     match meta {
-        PcSogsRoot::V2(v2) => decode_v2(v2, splats, &mut get_file),
-        PcSogsRoot::V1(v1) => decode_v1(v1, splats, &mut get_file),
+        PcSogsRoot::V2(v2) => decode_v2(v2, splats, &images),
+        PcSogsRoot::V1(v1) => decode_v1(v1, splats, &images),
     }
 }
 
-fn meta_files(meta: &PcSogsRoot) -> Vec<&String> {
+fn meta_image_files(meta: &PcSogsRoot) -> Vec<&String> {
     let mut out = Vec::new();
     match meta {
         PcSogsRoot::V2(v2) => {
@@ -221,14 +214,8 @@ fn meta_files(meta: &PcSogsRoot) -> Vec<&String> {
     out
 }
 
-/// Decode an image; the compressed bytes are dropped right after
-fn load_image(
-    get_file: &mut dyn FnMut(&str) -> anyhow::Result<Vec<u8>>,
-    name: &str,
-    what: &str,
-) -> anyhow::Result<ImageData> {
-    let bytes = get_file(name)?;
-    decode_image(&bytes).with_context(|| format!("decode {what}"))
+fn get_image<'a>(images: &'a HashMap<String, ImageData>, name: &str) -> anyhow::Result<&'a ImageData> {
+    images.get(name).ok_or_else(|| anyhow!("Missing file {name} in cache"))
 }
 
 /// Buffers for one chunk of splats, reused for the whole decode
@@ -243,7 +230,7 @@ struct Chunk {
     sh3: Vec<f32>,
 }
 
-/// Call `fill(base, cnt, chunk)` for chunks of MAX_SPLAT_CHUNK splats and pass them to the receiver
+/// Call `fill(base, count, chunk)` for chunks of MAX_SPLAT_CHUNK splats and pass them to the receiver
 fn emit_chunks<T: SplatReceiver>(
     splats: &mut T,
     num_splats: usize,
@@ -251,37 +238,36 @@ fn emit_chunks<T: SplatReceiver>(
     mut fill: impl FnMut(usize, usize, &mut Chunk) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
     let n = num_splats.min(MAX_SPLAT_CHUNK);
-    let sh = |deg: usize, k: usize| if max_sh_degree >= deg { vec![0.0f32; n * k] } else { Vec::new() };
     let mut c = Chunk {
         center: vec![0.0; n * 3],
         scale: vec![0.0; n * 3],
         quat: vec![0.0; n * 4],
         rgb: vec![0.0; n * 3],
         opacity: vec![0.0; n],
-        sh1: sh(1, 9),
-        sh2: sh(2, 15),
-        sh3: sh(3, 21),
+        sh1: if max_sh_degree >= 1 { vec![0.0; n * 9] } else { Vec::new() },
+        sh2: if max_sh_degree >= 2 { vec![0.0; n * 15] } else { Vec::new() },
+        sh3: if max_sh_degree >= 3 { vec![0.0; n * 21] } else { Vec::new() },
     };
     let mut base = 0usize;
     while base < num_splats {
-        let cnt = (num_splats - base).min(MAX_SPLAT_CHUNK);
-        fill(base, cnt, &mut c)?;
+        let count = (num_splats - base).min(MAX_SPLAT_CHUNK);
+        fill(base, count, &mut c)?;
         splats.set_batch(
             base,
-            cnt,
+            count,
             &SplatProps {
-                center: &c.center[..cnt * 3],
-                opacity: &c.opacity[..cnt],
-                rgb: &c.rgb[..cnt * 3],
-                scale: &c.scale[..cnt * 3],
-                quat: &c.quat[..cnt * 4],
-                sh1: if max_sh_degree >= 1 { &c.sh1[..cnt * 9] } else { &[] },
-                sh2: if max_sh_degree >= 2 { &c.sh2[..cnt * 15] } else { &[] },
-                sh3: if max_sh_degree >= 3 { &c.sh3[..cnt * 21] } else { &[] },
+                center: &c.center[..count * 3],
+                opacity: &c.opacity[..count],
+                rgb: &c.rgb[..count * 3],
+                scale: &c.scale[..count * 3],
+                quat: &c.quat[..count * 4],
+                sh1: if max_sh_degree >= 1 { &c.sh1[..count * 9] } else { &[] },
+                sh2: if max_sh_degree >= 2 { &c.sh2[..count * 15] } else { &[] },
+                sh3: if max_sh_degree >= 3 { &c.sh3[..count * 21] } else { &[] },
                 ..Default::default()
             },
         );
-        base += cnt;
+        base += count;
     }
     splats.finish()
 }
@@ -289,7 +275,7 @@ fn emit_chunks<T: SplatReceiver>(
 fn decode_v2<T: SplatReceiver>(
     meta: PcSogsV2,
     splats: &mut T,
-    get_file: &mut dyn FnMut(&str) -> anyhow::Result<Vec<u8>>,
+    images: &HashMap<String, ImageData>,
 ) -> anyhow::Result<()> {
     let _ = meta.version;
     let _ = meta.means.shape;
@@ -299,13 +285,13 @@ fn decode_v2<T: SplatReceiver>(
     }).unwrap_or(0);
     splats.init_splats(&SplatInit { num_splats, max_sh_degree, lod_tree: false })?;
 
-    let means0 = load_image(get_file, &meta.means.files[0], "means[0]")?;
-    let means1 = load_image(get_file, &meta.means.files[1], "means[1]")?;
-    let scales_img = load_image(get_file, &meta.scales.files[0], "scales")?;
-    let quats_img = load_image(get_file, &meta.quats.files[0], "quats")?;
-    let sh0_img = load_image(get_file, &meta.sh0.files[0], "sh0")?;
+    let means0 = get_image(images, &meta.means.files[0])?;
+    let means1 = get_image(images, &meta.means.files[1])?;
+    let scales_img = get_image(images, &meta.scales.files[0])?;
+    let quats_img = get_image(images, &meta.quats.files[0])?;
+    let sh0_img = get_image(images, &meta.sh0.files[0])?;
     let shn = match meta.shn {
-        Some(shn) => Some(ShN::load(get_file, &shn.files, shn.codebook, max_sh_degree)?),
+        Some(shn) => Some(ShN::load(images, &shn.files, shn.codebook, max_sh_degree)?),
         None => None,
     };
 
@@ -313,13 +299,13 @@ fn decode_v2<T: SplatReceiver>(
     let rgb_lookup: Vec<f32> = meta.sh0.codebook.iter().map(|v| SH_C0 * v + 0.5).collect();
     let a_lookup: Vec<f32> = (0..256).map(|i| i as f32 / 255.0).collect();
 
-    emit_chunks(splats, num_splats, max_sh_degree, |base, cnt, c| {
-        decode_means(&meta.means.mins, &meta.means.maxs, &means0, &means1, base, &mut c.center[..cnt * 3]);
-        decode_scales(&scale_lookup, &scale_lookup, &scale_lookup, &scales_img, base, &mut c.scale[..cnt * 3]);
-        decode_quats(&quats_img, base, &mut c.quat[..cnt * 4]);
-        decode_sh0(&rgb_lookup, &rgb_lookup, &rgb_lookup, &a_lookup, &sh0_img, base, &mut c.rgb[..cnt * 3], &mut c.opacity[..cnt]);
+    emit_chunks(splats, num_splats, max_sh_degree, |base, count, c| {
+        decode_means(&meta.means.mins, &meta.means.maxs, means0, means1, base, &mut c.center[..count * 3]);
+        decode_scales(&scale_lookup, &scale_lookup, &scale_lookup, scales_img, base, &mut c.scale[..count * 3]);
+        decode_quats(quats_img, base, &mut c.quat[..count * 4]);
+        decode_sh0(&rgb_lookup, &rgb_lookup, &rgb_lookup, &a_lookup, sh0_img, base, &mut c.rgb[..count * 3], &mut c.opacity[..count]);
         if let Some(shn) = &shn {
-            shn.decode(base, cnt, c);
+            shn.decode(base, count, c);
         }
         Ok(())
     })
@@ -328,7 +314,7 @@ fn decode_v2<T: SplatReceiver>(
 fn decode_v1<T: SplatReceiver>(
     meta: PcSogsV1,
     splats: &mut T,
-    get_file: &mut dyn FnMut(&str) -> anyhow::Result<Vec<u8>>,
+    images: &HashMap<String, ImageData>,
 ) -> anyhow::Result<()> {
     let num_splats = meta.means.shape[0];
     if meta.quats.encoding.as_deref() != Some("quaternion_packed") {
@@ -350,17 +336,17 @@ fn decode_v1<T: SplatReceiver>(
 
     splats.init_splats(&SplatInit { num_splats, max_sh_degree, lod_tree: false })?;
 
-    let means0 = load_image(get_file, &meta.means.files[0], "means[0]")?;
-    let means1 = load_image(get_file, &meta.means.files[1], "means[1]")?;
-    let scales_img = load_image(get_file, &meta.scales.files[0], "scales")?;
-    let quats_img = load_image(get_file, &meta.quats.files[0], "quats")?;
-    let sh0_img = load_image(get_file, &meta.sh0.files[0], "sh0")?;
+    let means0 = get_image(images, &meta.means.files[0])?;
+    let means1 = get_image(images, &meta.means.files[1])?;
+    let scales_img = get_image(images, &meta.scales.files[0])?;
+    let quats_img = get_image(images, &meta.quats.files[0])?;
+    let sh0_img = get_image(images, &meta.sh0.files[0])?;
     let shn = match meta.shn {
         Some(shn) => {
             let lookup: Vec<f32> = (0..256)
                 .map(|i| shn.mins + (shn.maxs - shn.mins) * (i as f32 / 255.0))
                 .collect();
-            Some(ShN::load(get_file, &shn.files, lookup, max_sh_degree)?)
+            Some(ShN::load(images, &shn.files, lookup, max_sh_degree)?)
         }
         None => None,
     };
@@ -381,19 +367,19 @@ fn decode_v1<T: SplatReceiver>(
     let lb = build_lookup(cmin[2], cmax[2], |v| SH_C0 * v + 0.5);
     let la = build_lookup(cmin[3], cmax[3], |v| 1.0 / (1.0 + (-v).exp()));
 
-    emit_chunks(splats, num_splats, max_sh_degree, |base, cnt, c| {
-        decode_means(&meta.means.mins, &meta.means.maxs, &means0, &means1, base, &mut c.center[..cnt * 3]);
-        decode_scales(&lx, &ly, &lz, &scales_img, base, &mut c.scale[..cnt * 3]);
-        decode_quats(&quats_img, base, &mut c.quat[..cnt * 4]);
-        decode_sh0(&lr, &lg, &lb, &la, &sh0_img, base, &mut c.rgb[..cnt * 3], &mut c.opacity[..cnt]);
+    emit_chunks(splats, num_splats, max_sh_degree, |base, count, c| {
+        decode_means(&meta.means.mins, &meta.means.maxs, means0, means1, base, &mut c.center[..count * 3]);
+        decode_scales(&lx, &ly, &lz, scales_img, base, &mut c.scale[..count * 3]);
+        decode_quats(quats_img, base, &mut c.quat[..count * 4]);
+        decode_sh0(&lr, &lg, &lb, &la, sh0_img, base, &mut c.rgb[..count * 3], &mut c.opacity[..count]);
         if let Some(shn) = &shn {
-            shn.decode(base, cnt, c);
+            shn.decode(base, count, c);
         }
         Ok(())
     })
 }
 
-// The decode_* helpers read the image from `base` and write `out` from 0 (len = cnt * components)
+// The decode_* helpers read the image from `base` and write `out` from 0 (len = count * components)
 
 fn decode_means(
     mins: &[f32; 3],
@@ -403,11 +389,12 @@ fn decode_means(
     base: usize,
     out_center: &mut [f32],
 ) {
+    let (rgba0, rgba1) = (&img0.rgba[base * 4..], &img1.rgba[base * 4..]);
     for i in 0..out_center.len() / 3 {
-        let i4 = (base + i) * 4;
-        let fx = (img0.rgba[i4] as u32 + ((img1.rgba[i4] as u32) << 8)) as f32 / 65535.0;
-        let fy = (img0.rgba[i4 + 1] as u32 + ((img1.rgba[i4 + 1] as u32) << 8)) as f32 / 65535.0;
-        let fz = (img0.rgba[i4 + 2] as u32 + ((img1.rgba[i4 + 2] as u32) << 8)) as f32 / 65535.0;
+        let i4 = i * 4;
+        let fx = (rgba0[i4] as u32 + ((rgba1[i4] as u32) << 8)) as f32 / 65535.0;
+        let fy = (rgba0[i4 + 1] as u32 + ((rgba1[i4 + 1] as u32) << 8)) as f32 / 65535.0;
+        let fz = (rgba0[i4 + 2] as u32 + ((rgba1[i4 + 2] as u32) << 8)) as f32 / 65535.0;
         let mut x = mins[0] + (maxs[0] - mins[0]) * fx;
         let mut y = mins[1] + (maxs[1] - mins[1]) * fy;
         let mut z = mins[2] + (maxs[2] - mins[2]) * fz;
@@ -421,36 +408,36 @@ fn decode_means(
     }
 }
 
-/// v2: same codebook on all 3 axes; v1: per-axis min/max lookup
 fn decode_scales(lx: &[f32], ly: &[f32], lz: &[f32], img: &ImageData, base: usize, out_scale: &mut [f32]) {
+    let rgba = &img.rgba[base * 4..];
     for i in 0..out_scale.len() / 3 {
-        let i4 = (base + i) * 4;
+        let i4 = i * 4;
         let i3 = i * 3;
-        out_scale[i3] = lx[img.rgba[i4] as usize];
-        out_scale[i3 + 1] = ly[img.rgba[i4 + 1] as usize];
-        out_scale[i3 + 2] = lz[img.rgba[i4 + 2] as usize];
+        out_scale[i3] = lx[rgba[i4] as usize];
+        out_scale[i3 + 1] = ly[rgba[i4 + 1] as usize];
+        out_scale[i3 + 2] = lz[rgba[i4 + 2] as usize];
     }
 }
 
 fn decode_quats(img: &ImageData, base: usize, out_quat: &mut [f32]) {
     const SQRT2: f32 = std::f32::consts::SQRT_2;
     let lookup: [f32; 256] = std::array::from_fn(|i| (i as f32 / 255.0 - 0.5) * SQRT2);
+    let rgba = &img.rgba[base * 4..];
     for i in 0..out_quat.len() / 4 {
-        let i4 = (base + i) * 4;
-        let r0 = lookup[img.rgba[i4] as usize];
-        let r1 = lookup[img.rgba[i4 + 1] as usize];
-        let r2 = lookup[img.rgba[i4 + 2] as usize];
+        let i4 = i * 4;
+        let r0 = lookup[rgba[i4] as usize];
+        let r1 = lookup[rgba[i4 + 1] as usize];
+        let r2 = lookup[rgba[i4 + 2] as usize];
         let rr = (1.0 - (r0 * r0 + r1 * r1 + r2 * r2)).max(0.0).sqrt();
-        let r_order = img.rgba[i4 + 3] as i32 - 252;
+        let r_order = rgba[i4 + 3] as i32 - 252;
         let quat_x = if r_order == 0 { r0 } else if r_order == 1 { rr } else { r1 };
         let quat_y = if r_order <= 1 { r1 } else if r_order == 2 { rr } else { r2 };
         let quat_z = if r_order <= 2 { r2 } else { rr };
         let quat_w = if r_order == 0 { rr } else { r0 };
-        let o = i * 4;
-        out_quat[o] = quat_x;
-        out_quat[o + 1] = quat_y;
-        out_quat[o + 2] = quat_z;
-        out_quat[o + 3] = quat_w;
+        out_quat[i4] = quat_x;
+        out_quat[i4 + 1] = quat_y;
+        out_quat[i4 + 2] = quat_z;
+        out_quat[i4 + 3] = quat_w;
     }
 }
 
@@ -464,42 +451,44 @@ fn decode_sh0(
     out_rgb: &mut [f32],
     out_opacity: &mut [f32],
 ) {
+    let rgba = &img.rgba[base * 4..];
     for i in 0..out_opacity.len() {
-        let i4 = (base + i) * 4;
+        let i4 = i * 4;
         let i3 = i * 3;
-        out_rgb[i3] = lr[img.rgba[i4] as usize];
-        out_rgb[i3 + 1] = lg[img.rgba[i4 + 1] as usize];
-        out_rgb[i3 + 2] = lb[img.rgba[i4 + 2] as usize];
-        out_opacity[i] = la[img.rgba[i4 + 3] as usize];
+        out_rgb[i3] = lr[rgba[i4] as usize];
+        out_rgb[i3 + 1] = lg[rgba[i4 + 1] as usize];
+        out_rgb[i3 + 2] = lb[rgba[i4 + 2] as usize];
+        out_opacity[i] = la[rgba[i4 + 3] as usize];
     }
 }
 
-/// shN images (centroids + labels) loaded once, decoded per chunk
-struct ShN {
-    centroids: ImageData,
-    labels: ImageData,
+/// shN images (centroids + labels), decoded per chunk
+struct ShN<'a> {
+    centroids: &'a ImageData,
+    labels: &'a ImageData,
     lookup: Vec<f32>,
     degree: usize,
 }
 
-impl ShN {
+impl<'a> ShN<'a> {
     fn load(
-        get_file: &mut dyn FnMut(&str) -> anyhow::Result<Vec<u8>>,
+        images: &'a HashMap<String, ImageData>,
         files: &[String; 2],
         lookup: Vec<f32>,
         degree: usize,
     ) -> anyhow::Result<Self> {
-        let centroids = load_image(get_file, &files[0], "shN centroids")?;
-        let labels = load_image(get_file, &files[1], "shN labels")?;
+        let centroids = get_image(images, &files[0])?;
+        let labels = get_image(images, &files[1])?;
         Ok(Self { centroids, labels, lookup, degree })
     }
 
-    fn decode(&self, base: usize, cnt: usize, c: &mut Chunk) {
-        let (centroids, lookup) = (&self.centroids, &self.lookup);
+    fn decode(&self, base: usize, count: usize, c: &mut Chunk) {
+        let (centroids, lookup) = (self.centroids, &self.lookup);
+        let labels = &self.labels.rgba[base * 4..];
         let stride = if self.degree >= 3 { 15 } else if self.degree >= 2 { 8 } else { 3 };
-        for i in 0..cnt {
-            let i4 = (base + i) * 4;
-            let label = self.labels.rgba[i4] as u16 | ((self.labels.rgba[i4 + 1] as u16) << 8);
+        for i in 0..count {
+            let i4 = i * 4;
+            let label = labels[i4] as u16 | ((labels[i4 + 1] as u16) << 8);
             let col = (label & 63) as usize * stride;
             let row = (label >> 6) as usize;
             let offset = row * centroids.width + col;
