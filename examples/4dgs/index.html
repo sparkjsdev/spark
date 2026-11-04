@@ -36,6 +36,7 @@
     import * as THREE from "three";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
     import GUI from "lil-gui";
+    import { VRButton } from "three/addons/webxr/VRButton.js";
     import { SparkRenderer, SplatMesh, dyno } from "@sparkjsdev/spark";
 
     // ------------------------------------------------------------------
@@ -176,6 +177,11 @@
     const renderer = new THREE.WebGLRenderer({ antialias: false });
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
+    renderer.xr.enabled = true;
+    document.body.appendChild(VRButton.createButton(renderer));
+    // In VR the viewer stands at the origin, so push the scene away from the head.
+    renderer.xr.addEventListener("sessionstart", () => scene.position.set(0, -0.9, -1.2));
+    renderer.xr.addEventListener("sessionend", () => scene.position.set(0, 0, 0));
     const spark = new SparkRenderer({ renderer });
     scene.add(spark);
 
@@ -205,7 +211,20 @@
       segLen: 5, // length of one batch (.c.ply file) in time units
       layout: 1, scaleMode: 0, sigmaLog: 0, debug: 0,
       motionScale: 1, fade: true, minAlpha: 0.01, flipY: false,
+      budgetOn: false, budget: 200, // budget in thousands of visible splats
+      vrScale: 1, foveation: 1,
     };
+
+    // URL options (the GUI is not reachable inside a headset):
+    //   ?budget=200      keep at most ~200k splats visible (raises the opacity threshold automatically)
+    //   ?vrscale=0.8     VR framebuffer scale (set before entering VR)
+    //   ?foveation=1     fixed foveated rendering 0..1
+    const qp = new URLSearchParams(location.search);
+    if (qp.has("budget")) { params.budgetOn = true; params.budget = Number(qp.get("budget")); }
+    if (qp.has("vrscale")) params.vrScale = Number(qp.get("vrscale"));
+    if (qp.has("foveation")) params.foveation = Number(qp.get("foveation"));
+    renderer.xr.setFramebufferScaleFactor(params.vrScale);
+    renderer.xr.setFoveation(params.foveation);
 
     const statusEl = document.getElementById("status");
     let files = []; // File objects sorted by name: 00.c.ply, 01.c.ply, ...
@@ -284,8 +303,10 @@
         decode4d(info, params.layout, A.array, B.array);
         A.texture.needsUpdate = true;
         B.texture.needsUpdate = true;
-        const samplerA = new dyno.DynoSampler2DArray({ value: A.texture, key: `fourDMotionTime${i}` });
-        const samplerB = new dyno.DynoSampler2DArray({ value: B.texture, key: `fourDTimeScale${i}` });
+        // Same keys for every batch: identical shader source lets three.js reuse the
+        // compiled program, so later batches don't trigger a shader compile (lag spike).
+        const samplerA = new dyno.DynoSampler2DArray({ value: A.texture, key: "fourDMotionTime" });
+        const samplerB = new dyno.DynoSampler2DArray({ value: B.texture, key: "fourDTimeScale" });
 
         // Spark may transfer the buffer to a worker, so give it its own copy.
         const mesh = new SplatMesh({ fileBytes: buf.slice(0), fileName: file.name });
@@ -382,8 +403,10 @@
     gui.add(params, "motionScale", 0, 5, 0.01).name("motion scale")
       .onChange((v) => { uMotionScale.value = v; });
     gui.add(params, "fade").name("temporal opacity").onChange((v) => { uFade.value = v ? 1 : 0; });
-    gui.add(params, "minAlpha", 0, 0.2, 0.001).name("min alpha")
+    gui.add(params, "minAlpha", 0, 1, 0.001).name("min alpha").listen()
       .onChange((v) => { uMinAlpha.value = v; });
+    gui.add(params, "budgetOn").name("auto budget");
+    gui.add(params, "budget", 20, 1500, 10).name("budget (k splats)");
     gui.add(params, "flipY").name("flip upside down").onChange(() => {
       for (const b of batches) if (b?.mesh) setFlip(b.mesh);
     });
@@ -392,21 +415,52 @@
     document.getElementById("file").addEventListener("change", (e) => {
       if (e.target.files.length) setFiles(e.target.files);
     });
-    const urlParam = new URLSearchParams(location.search).get("url");
-    if (urlParam) {
-      try {
-        const res = await fetch(urlParam);
-        const blob = await res.blob();
-        setFiles([new File([blob], urlParam.split("/").pop())]);
-      } catch (err) { statusEl.textContent = `Error: ${err.message}`; console.error(err); }
+    // ?url=file.c.ply            -> a single batch
+    // ?base=./data/&count=10     -> ./data/00.c.ply ... ./data/09.c.ply (handy on a headset)
+    const query = new URLSearchParams(location.search);
+    const remoteFile = (url) => ({
+      name: url.split("/").pop(),
+      arrayBuffer: async () => {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+        return res.arrayBuffer();
+      },
+    });
+    if (query.get("url")) {
+      setFiles([remoteFile(query.get("url"))]);
+    } else if (query.get("base")) {
+      const n = Number(query.get("count") || 10);
+      const base = query.get("base");
+      setFiles(Array.from({ length: n }, (_, i) => remoteFile(`${base}${String(i).padStart(2, "0")}.c.ply`)));
     }
 
     // ---- Render loop ----
     let last = performance.now();
     let lastStatus = 0;
+    let frames = 0;
+    let sortsSeen = 0;
+    let lastSortStamp = 0;
+
+    // Estimates how many splats are visible at the current time (sampled, so it is cheap).
+    function estimateActive() {
+      const b = batches[shown];
+      if (!b || b.state !== "ready") return null;
+      const A = b.arrays.A, B = b.arrays.B, n = b.info.numSplats;
+      const stride = 8, t = uTime.value, k = 10 ** params.sigmaLog;
+      let c = 0, total = 0;
+      for (let i = 0; i < n; i += stride) {
+        const sigma = Math.max(Math.exp(B[i * 4]) * k, 1e-4);
+        const x = (t - A[i * 4 + 3]) / sigma;
+        if (Math.exp(-0.5 * x * x) >= params.minAlpha) c++;
+        total++;
+      }
+      return { active: Math.round((c / total) * n), n };
+    }
     renderer.setAnimationLoop((now) => {
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
+      frames++;
+      if (spark.lastSortTime !== lastSortStamp) { lastSortStamp = spark.lastSortTime; sortsSeen++; }
       if (files.length) {
         if (params.play) {
           params.time += dt * params.speed;
@@ -419,11 +473,25 @@
           batches[shown].mesh.updateVersion(); // regenerate splats for the new time
         }
         if (now - lastStatus > 250) {
+          const secs = lastStatus ? (now - lastStatus) / 1000 : 0.25;
+          const fps = frames / secs, sps = sortsSeen / secs;
+          frames = 0; sortsSeen = 0;
           lastStatus = now;
+          const est = estimateActive();
+          if (params.budgetOn && est) {
+            // Raise the opacity threshold while too many splats are visible, lower it slowly otherwise.
+            const r = est.active / (params.budget * 1000);
+            if (r > 1.05) params.minAlpha = Math.min(0.95, params.minAlpha * Math.min(2, 1 + (r - 1) * 0.5));
+            else if (r < 0.8) params.minAlpha = Math.max(0.01, params.minAlpha / 1.1);
+            uMinAlpha.value = params.minAlpha;
+          }
           const loaded = batches.map((b, i) => (b ? `${i}:${b.state}` : null)).filter(Boolean).join(" ");
           statusEl.textContent =
             `${files.length} file(s), shown batch ${shown}\n` +
             `local t = ${uTime.value.toFixed(2)} / ${params.segLen}\n` +
+            `fps ${fps.toFixed(0)} | sorts/s ${sps.toFixed(1)}\n` +
+            (params.budgetOn ? `budget ${params.budget}k, threshold ${params.minAlpha.toFixed(3)}\n` : "") +
+            (est ? `visible splats ~${(est.active / 1000).toFixed(0)}k of ${(est.n / 1000).toFixed(0)}k (${((100 * est.active) / est.n).toFixed(0)}%)\n` : "") +
             `batches: ${loaded}`;
         }
       }
