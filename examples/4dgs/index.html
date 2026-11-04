@@ -25,10 +25,10 @@
   <script type="importmap">
     {
       "imports": {
-        "three": "../js/vendor/three/build/three.module.js",
-        "three/addons/": "../js/vendor/three/examples/jsm/",
+        "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
         "@sparkjsdev/spark": "../../dist/spark.module.js",
-        "lil-gui": "../js/vendor/lil-gui/dist/lil-gui.esm.js"
+        "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.20.0/dist/lil-gui.esm.js"
       }
     }
   </script>
@@ -38,6 +38,7 @@
     import GUI from "lil-gui";
     import { VRButton } from "three/addons/webxr/VRButton.js";
     import { SparkRenderer, SplatMesh, dyno } from "@sparkjsdev/spark";
+    import { getAssetFileURL } from "../js/get-asset-url.js";
 
     // ------------------------------------------------------------------
     // Experimental 4DGS playback.
@@ -205,6 +206,8 @@
     const uDebug = dyno.dynoInt(0);
     const uDbgLo = dyno.dynoFloat(0);
     const uDbgHi = dyno.dynoFloat(5);
+    const uCamLocal = dyno.dynoVec3(new THREE.Vector3()); // camera position in the mesh's local space
+    const uSizeWeight = dyno.dynoFloat(1);
 
     const params = {
       time: 0, play: true, speed: 1, loop: true,
@@ -212,6 +215,7 @@
       layout: 1, scaleMode: 0, sigmaLog: 0, debug: 0,
       motionScale: 1, fade: true, minAlpha: 0.01, flipY: false,
       budgetOn: false, budget: 200, // budget in thousands of visible splats
+      sizeWeight: true,
       vrScale: 1, foveation: 1,
     };
 
@@ -221,6 +225,9 @@
     //   ?foveation=1     fixed foveated rendering 0..1
     const qp = new URLSearchParams(location.search);
     if (qp.has("budget")) { params.budgetOn = true; params.budget = Number(qp.get("budget")); }
+    if (qp.has("size")) params.sizeWeight = qp.get("size") !== "0"; // ?size=0 disables size/distance weighting
+    if (qp.has("seglen")) params.segLen = Number(qp.get("seglen")); // length of one .c.ply file in time units
+    uSizeWeight.value = params.sizeWeight ? 1 : 0;
     if (qp.has("vrscale")) params.vrScale = Number(qp.get("vrscale"));
     if (qp.has("foveation")) params.foveation = Number(qp.get("foveation"));
     renderer.xr.setFramebufferScaleFactor(params.vrScale);
@@ -247,7 +254,7 @@
             inTypes: {
               gsplat: dyno.Gsplat, a: "vec4", b: "vec4", t: "float",
               motionScale: "float", fade: "float", scaleMode: "int", minAlpha: "float", sigmaScale: "float",
-              debug: "int", dbgLo: "float", dbgHi: "float",
+              debug: "int", dbgLo: "float", dbgHi: "float", camPos: "vec3", sizeWeight: "float",
             },
             outTypes: { gsplat: dyno.Gsplat },
             statements: ({ inputs, outputs }) => dyno.unindentLines(/* glsl */ `
@@ -270,7 +277,13 @@
                 float w = exp(-0.5 * (dt * dt) / (sigma * sigma));
                 float alpha = ${inputs.gsplat}.rgba.a * mix(1.0, w, ${inputs.fade});
                 ${outputs.gsplat}.rgba.a = alpha;
-                if (alpha < ${inputs.minAlpha}) {
+                // Importance = opacity, optionally scaled by apparent size (size / distance).
+                // Small or far-away splats are dropped first when the budget is tight.
+                float sz = max(max(${inputs.gsplat}.scales.x, ${inputs.gsplat}.scales.y), ${inputs.gsplat}.scales.z);
+                float dist = max(distance(${outputs.gsplat}.center, ${inputs.camPos}), 0.05);
+                float sizeF = clamp((sz / dist) / 0.003, 0.0, 1.0);
+                float importance = alpha * mix(1.0, sizeF, ${inputs.sizeWeight});
+                if (importance < ${inputs.minAlpha}) {
                   ${outputs.gsplat}.flags = 0u;
                 }
               }
@@ -282,7 +295,7 @@
             gsplat: d.apply({
               gsplat, a, b, t: uTime, motionScale: uMotionScale,
               fade: uFade, scaleMode: uScaleMode, minAlpha: uMinAlpha, sigmaScale: uSigmaScale,
-              debug: uDebug, dbgLo: uDbgLo, dbgHi: uDbgHi,
+              debug: uDebug, dbgLo: uDbgLo, dbgHi: uDbgHi, camPos: uCamLocal, sizeWeight: uSizeWeight,
             }).gsplat,
           };
         },
@@ -407,6 +420,8 @@
       .onChange((v) => { uMinAlpha.value = v; });
     gui.add(params, "budgetOn").name("auto budget");
     gui.add(params, "budget", 20, 1500, 10).name("budget (k splats)");
+    gui.add(params, "sizeWeight").name("weigh by size/distance")
+      .onChange((v) => { uSizeWeight.value = v ? 1 : 0; });
     gui.add(params, "flipY").name("flip upside down").onChange(() => {
       for (const b of batches) if (b?.mesh) setFlip(b.mesh);
     });
@@ -432,11 +447,28 @@
       const n = Number(query.get("count") || 10);
       const base = query.get("base");
       setFiles(Array.from({ length: n }, (_, i) => remoteFile(`${base}${String(i).padStart(2, "0")}.c.ply`)));
+    } else {
+      loadDefault();
+    }
+
+    // No URL options: load the sample clip listed in examples/assets.json (cat-00.c.ply, cat-01.c.ply, ...).
+    async function loadDefault() {
+      try {
+        const res = await fetch("../assets.json");
+        const assets = await res.json();
+        const names = Object.keys(assets).filter((k) => /^cat-\d+\.c\.ply$/.test(k)).sort();
+        if (!names.length) throw new Error("no cat-*.c.ply entries in assets.json");
+        const urls = await Promise.all(names.map((n) => getAssetFileURL(n)));
+        setFiles(urls.map(remoteFile));
+      } catch (err) {
+        statusEl.textContent = `No sample files (${err.message}). Select files above, or use ?base=...`;
+      }
     }
 
     // ---- Render loop ----
     let last = performance.now();
     let lastStatus = 0;
+    const camTmp = new THREE.Vector3();
     let frames = 0;
     let sortsSeen = 0;
     let lastSortStamp = 0;
@@ -470,6 +502,10 @@
         if (shown >= 0 && batches[shown]?.state === "ready") {
           // Time relative to the shown batch; clamped while the next batch is still loading.
           uTime.value = Math.max(0, Math.min(params.time - shown * params.segLen, params.segLen));
+          const m = batches[shown].mesh;
+          m.updateWorldMatrix(true, false);
+          (renderer.xr.isPresenting ? renderer.xr.getCamera() : camera).getWorldPosition(camTmp);
+          uCamLocal.value.copy(m.worldToLocal(camTmp));
           batches[shown].mesh.updateVersion(); // regenerate splats for the new time
         }
         if (now - lastStatus > 250) {
@@ -480,7 +516,9 @@
           const est = estimateActive();
           if (params.budgetOn && est) {
             // Raise the opacity threshold while too many splats are visible, lower it slowly otherwise.
-            const r = est.active / (params.budget * 1000);
+            // Prefer Spark's real count of rendered splats; fall back to the estimate.
+            const actual = spark.activeSplats > 0 ? spark.activeSplats : est.active;
+            const r = actual / (params.budget * 1000);
             if (r > 1.05) params.minAlpha = Math.min(0.95, params.minAlpha * Math.min(2, 1 + (r - 1) * 0.5));
             else if (r < 0.8) params.minAlpha = Math.max(0.01, params.minAlpha / 1.1);
             uMinAlpha.value = params.minAlpha;
@@ -491,7 +529,8 @@
             `local t = ${uTime.value.toFixed(2)} / ${params.segLen}\n` +
             `fps ${fps.toFixed(0)} | sorts/s ${sps.toFixed(1)}\n` +
             (params.budgetOn ? `budget ${params.budget}k, threshold ${params.minAlpha.toFixed(3)}\n` : "") +
-            (est ? `visible splats ~${(est.active / 1000).toFixed(0)}k of ${(est.n / 1000).toFixed(0)}k (${((100 * est.active) / est.n).toFixed(0)}%)\n` : "") +
+            `rendered by Spark: ${(spark.activeSplats / 1000).toFixed(0)}k\n` +
+            (est && !params.sizeWeight ? `rough estimate (ignores size weighting) ~${(est.active / 1000).toFixed(0)}k of ${(est.n / 1000).toFixed(0)}k (${((100 * est.active) / est.n).toFixed(0)}%)\n` : "") +
             `batches: ${loaded}`;
         }
       }
