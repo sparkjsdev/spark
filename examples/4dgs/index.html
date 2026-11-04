@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark • 4DGS (experimental)</title>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    #ui {
+      position: absolute; left: 12px; top: 12px; z-index: 10; color: #fff;
+      font: 13px/1.4 sans-serif; background: rgba(0, 0, 0, 0.55);
+      padding: 8px 10px; border-radius: 6px; max-width: 360px;
+    }
+    #status { margin-top: 4px; opacity: 0.85; white-space: pre-line; font-family: monospace; font-size: 11px; }
+  </style>
+</head>
+
+<body>
+  <div id="ui">
+    <div>Select one or more 4D compressed PLY files (e.g. <code>00.c.ply</code> ... <code>09.c.ply</code>):</div>
+    <input type="file" id="file" accept=".ply" multiple />
+    <div id="status">No file loaded. You can also use <code>?url=...</code></div>
+  </div>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "../js/vendor/three/build/three.module.js",
+        "three/addons/": "../js/vendor/three/examples/jsm/",
+        "@sparkjsdev/spark": "../../dist/spark.module.js",
+        "lil-gui": "../js/vendor/lil-gui/dist/lil-gui.esm.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+    import GUI from "lil-gui";
+    import { SparkRenderer, SplatMesh, dyno } from "@sparkjsdev/spark";
+
+    // ------------------------------------------------------------------
+    // Experimental 4DGS playback.
+    //
+    // A "4D compressed PLY" is a SuperSplat compressed PLY that has two extra
+    // per-splat fields: `packed_motion` (velocity) and `packed_time` (time
+    // center + temporal scale), plus matching min/max values in each chunk.
+    // Spark already decodes position/rotation/scale/color from such a file
+    // (and ignores the 4D fields). Here we decode the 4D fields ourselves
+    // into float textures and animate every splat on the GPU through a Dyno
+    // objectModifier:
+    //   center(t) = center + velocity * (t - t0)
+    //   alpha(t)  = alpha * exp(-0.5 * ((t - t0) / sigma)^2)
+    // The exact bit layout of packed_time is not known yet, so the layout
+    // can be switched in the GUI while we verify it visually.
+    // ------------------------------------------------------------------
+
+    const SPLAT_TEX_WIDTH = 2048;
+    const SPLAT_TEX_HEIGHT = 2048;
+
+    // ---- BEGIN parse4dPly ----
+    function parse4dPly(buf) {
+      const bytes = new Uint8Array(buf);
+      const tag = "end_header\n";
+      let hEnd = -1;
+      const head = new TextDecoder("ascii").decode(bytes.subarray(0, Math.min(bytes.length, 16384)));
+      const idx = head.indexOf(tag);
+      if (idx < 0) throw new Error("PLY header not found");
+      hEnd = idx + tag.length;
+
+      const elements = [];
+      for (const line of head.slice(0, hEnd).split("\n")) {
+        const p = line.trim().split(/\s+/);
+        if (p[0] === "element") elements.push({ name: p[1], count: Number(p[2]), props: {}, size: 0 });
+        if (p[0] === "property") {
+          const el = elements[elements.length - 1];
+          el.props[p[2]] = el.size;
+          el.size += 4; // float / uint32 only in this format
+        }
+      }
+      const chunkEl = elements.find((e) => e.name === "chunk");
+      const vertEl = elements.find((e) => e.name === "vertex");
+      if (!chunkEl || !vertEl || !("packed_motion" in vertEl.props) || !("packed_time" in vertEl.props)) {
+        throw new Error("Not a 4D compressed PLY (missing chunk/packed_motion/packed_time)");
+      }
+      const dv = new DataView(buf);
+      const chunkStart = hEnd;
+      const vertStart = chunkStart + chunkEl.count * chunkEl.size;
+
+      const chunks = new Array(chunkEl.count);
+      const keys = ["min_time", "max_time", "min_time_scale", "max_time_scale",
+        "min_motion_x", "max_motion_x", "min_motion_y", "max_motion_y", "min_motion_z", "max_motion_z"];
+      let tMin = Infinity, tMax = -Infinity;
+      for (let c = 0; c < chunkEl.count; c++) {
+        const o = chunkStart + c * chunkEl.size;
+        const ch = {};
+        for (const k of keys) ch[k] = dv.getFloat32(o + chunkEl.props[k], true);
+        chunks[c] = ch;
+        tMin = Math.min(tMin, ch.min_time);
+        tMax = Math.max(tMax, ch.max_time);
+      }
+      return {
+        numSplats: vertEl.count, chunks, tMin, tMax, dv, vertStart,
+        recordSize: vertEl.size,
+        motionOffset: vertEl.props.packed_motion,
+        timeOffset: vertEl.props.packed_time,
+      };
+    }
+
+    // Decodes the 4D fields into two RGBA32F arrays laid out like Spark's splat textures.
+    //   A = (vx, vy, vz, t0)    B = (timeScale, 0, 0, 0)
+    function decode4d(info, layout, A, B) {
+      const { numSplats, chunks, dv, vertStart, recordSize, motionOffset, timeOffset } = info;
+      for (let i = 0; i < numSplats; i++) {
+        const ch = chunks[i >> 8]; // SuperSplat chunks hold 256 splats
+        const base = vertStart + i * recordSize;
+        const m = dv.getUint32(base + motionOffset, true);
+        const p = dv.getUint32(base + timeOffset, true);
+
+        const fx = ((m >>> 21) & 2047) / 2047;
+        const fy = ((m >>> 11) & 1023) / 1023;
+        const fz = (m & 2047) / 2047;
+
+        let ft, fs;
+        if (layout === 0) { // time = bits 31..21 (11 bit), scale = bits 20..11 (10 bit)
+          ft = (p >>> 21) / 2047;
+          fs = ((p >>> 11) & 1023) / 1023;
+        } else { // scale = bits 31..21 (11 bit), time = bits 20..11 (10 bit)
+          fs = (p >>> 21) / 2047;
+          ft = ((p >>> 11) & 1023) / 1023;
+        }
+
+        const o = i * 4;
+        A[o] = ch.min_motion_x + fx * (ch.max_motion_x - ch.min_motion_x);
+        A[o + 1] = ch.min_motion_y + fy * (ch.max_motion_y - ch.min_motion_y);
+        A[o + 2] = ch.min_motion_z + fz * (ch.max_motion_z - ch.min_motion_z);
+        A[o + 3] = ch.min_time + ft * (ch.max_time - ch.min_time);
+        B[o] = ch.min_time_scale + fs * (ch.max_time_scale - ch.min_time_scale);
+      }
+    }
+
+    // Percentiles of the decoded time centers and temporal scales (sampled),
+    // used to pick a sensible default time and to debug the packed layout.
+    function computeStats(info, A, B) {
+      const step = Math.max(1, Math.floor(info.numSplats / 50000));
+      const t0 = [], ls = [];
+      for (let i = 0; i < info.numSplats; i += step) { t0.push(A[i * 4 + 3]); ls.push(B[i * 4]); }
+      t0.sort((a, b) => a - b); ls.sort((a, b) => a - b);
+      const q = (arr, f) => arr[Math.min(arr.length - 1, Math.floor(f * arr.length))];
+      const pts = [0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99];
+      return {
+        t0: pts.map((f) => q(t0, f)),
+        ls: pts.map((f) => q(ls, f)),
+      };
+    }
+    // ---- END parse4dPly ----
+
+    function makeDataTexture(numSplats) {
+      const width = SPLAT_TEX_WIDTH;
+      const height = Math.max(1, Math.min(SPLAT_TEX_HEIGHT, Math.ceil(numSplats / width)));
+      const depth = Math.ceil(numSplats / (width * height));
+      const array = new Float32Array(width * height * depth * 4);
+      const texture = new THREE.DataArrayTexture(array, width, height, depth);
+      texture.format = THREE.RGBAFormat;
+      texture.type = THREE.FloatType;
+      texture.internalFormat = "RGBA32F";
+      texture.minFilter = THREE.NearestFilter;
+      texture.magFilter = THREE.NearestFilter;
+      texture.needsUpdate = true;
+      return { texture, array };
+    }
+
+    // ---- Scene ----
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.01, 100);
+    camera.position.set(0, 1.5, 2);
+    const renderer = new THREE.WebGLRenderer({ antialias: false });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+    const spark = new SparkRenderer({ renderer });
+    scene.add(spark);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 0.8, 0);
+    controls.update();
+
+    window.addEventListener("resize", () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // ---- Dyno uniforms (shared by all batches; only the shown batch is updated) ----
+    const uTime = dyno.dynoFloat(0); // time relative to the start of the shown batch
+    const uMotionScale = dyno.dynoFloat(1);
+    const uFade = dyno.dynoFloat(1);
+    const uScaleMode = dyno.dynoInt(0);
+    const uMinAlpha = dyno.dynoFloat(0.01);
+    const uSigmaScale = dyno.dynoFloat(1);
+    const uDebug = dyno.dynoInt(0);
+    const uDbgLo = dyno.dynoFloat(0);
+    const uDbgHi = dyno.dynoFloat(5);
+
+    const params = {
+      time: 0, play: true, speed: 1, loop: true,
+      segLen: 5, // length of one batch (.c.ply file) in time units
+      layout: 1, scaleMode: 0, sigmaLog: 0, debug: 0,
+      motionScale: 1, fade: true, minAlpha: 0.01, flipY: false,
+    };
+
+    const statusEl = document.getElementById("status");
+    let files = []; // File objects sorted by name: 00.c.ply, 01.c.ply, ...
+    let batches = []; // per file: { state, mesh, texA, texB, info, arrays }
+    let shown = -1; // index of the batch currently visible
+    let timeCtl = null;
+    const totalTime = () => Math.max(1, files.length) * params.segLen;
+
+    function buildModifier(samplerA, samplerB) {
+      return dyno.dynoBlock(
+        { gsplat: dyno.Gsplat },
+        { gsplat: dyno.Gsplat },
+        ({ gsplat }) => {
+          const { index } = dyno.splitGsplat(gsplat).outputs;
+          const coord = dyno.splatTexCoord(index);
+          const a = dyno.texelFetch(samplerA, coord); // (vx, vy, vz, t0)
+          const b = dyno.texelFetch(samplerB, coord); // (ln timeScale, ...)
+
+          const d = new dyno.Dyno({
+            inTypes: {
+              gsplat: dyno.Gsplat, a: "vec4", b: "vec4", t: "float",
+              motionScale: "float", fade: "float", scaleMode: "int", minAlpha: "float", sigmaScale: "float",
+              debug: "int", dbgLo: "float", dbgHi: "float",
+            },
+            outTypes: { gsplat: dyno.Gsplat },
+            statements: ({ inputs, outputs }) => dyno.unindentLines(/* glsl */ `
+              ${outputs.gsplat} = ${inputs.gsplat};
+              float lnS = ${inputs.b}.x;
+              float sigma = (${inputs.scaleMode} == 0) ? exp(lnS)
+                          : ((${inputs.scaleMode} == 1) ? lnS : exp(-lnS));
+              sigma = max(sigma * ${inputs.sigmaScale}, 1e-4);
+              float dt = ${inputs.t} - ${inputs.a}.w;
+              if (${inputs.debug} == 1) {
+                // Debug: color by decoded time center t0 (no filtering).
+                float h = clamp((${inputs.a}.w - ${inputs.dbgLo}) / max(${inputs.dbgHi} - ${inputs.dbgLo}, 1e-4), 0.0, 1.0) * 0.8;
+                ${outputs.gsplat}.rgba.rgb = clamp(abs(mod(h * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+              } else if (${inputs.debug} == 2) {
+                // Debug: color by decoded log temporal scale (no filtering).
+                float h = clamp((lnS + 5.0) / 8.0, 0.0, 1.0) * 0.8;
+                ${outputs.gsplat}.rgba.rgb = clamp(abs(mod(h * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+              } else if (${inputs.debug} == 0) {
+                ${outputs.gsplat}.center += ${inputs.a}.xyz * dt * ${inputs.motionScale};
+                float w = exp(-0.5 * (dt * dt) / (sigma * sigma));
+                float alpha = ${inputs.gsplat}.rgba.a * mix(1.0, w, ${inputs.fade});
+                ${outputs.gsplat}.rgba.a = alpha;
+                if (alpha < ${inputs.minAlpha}) {
+                  ${outputs.gsplat}.flags = 0u;
+                }
+              }
+              // debug == 3: pass-through, exactly what plain Spark shows.
+            `),
+          });
+
+          return {
+            gsplat: d.apply({
+              gsplat, a, b, t: uTime, motionScale: uMotionScale,
+              fade: uFade, scaleMode: uScaleMode, minAlpha: uMinAlpha, sigmaScale: uSigmaScale,
+              debug: uDebug, dbgLo: uDbgLo, dbgHi: uDbgHi,
+            }).gsplat,
+          };
+        },
+      );
+    }
+
+    const setFlip = (m) => m.quaternion.set(params.flipY ? 1 : 0, 0, 0, params.flipY ? 0 : 1);
+
+    // Loads one batch. The mesh is added to the scene hidden: Spark skips invisible meshes.
+    async function loadBatch(i) {
+      const b = (batches[i] = { state: "loading" });
+      try {
+        const file = files[i];
+        const buf = await file.arrayBuffer();
+        const info = parse4dPly(buf);
+        const A = makeDataTexture(info.numSplats);
+        const B = makeDataTexture(info.numSplats);
+        decode4d(info, params.layout, A.array, B.array);
+        A.texture.needsUpdate = true;
+        B.texture.needsUpdate = true;
+        const samplerA = new dyno.DynoSampler2DArray({ value: A.texture, key: `fourDMotionTime${i}` });
+        const samplerB = new dyno.DynoSampler2DArray({ value: B.texture, key: `fourDTimeScale${i}` });
+
+        // Spark may transfer the buffer to a worker, so give it its own copy.
+        const mesh = new SplatMesh({ fileBytes: buf.slice(0), fileName: file.name });
+        mesh.objectModifier = buildModifier(samplerA, samplerB);
+        mesh.visible = false;
+        setFlip(mesh);
+        scene.add(mesh);
+        await mesh.initialized;
+        mesh.updateGenerator();
+        Object.assign(b, {
+          info, mesh, texA: A.texture, texB: B.texture, arrays: { A: A.array, B: B.array }, state: "ready",
+        });
+        if (i === 0) console.log("4DGS stats (batch 0)", computeStats(info, A.array, B.array));
+      } catch (err) {
+        b.state = "error";
+        console.error(err);
+        statusEl.textContent = `Error in ${files[i].name}: ${err.message}`;
+      }
+    }
+
+    function unloadBatch(i) {
+      const b = batches[i];
+      if (!b || b.state !== "ready") return;
+      scene.remove(b.mesh);
+      b.mesh.dispose?.();
+      b.texA.dispose();
+      b.texB.dispose();
+      batches[i] = undefined;
+    }
+
+    // Keeps the batch for the current time (and the next one) loaded, drops the rest.
+    function manageBatches() {
+      const n = files.length;
+      if (n === 0) return;
+      const T = params.time;
+      const cur = Math.min(n - 1, Math.max(0, Math.floor(T / params.segLen)));
+      const local = T - cur * params.segLen;
+      const next = cur + 1 < n ? cur + 1 : (params.loop ? 0 : -1);
+      const want = new Set([cur]);
+      if (next >= 0 && local > 0.3 * params.segLen) want.add(next);
+
+      for (const i of want) if (!batches[i]) loadBatch(i);
+      for (let i = 0; i < n; i++) {
+        if (!want.has(i) && i !== shown) unloadBatch(i);
+      }
+      // Switch to the current batch as soon as it is ready; until then keep the old one.
+      if (batches[cur]?.state === "ready" && shown !== cur) {
+        const old = shown;
+        if (old >= 0 && batches[old]?.mesh) batches[old].mesh.visible = false;
+        batches[cur].mesh.visible = true;
+        shown = cur;
+        uDbgHi.value = params.segLen;
+        if (old >= 0 && old !== cur && !want.has(old)) unloadBatch(old);
+      }
+    }
+
+    function redecodeAll() {
+      for (const b of batches) {
+        if (!b || b.state !== "ready") continue;
+        decode4d(b.info, params.layout, b.arrays.A, b.arrays.B);
+        b.texA.needsUpdate = true;
+        b.texB.needsUpdate = true;
+        b.mesh.updateVersion();
+      }
+    }
+
+    function setFiles(list) {
+      for (let i = 0; i < batches.length; i++) unloadBatch(i);
+      batches = [];
+      shown = -1;
+      files = [...list].sort((x, y) => x.name.localeCompare(y.name, undefined, { numeric: true }));
+      params.time = 0;
+      if (timeCtl) timeCtl.max(totalTime()).updateDisplay();
+    }
+
+    // ---- GUI ----
+    const gui = new GUI({ title: "4DGS" });
+    timeCtl = gui.add(params, "time", 0, 5, 0.001).name("time (global)").listen();
+    gui.add(params, "play");
+    gui.add(params, "loop");
+    gui.add(params, "speed", 0, 10, 0.01).name("speed (units/s)");
+    gui.add(params, "segLen", 0.5, 20, 0.01).name("batch length")
+      .onChange(() => timeCtl.max(totalTime()).updateDisplay());
+    gui.add(params, "layout", { "scale=hi11, time=mid10 (verified)": 1, "time=hi11, scale=mid10": 0 })
+      .name("packed_time layout").onChange(redecodeAll);
+    gui.add(params, "scaleMode", { "sigma = exp(scale)": 0, "sigma = raw scale": 1, "sigma = exp(-scale)": 2 })
+      .name("temporal scale").onChange((v) => { uScaleMode.value = Number(v); });
+    gui.add(params, "debug", {
+      "off (normal playback)": 0, "color by time t0": 1,
+      "color by temporal scale": 2, "no effect (plain Spark)": 3,
+    }).name("DEBUG view").onChange((v) => { uDebug.value = Number(v); });
+    gui.add(params, "sigmaLog", -2, 2, 0.01).name("sigma scale (10^x)")
+      .onChange((v) => { uSigmaScale.value = 10 ** v; });
+    gui.add(params, "motionScale", 0, 5, 0.01).name("motion scale")
+      .onChange((v) => { uMotionScale.value = v; });
+    gui.add(params, "fade").name("temporal opacity").onChange((v) => { uFade.value = v ? 1 : 0; });
+    gui.add(params, "minAlpha", 0, 0.2, 0.001).name("min alpha")
+      .onChange((v) => { uMinAlpha.value = v; });
+    gui.add(params, "flipY").name("flip upside down").onChange(() => {
+      for (const b of batches) if (b?.mesh) setFlip(b.mesh);
+    });
+
+    // ---- Loading ----
+    document.getElementById("file").addEventListener("change", (e) => {
+      if (e.target.files.length) setFiles(e.target.files);
+    });
+    const urlParam = new URLSearchParams(location.search).get("url");
+    if (urlParam) {
+      try {
+        const res = await fetch(urlParam);
+        const blob = await res.blob();
+        setFiles([new File([blob], urlParam.split("/").pop())]);
+      } catch (err) { statusEl.textContent = `Error: ${err.message}`; console.error(err); }
+    }
+
+    // ---- Render loop ----
+    let last = performance.now();
+    let lastStatus = 0;
+    renderer.setAnimationLoop((now) => {
+      const dt = Math.min(0.1, (now - last) / 1000);
+      last = now;
+      if (files.length) {
+        if (params.play) {
+          params.time += dt * params.speed;
+          if (params.time > totalTime()) params.time = params.loop ? 0 : totalTime();
+        }
+        manageBatches();
+        if (shown >= 0 && batches[shown]?.state === "ready") {
+          // Time relative to the shown batch; clamped while the next batch is still loading.
+          uTime.value = Math.max(0, Math.min(params.time - shown * params.segLen, params.segLen));
+          batches[shown].mesh.updateVersion(); // regenerate splats for the new time
+        }
+        if (now - lastStatus > 250) {
+          lastStatus = now;
+          const loaded = batches.map((b, i) => (b ? `${i}:${b.state}` : null)).filter(Boolean).join(" ");
+          statusEl.textContent =
+            `${files.length} file(s), shown batch ${shown}\n` +
+            `local t = ${uTime.value.toFixed(2)} / ${params.segLen}\n` +
+            `batches: ${loaded}`;
+        }
+      }
+      controls.update();
+      renderer.render(scene, camera);
+    });
+  </script>
+</body>
+
+</html>
