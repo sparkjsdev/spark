@@ -12,11 +12,16 @@
       font: 13px/1.4 sans-serif; background: rgba(0, 0, 0, 0.55);
       padding: 8px 10px; border-radius: 6px; max-width: 360px;
     }
+    #buffer {
+      position: absolute; left: 50%; top: 45%; transform: translateX(-50%); z-index: 10; display: none;
+      color: #fff; font: 16px/1.4 sans-serif; background: rgba(0, 0, 0, 0.65); padding: 10px 16px; border-radius: 8px;
+    }
     #status { margin-top: 4px; opacity: 0.85; white-space: pre-line; font-family: monospace; font-size: 11px; }
   </style>
 </head>
 
 <body>
+  <div id="buffer"></div>
   <div id="ui">
     <div>Select one or more 4D compressed PLY files (e.g. <code>00.c.ply</code> ... <code>09.c.ply</code>):</div>
     <input type="file" id="file" accept=".ply" multiple />
@@ -234,9 +239,11 @@
     renderer.xr.setFoveation(params.foveation);
 
     const statusEl = document.getElementById("status");
+    const bufEl = document.getElementById("buffer");
     let files = []; // File objects sorted by name: 00.c.ply, 01.c.ply, ...
     let batches = []; // per file: { state, mesh, texA, texB, info, arrays }
     let shown = -1; // index of the batch currently visible
+    let buffering = false; // true while playback waits for a download
     let timeCtl = null;
     const totalTime = () => Math.max(1, files.length) * params.segLen;
 
@@ -309,7 +316,7 @@
       const b = (batches[i] = { state: "loading" });
       try {
         const file = files[i];
-        const buf = await file.arrayBuffer();
+        const buf = await file.arrayBuffer((got, total) => { b.got = got; b.total = total; });
         const info = parse4dPly(buf);
         const A = makeDataTexture(info.numSplats);
         const B = makeDataTexture(info.numSplats);
@@ -335,6 +342,7 @@
         if (i === 0) console.log("4DGS stats (batch 0)", computeStats(info, A.array, B.array));
       } catch (err) {
         b.state = "error";
+        b.failedAt = performance.now();
         console.error(err);
         statusEl.textContent = `Error in ${files[i].name}: ${err.message}`;
       }
@@ -359,7 +367,11 @@
       const local = T - cur * params.segLen;
       const next = cur + 1 < n ? cur + 1 : (params.loop ? 0 : -1);
       const want = new Set([cur]);
-      if (next >= 0 && local > 0.3 * params.segLen) want.add(next);
+      // Download the next batch only after the current one is ready, so the two never fight for bandwidth.
+      if (next >= 0 && next !== cur && batches[cur]?.state === "ready") want.add(next);
+      for (const i of want) {
+        if (batches[i]?.state === "error" && performance.now() - batches[i].failedAt > 3000) batches[i] = undefined; // retry
+      }
 
       for (const i of want) if (!batches[i]) loadBatch(i);
       for (let i = 0; i < n; i++) {
@@ -433,12 +445,36 @@
     // ?url=file.c.ply            -> a single batch
     // ?base=./data/&count=10     -> ./data/00.c.ply ... ./data/09.c.ply (handy on a headset)
     const query = new URLSearchParams(location.search);
+    // Downloads with progress, uses the HTTP cache (files never change) and retries on failure.
     const remoteFile = (url) => ({
       name: url.split("/").pop(),
-      arrayBuffer: async () => {
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-        return res.arrayBuffer();
+      arrayBuffer: async (onProgress) => {
+        let lastErr;
+        for (let attempt = 0; attempt < 4; attempt++) {
+          try {
+            const res = await fetch(url, { cache: "force-cache" });
+            if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+            const total = Number(res.headers.get("content-length")) || 0; // 0 if the server hides it (CORS)
+            const reader = res.body.getReader();
+            const parts = [];
+            let got = 0;
+            for (;;) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              parts.push(value);
+              got += value.length;
+              onProgress?.(got, total);
+            }
+            const out = new Uint8Array(got);
+            let o = 0;
+            for (const part of parts) { out.set(part, o); o += part.length; }
+            return out.buffer;
+          } catch (err) {
+            lastErr = err;
+            await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+          }
+        }
+        throw lastErr;
       },
     });
     if (query.get("url")) {
@@ -494,11 +530,25 @@
       frames++;
       if (spark.lastSortTime !== lastSortStamp) { lastSortStamp = spark.lastSortTime; sortsSeen++; }
       if (files.length) {
-        if (params.play) {
-          params.time += dt * params.speed;
-          if (params.time > totalTime()) params.time = params.loop ? 0 : totalTime();
-        }
         manageBatches();
+        buffering = false;
+        if (params.play) {
+          // The clock only runs while the data for the current time is loaded.
+          const n = files.length;
+          const ready = (i) => batches[i]?.state === "ready";
+          const cur = Math.min(n - 1, Math.max(0, Math.floor(params.time / params.segLen)));
+          let t = params.time + dt * params.speed;
+          let target = Math.min(n - 1, Math.floor(t / params.segLen));
+          if (t > totalTime()) { t = params.loop ? 0 : totalTime(); target = params.loop ? 0 : n - 1; }
+          if (!ready(cur)) {
+            buffering = true; // current batch not loaded yet: wait
+          } else if (!ready(target)) {
+            buffering = true; // next batch not loaded yet: hold at the end of this one
+            params.time = Math.min(t, (cur + 1) * params.segLen - 0.001);
+          } else {
+            params.time = t;
+          }
+        }
         if (shown >= 0 && batches[shown]?.state === "ready") {
           // Time relative to the shown batch; clamped while the next batch is still loading.
           uTime.value = Math.max(0, Math.min(params.time - shown * params.segLen, params.segLen));
@@ -507,6 +557,17 @@
           (renderer.xr.isPresenting ? renderer.xr.getCamera() : camera).getWorldPosition(camTmp);
           uCamLocal.value.copy(m.worldToLocal(camTmp));
           batches[shown].mesh.updateVersion(); // regenerate splats for the new time
+        }
+        const waiting = batches.find((b) => b && b.state === "loading");
+        if (buffering) {
+          const mb = (x) => (x / 1048576).toFixed(1);
+          const idx = batches.findIndex((b) => b && b.state === "loading");
+          bufEl.textContent = waiting
+            ? `Buffering ${files[idx].name}  ${mb(waiting.got || 0)}${waiting.total ? " / " + mb(waiting.total) : ""} MB`
+            : "Buffering...";
+          bufEl.style.display = "block";
+        } else {
+          bufEl.style.display = "none";
         }
         if (now - lastStatus > 250) {
           const secs = lastStatus ? (now - lastStatus) / 1000 : 0.25;
