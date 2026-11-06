@@ -151,44 +151,84 @@
     "url": "https://sparkjs.dev/assets/splats/distant-igloo.spz",
     "directory": "splats"
   },
-  "cat-00.c.ply": {
+  "cat-medium-00.c.ply": {
     "url": "https://raw.githubusercontent.com/kannotlogin/spark-assets/main/cat/00.c.ply",
     "directory": "splats/4dgs"
   },
-  "cat-01.c.ply": {
+  "cat-medium-01.c.ply": {
     "url": "https://raw.githubusercontent.com/kannotlogin/spark-assets/main/cat/01.c.ply",
     "directory": "splats/4dgs"
   },
-  "cat-02.c.ply": {
+  "cat-medium-02.c.ply": {
     "url": "https://raw.githubusercontent.com/kannotlogin/spark-assets/main/cat/02.c.ply",
     "directory": "splats/4dgs"
   },
-  "cat-03.c.ply": {
+  "cat-medium-03.c.ply": {
     "url": "https://raw.githubusercontent.com/kannotlogin/spark-assets/main/cat/03.c.ply",
     "directory": "splats/4dgs"
   },
-  "cat-04.c.ply": {
+  "cat-medium-04.c.ply": {
     "url": "https://raw.githubusercontent.com/kannotlogin/spark-assets/main/cat/04.c.ply",
     "directory": "splats/4dgs"
   },
-  "cat-05.c.ply": {
+  "cat-medium-05.c.ply": {
     "url": "https://raw.githubusercontent.com/kannotlogin/spark-assets/main/cat/05.c.ply",
     "directory": "splats/4dgs"
   },
-  "cat-06.c.ply": {
+  "cat-medium-06.c.ply": {
     "url": "https://raw.githubusercontent.com/kannotlogin/spark-assets/main/cat/06.c.ply",
     "directory": "splats/4dgs"
   },
-  "cat-07.c.ply": {
+  "cat-medium-07.c.ply": {
     "url": "https://raw.githubusercontent.com/kannotlogin/spark-assets/main/cat/07.c.ply",
     "directory": "splats/4dgs"
   },
-  "cat-08.c.ply": {
+  "cat-medium-08.c.ply": {
     "url": "https://raw.githubusercontent.com/kannotlogin/spark-assets/main/cat/08.c.ply",
     "directory": "splats/4dgs"
   },
-  "cat-09.c.ply": {
+  "cat-medium-09.c.ply": {
     "url": "https://raw.githubusercontent.com/kannotlogin/spark-assets/main/cat/09.c.ply",
+    "directory": "splats/4dgs"
+  },
+  "cat-low-00.c.ply": {
+    "url": "https://raw.githubusercontent.com/kannotlogin/spark-assets/main/cat/cat-low/00.c.ply",
+    "directory": "splats/4dgs"
+  },
+  "cat-low-01.c.ply": {
+    "url": "https://raw.githubusercontent.com/kannotlogin/spark-assets/main/cat/cat-low/01.c.ply",
+    "directory": "splats/4dgs"
+  },
+  "cat-low-02.c.ply": {
+    "url": "https://raw.githubusercontent.com/kannotlogin/spark-assets/main/cat/cat-low/02.c.ply",
+    "directory": "splats/4dgs"
+  },
+  "cat-low-03.c.ply": {
+    "url": "https://raw.githubusercontent.com/kannotlogin/spark-assets/main/cat/cat-low/03.c.ply",
+    "directory": "splats/4dgs"
+  },
+  "cat-low-04.c.ply": {
+    "url": "https://raw.githubusercontent.com/kannotlogin/spark-assets/main/cat/cat-low/04.c.ply",
+    "directory": "splats/4dgs"
+  },
+  "cat-low-05.c.ply": {
+    "url": "https://raw.githubusercontent.com/kannotlogin/spark-assets/main/cat/cat-low/05.c.ply",
+    "directory": "splats/4dgs"
+  },
+  "cat-low-06.c.ply": {
+    "url": "https://raw.githubusercontent.com/kannotlogin/spark-assets/main/cat/cat-low/06.c.ply",
+    "directory": "splats/4dgs"
+  },
+  "cat-low-07.c.ply": {
+    "url": "https://raw.githubusercontent.com/kannotlogin/spark-assets/main/cat/cat-low/07.c.ply",
+    "directory": "splats/4dgs"
+  },
+  "cat-low-08.c.ply": {
+    "url": "https://raw.githubusercontent.com/kannotlogin/spark-assets/main/cat/cat-low/08.c.ply",
+    "directory": "splats/4dgs"
+  },
+  "cat-low-09.c.ply": {
+    "url": "https://raw.githubusercontent.com/kannotlogin/spark-assets/main/cat/cat-low/09.c.ply",
     "directory": "splats/4dgs"
   }
 }

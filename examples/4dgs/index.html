@@ -217,6 +217,7 @@
     const params = {
       time: 0, play: true, speed: 1, loop: true,
       segLen: 5, // length of one batch (.c.ply file) in time units
+      quality: "-",
       layout: 1, scaleMode: 0, sigmaLog: 0, debug: 0,
       motionScale: 1, fade: true, minAlpha: 0.01, flipY: false,
       budgetOn: false, budget: 200, // budget in thousands of visible splats
@@ -244,6 +245,9 @@
     let batches = []; // per file: { state, mesh, texA, texB, info, arrays }
     let shown = -1; // index of the batch currently visible
     let buffering = false; // true while playback waits for a download
+    let qualityLists = {}; // quality name -> sorted list of files ("low", "medium", "high", or "local")
+    let qualityCtl = null;
+    const net = { bytes: 0, files: 0, cachedFiles: 0, last: null }; // download statistics of this session
     let timeCtl = null;
     const totalTime = () => Math.max(1, files.length) * params.segLen;
 
@@ -316,7 +320,16 @@
       const b = (batches[i] = { state: "loading" });
       try {
         const file = files[i];
-        const buf = await file.arrayBuffer((got, total) => { b.got = got; b.total = total; });
+        const buf = await file.arrayBuffer(
+          (got, total) => { b.got = got; b.total = total; },
+          (info) => {
+            b.net = info;
+            net.last = { name: file.name, ...info };
+            if (info.cached) net.cachedFiles++;
+            else { net.bytes += info.bytes; net.files++; }
+          },
+        );
+        if (batches[i] !== b) return; // quality or files changed while downloading
         const info = parse4dPly(buf);
         const A = makeDataTexture(info.numSplats);
         const B = makeDataTexture(info.numSplats);
@@ -335,6 +348,13 @@
         setFlip(mesh);
         scene.add(mesh);
         await mesh.initialized;
+        if (batches[i] !== b) { // discarded while loading: clean up
+          scene.remove(mesh);
+          mesh.dispose?.();
+          A.texture.dispose();
+          B.texture.dispose();
+          return;
+        }
         mesh.updateGenerator();
         Object.assign(b, {
           info, mesh, texA: A.texture, texB: B.texture, arrays: { A: A.array, B: B.array }, state: "ready",
@@ -407,6 +427,26 @@
       if (timeCtl) timeCtl.max(totalTime()).updateDisplay();
     }
 
+    // Switches to another set of files (same clip, other quality). The shown batch keeps playing;
+    // the following batches are fetched in the new quality.
+    function switchQuality(q) {
+      if (!qualityLists[q]) return;
+      files = qualityLists[q];
+      for (let i = 0; i < batches.length; i++) {
+        if (i === shown) continue;
+        if (batches[i]?.state === "ready") unloadBatch(i);
+        else batches[i] = undefined; // in-flight loads are dropped when they finish
+      }
+    }
+    function setQualityLists(lists, initial) {
+      qualityLists = lists;
+      params.quality = initial;
+      const names = ["low", "medium", "high", "local"].filter((n) => lists[n]);
+      if (qualityCtl) qualityCtl.destroy();
+      if (names.length > 1) qualityCtl = gui.add(params, "quality", names).name("quality").onChange(switchQuality);
+      setFiles(lists[initial]);
+    }
+
     // ---- GUI ----
     const gui = new GUI({ title: "4DGS" });
     timeCtl = gui.add(params, "time", 0, 5, 0.001).name("time (global)").listen();
@@ -440,15 +480,30 @@
 
     // ---- Loading ----
     document.getElementById("file").addEventListener("change", (e) => {
-      if (e.target.files.length) setFiles(e.target.files);
+      if (e.target.files.length) setQualityLists({ local: [...e.target.files].sort((x, y) => x.name.localeCompare(y.name, undefined, { numeric: true })) }, "local");
     });
     // ?url=file.c.ply            -> a single batch
     // ?base=./data/&count=10     -> ./data/00.c.ply ... ./data/09.c.ply (handy on a headset)
     const query = new URLSearchParams(location.search);
-    // Downloads with progress, uses the HTTP cache (files never change) and retries on failure.
+    // Downloads with progress and retries on failure. Finished downloads are kept in the Cache Storage
+    // (explicit, and without the per-file size limit that the normal HTTP cache has), so later
+    // loops and page reloads don't download them again. Clear it in DevTools > Application > Cache storage.
+    const CACHE_NAME = "4dgs-files-v1";
     const remoteFile = (url) => ({
       name: url.split("/").pop(),
-      arrayBuffer: async (onProgress) => {
+      arrayBuffer: async (onProgress, onInfo) => {
+        const t0 = performance.now();
+        try {
+          if ("caches" in window) {
+            const hit = await (await caches.open(CACHE_NAME)).match(url);
+            if (hit) {
+              const cached = await hit.arrayBuffer();
+              onProgress?.(cached.byteLength, cached.byteLength);
+              onInfo?.({ bytes: cached.byteLength, ms: 0, cached: true });
+              return cached;
+            }
+          }
+        } catch (err) { console.warn("Cache read failed", err); }
         let lastErr;
         for (let attempt = 0; attempt < 4; attempt++) {
           try {
@@ -468,6 +523,11 @@
             const out = new Uint8Array(got);
             let o = 0;
             for (const part of parts) { out.set(part, o); o += part.length; }
+            if ("caches" in window) {
+              // Not awaited: don't delay playback. May fail if the storage quota is exceeded.
+              caches.open(CACHE_NAME).then((c) => c.put(url, new Response(out))).catch((e) => console.warn("Cache write failed", e));
+            }
+            onInfo?.({ bytes: got, ms: performance.now() - t0, cached: false });
             return out.buffer;
           } catch (err) {
             lastErr = err;
@@ -478,24 +538,35 @@
       },
     });
     if (query.get("url")) {
-      setFiles([remoteFile(query.get("url"))]);
+      setQualityLists({ local: [remoteFile(query.get("url"))] }, "local");
     } else if (query.get("base")) {
       const n = Number(query.get("count") || 10);
       const base = query.get("base");
-      setFiles(Array.from({ length: n }, (_, i) => remoteFile(`${base}${String(i).padStart(2, "0")}.c.ply`)));
+      setQualityLists({ local: Array.from({ length: n }, (_, i) => remoteFile(`${base}${String(i).padStart(2, "0")}.c.ply`)) }, "local");
     } else {
       loadDefault();
     }
 
-    // No URL options: load the sample clip listed in examples/assets.json (cat-00.c.ply, cat-01.c.ply, ...).
+    // No URL options: load the sample clip listed in examples/assets.json.
+    // Entries are named cat-<quality>-<NN>.c.ply, e.g. cat-low-00.c.ply ... cat-low-09.c.ply.
     async function loadDefault() {
       try {
         const res = await fetch("../assets.json");
         const assets = await res.json();
-        const names = Object.keys(assets).filter((k) => /^cat-\d+\.c\.ply$/.test(k)).sort();
-        if (!names.length) throw new Error("no cat-*.c.ply entries in assets.json");
-        const urls = await Promise.all(names.map((n) => getAssetFileURL(n)));
-        setFiles(urls.map(remoteFile));
+        const groups = {};
+        for (const key of Object.keys(assets)) {
+          const m = /^cat-(low|medium|high)-(\d+)\.c\.ply$/.exec(key);
+          if (m) (groups[m[1]] ||= []).push(key);
+        }
+        const lists = {};
+        for (const [q, keys] of Object.entries(groups)) {
+          keys.sort();
+          lists[q] = (await Promise.all(keys.map((k) => getAssetFileURL(k)))).map(remoteFile);
+        }
+        const wanted = query.get("quality");
+        const initial = lists[wanted] ? wanted : lists.low ? "low" : Object.keys(lists)[0];
+        if (!initial) throw new Error("no cat-<quality>-NN.c.ply entries in assets.json");
+        setQualityLists(lists, initial);
       } catch (err) {
         statusEl.textContent = `No sample files (${err.message}). Select files above, or use ?base=...`;
       }
@@ -585,8 +656,24 @@
             uMinAlpha.value = params.minAlpha;
           }
           const loaded = batches.map((b, i) => (b ? `${i}:${b.state}` : null)).filter(Boolean).join(" ");
+          const sb = batches[shown];
+          const mb = (x) => (x / 1e6).toFixed(1);
+          let fileInfo = "";
+          if (sb?.net) {
+            const perSec = sb.net.bytes / (params.segLen / Math.max(params.speed, 1e-6));
+            fileInfo = `this file: ${mb(sb.net.bytes)} MB, ${(sb.info.numSplats / 1e6).toFixed(2)}M splats\n` +
+              `stream rate: ${mb(perSec)} MB/s = ${((perSec * 8) / 1e6).toFixed(0)} Mbit/s (if 1 unit = 1 s, speed x${params.speed})\n`;
+          }
+          let lastInfo = "";
+          if (net.last) {
+            lastInfo = net.last.cached
+              ? `last download: ${net.last.name} from local cache\n`
+              : `last download: ${net.last.name} ${mb(net.last.bytes)} MB in ${(net.last.ms / 1000).toFixed(1)} s = ${((net.last.bytes * 8) / 1e6 / (net.last.ms / 1000)).toFixed(0)} Mbit/s\n`;
+          }
           statusEl.textContent =
-            `${files.length} file(s), shown batch ${shown}\n` +
+            `quality: ${params.quality}, ${files.length} file(s), shown batch ${shown}\n` +
+            fileInfo + lastInfo +
+            `session: ${mb(net.bytes)} MB downloaded in ${net.files} files, ${net.cachedFiles} from cache\n` +
             `local t = ${uTime.value.toFixed(2)} / ${params.segLen}\n` +
             `fps ${fps.toFixed(0)} | sorts/s ${sps.toFixed(1)}\n` +
             (params.budgetOn ? `budget ${params.budget}k, threshold ${params.minAlpha.toFixed(3)}\n` : "") +
