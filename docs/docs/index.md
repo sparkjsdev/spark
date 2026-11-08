@@ -70,6 +70,7 @@ This will run a Web server at [http://localhost:8080/](http://localhost:8080/) w
 - [PackedSplats](packed-splats.md)
 - [ExtSplats](ext-splats.md)
 - [Loading Gsplats](loading-splats.md)
+- [4D Gaussian Splats](4dgs.md)
 - [Procedural Splats](procedural-splats.md)
 - [Splat RGBA-XYZ SDF editing](splat-editing.md)
 - [Dyno overview](dyno-overview.md)

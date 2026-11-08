@@ -24,6 +24,7 @@ nav:
   - PackedSplats: docs/packed-splats.md
   - ExtSplats: docs/ext-splats.md
   - Loading Gsplats: docs/loading-splats.md
+  - 4D Gaussian Splats: docs/4dgs.md
   - Procedural Splats: docs/procedural-splats.md
   - Splat RGBA-XYZ SDF editing: docs/splat-editing.md
   - Dyno overview: docs/dyno-overview.md
