@@ -4,138 +4,181 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Spark • 4DGS (experimental)</title>
+  <title>Spark • 4D Gaussian Splats</title>
   <style>
-    body { margin: 0; overflow: hidden; }
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #000;
+    }
     #ui {
       position: absolute; left: 12px; top: 12px; z-index: 10; color: #fff;
       font: 13px/1.4 sans-serif; background: rgba(0, 0, 0, 0.55);
       padding: 8px 10px; border-radius: 6px; max-width: 360px;
     }
+    #ui summary { cursor: pointer; opacity: 0.85; margin-top: 6px; }
+    #message { margin-top: 4px; opacity: 0.9; }
+    #status {
+      margin-top: 4px; opacity: 0.85; white-space: pre-line;
+      font-family: monospace; font-size: 11px;
+    }
     #buffer {
       position: absolute; left: 50%; top: 45%; transform: translateX(-50%); z-index: 10; display: none;
-      color: #fff; font: 16px/1.4 sans-serif; background: rgba(0, 0, 0, 0.65); padding: 10px 16px; border-radius: 8px;
+      color: #fff; font: 16px/1.4 sans-serif; background: rgba(0, 0, 0, 0.65);
+      padding: 10px 16px; border-radius: 8px;
     }
-    #status { margin-top: 4px; opacity: 0.85; white-space: pre-line; font-family: monospace; font-size: 11px; }
+    #credit {
+      position: absolute; left: 12px; bottom: 12px; z-index: 10; display: none;
+      color: #fff; font: 13px/1.35 sans-serif; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+    }
+    #credit .title { font-size: 16px; font-weight: 600; }
+    #credit a { color: #fff; text-decoration: underline; }
   </style>
 </head>
 
 <body>
   <div id="buffer"></div>
+  <div id="credit"></div>
   <div id="ui">
-    <div>Select one or more 4D compressed PLY files (e.g. <code>00.c.ply</code> ... <code>09.c.ply</code>):</div>
+    <div>Select 4D compressed PLY files (<code>00.c.ply</code>, <code>01.c.ply</code>, ...):</div>
     <input type="file" id="file" accept=".ply" multiple />
-    <div id="status">No file loaded. You can also use <code>?url=...</code></div>
+    <div id="message">Loading the sample clip...</div>
+    <details>
+      <summary>Stats and network</summary>
+      <div id="status"></div>
+    </details>
   </div>
   <script type="importmap">
     {
       "imports": {
-        "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
-        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
-        "@sparkjsdev/spark": "../../dist/spark.module.js",
-        "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.20.0/dist/lil-gui.esm.js"
+        "three": "../js/vendor/three/build/three.module.js",
+        "three/addons/": "../js/vendor/three/examples/jsm/",
+        "lil-gui": "../js/vendor/lil-gui/dist/lil-gui.esm.js",
+        "@sparkjsdev/spark": "../../dist/spark.module.js"
       }
     }
   </script>
   <script type="module">
     import * as THREE from "three";
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-    import GUI from "lil-gui";
     import { VRButton } from "three/addons/webxr/VRButton.js";
+    import { ARButton } from "three/addons/webxr/ARButton.js";
+    import GUI from "lil-gui";
     import { SparkRenderer, SplatMesh, dyno } from "@sparkjsdev/spark";
     import { getAssetFileURL } from "../js/get-asset-url.js";
 
-    // ------------------------------------------------------------------
-    // Experimental 4DGS playback.
+    // 4D Gaussian splats, FreeTimeGS style (https://zju3dv.github.io/freetimegs/).
     //
-    // A "4D compressed PLY" is a SuperSplat compressed PLY that has two extra
-    // per-splat fields: `packed_motion` (velocity) and `packed_time` (time
-    // center + temporal scale), plus matching min/max values in each chunk.
-    // Spark already decodes position/rotation/scale/color from such a file
-    // (and ignores the 4D fields). Here we decode the 4D fields ourselves
-    // into float textures and animate every splat on the GPU through a Dyno
-    // objectModifier:
-    //   center(t) = center + velocity * (t - t0)
+    // Every splat has a time center t0, a temporal scale sigma and a velocity v:
+    //   center(t) = center + v * (t - t0)
     //   alpha(t)  = alpha * exp(-0.5 * ((t - t0) / sigma)^2)
-    // The exact bit layout of packed_time is not known yet, so the layout
-    // can be switched in the GUI while we verify it visually.
-    // ------------------------------------------------------------------
+    //
+    // The files are SuperSplat "compressed PLY" files with two extra per-splat fields
+    // (packed_motion, packed_time) and matching per-chunk min/max values. Spark already
+    // decodes position, rotation, scale and color. This page decodes the two extra fields
+    // into float textures and applies the formulas above on the GPU with a Dyno
+    // objectModifier, so nothing is uploaded per frame, only the time changes.
+    // See docs/docs/4dgs.md for the file layout and for how to create these files.
+    //
+    // A clip is a series of files (00.c.ply, 01.c.ply, ...) that each cover `segLen`
+    // seconds. Only the current and the next file are kept in memory.
+    //
+    // URL options:
+    //   ?url=a.c.ply             a single file
+    //   ?base=./clip/&count=10   ./clip/00.c.ply ... ./clip/09.c.ply
+    //   ?seglen=5                seconds per file (normally read from the file header)
+    //   ?quality=low|medium|high quality of the sample clip (default: medium, low on a slow connection)
+    //   ?budget=400              keep at most ~400k splats visible (raises the opacity threshold)
+    //   ?size=0                  disable the size/distance weighting used by the budget
+    //   ?xroffset=0,0,-1.5       where the clip first appears in AR/VR: x,y,z in meters relative to you
+    //                            (z < 0 is in front of you, y is the height above the floor)
+    //   ?vrscale=0.8             VR framebuffer scale (set before entering VR)
+    //   ?foveation=1             fixed foveated rendering, 0..1
 
     const SPLAT_TEX_WIDTH = 2048;
     const SPLAT_TEX_HEIGHT = 2048;
+    const CHUNK_SIZE = 256; // splats per compressed-PLY chunk
 
-    // ---- BEGIN parse4dPly ----
+    // Shown bottom left while the sample clip is playing.
+    const SAMPLE_CREDIT = {
+      title: "Cat",
+      text: "4D Gaussian splat clip from",
+      name: "4DV.ai",
+      href: "https://t.4dv.ai/viewer/cat",
+    };
+
+    // ---- Parse the extra 4D fields of a compressed PLY ----
     function parse4dPly(buf) {
       const bytes = new Uint8Array(buf);
       const tag = "end_header\n";
-      let hEnd = -1;
       const head = new TextDecoder("ascii").decode(bytes.subarray(0, Math.min(bytes.length, 16384)));
       const idx = head.indexOf(tag);
       if (idx < 0) throw new Error("PLY header not found");
-      hEnd = idx + tag.length;
+      const hEnd = idx + tag.length;
 
       const elements = [];
+      let segLen = 0;
+      let fps = 0;
       for (const line of head.slice(0, hEnd).split("\n")) {
         const p = line.trim().split(/\s+/);
+        if (p[0] === "comment" && p[1] === "fourd_seglen") segLen = Number(p[2]) || 0;
+        if (p[0] === "comment" && p[1] === "fourd_fps") fps = Number(p[2]) || 0;
         if (p[0] === "element") elements.push({ name: p[1], count: Number(p[2]), props: {}, size: 0 });
         if (p[0] === "property") {
           const el = elements[elements.length - 1];
           el.props[p[2]] = el.size;
-          el.size += 4; // float / uint32 only in this format
+          el.size += 4; // float and uint32 only
         }
       }
       const chunkEl = elements.find((e) => e.name === "chunk");
       const vertEl = elements.find((e) => e.name === "vertex");
       if (!chunkEl || !vertEl || !("packed_motion" in vertEl.props) || !("packed_time" in vertEl.props)) {
-        throw new Error("Not a 4D compressed PLY (missing chunk/packed_motion/packed_time)");
+        throw new Error("Not a 4D compressed PLY (missing chunk, packed_motion or packed_time)");
       }
       const dv = new DataView(buf);
       const chunkStart = hEnd;
       const vertStart = chunkStart + chunkEl.count * chunkEl.size;
-
-      const chunks = new Array(chunkEl.count);
       const keys = ["min_time", "max_time", "min_time_scale", "max_time_scale",
         "min_motion_x", "max_motion_x", "min_motion_y", "max_motion_y", "min_motion_z", "max_motion_z"];
-      let tMin = Infinity, tMax = -Infinity;
+      const chunks = new Array(chunkEl.count);
       for (let c = 0; c < chunkEl.count; c++) {
         const o = chunkStart + c * chunkEl.size;
         const ch = {};
         for (const k of keys) ch[k] = dv.getFloat32(o + chunkEl.props[k], true);
         chunks[c] = ch;
-        tMin = Math.min(tMin, ch.min_time);
-        tMax = Math.max(tMax, ch.max_time);
       }
       return {
-        numSplats: vertEl.count, chunks, tMin, tMax, dv, vertStart,
+        numSplats: vertEl.count, chunks, dv, vertStart, segLen, fps,
         recordSize: vertEl.size,
         motionOffset: vertEl.props.packed_motion,
         timeOffset: vertEl.props.packed_time,
       };
     }
 
-    // Decodes the 4D fields into two RGBA32F arrays laid out like Spark's splat textures.
-    //   A = (vx, vy, vz, t0)    B = (timeScale, 0, 0, 0)
+    // Decode the 4D fields into two RGBA32F arrays that are laid out like Spark's splat textures.
+    //   A = (vx, vy, vz, t0)    B = (ln sigma, 0, 0, 0)
+    // packed_motion: 11-10-11 bits (x, y, z) between the chunk's min/max motion.
+    // packed_time, layout 1 (the default): bits 31..21 ln(sigma) (11 bits), bits 20..11 time
+    //                center (10 bits), both between the chunk's min/max; the low 11 bits are unused.
+    // layout 0 swaps the two fields (kept for debugging files from other tools).
     function decode4d(info, layout, A, B) {
       const { numSplats, chunks, dv, vertStart, recordSize, motionOffset, timeOffset } = info;
       for (let i = 0; i < numSplats; i++) {
-        const ch = chunks[i >> 8]; // SuperSplat chunks hold 256 splats
+        const ch = chunks[Math.floor(i / CHUNK_SIZE)];
         const base = vertStart + i * recordSize;
         const m = dv.getUint32(base + motionOffset, true);
         const p = dv.getUint32(base + timeOffset, true);
-
         const fx = ((m >>> 21) & 2047) / 2047;
         const fy = ((m >>> 11) & 1023) / 1023;
         const fz = (m & 2047) / 2047;
-
         let ft, fs;
-        if (layout === 0) { // time = bits 31..21 (11 bit), scale = bits 20..11 (10 bit)
+        if (layout === 0) {
           ft = (p >>> 21) / 2047;
           fs = ((p >>> 11) & 1023) / 1023;
-        } else { // scale = bits 31..21 (11 bit), time = bits 20..11 (10 bit)
+        } else {
           fs = (p >>> 21) / 2047;
           ft = ((p >>> 11) & 1023) / 1023;
         }
-
         const o = i * 4;
         A[o] = ch.min_motion_x + fx * (ch.max_motion_x - ch.min_motion_x);
         A[o + 1] = ch.min_motion_y + fy * (ch.max_motion_y - ch.min_motion_y);
@@ -145,8 +188,8 @@
       }
     }
 
-    // Percentiles of the decoded time centers and temporal scales (sampled),
-    // used to pick a sensible default time and to debug the packed layout.
+    // Percentiles of the decoded time centers and temporal scales (sampled). Logged to the
+    // console for the first file, handy when checking a new file.
     function computeStats(info, A, B) {
       const step = Math.max(1, Math.floor(info.numSplats / 50000));
       const t0 = [], ls = [];
@@ -154,13 +197,11 @@
       t0.sort((a, b) => a - b); ls.sort((a, b) => a - b);
       const q = (arr, f) => arr[Math.min(arr.length - 1, Math.floor(f * arr.length))];
       const pts = [0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99];
-      return {
-        t0: pts.map((f) => q(t0, f)),
-        ls: pts.map((f) => q(ls, f)),
-      };
+      return { t0: pts.map((f) => q(t0, f)), lnSigma: pts.map((f) => q(ls, f)) };
     }
-    // ---- END parse4dPly ----
 
+    // A float texture with the same layout as Spark's per-splat textures, so that
+    // dyno.splatTexCoord(index) addresses it.
     function makeDataTexture(numSplats) {
       const width = SPLAT_TEX_WIDTH;
       const height = Math.max(1, Math.min(SPLAT_TEX_HEIGHT, Math.ceil(numSplats / width)));
@@ -178,21 +219,23 @@
 
     // ---- Scene ----
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.01, 100);
-    camera.position.set(0, 1.5, 2);
-    const renderer = new THREE.WebGLRenderer({ antialias: false });
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 100);
+    camera.position.set(0, 1.4, 3.5);
+    const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    document.body.appendChild(renderer.domElement);
     renderer.xr.enabled = true;
-    document.body.appendChild(VRButton.createButton(renderer));
-    // In VR the viewer stands at the origin, so push the scene away from the head.
-    renderer.xr.addEventListener("sessionstart", () => scene.position.set(0, -0.9, -1.2));
-    renderer.xr.addEventListener("sessionend", () => scene.position.set(0, 0, 0));
+    document.body.appendChild(renderer.domElement);
+    // AR (walk around the clip in your own room) when the device supports it, otherwise VR.
+    (async () => {
+      let ar = false;
+      try { ar = !!(await navigator.xr?.isSessionSupported("immersive-ar")); } catch { /* no WebXR */ }
+      document.body.appendChild(ar ? ARButton.createButton(renderer, { optionalFeatures: ["local-floor"] }) : VRButton.createButton(renderer));
+    })();
     const spark = new SparkRenderer({ renderer });
     scene.add(spark);
 
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.target.set(0, 0.8, 0);
+    controls.target.set(0, 0.85, 0);
     controls.update();
 
     window.addEventListener("resize", () => {
@@ -201,143 +244,293 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    // ---- Dyno uniforms (shared by all batches; only the shown batch is updated) ----
-    const uTime = dyno.dynoFloat(0); // time relative to the start of the shown batch
-    const uMotionScale = dyno.dynoFloat(1);
-    const uFade = dyno.dynoFloat(1);
-    const uScaleMode = dyno.dynoInt(0);
-    const uMinAlpha = dyno.dynoFloat(0.01);
-    const uSigmaScale = dyno.dynoFloat(1);
-    const uDebug = dyno.dynoInt(0);
-    const uDbgLo = dyno.dynoFloat(0);
-    const uDbgHi = dyno.dynoFloat(5);
-    const uCamLocal = dyno.dynoVec3(new THREE.Vector3()); // camera position in the mesh's local space
-    const uSizeWeight = dyno.dynoFloat(1);
+    const query = new URLSearchParams(location.search);
 
-    const params = {
-      time: 0, play: true, speed: 1, loop: true,
-      segLen: 5, // length of one batch (.c.ply file) in time units
-      quality: "-",
-      layout: 1, scaleMode: 0, sigmaLog: 0, debug: 0,
-      motionScale: 1, fade: true, minAlpha: 0.01, flipY: false,
-      budgetOn: false, budget: 200, // budget in thousands of visible splats
-      sizeWeight: true,
-      vrScale: 1, foveation: 1,
+    // ---- Placement ----
+    // All clip files live in `root`, so the whole clip can be moved. On desktop use the GUI
+    // (Position). In AR/VR the clip first appears in front of you; point at the floor and
+    // pull the trigger (or pinch / tap) to put it somewhere else.
+    const root = new THREE.Group();
+    scene.add(root);
+    const place = { x: 0, z: 0, rotY: 0, scale: 1 };
+    const applyDesktopPlacement = () => {
+      root.position.set(place.x, 0, place.z);
+      root.rotation.set(0, THREE.MathUtils.degToRad(place.rotY), 0);
+      root.scale.setScalar(place.scale);
+      controls.target.set(place.x, 0.85 * place.scale, place.z);
     };
+    const xrOffset = (query.get("xroffset") || "0,0,-1.5").split(",").map(Number);
+    let floorY = 0; // height of the floor in XR space
+    let placePending = false;
+    const camPos = new THREE.Vector3();
+    const camDir = new THREE.Vector3();
+    const aimPt = new THREE.Vector3();
+    const tmpO = new THREE.Vector3();
+    const tmpD = new THREE.Vector3();
 
-    // URL options (the GUI is not reachable inside a headset):
-    //   ?budget=200      keep at most ~200k splats visible (raises the opacity threshold automatically)
-    //   ?vrscale=0.8     VR framebuffer scale (set before entering VR)
-    //   ?foveation=1     fixed foveated rendering 0..1
-    const qp = new URLSearchParams(location.search);
-    if (qp.has("budget")) { params.budgetOn = true; params.budget = Number(qp.get("budget")); }
-    if (qp.has("size")) params.sizeWeight = qp.get("size") !== "0"; // ?size=0 disables size/distance weighting
-    if (qp.has("seglen")) params.segLen = Number(qp.get("seglen")); // length of one .c.ply file in time units
-    uSizeWeight.value = params.sizeWeight ? 1 : 0;
-    if (qp.has("vrscale")) params.vrScale = Number(qp.get("vrscale"));
-    if (qp.has("foveation")) params.foveation = Number(qp.get("foveation"));
+    // The clip stands at (x, z) on the floor and faces you.
+    function placeAt(x, z) {
+      renderer.xr.getCamera().getWorldPosition(camPos);
+      root.position.set(x, floorY, z);
+      root.rotation.set(0, Math.atan2(camPos.x - x, camPos.z - z), 0);
+      root.scale.setScalar(place.scale);
+    }
+    function placeInFront() {
+      const cam = renderer.xr.getCamera();
+      cam.getWorldPosition(camPos);
+      cam.getWorldDirection(camDir);
+      camDir.y = 0;
+      if (camDir.lengthSq() < 1e-4) camDir.set(0, 0, -1);
+      camDir.normalize();
+      // 'local-floor' puts the floor at y = 0. With plain 'local' the origin is the head, so guess the floor.
+      floorY = camPos.y < 0.5 ? camPos.y - 1.6 : 0;
+      const [ox, oy, oz] = xrOffset;
+      placeAt(camPos.x + camDir.x * -oz - camDir.z * ox, camPos.z + camDir.z * -oz + camDir.x * ox);
+      root.position.y = floorY + oy;
+    }
+    // Where a controller (or hand, or screen tap) points on the floor.
+    function aimAtFloor(c, out) {
+      c.getWorldPosition(tmpO);
+      tmpD.set(0, 0, -1).transformDirection(c.matrixWorld);
+      if (tmpD.y > -0.05) return false;
+      const t = (floorY - tmpO.y) / tmpD.y;
+      if (t < 0 || t > 8) return false;
+      out.copy(tmpO).addScaledVector(tmpD, t);
+      return true;
+    }
+    const reticle = new THREE.Mesh(
+      new THREE.RingGeometry(0.12, 0.15, 32).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8, depthTest: false }),
+    );
+    reticle.visible = false;
+    scene.add(reticle);
+    const controllers = [0, 1].map((i) => {
+      const c = renderer.xr.getController(i);
+      c.addEventListener("select", () => { if (aimAtFloor(c, aimPt)) placeAt(aimPt.x, aimPt.z); });
+      scene.add(c);
+      return c;
+    });
+    renderer.xr.addEventListener("sessionstart", () => { placePending = true; });
+    renderer.xr.addEventListener("sessionend", () => {
+      placePending = false;
+      reticle.visible = false;
+      floorY = 0;
+      applyDesktopPlacement();
+    });
+
+    // ---- State ----
+    const params = {
+      time: 0, play: true, loop: true, speed: 1,
+      segLen: Number(query.get("seglen")) || 5, // seconds covered by one file
+      quality: "-",
+      autoQuality: true, // drop to low quality when downloads are too slow
+      minAlpha: 0.01, // splats whose opacity is below this are skipped
+      budgetOn: query.has("budget"),
+      budget: Number(query.get("budget")) || 200, // thousands of splats that may be visible
+      sizeWeight: query.get("size") !== "0", // weigh the budget by apparent size
+      layout: 1, scaleMode: 0, sigmaLog: 0, motionScale: 1, fade: true, flipY: false, debug: 0,
+      vrScale: Number(query.get("vrscale")) || 1,
+      foveation: query.has("foveation") ? Number(query.get("foveation")) : 1,
+    };
+    const segLenFromUrl = query.has("seglen");
     renderer.xr.setFramebufferScaleFactor(params.vrScale);
     renderer.xr.setFoveation(params.foveation);
 
+    // Dyno uniforms, shared by all files; only the shown file is updated.
+    const uTime = dyno.dynoFloat(0); // time relative to the start of the shown file
+    const uMotionScale = dyno.dynoFloat(1);
+    const uFade = dyno.dynoFloat(1);
+    const uScaleMode = dyno.dynoInt(0);
+    const uMinAlpha = dyno.dynoFloat(params.minAlpha);
+    const uSigmaScale = dyno.dynoFloat(1);
+    const uDebug = dyno.dynoInt(0);
+    const uDbgLo = dyno.dynoFloat(0);
+    const uDbgHi = dyno.dynoFloat(params.segLen);
+    const uCamLocal = dyno.dynoVec3(new THREE.Vector3()); // camera position in the mesh's local space
+    const uSizeWeight = dyno.dynoFloat(params.sizeWeight ? 1 : 0);
+
+    const msgEl = document.getElementById("message");
     const statusEl = document.getElementById("status");
-    const bufEl = document.getElementById("buffer");
-    let files = []; // File objects sorted by name: 00.c.ply, 01.c.ply, ...
+    const bufferEl = document.getElementById("buffer");
+    const creditEl = document.getElementById("credit");
+    let files = []; // sorted list of objects with a name and arrayBuffer()
     let batches = []; // per file: { state, mesh, texA, texB, info, arrays }
-    let shown = -1; // index of the batch currently visible
+    let shown = -1; // index of the file that is visible
     let buffering = false; // true while playback waits for a download
-    let qualityLists = {}; // quality name -> sorted list of files ("low", "medium", "high", or "local")
+    let qualityLists = {}; // quality name -> sorted list of files
     let qualityCtl = null;
+    let slowNotice = ""; // shown after an automatic switch to low quality
+    let clipFps = 0; // from the file header, if present
     const net = { bytes: 0, files: 0, cachedFiles: 0, last: null }; // download statistics of this session
     let timeCtl = null;
     const totalTime = () => Math.max(1, files.length) * params.segLen;
 
+    function showCredit(c) {
+      if (!c) { creditEl.style.display = "none"; return; }
+      creditEl.textContent = "";
+      const title = document.createElement("div");
+      title.className = "title";
+      title.textContent = c.title;
+      const line = document.createElement("div");
+      line.append(`${c.text} `);
+      const a = document.createElement("a");
+      a.href = c.href;
+      a.target = "_blank";
+      a.rel = "noopener";
+      a.textContent = c.name;
+      line.append(a);
+      creditEl.append(title, line);
+      creditEl.style.display = "block";
+    }
+
+    // ---- Dyno: move and fade every splat for the current time ----
     function buildModifier(samplerA, samplerB) {
-      return dyno.dynoBlock(
-        { gsplat: dyno.Gsplat },
-        { gsplat: dyno.Gsplat },
-        ({ gsplat }) => {
-          const { index } = dyno.splitGsplat(gsplat).outputs;
-          const coord = dyno.splatTexCoord(index);
-          const a = dyno.texelFetch(samplerA, coord); // (vx, vy, vz, t0)
-          const b = dyno.texelFetch(samplerB, coord); // (ln timeScale, ...)
+      return dyno.dynoBlock({ gsplat: dyno.Gsplat }, { gsplat: dyno.Gsplat }, ({ gsplat }) => {
+        const { index } = dyno.splitGsplat(gsplat).outputs;
+        const coord = dyno.splatTexCoord(index);
+        const a = dyno.texelFetch(samplerA, coord); // (vx, vy, vz, t0)
+        const b = dyno.texelFetch(samplerB, coord); // (ln sigma, ...)
 
-          const d = new dyno.Dyno({
-            inTypes: {
-              gsplat: dyno.Gsplat, a: "vec4", b: "vec4", t: "float",
-              motionScale: "float", fade: "float", scaleMode: "int", minAlpha: "float", sigmaScale: "float",
-              debug: "int", dbgLo: "float", dbgHi: "float", camPos: "vec3", sizeWeight: "float",
-            },
-            outTypes: { gsplat: dyno.Gsplat },
-            statements: ({ inputs, outputs }) => dyno.unindentLines(/* glsl */ `
-              ${outputs.gsplat} = ${inputs.gsplat};
-              float lnS = ${inputs.b}.x;
-              float sigma = (${inputs.scaleMode} == 0) ? exp(lnS)
-                          : ((${inputs.scaleMode} == 1) ? lnS : exp(-lnS));
-              sigma = max(sigma * ${inputs.sigmaScale}, 1e-4);
-              float dt = ${inputs.t} - ${inputs.a}.w;
-              if (${inputs.debug} == 1) {
-                // Debug: color by decoded time center t0 (no filtering).
-                float h = clamp((${inputs.a}.w - ${inputs.dbgLo}) / max(${inputs.dbgHi} - ${inputs.dbgLo}, 1e-4), 0.0, 1.0) * 0.8;
-                ${outputs.gsplat}.rgba.rgb = clamp(abs(mod(h * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
-              } else if (${inputs.debug} == 2) {
-                // Debug: color by decoded log temporal scale (no filtering).
-                float h = clamp((lnS + 5.0) / 8.0, 0.0, 1.0) * 0.8;
-                ${outputs.gsplat}.rgba.rgb = clamp(abs(mod(h * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
-              } else if (${inputs.debug} == 0) {
-                ${outputs.gsplat}.center += ${inputs.a}.xyz * dt * ${inputs.motionScale};
-                float w = exp(-0.5 * (dt * dt) / (sigma * sigma));
-                float alpha = ${inputs.gsplat}.rgba.a * mix(1.0, w, ${inputs.fade});
-                ${outputs.gsplat}.rgba.a = alpha;
-                // Importance = opacity, optionally scaled by apparent size (size / distance).
-                // Small or far-away splats are dropped first when the budget is tight.
-                float sz = max(max(${inputs.gsplat}.scales.x, ${inputs.gsplat}.scales.y), ${inputs.gsplat}.scales.z);
-                float dist = max(distance(${outputs.gsplat}.center, ${inputs.camPos}), 0.05);
-                float sizeF = clamp((sz / dist) / 0.003, 0.0, 1.0);
-                float importance = alpha * mix(1.0, sizeF, ${inputs.sizeWeight});
-                if (importance < ${inputs.minAlpha}) {
-                  ${outputs.gsplat}.flags = 0u;
-                }
+        const motion = new dyno.Dyno({
+          inTypes: {
+            gsplat: dyno.Gsplat, a: "vec4", b: "vec4", t: "float",
+            motionScale: "float", fade: "float", scaleMode: "int", minAlpha: "float", sigmaScale: "float",
+            debug: "int", dbgLo: "float", dbgHi: "float", camPos: "vec3", sizeWeight: "float",
+          },
+          outTypes: { gsplat: dyno.Gsplat },
+          statements: ({ inputs, outputs }) => dyno.unindentLines(/* glsl */ `
+            ${outputs.gsplat} = ${inputs.gsplat};
+            float lnS = ${inputs.b}.x;
+            float sigma = (${inputs.scaleMode} == 0) ? exp(lnS)
+                        : ((${inputs.scaleMode} == 1) ? lnS : exp(-lnS));
+            sigma = max(sigma * ${inputs.sigmaScale}, 1e-4);
+            float dt = ${inputs.t} - ${inputs.a}.w;
+            if (${inputs.debug} == 1) {
+              // Debug: color by decoded time center t0 (no filtering).
+              float h = clamp((${inputs.a}.w - ${inputs.dbgLo}) / max(${inputs.dbgHi} - ${inputs.dbgLo}, 1e-4), 0.0, 1.0) * 0.8;
+              ${outputs.gsplat}.rgba.rgb = clamp(abs(mod(h * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+            } else if (${inputs.debug} == 2) {
+              // Debug: color by decoded ln(sigma) (no filtering).
+              float h = clamp((lnS + 5.0) / 8.0, 0.0, 1.0) * 0.8;
+              ${outputs.gsplat}.rgba.rgb = clamp(abs(mod(h * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+            } else if (${inputs.debug} == 0) {
+              ${outputs.gsplat}.center += ${inputs.a}.xyz * dt * ${inputs.motionScale};
+              float w = exp(-0.5 * (dt * dt) / (sigma * sigma));
+              float alpha = ${inputs.gsplat}.rgba.a * mix(1.0, w, ${inputs.fade});
+              ${outputs.gsplat}.rgba.a = alpha;
+              // Importance = opacity, optionally scaled by apparent size (size / distance).
+              // Small or far-away splats are dropped first when the budget is tight.
+              float sz = max(max(${inputs.gsplat}.scales.x, ${inputs.gsplat}.scales.y), ${inputs.gsplat}.scales.z);
+              float dist = max(distance(${outputs.gsplat}.center, ${inputs.camPos}), 0.05);
+              float sizeF = clamp((sz / dist) / 0.003, 0.0, 1.0);
+              float importance = alpha * mix(1.0, sizeF, ${inputs.sizeWeight});
+              if (importance < ${inputs.minAlpha}) {
+                ${outputs.gsplat}.flags = 0u;
               }
-              // debug == 3: pass-through, exactly what plain Spark shows.
-            `),
-          });
-
-          return {
-            gsplat: d.apply({
-              gsplat, a, b, t: uTime, motionScale: uMotionScale,
-              fade: uFade, scaleMode: uScaleMode, minAlpha: uMinAlpha, sigmaScale: uSigmaScale,
-              debug: uDebug, dbgLo: uDbgLo, dbgHi: uDbgHi, camPos: uCamLocal, sizeWeight: uSizeWeight,
-            }).gsplat,
-          };
-        },
-      );
+            }
+            // debug == 3: pass-through, exactly what plain Spark shows.
+          `),
+        });
+        return {
+          gsplat: motion.apply({
+            gsplat, a, b, t: uTime, motionScale: uMotionScale,
+            fade: uFade, scaleMode: uScaleMode, minAlpha: uMinAlpha, sigmaScale: uSigmaScale,
+            debug: uDebug, dbgLo: uDbgLo, dbgHi: uDbgHi, camPos: uCamLocal, sizeWeight: uSizeWeight,
+          }).gsplat,
+        };
+      });
     }
 
     const setFlip = (m) => m.quaternion.set(params.flipY ? 1 : 0, 0, 0, params.flipY ? 0 : 1);
+    const refreshGui = () => gui.controllersRecursive().forEach((c) => c.updateDisplay());
 
-    // Loads one batch. The mesh is added to the scene hidden: Spark skips invisible meshes.
+    // ---- Download with progress and retries, kept in the Cache Storage ----
+    // Finished downloads are stored explicitly (the normal HTTP cache has a size limit per file),
+    // so later loops and page reloads don't download them again. Clear them in
+    // DevTools > Application > Cache storage.
+    const CACHE_NAME = "spark-4dgs-files";
+    function remoteFile(url) {
+      return {
+        name: url.split("/").pop(),
+        arrayBuffer: async (onProgress, onInfo) => {
+          const t0 = performance.now();
+          try {
+            if ("caches" in window) {
+              const hit = await (await caches.open(CACHE_NAME)).match(url);
+              if (hit) {
+                const cached = await hit.arrayBuffer();
+                onProgress?.(cached.byteLength, cached.byteLength);
+                onInfo?.({ bytes: cached.byteLength, ms: 0, cached: true });
+                return cached;
+              }
+            }
+          } catch (err) { console.warn("Cache read failed", err); }
+          let lastError;
+          for (let attempt = 0; attempt < 4; attempt++) {
+            try {
+              const res = await fetch(url);
+              if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+              const total = Number(res.headers.get("content-length")) || 0; // 0 if hidden by CORS
+              const reader = res.body.getReader();
+              const parts = [];
+              let got = 0;
+              for (;;) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                parts.push(value);
+                got += value.length;
+                onProgress?.(got, total);
+              }
+              const out = new Uint8Array(got);
+              let offset = 0;
+              for (const part of parts) { out.set(part, offset); offset += part.length; }
+              if ("caches" in window) {
+                // Not awaited, so playback is not delayed. May fail when the storage quota is exceeded.
+                caches.open(CACHE_NAME).then((c) => c.put(url, new Response(out))).catch(() => {});
+              }
+              onInfo?.({ bytes: got, ms: performance.now() - t0, cached: false });
+              return out.buffer;
+            } catch (err) {
+              lastError = err;
+              await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+            }
+          }
+          throw lastError;
+        },
+      };
+    }
+
+    // ---- Loading and unloading files ----
     async function loadBatch(i) {
-      const b = (batches[i] = { state: "loading" });
+      const batch = (batches[i] = { state: "loading" });
       try {
         const file = files[i];
         const buf = await file.arrayBuffer(
-          (got, total) => { b.got = got; b.total = total; },
+          (got, total) => { batch.got = got; batch.total = total; },
           (info) => {
-            b.net = info;
+            batch.net = info;
             net.last = { name: file.name, ...info };
             if (info.cached) net.cachedFiles++;
             else { net.bytes += info.bytes; net.files++; }
+            checkSlowDownload(info);
           },
         );
-        if (batches[i] !== b) return; // quality or files changed while downloading
+        if (batches[i] !== batch) return; // files or quality changed while downloading
         const info = parse4dPly(buf);
+        if (i === 0) {
+          if (info.fps) clipFps = info.fps;
+          if (info.segLen && !segLenFromUrl) {
+            params.segLen = info.segLen; // the converter script writes the file length into the header
+            timeCtl?.max(totalTime());
+            refreshGui();
+          }
+        }
         const A = makeDataTexture(info.numSplats);
         const B = makeDataTexture(info.numSplats);
         decode4d(info, params.layout, A.array, B.array);
         A.texture.needsUpdate = true;
         B.texture.needsUpdate = true;
-        // Same keys for every batch: identical shader source lets three.js reuse the
-        // compiled program, so later batches don't trigger a shader compile (lag spike).
+        // The same keys for every file, so the shader is compiled only once.
         const samplerA = new dyno.DynoSampler2DArray({ value: A.texture, key: "fourDMotionTime" });
         const samplerB = new dyno.DynoSampler2DArray({ value: B.texture, key: "fourDTimeScale" });
 
@@ -346,58 +539,64 @@
         mesh.objectModifier = buildModifier(samplerA, samplerB);
         mesh.visible = false;
         setFlip(mesh);
-        scene.add(mesh);
+        root.add(mesh);
         await mesh.initialized;
-        if (batches[i] !== b) { // discarded while loading: clean up
-          scene.remove(mesh);
+        if (batches[i] !== batch) { // discarded while loading
+          root.remove(mesh);
           mesh.dispose?.();
           A.texture.dispose();
           B.texture.dispose();
           return;
         }
         mesh.updateGenerator();
-        Object.assign(b, {
-          info, mesh, texA: A.texture, texB: B.texture, arrays: { A: A.array, B: B.array }, state: "ready",
-        });
-        if (i === 0) console.log("4DGS stats (batch 0)", computeStats(info, A.array, B.array));
+        Object.assign(batch, { mesh, texA: A.texture, texB: B.texture, arrays: { A: A.array, B: B.array }, info, state: "ready" });
+        if (i === 0) console.log("4D splats, decoded stats of file 0", computeStats(info, A.array, B.array));
+        msgEl.textContent = slowNotice;
       } catch (err) {
-        b.state = "error";
-        b.failedAt = performance.now();
+        batch.state = "error";
+        batch.failedAt = performance.now();
         console.error(err);
-        statusEl.textContent = `Error in ${files[i].name}: ${err.message}`;
+        msgEl.textContent = `Error in ${files[i]?.name}: ${err.message}`;
+      }
+    }
+
+    // A file that needs longer to download than it plays means the connection is too slow for this quality.
+    function checkSlowDownload(info) {
+      if (info.cached || !params.autoQuality || params.quality === "low" || !qualityLists.low) return;
+      if (info.ms > (params.segLen * 1000 * 0.8) / Math.max(params.speed, 0.1)) {
+        params.quality = "low";
+        slowNotice = "Slow connection: switched to low quality.";
+        msgEl.textContent = slowNotice;
+        refreshGui();
+        switchQuality("low");
       }
     }
 
     function unloadBatch(i) {
-      const b = batches[i];
-      if (!b || b.state !== "ready") return;
-      scene.remove(b.mesh);
-      b.mesh.dispose?.();
-      b.texA.dispose();
-      b.texB.dispose();
+      const batch = batches[i];
+      if (!batch || batch.state !== "ready") return;
+      root.remove(batch.mesh);
+      batch.mesh.dispose?.();
+      batch.texA.dispose();
+      batch.texB.dispose();
       batches[i] = undefined;
     }
 
-    // Keeps the batch for the current time (and the next one) loaded, drops the rest.
+    // Keeps the file for the current time and the next one loaded, drops the rest.
     function manageBatches() {
       const n = files.length;
       if (n === 0) return;
-      const T = params.time;
-      const cur = Math.min(n - 1, Math.max(0, Math.floor(T / params.segLen)));
-      const local = T - cur * params.segLen;
+      const cur = Math.min(n - 1, Math.max(0, Math.floor(params.time / params.segLen)));
       const next = cur + 1 < n ? cur + 1 : (params.loop ? 0 : -1);
       const want = new Set([cur]);
-      // Download the next batch only after the current one is ready, so the two never fight for bandwidth.
+      // Fetch the next file only after the current one is ready, so they don't compete for bandwidth.
       if (next >= 0 && next !== cur && batches[cur]?.state === "ready") want.add(next);
       for (const i of want) {
         if (batches[i]?.state === "error" && performance.now() - batches[i].failedAt > 3000) batches[i] = undefined; // retry
+        if (!batches[i]) loadBatch(i);
       }
-
-      for (const i of want) if (!batches[i]) loadBatch(i);
-      for (let i = 0; i < n; i++) {
-        if (!want.has(i) && i !== shown) unloadBatch(i);
-      }
-      // Switch to the current batch as soon as it is ready; until then keep the old one.
+      for (let i = 0; i < n; i++) if (!want.has(i) && i !== shown) unloadBatch(i);
+      // Switch as soon as the file for the current time is ready; until then keep the old one.
       if (batches[cur]?.state === "ready" && shown !== cur) {
         const old = shown;
         if (old >= 0 && batches[old]?.mesh) batches[old].mesh.visible = false;
@@ -422,13 +621,14 @@
       for (let i = 0; i < batches.length; i++) unloadBatch(i);
       batches = [];
       shown = -1;
-      files = [...list].sort((x, y) => x.name.localeCompare(y.name, undefined, { numeric: true }));
+      files = [...list].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
       params.time = 0;
-      if (timeCtl) timeCtl.max(totalTime()).updateDisplay();
+      timeCtl?.max(totalTime());
+      refreshGui();
     }
 
-    // Switches to another set of files (same clip, other quality). The shown batch keeps playing;
-    // the following batches are fetched in the new quality.
+    // Switches to another set of files (same clip, other quality). The shown file keeps playing;
+    // the following files are fetched in the new quality.
     function switchQuality(q) {
       if (!qualityLists[q]) return;
       files = qualityLists[q];
@@ -441,122 +641,94 @@
     function setQualityLists(lists, initial) {
       qualityLists = lists;
       params.quality = initial;
-      const names = ["low", "medium", "high", "local"].filter((n) => lists[n]);
-      if (qualityCtl) qualityCtl.destroy();
-      if (names.length > 1) qualityCtl = gui.add(params, "quality", names).name("quality").onChange(switchQuality);
+      const names = ["low", "medium", "high", "default", "local"].filter((n) => lists[n]);
+      slowNotice = "";
+      qualityCtl?.destroy();
+      autoQualityCtl.hide();
+      qualityCtl = null;
+      if (names.length > 1) {
+        qualityCtl = gui.add(params, "quality", names).name("quality").onChange((q) => {
+          params.autoQuality = false; // the user chose: stop switching automatically
+          refreshGui();
+          switchQuality(q);
+        });
+        speedCtl.domElement.after(qualityCtl.domElement); // right under "speed"
+        qualityCtl.domElement.after(autoQualityCtl.domElement);
+        autoQualityCtl.show();
+      }
       setFiles(lists[initial]);
     }
 
-    // ---- GUI ----
-    const gui = new GUI({ title: "4DGS" });
-    timeCtl = gui.add(params, "time", 0, 5, 0.001).name("time (global)").listen();
+    // ---- GUI (the advanced parts are folded) ----
+    const gui = new GUI({ title: "4D splats" });
+    timeCtl = gui.add(params, "time", 0, 5, 0.001).name("time (s)").listen();
     gui.add(params, "play");
     gui.add(params, "loop");
-    gui.add(params, "speed", 0, 10, 0.01).name("speed (units/s)");
-    gui.add(params, "segLen", 0.5, 20, 0.01).name("batch length")
-      .onChange(() => timeCtl.max(totalTime()).updateDisplay());
-    gui.add(params, "layout", { "scale=hi11, time=mid10 (verified)": 1, "time=hi11, scale=mid10": 0 })
-      .name("packed_time layout").onChange(redecodeAll);
-    gui.add(params, "scaleMode", { "sigma = exp(scale)": 0, "sigma = raw scale": 1, "sigma = exp(-scale)": 2 })
-      .name("temporal scale").onChange((v) => { uScaleMode.value = Number(v); });
-    gui.add(params, "debug", {
-      "off (normal playback)": 0, "color by time t0": 1,
-      "color by temporal scale": 2, "no effect (plain Spark)": 3,
-    }).name("DEBUG view").onChange((v) => { uDebug.value = Number(v); });
-    gui.add(params, "sigmaLog", -2, 2, 0.01).name("sigma scale (10^x)")
-      .onChange((v) => { uSigmaScale.value = 10 ** v; });
-    gui.add(params, "motionScale", 0, 5, 0.01).name("motion scale")
-      .onChange((v) => { uMotionScale.value = v; });
-    gui.add(params, "fade").name("temporal opacity").onChange((v) => { uFade.value = v ? 1 : 0; });
-    gui.add(params, "minAlpha", 0, 1, 0.001).name("min alpha").listen()
-      .onChange((v) => { uMinAlpha.value = v; });
-    gui.add(params, "budgetOn").name("auto budget");
-    gui.add(params, "budget", 20, 1500, 10).name("budget (k splats)");
-    gui.add(params, "sizeWeight").name("weigh by size/distance")
-      .onChange((v) => { uSizeWeight.value = v ? 1 : 0; });
-    gui.add(params, "flipY").name("flip upside down").onChange(() => {
+    const speedCtl = gui.add(params, "speed", 0, 4, 0.01);
+    // "quality" is added under speed by setQualityLists, only when the clip comes in several qualities.
+    const autoQualityCtl = gui.add(params, "autoQuality").name("auto quality (slow wifi)");
+    autoQualityCtl.hide();
+
+    const pos = gui.addFolder("Position (desktop)");
+    pos.add(place, "x", -5, 5, 0.01).onChange(applyDesktopPlacement);
+    pos.add(place, "z", -5, 5, 0.01).onChange(applyDesktopPlacement);
+    pos.add(place, "rotY", -180, 180, 1).name("rotation").onChange(applyDesktopPlacement);
+    pos.add(place, "scale", 0.1, 3, 0.01).onChange(applyDesktopPlacement);
+    pos.close();
+
+    const perf = gui.addFolder("Performance");
+    perf.add(params, "minAlpha", 0, 1, 0.001).name("min opacity").listen().onChange((v) => { uMinAlpha.value = v; });
+    perf.add(params, "budgetOn").name("auto budget");
+    perf.add(params, "budget", 20, 1500, 10).name("budget (k splats)");
+    perf.add(params, "sizeWeight").name("weigh by size/distance").onChange((v) => { uSizeWeight.value = v ? 1 : 0; });
+    perf.close();
+
+    const adv = gui.addFolder("Advanced");
+    adv.add(params, "segLen", 0.05, 20, 0.01).name("seconds per file").onChange(() => { timeCtl.max(totalTime()); refreshGui(); });
+    adv.add(params, "motionScale", 0, 5, 0.01).name("motion scale").onChange((v) => { uMotionScale.value = v; });
+    adv.add(params, "fade").name("temporal opacity").onChange((v) => { uFade.value = v ? 1 : 0; });
+    adv.add(params, "flipY").name("flip upside down").onChange(() => {
       for (const b of batches) if (b?.mesh) setFlip(b.mesh);
     });
+    adv.close();
 
-    // ---- Loading ----
+    const dbg = gui.addFolder("Debug");
+    dbg.add(params, "layout", { "scale=hi11, time=mid10 (default)": 1, "time=hi11, scale=mid10": 0 })
+      .name("packed_time layout").onChange(redecodeAll);
+    dbg.add(params, "scaleMode", { "sigma = exp(scale)": 0, "sigma = raw scale": 1, "sigma = exp(-scale)": 2 })
+      .name("temporal scale").onChange((v) => { uScaleMode.value = Number(v); });
+    dbg.add(params, "sigmaLog", -2, 2, 0.01).name("sigma scale (10^x)").onChange((v) => { uSigmaScale.value = 10 ** v; });
+    dbg.add(params, "debug", {
+      "off (normal playback)": 0, "color by time t0": 1,
+      "color by temporal scale": 2, "no effect (plain Spark)": 3,
+    }).name("view").onChange((v) => { uDebug.value = Number(v); });
+    dbg.close();
+
+    // ---- Input ----
     document.getElementById("file").addEventListener("change", (e) => {
-      if (e.target.files.length) setQualityLists({ local: [...e.target.files].sort((x, y) => x.name.localeCompare(y.name, undefined, { numeric: true })) }, "local");
+      if (!e.target.files.length) return;
+      showCredit(null);
+      setQualityLists({ local: [...e.target.files] }, "local");
     });
-    // ?url=file.c.ply            -> a single batch
-    // ?base=./data/&count=10     -> ./data/00.c.ply ... ./data/09.c.ply (handy on a headset)
-    const query = new URLSearchParams(location.search);
-    // Downloads with progress and retries on failure. Finished downloads are kept in the Cache Storage
-    // (explicit, and without the per-file size limit that the normal HTTP cache has), so later
-    // loops and page reloads don't download them again. Clear it in DevTools > Application > Cache storage.
-    const CACHE_NAME = "4dgs-files-v1";
-    const remoteFile = (url) => ({
-      name: url.split("/").pop(),
-      arrayBuffer: async (onProgress, onInfo) => {
-        const t0 = performance.now();
-        try {
-          if ("caches" in window) {
-            const hit = await (await caches.open(CACHE_NAME)).match(url);
-            if (hit) {
-              const cached = await hit.arrayBuffer();
-              onProgress?.(cached.byteLength, cached.byteLength);
-              onInfo?.({ bytes: cached.byteLength, ms: 0, cached: true });
-              return cached;
-            }
-          }
-        } catch (err) { console.warn("Cache read failed", err); }
-        let lastErr;
-        for (let attempt = 0; attempt < 4; attempt++) {
-          try {
-            const res = await fetch(url, { cache: "force-cache" });
-            if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-            const total = Number(res.headers.get("content-length")) || 0; // 0 if the server hides it (CORS)
-            const reader = res.body.getReader();
-            const parts = [];
-            let got = 0;
-            for (;;) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              parts.push(value);
-              got += value.length;
-              onProgress?.(got, total);
-            }
-            const out = new Uint8Array(got);
-            let o = 0;
-            for (const part of parts) { out.set(part, o); o += part.length; }
-            if ("caches" in window) {
-              // Not awaited: don't delay playback. May fail if the storage quota is exceeded.
-              caches.open(CACHE_NAME).then((c) => c.put(url, new Response(out))).catch((e) => console.warn("Cache write failed", e));
-            }
-            onInfo?.({ bytes: got, ms: performance.now() - t0, cached: false });
-            return out.buffer;
-          } catch (err) {
-            lastErr = err;
-            await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
-          }
-        }
-        throw lastErr;
-      },
-    });
+    const pad = (i) => String(i).padStart(2, "0");
     if (query.get("url")) {
       setQualityLists({ local: [remoteFile(query.get("url"))] }, "local");
     } else if (query.get("base")) {
-      const n = Number(query.get("count") || 10);
-      const base = query.get("base");
-      setQualityLists({ local: Array.from({ length: n }, (_, i) => remoteFile(`${base}${String(i).padStart(2, "0")}.c.ply`)) }, "local");
+      const count = Number(query.get("count") || 10);
+      setQualityLists({ local: Array.from({ length: count }, (_, i) => remoteFile(`${query.get("base")}${pad(i)}.c.ply`)) }, "local");
     } else {
-      loadDefault();
+      loadSample();
     }
 
-    // No URL options: load the sample clip listed in examples/assets.json.
-    // Entries are named cat-<quality>-<NN>.c.ply, e.g. cat-low-00.c.ply ... cat-low-09.c.ply.
-    async function loadDefault() {
+    // No URL options: load the sample clip listed in examples/assets.json, in several qualities:
+    // cat-low-00.c.ply ... cat-low-09.c.ply, cat-medium-00.c.ply ... (4dgs-sample-* names also work).
+    async function loadSample() {
       try {
-        const res = await fetch("../assets.json");
-        const assets = await res.json();
+        const assets = await (await fetch("../assets.json")).json();
         const groups = {};
         for (const key of Object.keys(assets)) {
-          const m = /^cat-(low|medium|high)-(\d+)\.c\.ply$/.exec(key);
-          if (m) (groups[m[1]] ||= []).push(key);
+          const m = /^(?:cat|4dgs-sample)-(?:(low|medium|high)-)?(\d+)\.c\.ply$/.exec(key);
+          if (m) (groups[m[1] || "default"] ||= []).push(key);
         }
         const lists = {};
         for (const [q, keys] of Object.entries(groups)) {
@@ -564,21 +736,28 @@
           lists[q] = (await Promise.all(keys.map((k) => getAssetFileURL(k)))).map(remoteFile);
         }
         const wanted = query.get("quality");
-        const initial = lists[wanted] ? wanted : lists.low ? "low" : Object.keys(lists)[0];
+        // Default: medium, or low when the browser reports a slow or data-saving connection.
+        const conn = navigator.connection;
+        const slow = conn && (conn.saveData || /^(slow-2g|2g|3g)$/.test(conn.effectiveType || "") || (conn.downlink && conn.downlink < 5));
+        const initial = lists[wanted] ? wanted
+          : slow && lists.low ? "low"
+          : lists.medium ? "medium" : lists.default ? "default" : lists.low ? "low" : Object.keys(lists)[0];
         if (!initial) throw new Error("no cat-<quality>-NN.c.ply entries in assets.json");
+        if (lists[wanted]) params.autoQuality = false; // ?quality= is an explicit choice
         setQualityLists(lists, initial);
+        showCredit(SAMPLE_CREDIT);
       } catch (err) {
-        statusEl.textContent = `No sample files (${err.message}). Select files above, or use ?base=...`;
+        msgEl.textContent = `No sample clip (${err.message}). Select files above or use ?base=...`;
       }
     }
 
     // ---- Render loop ----
     let last = performance.now();
     let lastStatus = 0;
-    const camTmp = new THREE.Vector3();
     let frames = 0;
     let sortsSeen = 0;
     let lastSortStamp = 0;
+    const camTmp = new THREE.Vector3();
 
     // Estimates how many splats are visible at the current time (sampled, so it is cheap).
     function estimateActive() {
@@ -595,10 +774,17 @@
       }
       return { active: Math.round((c / total) * n), n };
     }
+
     renderer.setAnimationLoop((now) => {
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
       frames++;
+      if (renderer.xr.isPresenting) {
+        if (placePending) { placeInFront(); placePending = false; }
+        const hit = controllers.some((c) => aimAtFloor(c, aimPt));
+        reticle.visible = hit;
+        if (hit) reticle.position.set(aimPt.x, floorY + 0.01, aimPt.z);
+      }
       if (spark.lastSortTime !== lastSortStamp) { lastSortStamp = spark.lastSortTime; sortsSeen++; }
       if (files.length) {
         manageBatches();
@@ -612,33 +798,33 @@
           let target = Math.min(n - 1, Math.floor(t / params.segLen));
           if (t > totalTime()) { t = params.loop ? 0 : totalTime(); target = params.loop ? 0 : n - 1; }
           if (!ready(cur)) {
-            buffering = true; // current batch not loaded yet: wait
+            buffering = true; // the current file is not loaded yet: wait
           } else if (!ready(target)) {
-            buffering = true; // next batch not loaded yet: hold at the end of this one
+            buffering = true; // the next file is not loaded yet: hold at the end of this one
             params.time = Math.min(t, (cur + 1) * params.segLen - 0.001);
           } else {
             params.time = t;
           }
         }
         if (shown >= 0 && batches[shown]?.state === "ready") {
-          // Time relative to the shown batch; clamped while the next batch is still loading.
+          // Time relative to the shown file; clamped while the next file is still loading.
           uTime.value = Math.max(0, Math.min(params.time - shown * params.segLen, params.segLen));
           const m = batches[shown].mesh;
           m.updateWorldMatrix(true, false);
           (renderer.xr.isPresenting ? renderer.xr.getCamera() : camera).getWorldPosition(camTmp);
           uCamLocal.value.copy(m.worldToLocal(camTmp));
-          batches[shown].mesh.updateVersion(); // regenerate splats for the new time
+          m.updateVersion(); // regenerate the splats for the new time
         }
-        const waiting = batches.find((b) => b && b.state === "loading");
         if (buffering) {
           const mb = (x) => (x / 1048576).toFixed(1);
           const idx = batches.findIndex((b) => b && b.state === "loading");
-          bufEl.textContent = waiting
-            ? `Buffering ${files[idx].name}  ${mb(waiting.got || 0)}${waiting.total ? " / " + mb(waiting.total) : ""} MB`
+          const loading = idx >= 0 ? batches[idx] : null;
+          bufferEl.textContent = loading
+            ? `Buffering ${files[idx].name}... ${mb(loading.got || 0)}${loading.total ? ` / ${mb(loading.total)}` : ""} MB`
             : "Buffering...";
-          bufEl.style.display = "block";
+          bufferEl.style.display = "block";
         } else {
-          bufEl.style.display = "none";
+          bufferEl.style.display = "none";
         }
         if (now - lastStatus > 250) {
           const secs = lastStatus ? (now - lastStatus) / 1000 : 0.25;
@@ -648,21 +834,20 @@
           const est = estimateActive();
           if (params.budgetOn && est) {
             // Raise the opacity threshold while too many splats are visible, lower it slowly otherwise.
-            // Prefer Spark's real count of rendered splats; fall back to the estimate.
+            // Uses Spark's real count of rendered splats, with the sampled estimate as a fallback.
             const actual = spark.activeSplats > 0 ? spark.activeSplats : est.active;
             const r = actual / (params.budget * 1000);
             if (r > 1.05) params.minAlpha = Math.min(0.95, params.minAlpha * Math.min(2, 1 + (r - 1) * 0.5));
             else if (r < 0.8) params.minAlpha = Math.max(0.01, params.minAlpha / 1.1);
             uMinAlpha.value = params.minAlpha;
           }
-          const loaded = batches.map((b, i) => (b ? `${i}:${b.state}` : null)).filter(Boolean).join(" ");
-          const sb = batches[shown];
           const mb = (x) => (x / 1e6).toFixed(1);
+          const sb = batches[shown];
           let fileInfo = "";
           if (sb?.net) {
             const perSec = sb.net.bytes / (params.segLen / Math.max(params.speed, 1e-6));
             fileInfo = `this file: ${mb(sb.net.bytes)} MB, ${(sb.info.numSplats / 1e6).toFixed(2)}M splats\n` +
-              `stream rate: ${mb(perSec)} MB/s = ${((perSec * 8) / 1e6).toFixed(0)} Mbit/s (if 1 unit = 1 s, speed x${params.speed})\n`;
+              `stream rate: ${mb(perSec)} MB/s = ${((perSec * 8) / 1e6).toFixed(0)} Mbit/s at speed x${params.speed}\n`;
           }
           let lastInfo = "";
           if (net.last) {
@@ -670,16 +855,17 @@
               ? `last download: ${net.last.name} from local cache\n`
               : `last download: ${net.last.name} ${mb(net.last.bytes)} MB in ${(net.last.ms / 1000).toFixed(1)} s = ${((net.last.bytes * 8) / 1e6 / (net.last.ms / 1000)).toFixed(0)} Mbit/s\n`;
           }
+          const loaded = batches.map((b, i) => (b ? `${i}:${b.state}` : null)).filter(Boolean).join(" ");
           statusEl.textContent =
-            `quality: ${params.quality}, ${files.length} file(s), shown batch ${shown}\n` +
+            `quality: ${params.quality}, ${files.length} file(s), shown file ${shown + 1}\n` +
+            `${params.segLen.toFixed(2)} s per file${clipFps ? `, ${clipFps} fps source` : ""}, local t = ${uTime.value.toFixed(2)}\n` +
             fileInfo + lastInfo +
             `session: ${mb(net.bytes)} MB downloaded in ${net.files} files, ${net.cachedFiles} from cache\n` +
-            `local t = ${uTime.value.toFixed(2)} / ${params.segLen}\n` +
             `fps ${fps.toFixed(0)} | sorts/s ${sps.toFixed(1)}\n` +
-            (params.budgetOn ? `budget ${params.budget}k, threshold ${params.minAlpha.toFixed(3)}\n` : "") +
-            `rendered by Spark: ${(spark.activeSplats / 1000).toFixed(0)}k\n` +
-            (est && !params.sizeWeight ? `rough estimate (ignores size weighting) ~${(est.active / 1000).toFixed(0)}k of ${(est.n / 1000).toFixed(0)}k (${((100 * est.active) / est.n).toFixed(0)}%)\n` : "") +
-            `batches: ${loaded}`;
+            (params.budgetOn ? `budget ${params.budget}k, opacity threshold ${params.minAlpha.toFixed(3)}\n` : "") +
+            `drawn by Spark: ${(spark.activeSplats / 1000).toFixed(0)}k\n` +
+            (est && !params.sizeWeight ? `estimate ~${(est.active / 1000).toFixed(0)}k of ${(est.n / 1000).toFixed(0)}k (${((100 * est.active) / est.n).toFixed(0)}%)\n` : "") +
+            `files: ${loaded}`;
         }
       }
       controls.update();
