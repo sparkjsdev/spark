@@ -1051,6 +1051,16 @@ export class SplatMesh extends SplatGenerator {
     const origin = ray.origin.clone().applyMatrix4(worldToMesh);
     const direction = ray.direction.clone().applyMatrix3(worldToMeshRot);
 
+    // Apply the SplatEdits from the last update(), so splats they hide or move
+    // are raycast as rendered.
+    const edits = this.rgbaDisplaceEdits;
+    const editArgs = [
+      new Float32Array(this.matrixWorld.elements),
+      new Float32Array(worldToMesh.elements),
+      edits?.editData.subarray(0, edits.numEdits * 4) ?? new Uint32Array(),
+      edits?.sdfData.subarray(0, edits.numSdfs * 8 * 4) ?? new Uint32Array(),
+    ] as const;
+
     const buffer = get_raycast_buffer();
     const bufferSize = buffer.length / 4;
     let intersections = 0;
@@ -1111,6 +1121,7 @@ export class SplatMesh extends SplatGenerator {
           splatEncoding.lnScaleMin,
           splatEncoding.lnScaleMax,
           splatEncoding.lodOpacity,
+          ...editArgs,
         );
         intersections = this.appendRaycastBuffer(
           intersections,
@@ -1164,6 +1175,7 @@ export class SplatMesh extends SplatGenerator {
           near,
           far,
           count,
+          ...editArgs,
         );
         intersections = this.appendRaycastBuffer(
           intersections,
