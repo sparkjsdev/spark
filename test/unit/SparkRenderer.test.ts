@@ -6,6 +6,7 @@ import { SplatGenerator } from "../../src/SplatGenerator";
 import { SplatMesh } from "../../src/SplatMesh";
 import { Dyno, dynoBlock } from "../../src/dyno/base";
 import { Gsplat } from "../../src/dyno/splats";
+import { computeMaxSplats } from "../../src/utils";
 
 const stubRenderer = {
   info: { render: { frame: 0 } },
@@ -81,10 +82,14 @@ async function setup(...meshes: THREE.Object3D[]) {
   return { spark, camera, sorts, frame, finishSorts };
 }
 
-async function setupLod() {
+async function setupLod(numLodSplats = 4) {
   const mesh = new SplatMesh({
     packedSplats: new PackedSplats({
-      lodSplats: new PackedSplats({ extra: { lodTree: new Uint32Array(4) } }),
+      lodSplats: new PackedSplats({
+        packedArray: new Uint32Array(computeMaxSplats(numLodSplats) * 4),
+        numSplats: numLodSplats,
+        extra: { lodTree: new Uint32Array(4) },
+      }),
     }),
   });
   const { spark, camera, frame } = await setup(mesh);
@@ -235,7 +240,10 @@ describe("a LoD tree that fails to initialize", () => {
         (lodTree) =>
           new SplatMesh({
             packedSplats: new PackedSplats({
-              lodSplats: new PackedSplats({ extra: { lodTree } }),
+              lodSplats: new PackedSplats({
+                packedArray: new Uint32Array(computeMaxSplats(4) * 4),
+                extra: { lodTree },
+              }),
             }),
           }),
       ),
@@ -304,6 +312,14 @@ test("a small change in the camera projection does not rerun LoD", async () => {
   await frame();
 
   expect(spark.lastLod).toBe(lastLod);
+});
+
+test("lodMeshes to exclude a SplatMesh that has lodSplats with 0 splats", async () => {
+  const { spark, frame } = await setupLod(0);
+
+  await frame();
+
+  expect(spark.lodMeshes).toHaveLength(0);
 });
 
 async function expectNoUnhandledRejection(run: () => Promise<void>) {
