@@ -1,5 +1,5 @@
-import { Dyno } from "./base";
-import type { DynoVal } from "./value";
+import { Dyno } from "./base.js";
+import type { DynoVal } from "./value.js";
 
 export const transformPos = (
   position: DynoVal<"vec3">,

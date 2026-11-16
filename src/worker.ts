@@ -19,7 +19,7 @@ import init_wasm, {
   bhatt_lod_extsplats,
   get_lod_tree_level,
 } from "spark-rs";
-import type { ExtResult, PackedResult, SplatEncoding } from "./defines";
+import type { ExtResult, PackedResult, SplatEncoding } from "./defines.js";
 
 const rpcHandlers = {
   sortSplats16,

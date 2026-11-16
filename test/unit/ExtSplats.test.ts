@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
-import { ExtSplats } from "../../src/ExtSplats";
-import { SplatLoader } from "../../src/SplatLoader";
+import { ExtSplats } from "../../src/ExtSplats.js";
+import { SplatLoader } from "../../src/SplatLoader.js";
 
 const url = "https://assets.invalid/scene.spz";
 const requestHeader = { Authorization: "Bearer token" };

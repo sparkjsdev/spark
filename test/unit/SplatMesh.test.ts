@@ -1,9 +1,9 @@
 import { describe, expect, test, vi } from "vitest";
-import { ExtSplats } from "../../src/ExtSplats";
-import { PackedSplats } from "../../src/PackedSplats";
-import { PagedSplats } from "../../src/PagedSplats";
-import { UrlPagedSplatsFetcher } from "../../src/PagedSplatsFetcher";
-import { SplatMesh } from "../../src/SplatMesh";
+import { ExtSplats } from "../../src/ExtSplats.js";
+import { PackedSplats } from "../../src/PackedSplats.js";
+import { PagedSplats } from "../../src/PagedSplats.js";
+import { UrlPagedSplatsFetcher } from "../../src/PagedSplatsFetcher.js";
+import { SplatMesh } from "../../src/SplatMesh.js";
 
 const url = "https://assets.invalid/scene.spz";
 const requestHeader = { Authorization: "Bearer token" };

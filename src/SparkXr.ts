@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { SplatMesh } from "./SplatMesh";
+import { SplatMesh } from "./SplatMesh.js";
 import {
   FINGER_TIPS,
   HANDS,
@@ -13,7 +13,7 @@ import {
   JointEnum,
   type JointId,
   NUM_JOINTS,
-} from "./hands";
+} from "./hands.js";
 
 export interface SparkXrOptions {
   renderer: THREE.WebGLRenderer;

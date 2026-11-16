@@ -1,4 +1,4 @@
-import { BinaryOp, Dyno, TrinaryOp, UnaryOp } from "./base";
+import { BinaryOp, Dyno, TrinaryOp, UnaryOp } from "./base.js";
 import {
   type FloatTypes,
   type IntTypes,
@@ -12,7 +12,7 @@ import {
   isUintType,
   vectorDim,
   vectorElementType,
-} from "./types";
+} from "./types.js";
 import {
   DynoOutput,
   type DynoVal,
@@ -20,7 +20,7 @@ import {
   type HasDynoOut,
   literalZero,
   valType,
-} from "./value";
+} from "./value.js";
 
 export const length = <A extends "vec2" | "vec3" | "vec4">(
   a: DynoVal<A>,

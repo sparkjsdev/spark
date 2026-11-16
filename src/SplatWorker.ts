@@ -1,7 +1,7 @@
-import { getTransferable } from "./utils";
-import { WASM_MODULE } from "./wasm";
-import type { rpcHandlers } from "./worker";
-import BundledWorker from "./worker?worker&inline";
+import { getTransferable } from "./utils.js";
+import { WASM_MODULE } from "./wasm.js";
+import type { rpcHandlers } from "./worker.js";
+import BundledWorker from "./worker.js?worker&inline";
 
 type PromiseRecord = {
   resolve: (value: unknown) => void;

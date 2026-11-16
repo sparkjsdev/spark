@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { SplatWorkerPool } from "../../src/SplatWorker";
+import { SplatWorkerPool } from "../../src/SplatWorker.js";
 
 // A worker whose every call traps.
 vi.mock("../../src/worker?worker&inline", () => ({

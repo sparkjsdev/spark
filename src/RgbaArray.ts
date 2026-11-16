@@ -1,8 +1,8 @@
 import * as THREE from "three";
 
-import { DynoPackedSplats, type PackedSplats } from "./PackedSplats";
-import { Readback, type Rgba8Readback } from "./Readback";
-import { SPLAT_TEX_WIDTH } from "./defines";
+import { DynoPackedSplats, type PackedSplats } from "./PackedSplats.js";
+import { Readback, type Rgba8Readback } from "./Readback.js";
+import { SPLAT_TEX_WIDTH } from "./defines.js";
 import {
   Dyno,
   type DynoBlock,
@@ -15,8 +15,8 @@ import {
   splitGsplat,
   unindent,
   unindentLines,
-} from "./dyno";
-import { getTextureSize } from "./utils";
+} from "./dyno.js";
+import { getTextureSize } from "./utils.js";
 
 // An RgbaArray is a collection of ordered RGBA8 values, which can be used as a dyno
 // data source, for example for recoloring Gsplats via SplatMesh.splatRgba.

@@ -1,5 +1,5 @@
 import type { IUniform } from "three";
-import type { DynoType } from "./types";
+import type { DynoType } from "./types.js";
 import {
   DynoLiteral,
   DynoOutput,
@@ -7,7 +7,7 @@ import {
   DynoValue,
   type HasDynoOut,
   valType,
-} from "./value";
+} from "./value.js";
 
 const DEFAULT_INDENT = "    ";
 

@@ -17,7 +17,7 @@ import {
   isMat3,
   isMat4,
   isUintType,
-} from "./types";
+} from "./types.js";
 
 export type AddOutput<
   A extends AllValueTypes,

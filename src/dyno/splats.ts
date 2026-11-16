@@ -1,10 +1,10 @@
-import { Dyno, UnaryOp, unindent, unindentLines } from "./base";
+import { Dyno, UnaryOp, unindent, unindentLines } from "./base.js";
 import {
   DynoOutput,
   type DynoVal,
   type DynoValue,
   type HasDynoOut,
-} from "./value";
+} from "./value.js";
 
 export const Gsplat = { type: "Gsplat" } as { type: "Gsplat" };
 export const CovSplat = { type: "CovSplat" } as { type: "CovSplat" };

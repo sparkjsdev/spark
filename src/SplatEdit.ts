@@ -9,7 +9,7 @@ import {
   Gsplat,
   unindent,
   unindentLines,
-} from "./dyno";
+} from "./dyno.js";
 
 // Spark provides the ability to apply "edits" to Gsplats as part of the standard
 // SplatMesh pipeline. These edits take the form of a sequence of operations,

@@ -1,6 +1,6 @@
 import * as THREE from "three";
-import { PackedSplats } from "./PackedSplats";
-import { SplatMesh } from "./SplatMesh";
+import { PackedSplats } from "./PackedSplats.js";
+import { SplatMesh } from "./SplatMesh.js";
 
 export function constructGrid({
   // PackedSplats object to add splats to

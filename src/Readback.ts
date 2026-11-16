@@ -1,11 +1,11 @@
 import * as THREE from "three";
 import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 
-import { SPLAT_TEX_HEIGHT, SPLAT_TEX_WIDTH } from "./defines";
-import { type Dyno, OutputRgba8, dynoBlock } from "./dyno";
-import { DynoProgram, DynoProgramTemplate } from "./dyno/program";
-import { getShaders } from "./shaders";
-import { getTextureSize } from "./utils";
+import { SPLAT_TEX_HEIGHT, SPLAT_TEX_WIDTH } from "./defines.js";
+import { type Dyno, OutputRgba8, dynoBlock } from "./dyno.js";
+import { DynoProgram, DynoProgramTemplate } from "./dyno/program.js";
+import { getShaders } from "./shaders.js";
+import { getTextureSize } from "./utils.js";
 
 // Readback can be used to run a Dyno program that maps an index to a 32-bit
 // RGBA8 value, which is the only allowed, portable readback format for WebGL2.

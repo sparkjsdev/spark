@@ -1,18 +1,18 @@
 import * as THREE from "three";
 import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 
-import type { RgbaArray } from "./RgbaArray";
-import type { GsplatGenerator } from "./SplatGenerator";
-import { SplatLoader } from "./SplatLoader";
-import type { SplatSource } from "./SplatMesh";
-import { workerPool } from "./SplatWorker";
+import type { RgbaArray } from "./RgbaArray.js";
+import type { GsplatGenerator } from "./SplatGenerator.js";
+import { SplatLoader } from "./SplatLoader.js";
+import type { SplatSource } from "./SplatMesh.js";
+import { workerPool } from "./SplatWorker.js";
 import {
   DEFAULT_SPLAT_ENCODING,
   SPLAT_TEX_HEIGHT,
   SPLAT_TEX_WIDTH,
   type SplatEncoding,
   type SplatFileType,
-} from "./defines";
+} from "./defines.js";
 import {
   Dyno,
   DynoInt,
@@ -31,7 +31,7 @@ import {
   sub,
   unindent,
   unindentLines,
-} from "./dyno";
+} from "./dyno.js";
 import {
   type Gsplat,
   TPackedSplats,
@@ -40,9 +40,9 @@ import {
   readPackedSplat,
   splatTexCoord,
   splitGsplat,
-} from "./dyno/splats";
-import { getShaders } from "./shaders";
-import { getTextureSize, setPackedSplat, unpackSplat } from "./utils";
+} from "./dyno/splats.js";
+import { getShaders } from "./shaders.js";
+import { getTextureSize, setPackedSplat, unpackSplat } from "./utils.js";
 
 type PackedSplatsExtra = {
   sh1?: Uint32Array;

@@ -1,12 +1,12 @@
 import * as THREE from "three";
-import { Dyno, unindentLines } from "./base";
-import { CovSplat, Gsplat, defineCovSplat, defineGsplat } from "./splats";
+import { Dyno, unindentLines } from "./base.js";
+import { CovSplat, Gsplat, defineCovSplat, defineGsplat } from "./splats.js";
 import {
   DynoOutput,
   type DynoVal,
   type DynoValue,
   type HasDynoOut,
-} from "./value";
+} from "./value.js";
 
 export const outputPackedSplat = (
   gsplat: DynoVal<typeof Gsplat>,

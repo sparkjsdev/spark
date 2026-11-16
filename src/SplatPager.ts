@@ -1,12 +1,12 @@
 import * as THREE from "three";
 
-import { evaluateExtSH } from "./ExtSplats";
-import { evaluatePackedSH } from "./PackedSplats";
-import type { PagedSplats } from "./PagedSplats";
-import type { ExtResult, PackedResult } from "./defines";
-import * as dyno from "./dyno";
-import { type DynoUsampler2DArray, pagedSplatTexCoord } from "./dyno";
-import { getTextureSize, removeWhere } from "./utils";
+import { evaluateExtSH } from "./ExtSplats.js";
+import { evaluatePackedSH } from "./PackedSplats.js";
+import type { PagedSplats } from "./PagedSplats.js";
+import type { ExtResult, PackedResult } from "./defines.js";
+import * as dyno from "./dyno.js";
+import { type DynoUsampler2DArray, pagedSplatTexCoord } from "./dyno.js";
+import { getTextureSize, removeWhere } from "./utils.js";
 
 const PAGE_WIDTH = 256;
 const PAGE_HEIGHT = 256;

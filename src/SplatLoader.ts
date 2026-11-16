@@ -1,11 +1,11 @@
 import { unzipSync } from "fflate";
 import { FileLoader, Loader, type LoadingManager } from "three";
-import { ExtSplats, type ExtSplatsOptions } from "./ExtSplats";
-import { PackedSplats, type PackedSplatsOptions } from "./PackedSplats";
-import { SplatMesh } from "./SplatMesh";
-import { workerPool } from "./SplatWorker";
-import { type ExtResult, type PackedResult, SplatFileType } from "./defines";
-import { decompressPartialGzip, getTextureSize } from "./utils";
+import { ExtSplats, type ExtSplatsOptions } from "./ExtSplats.js";
+import { PackedSplats, type PackedSplatsOptions } from "./PackedSplats.js";
+import { SplatMesh } from "./SplatMesh.js";
+import { workerPool } from "./SplatWorker.js";
+import { type ExtResult, type PackedResult, SplatFileType } from "./defines.js";
+import { decompressPartialGzip, getTextureSize } from "./utils.js";
 
 // SplatLoader implements the THREE.Loader interface and supports loading a variety
 // of different Gsplat file formats. Formats .PLY and .SPZ can be auto-detected

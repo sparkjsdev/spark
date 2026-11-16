@@ -1,5 +1,5 @@
-import type { SplatTransformer } from "../SplatGenerator";
-import type { SplatMesh } from "../SplatMesh";
+import type { SplatTransformer } from "../SplatGenerator.js";
+import type { SplatMesh } from "../SplatMesh.js";
 import {
   type DynoVal,
   Gsplat,
@@ -12,7 +12,7 @@ import {
   split,
   splitGsplat,
   sub,
-} from "../dyno";
+} from "../dyno.js";
 
 export function makeDepthColorModifier(
   splatToView: SplatTransformer,

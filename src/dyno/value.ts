@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-import type { Dyno, IOTypes } from "./base";
+import type { Dyno, IOTypes } from "./base.js";
 import {
   type DynoJsType,
   type DynoType,
@@ -12,7 +12,7 @@ import {
   numberAsFloat,
   numberAsInt,
   numberAsUint,
-} from "./types";
+} from "./types.js";
 
 export type DynoVal<T extends DynoType> = DynoValue<T> | HasDynoOut<T>;
 

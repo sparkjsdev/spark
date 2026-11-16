@@ -1,17 +1,17 @@
 export {
   SparkRenderer,
   type SparkRendererOptions,
-} from "./SparkRenderer";
-export { SplatAccumulator, type GeneratorMapping } from "./SplatAccumulator";
+} from "./SparkRenderer.js";
+export { SplatAccumulator, type GeneratorMapping } from "./SplatAccumulator.js";
 
-export * as dyno from "./dyno";
+export * as dyno from "./dyno.js";
 
-export { RgbaArray, readRgbaArray } from "./RgbaArray";
+export { RgbaArray, readRgbaArray } from "./RgbaArray.js";
 
 export {
   SplatLoader,
   getSplatFileType,
-} from "./SplatLoader";
+} from "./SplatLoader.js";
 export {
   transcodeSpz,
   writeSpz,
@@ -19,32 +19,36 @@ export {
   type WriteSpzOptions,
   type TranscodeSpzFileInput,
   type TranscodeSpzInput,
-} from "./spz";
+} from "./spz.js";
 
-export { PackedSplats, type PackedSplatsOptions } from "./PackedSplats";
-export { ExtSplats, type ExtSplatsOptions } from "./ExtSplats";
-export * from "./PagedSplats";
-export type { PagedSplatsFetcher } from "./PagedSplatsFetcher";
-export * from "./SplatPager";
+export { PackedSplats, type PackedSplatsOptions } from "./PackedSplats.js";
+export { ExtSplats, type ExtSplatsOptions } from "./ExtSplats.js";
+export * from "./PagedSplats.js";
+export type { PagedSplatsFetcher } from "./PagedSplatsFetcher.js";
+export * from "./SplatPager.js";
 export {
   SplatGenerator,
   type GsplatGenerator,
   SplatModifier,
   type GsplatModifier,
   SplatTransformer,
-} from "./SplatGenerator";
-export { Readback, type Rgba8Readback, type ReadbackBuffer } from "./Readback";
+} from "./SplatGenerator.js";
+export {
+  Readback,
+  type Rgba8Readback,
+  type ReadbackBuffer,
+} from "./Readback.js";
 
 export {
   SplatMesh,
   type SplatMeshOptions,
   type SplatMeshContext,
-} from "./SplatMesh";
+} from "./SplatMesh.js";
 export {
   SplatSkinning,
   type SplatSkinningOptions,
   SplatSkinningMode,
-} from "./SplatSkinning";
+} from "./SplatSkinning.js";
 export {
   SplatEdit,
   type SplatEditOptions,
@@ -53,7 +57,7 @@ export {
   SplatEditSdfType,
   SplatEditRgbaBlendMode,
   SplatEdits,
-} from "./SplatEdit";
+} from "./SplatEdit.js";
 
 export {
   constructGrid,
@@ -61,12 +65,12 @@ export {
   constructSpherePoints,
   imageSplats,
   textSplats,
-} from "./splatConstructors";
+} from "./splatConstructors.js";
 
-export * as generators from "./generators";
-export * as modifiers from "./modifiers";
+export * as generators from "./generators.js";
+export * as modifiers from "./modifiers.js";
 
-export * from "./SparkXr";
+export * from "./SparkXr.js";
 export {
   type JointId,
   JointEnum,
@@ -85,9 +89,9 @@ export {
   type HandsJoints,
   XrHands,
   HandMovement,
-} from "./hands";
+} from "./hands.js";
 
-export { SparkControls, FpsMovement, PointerControls } from "./controls";
+export { SparkControls, FpsMovement, PointerControls } from "./controls.js";
 
 export {
   isMobile,
@@ -106,16 +110,16 @@ export {
   Sint8ToFloat,
   setPackedSplat,
   unpackSplat,
-} from "./utils";
-export * as utils from "./utils";
+} from "./utils.js";
+export * as utils from "./utils.js";
 
-export { LN_SCALE_MIN, LN_SCALE_MAX, SplatFileType } from "./defines";
+export { LN_SCALE_MIN, LN_SCALE_MAX, SplatFileType } from "./defines.js";
 
-export * as defines from "./defines";
+export * as defines from "./defines.js";
 
 export {
   SparkPortals,
   type SparkPortalsOptions,
   type PortalPair,
   DISK_PORTAL_FRAGMENT_SHADER,
-} from "./SparkPortals";
+} from "./SparkPortals.js";

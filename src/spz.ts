@@ -1,14 +1,14 @@
-import { ExtSplats } from "./ExtSplats";
-import { PackedSplats } from "./PackedSplats";
-import { getSplatFileType, getSplatFileTypeFromPath } from "./SplatLoader";
-import type { SplatFileType } from "./defines";
+import { ExtSplats } from "./ExtSplats.js";
+import { PackedSplats } from "./PackedSplats.js";
+import { getSplatFileType, getSplatFileTypeFromPath } from "./SplatLoader.js";
+import type { SplatFileType } from "./defines.js";
 
 import {
   decode_to_gsplatarray,
   extsplats_to_gsplatarray,
   packedsplats_to_gsplatarray,
 } from "spark-rs";
-import * as wasm from "./wasm";
+import * as wasm from "./wasm.js";
 
 export type SpzWriteVersion = 2 | 3;
 

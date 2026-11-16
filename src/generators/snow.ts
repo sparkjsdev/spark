@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-import { SplatGenerator, SplatTransformer } from "../SplatGenerator";
+import { SplatGenerator, SplatTransformer } from "../SplatGenerator.js";
 import {
   Gsplat,
   add,
@@ -21,8 +21,8 @@ import {
   split,
   sub,
   vec3,
-} from "../dyno";
-import { dynoVec3 } from "../dyno";
+} from "../dyno.js";
+import { dynoVec3 } from "../dyno.js";
 
 // snowBox produces Gsplat trajectories that move in a deterministic fashion over time,
 // with high similarity between adjacent frames. See examples/atmospheric/main.js

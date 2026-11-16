@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { SplatEdit } from "./SplatEdit";
+import type { SplatEdit } from "./SplatEdit.js";
 import {
   CovSplat,
   Dyno,
@@ -16,7 +16,7 @@ import {
   transformGsplat,
   transformPos,
   unindentLines,
-} from "./dyno";
+} from "./dyno.js";
 
 // A GsplatGenerator is a dyno program that maps an index to a Gsplat's properties
 

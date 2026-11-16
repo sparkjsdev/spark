@@ -12,7 +12,7 @@ import * as THREE from "three";
 // However, it is not as good a fit for animations that involve explicit
 // deformations, such as cartoon animations.
 
-import type { SplatMesh } from "./SplatMesh";
+import type { SplatMesh } from "./SplatMesh.js";
 import {
   CovSplat,
   Dyno,
@@ -21,8 +21,8 @@ import {
   Gsplat,
   unindent,
   unindentLines,
-} from "./dyno";
-import { getTextureSize, newArray } from "./utils";
+} from "./dyno.js";
+import { getTextureSize, newArray } from "./utils.js";
 
 export enum SplatSkinningMode {
   DUAL_QUATERNION = "dual_quaternion",

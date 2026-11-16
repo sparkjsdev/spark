@@ -1,6 +1,6 @@
-import { BinaryOp, UnaryOp } from "./base";
-import type { FloatTypes } from "./types";
-import type { DynoVal } from "./value";
+import { BinaryOp, UnaryOp } from "./base.js";
+import type { FloatTypes } from "./types.js";
+import type { DynoVal } from "./value.js";
 
 export const radians = <A extends FloatTypes>(
   degrees: DynoVal<A>,

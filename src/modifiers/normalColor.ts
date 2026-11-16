@@ -1,5 +1,5 @@
-import type { SplatTransformer } from "../SplatGenerator";
-import type { SplatMesh } from "../SplatMesh";
+import type { SplatTransformer } from "../SplatGenerator.js";
+import type { SplatMesh } from "../SplatMesh.js";
 import {
   Gsplat,
   add,
@@ -13,7 +13,7 @@ import {
   neg,
   select,
   splitGsplat,
-} from "../dyno";
+} from "../dyno.js";
 
 export function makeNormalColorModifier(splatToView: SplatTransformer) {
   return dynoBlock({ gsplat: Gsplat }, { gsplat: Gsplat }, ({ gsplat }) => {

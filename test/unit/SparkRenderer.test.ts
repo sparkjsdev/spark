@@ -1,11 +1,11 @@
 import * as THREE from "three";
 import { describe, expect, test, vi } from "vitest";
-import { PackedSplats } from "../../src/PackedSplats";
-import { SparkRenderer } from "../../src/SparkRenderer";
-import { SplatGenerator } from "../../src/SplatGenerator";
-import { SplatMesh } from "../../src/SplatMesh";
-import { Dyno, dynoBlock } from "../../src/dyno/base";
-import { Gsplat } from "../../src/dyno/splats";
+import { PackedSplats } from "../../src/PackedSplats.js";
+import { SparkRenderer } from "../../src/SparkRenderer.js";
+import { SplatGenerator } from "../../src/SplatGenerator.js";
+import { SplatMesh } from "../../src/SplatMesh.js";
+import { Dyno, dynoBlock } from "../../src/dyno/base.js";
+import { Gsplat } from "../../src/dyno/splats.js";
 
 const stubRenderer = {
   info: { render: { frame: 0 } },
