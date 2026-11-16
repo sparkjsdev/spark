@@ -1,6 +1,6 @@
-import { UnaryOp } from "./base";
-import { type SimpleTypes, typeLiteral } from "./types";
-import type { DynoVal } from "./value";
+import { UnaryOp } from "./base.js";
+import { type SimpleTypes, typeLiteral } from "./types.js";
+import type { DynoVal } from "./value.js";
 
 export const bool = <T extends "bool" | "int" | "uint" | "float">(
   value: DynoVal<T>,

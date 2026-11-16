@@ -1,7 +1,7 @@
 import type { IUniform } from "three";
-import { Dyno, dynoDeclare } from "./base";
-import type { DynoJsType, DynoType } from "./types";
-import { DynoOutput, type DynoValue, type HasDynoOut } from "./value";
+import { Dyno, dynoDeclare } from "./base.js";
+import type { DynoJsType, DynoType } from "./types.js";
+import { DynoOutput, type DynoValue, type HasDynoOut } from "./value.js";
 
 export const uniform = <V extends DynoJsType<DynoType>>(
   key: string,

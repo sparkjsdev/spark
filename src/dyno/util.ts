@@ -1,7 +1,12 @@
-import { Dyno, DynoBlock, unindent } from "./base";
-import { float, vec2, vec3, vec4 } from "./convert";
-import { mul } from "./math";
-import { type ValueTypes, isIntType, isUintType, sameSizeUvec } from "./types";
+import { Dyno, DynoBlock, unindent } from "./base.js";
+import { float, vec2, vec3, vec4 } from "./convert.js";
+import { mul } from "./math.js";
+import {
+  type ValueTypes,
+  isIntType,
+  isUintType,
+  sameSizeUvec,
+} from "./types.js";
 import {
   DynoOutput,
   type DynoVal,
@@ -9,8 +14,8 @@ import {
   type HasDynoOut,
   dynoConst,
   valType,
-} from "./value";
-import { combine } from "./vecmat";
+} from "./value.js";
+import { combine } from "./vecmat.js";
 
 export const remapIndex = (
   index: DynoVal<"int">,

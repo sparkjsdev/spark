@@ -1,9 +1,9 @@
 import * as THREE from "three";
-import type { RgbaArray } from "./RgbaArray";
-import { SplatLoader } from "./SplatLoader";
-import type { SplatSource } from "./SplatMesh";
-import { workerPool } from "./SplatWorker";
-import { SPLAT_TEX_WIDTH, type SplatFileType } from "./defines";
+import type { RgbaArray } from "./RgbaArray.js";
+import { SplatLoader } from "./SplatLoader.js";
+import type { SplatSource } from "./SplatMesh.js";
+import { workerPool } from "./SplatWorker.js";
+import { SPLAT_TEX_WIDTH, type SplatFileType } from "./defines.js";
 import {
   Dyno,
   DynoInt,
@@ -23,8 +23,8 @@ import {
   sub,
   unindent,
   unindentLines,
-} from "./dyno";
-import { decodeExtSplat, encodeExtSplat, getTextureSize } from "./utils";
+} from "./dyno.js";
+import { decodeExtSplat, encodeExtSplat, getTextureSize } from "./utils.js";
 
 type ExtSplatsExtra = {
   sh1?: Uint32Array;

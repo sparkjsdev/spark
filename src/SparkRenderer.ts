@@ -1,17 +1,17 @@
 import * as THREE from "three";
-import { ExtSplats } from "./ExtSplats";
-import { PackedSplats } from "./PackedSplats";
-import { PagedSplats } from "./PagedSplats";
-import { Readback } from "./Readback";
-import { SplatAccumulator } from "./SplatAccumulator";
-import type { SplatGenerator } from "./SplatGenerator";
-import { SplatGeometry } from "./SplatGeometry";
-import { SplatMesh } from "./SplatMesh";
-import { SplatPager } from "./SplatPager";
-import { SplatWorker } from "./SplatWorker";
-import { SPLAT_TEX_HEIGHT, SPLAT_TEX_WIDTH } from "./defines";
-import { SPARK_ENABLE_HOOKS, sparkHook } from "./hooks";
-import { getShaders } from "./shaders";
+import { ExtSplats } from "./ExtSplats.js";
+import { PackedSplats } from "./PackedSplats.js";
+import { PagedSplats } from "./PagedSplats.js";
+import { Readback } from "./Readback.js";
+import { SplatAccumulator } from "./SplatAccumulator.js";
+import type { SplatGenerator } from "./SplatGenerator.js";
+import { SplatGeometry } from "./SplatGeometry.js";
+import { SplatMesh } from "./SplatMesh.js";
+import { SplatPager } from "./SplatPager.js";
+import { SplatWorker } from "./SplatWorker.js";
+import { SPLAT_TEX_HEIGHT, SPLAT_TEX_WIDTH } from "./defines.js";
+import { SPARK_ENABLE_HOOKS, sparkHook } from "./hooks.js";
+import { getShaders } from "./shaders.js";
 import {
   isAndroid,
   isIos,
@@ -19,7 +19,7 @@ import {
   isOculus,
   isVisionPro,
   uploadU32DataTextureRows,
-} from "./utils";
+} from "./utils.js";
 
 export interface SparkRendererOptions {
   /**

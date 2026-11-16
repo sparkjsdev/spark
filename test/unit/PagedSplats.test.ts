@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { PagedSplats } from "../../src/PagedSplats";
+import { PagedSplats } from "../../src/PagedSplats.js";
 import {
   FileBytesPagedSplatsFetcher,
   type PagedSplatsFetcher,
   UrlPagedSplatsFetcher,
-} from "../../src/PagedSplatsFetcher";
-import { SplatFileType } from "../../src/defines";
+} from "../../src/PagedSplatsFetcher.js";
+import { SplatFileType } from "../../src/defines.js";
 
 const fileBytes = new Uint8Array(4);
 const rootUrl = "https://assets.invalid/scene-lod-0.spz";

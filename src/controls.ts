@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { isAndroid, isIos } from "./utils";
+import { isAndroid, isIos } from "./utils.js";
 
 // Spark controls for keyboard + mouse, game pad, or mobile multi-touch
 

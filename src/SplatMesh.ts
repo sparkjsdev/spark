@@ -6,17 +6,17 @@ import {
   raycast_ext_buffers,
   raycast_packed_buffer,
 } from "spark-rs";
-import { ExtSplats } from "./ExtSplats";
-import { PackedSplats } from "./PackedSplats";
-import { PagedSplats, type PagedSplatsOptions } from "./PagedSplats";
-import { type RgbaArray, TRgbaArray } from "./RgbaArray";
+import { ExtSplats } from "./ExtSplats.js";
+import { PackedSplats } from "./PackedSplats.js";
+import { PagedSplats, type PagedSplatsOptions } from "./PagedSplats.js";
+import { type RgbaArray, TRgbaArray } from "./RgbaArray.js";
 import {
   type SplatEdit,
   type SplatEditSdf,
   SplatEdits,
   isSplatEdit,
   isSplatEditSdf,
-} from "./SplatEdit";
+} from "./SplatEdit.js";
 import {
   type CovSplatModifier,
   CovSplatTransformer,
@@ -24,14 +24,14 @@ import {
   type GsplatModifier,
   SplatGenerator,
   SplatTransformer,
-} from "./SplatGenerator";
-import { SplatPager } from "./SplatPager";
-import type { SplatSkinning } from "./SplatSkinning";
+} from "./SplatGenerator.js";
+import { SplatPager } from "./SplatPager.js";
+import type { SplatSkinning } from "./SplatSkinning.js";
 import {
   DEFAULT_SPLAT_ENCODING,
   type SplatEncoding,
   type SplatFileType,
-} from "./defines";
+} from "./defines.js";
 import {
   CovSplat,
   Dyno,
@@ -52,8 +52,8 @@ import {
   splitCovSplat,
   splitGsplat,
   unindentLines,
-} from "./dyno";
-import * as wasm from "./wasm";
+} from "./dyno.js";
+import * as wasm from "./wasm.js";
 
 export type SplatMeshOptions = {
   // URL to fetch a Gaussian splat file from(supports .ply, .splat, .ksplat,

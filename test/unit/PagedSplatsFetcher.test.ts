@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   FileBytesPagedSplatsFetcher,
   UrlPagedSplatsFetcher,
-} from "../../src/PagedSplatsFetcher";
+} from "../../src/PagedSplatsFetcher.js";
 
 const fileBytes = new Uint8Array([0x00, 0x01, 0x02, 0x03, 0x04]);
 const rootUrl = "https://assets.invalid/path/to/splats.rad";

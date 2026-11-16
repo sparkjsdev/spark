@@ -6,7 +6,7 @@ import {
   Vector3,
   type WebXRManager,
 } from "three";
-import { SplatMesh } from "./SplatMesh";
+import { SplatMesh } from "./SplatMesh.js";
 
 // Experimental WebXR hand tracking and movement
 

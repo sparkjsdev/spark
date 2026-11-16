@@ -1,4 +1,4 @@
-import { BinaryOp, TrinaryOp, UnaryOp } from "./base";
+import { BinaryOp, TrinaryOp, UnaryOp } from "./base.js";
 import {
   type AllIntTypes,
   type BoolTypes,
@@ -13,8 +13,8 @@ import {
   isUintType,
   isVector2Type,
   isVector3Type,
-} from "./types";
-import { type DynoVal, valType } from "./value";
+} from "./types.js";
+import { type DynoVal, valType } from "./value.js";
 
 export const and = <T extends "bool" | AllIntTypes>(
   a: DynoVal<T>,

@@ -1,4 +1,4 @@
-import { BinaryOp, Dyno, TrinaryOp, UnaryOp } from "./base";
+import { BinaryOp, Dyno, TrinaryOp, UnaryOp } from "./base.js";
 import {
   type AddOutput,
   type ClampOutput,
@@ -45,7 +45,7 @@ import {
   stepOutputType,
   subOutputType,
   truncOutputType,
-} from "./mathTypes";
+} from "./mathTypes.js";
 import type {
   AllIntTypes,
   AllSignedTypes,
@@ -54,8 +54,8 @@ import type {
   FloatTypes,
   SignedTypes,
   ValueTypes,
-} from "./types";
-import { type DynoVal, valType } from "./value";
+} from "./types.js";
+import { type DynoVal, valType } from "./value.js";
 
 export const add = <A extends AllValueTypes, B extends AllValueTypes>(
   a: DynoVal<A>,

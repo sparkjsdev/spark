@@ -1,19 +1,19 @@
 import * as THREE from "three";
 import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
-import { Readback } from "./Readback";
-import { type SplatEdit, isSplatEdit } from "./SplatEdit";
+import { Readback } from "./Readback.js";
+import { type SplatEdit, isSplatEdit } from "./SplatEdit.js";
 import {
   type CovSplatGenerator,
   type GsplatGenerator,
   SplatGenerator,
-} from "./SplatGenerator";
-import { SplatMesh } from "./SplatMesh";
+} from "./SplatGenerator.js";
+import { SplatMesh } from "./SplatMesh.js";
 import {
   LN_SCALE_MAX,
   LN_SCALE_MIN,
   SPLAT_TEX_HEIGHT,
   SPLAT_TEX_WIDTH,
-} from "./defines";
+} from "./defines.js";
 import {
   type CovSplat,
   Dyno,
@@ -39,9 +39,9 @@ import {
   splitGsplat,
   sub,
   unindentLines,
-} from "./dyno";
-import { getShaders } from "./shaders";
-import { getTextureSize, threeMrtArray } from "./utils";
+} from "./dyno.js";
+import { getShaders } from "./shaders.js";
+import { getTextureSize, threeMrtArray } from "./utils.js";
 
 // A GeneratorMapping describes a Gsplat range that was generated, including
 // which generator and its version number.

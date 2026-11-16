@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { SparkRenderer, type SparkRendererOptions } from "./SparkRenderer";
+import { SparkRenderer, type SparkRendererOptions } from "./SparkRenderer.js";
 
 /**
  * Fragment shader for portal disk clipping.

@@ -1,4 +1,4 @@
-import { Dyno } from "./base";
+import { Dyno } from "./base.js";
 import type {
   AllSamplerTypes,
   IsamplerTypes,
@@ -10,14 +10,14 @@ import type {
   SamplerShadowTypes,
   SamplerTypes,
   UsamplerTypes,
-} from "./types";
+} from "./types.js";
 import {
   DynoOutput,
   type DynoVal,
   type DynoValue,
   type HasDynoOut,
   valType,
-} from "./value";
+} from "./value.js";
 
 export const textureSize = <T extends AllSamplerTypes>(
   texture: DynoVal<T>,

@@ -5,11 +5,11 @@ import {
   FileBytesPagedSplatsFetcher,
   type PagedSplatsFetcher,
   UrlPagedSplatsFetcher,
-} from "./PagedSplatsFetcher";
-import { getSplatFileType, getSplatFileTypeFromPath } from "./SplatLoader";
-import type { SplatSource } from "./SplatMesh";
-import type { SplatPager } from "./SplatPager";
-import { workerPool } from "./SplatWorker";
+} from "./PagedSplatsFetcher.js";
+import { getSplatFileType, getSplatFileTypeFromPath } from "./SplatLoader.js";
+import type { SplatSource } from "./SplatMesh.js";
+import type { SplatPager } from "./SplatPager.js";
+import { workerPool } from "./SplatWorker.js";
 import {
   DEFAULT_SPLAT_ENCODING,
   LN_SCALE_MAX,
@@ -17,10 +17,14 @@ import {
   type RadMeta,
   type SplatEncoding,
   SplatFileType,
-} from "./defines";
-import * as dyno from "./dyno";
-import { decodeExtSplat, unpackSplat, uploadU32DataTextureRows } from "./utils";
-import * as wasm from "./wasm";
+} from "./defines.js";
+import * as dyno from "./dyno.js";
+import {
+  decodeExtSplat,
+  unpackSplat,
+  uploadU32DataTextureRows,
+} from "./utils.js";
+import * as wasm from "./wasm.js";
 
 /**
  * Options for constructing {@link PagedSplats}. At least one source needs to be provided.

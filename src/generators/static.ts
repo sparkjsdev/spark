@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { SplatGenerator, SplatTransformer } from "../SplatGenerator";
+import { SplatGenerator, SplatTransformer } from "../SplatGenerator.js";
 import {
   type DynoVal,
   Gsplat,
@@ -19,7 +19,7 @@ import {
   split,
   sub,
   vec3,
-} from "../dyno";
+} from "../dyno.js";
 
 export function staticBox({
   box,

@@ -1,7 +1,7 @@
 import * as THREE from "three";
 
-import { IDENT_VERTEX_SHADER } from "../utils";
-import { Compilation, type Dyno, type IOTypes } from "./base";
+import { IDENT_VERTEX_SHADER } from "../utils.js";
+import { Compilation, type Dyno, type IOTypes } from "./base.js";
 
 export class DynoProgram {
   graph: Dyno<IOTypes, IOTypes>;
