@@ -1111,13 +1111,13 @@ export class SparkRenderer extends THREE.Mesh {
     this.sortedCenter.copy(current.viewOrigin);
     this.sortedDir.copy(current.viewDirection);
 
-    const { numSplats, maxSplats } = current;
-    const rows = Math.max(1, Math.ceil(maxSplats / 16384));
+    const { numSplats } = current;
+    const rows = Math.max(1, Math.ceil(numSplats / 16384));
     const orderingMaxSplats = rows * 16384;
     this.maxSplats = Math.max(this.maxSplats, orderingMaxSplats);
 
-    const ordering = new Uint32Array(this.maxSplats);
-    const readback = Readback.ensureBuffer(maxSplats, this.readback32);
+    const ordering = new Uint32Array(orderingMaxSplats);
+    const readback = Readback.ensureBuffer(orderingMaxSplats, this.readback32);
     this.readback32 = readback;
 
     await this.readbackDepth({
