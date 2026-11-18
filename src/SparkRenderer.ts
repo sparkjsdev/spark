@@ -1287,11 +1287,13 @@ export class SparkRenderer extends THREE.Mesh {
     const lodMeshes = !this.enableLod
       ? []
       : (visibleGenerators.filter((generator) => {
+          if (!(generator instanceof SplatMesh)) {
+            return false;
+          }
+          const lodSplats =
+            generator.packedSplats?.lodSplats ?? generator.extSplats?.lodSplats;
           return (
-            generator instanceof SplatMesh &&
-            (generator.packedSplats?.lodSplats ||
-              generator.extSplats?.lodSplats ||
-              generator.paged) &&
+            ((lodSplats && lodSplats.numSplats > 0) || generator.paged) &&
             generator.enableLod !== false
           );
         }) as SplatMesh[]);
