@@ -20,7 +20,7 @@ use crate::ext_splats::ExtSplatsData;
 use crate::packed_splats::PackedSplatsData;
 
 mod raycast;
-use raycast::{raycast_packed_ellipsoids, raycast_ext_ellipsoids};
+use raycast::{raycast_packed_ellipsoids, raycast_ext_ellipsoids, RaycastEdits};
 
 mod sort;
 use sort::{sort_internal, SortBuffers, sort32_internal, Sort32Buffers};
@@ -599,6 +599,22 @@ pub fn get_raycast_buffer2() -> Uint32Array {
     })
 }
 
+// Edits to apply before raycasting, or None if there are none (empty `edits`).
+// See RaycastEdits for the layout.
+fn raycast_edits<'a>(
+    object_to_world: &[f32], world_to_object: &[f32], edits: &'a [u32], sdfs: &'a [u32],
+) -> Option<RaycastEdits<'a>> {
+    if edits.is_empty() {
+        return None;
+    }
+    Some(RaycastEdits {
+        object_to_world: object_to_world.try_into().expect("object_to_world must have 16 elements"),
+        world_to_object: world_to_object.try_into().expect("world_to_object must have 16 elements"),
+        edits,
+        sdfs,
+    })
+}
+
 #[wasm_bindgen]
 pub fn raycast_packed_buffer(
     origin_x: f32, origin_y: f32, origin_z: f32,
@@ -606,7 +622,9 @@ pub fn raycast_packed_buffer(
     min_opacity: f32, near: f32, far: f32,
     count: u32,
     ln_scale_min: f32, ln_scale_max: f32, lod_opacity: bool,
+    object_to_world: &[f32], world_to_object: &[f32], edits: &[u32], sdfs: &[u32],
 ) -> Float32Array {
+    let edits = raycast_edits(object_to_world, world_to_object, edits, sdfs);
     RAYCAST_BUFFERS.with_borrow_mut(|(buffer, _, distances)| {
         let encoding = SplatEncoding {
             ln_scale_min,
@@ -620,7 +638,7 @@ pub fn raycast_packed_buffer(
         raycast_packed_ellipsoids(
             subbuffer, distances,
             [origin_x, origin_y, origin_z], [dir_x, dir_y, dir_z],
-            min_opacity, near, far, &encoding,
+            min_opacity, near, far, &encoding, edits.as_ref(),
         );
 
         unsafe { Float32Array::view(distances) }
@@ -633,7 +651,9 @@ pub fn raycast_ext_buffers(
     dir_x: f32, dir_y: f32, dir_z: f32,
     min_opacity: f32, near: f32, far: f32,
     count: u32,
+    object_to_world: &[f32], world_to_object: &[f32], edits: &[u32], sdfs: &[u32],
 ) -> Float32Array {
+    let edits = raycast_edits(object_to_world, world_to_object, edits, sdfs);
     RAYCAST_BUFFERS.with_borrow_mut(|(buffer, buffer2, distances)| {
         distances.clear();
         let subbuffer = &buffer[0..(4 * count as usize)];
@@ -641,7 +661,7 @@ pub fn raycast_ext_buffers(
         raycast_ext_ellipsoids(
             subbuffer, subbuffer2, distances,
             [origin_x, origin_y, origin_z], [dir_x, dir_y, dir_z],
-            min_opacity, near, far,
+            min_opacity, near, far, edits.as_ref(),
         );
 
         unsafe { Float32Array::view(distances) }
@@ -675,7 +695,7 @@ pub fn raycast_packed_splats(
             raycast_packed_ellipsoids(
                 subbuffer, &mut distances,
                 [origin_x, origin_y, origin_z], [dir_x, dir_y, dir_z],
-                min_opacity, near, far, &encoding,
+                min_opacity, near, far, &encoding, None,
             );
 
             base += chunk_size;
