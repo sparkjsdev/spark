@@ -353,6 +353,7 @@
       if (guiOptions.resetOnLoad) {
         const toRemove = frame.children.filter((child) => child instanceof SplatMesh || child instanceof THREE.Box3Helper);
         for (const child of toRemove) {
+          child.dispose();
           frame.remove(child);
         }
         instructions = null;
