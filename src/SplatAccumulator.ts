@@ -309,9 +309,6 @@ export class SplatAccumulator {
               );
               roots.push(output);
             }
-            if (!generator) {
-              throw new Error("Generator must be provided");
-            }
           }
           if (generator) {
             const outputDepth = outputSplatDepth(
