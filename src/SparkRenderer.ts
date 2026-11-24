@@ -750,6 +750,24 @@ export class SparkRenderer extends THREE.Mesh {
     }
   }
 
+  /**
+   * Trims the SplatAccumulators based on the current splat count.
+   * This operation only reduces the accumulators capacity, never grows it.
+   */
+  trimAccumulators() {
+    const splatCount = this.current.numSplats;
+
+    this.current.trim(splatCount, true, this.renderer);
+    if (this.display !== this.current) {
+      // Don't trim beyond the currently displayed number of splats
+      const numSplats = Math.max(splatCount, this.display.numSplats);
+      this.display.trim(numSplats, true, this.renderer);
+    }
+    for (const accumulator of this.accumulators) {
+      accumulator.trim(splatCount, false, this.renderer);
+    }
+  }
+
   // dispose() rejects the work it interrupts.
   private dropErrorIfDisposed(error: unknown) {
     if (!this.isDisposed) {

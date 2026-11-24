@@ -8,9 +8,15 @@ import { Dyno, dynoBlock } from "../../src/dyno/base";
 import { Gsplat } from "../../src/dyno/splats";
 import { computeMaxSplats } from "../../src/utils";
 
+const stubTexture = {
+  width: 1,
+  height: 1,
+  depth: 1,
+} as unknown as THREE.Texture;
 const stubRenderer = {
   info: { render: { frame: 0 } },
   xr: { enabled: false, isPresenting: false },
+  copyTextureToTexture: () => {},
   getContext: () => ({ getExtension: () => null }),
   getRenderTarget: () => null,
   getActiveCubeFace: () => 0,
@@ -18,6 +24,9 @@ const stubRenderer = {
   setRenderTarget: () => {},
   getDrawingBufferSize: (size: THREE.Vector2) => size.set(1, 1),
   getCurrentViewport: (viewport: THREE.Vector4) => viewport.set(0, 0, 1, 1),
+  initRenderTarget: (target: THREE.RenderTarget) => {
+    target.textures = [stubTexture, stubTexture];
+  },
   readRenderTargetPixelsAsync: async () => {},
   render: () => {},
   properties: new WeakMap(),
@@ -79,7 +88,7 @@ async function setup(...meshes: THREE.Object3D[]) {
 
   await finishSorts();
   sorts.length = 0;
-  return { spark, camera, sorts, frame, finishSorts };
+  return { spark, scene, camera, sorts, frame, finishSorts };
 }
 
 async function setupLod(numLodSplats = 4) {
@@ -330,6 +339,81 @@ async function expectNoUnhandledRejection(run: () => Promise<void>) {
   process.off("unhandledRejection", unhandled);
   expect(unhandled).not.toHaveBeenCalled();
 }
+
+describe("trimming accumulators", () => {
+  test("reduces accumulator capacity to fit lower splat count", async () => {
+    // Accumulator textures grow in rows of 2048, so create two splat meshes with different sizes,
+    // such that one is above 2048 (requiring 2 rows) and one is below 2048 (requiring 1 row)
+    const highSplatCountMesh = splatGenerator(2222);
+    const lowSplatCountMesh = splatGenerator(64);
+    const { spark, scene, camera, finishSorts } =
+      await setup(highSplatCountMesh);
+
+    // Move camera to generate into a second accumulator
+    camera.position.x += 1;
+    await finishSorts();
+
+    expect(spark.current.numSplats).toBe(2222);
+    expect(spark.current.maxSplats).toBe(4096);
+
+    // Swap which splats are in the scene
+    scene.remove(highSplatCountMesh);
+    scene.add(lowSplatCountMesh);
+    // Process two full sorts so that spark.current is the same instance again
+    await finishSorts();
+    lowSplatCountMesh.updateVersion();
+    await finishSorts();
+
+    // Accumulators still have increased capacity despite lower splat count
+    expect(spark.current.numSplats).toBe(64);
+    expect(spark.current.maxSplats).toBe(4096);
+    expect(spark.accumulators.map((acc) => acc.maxSplats)).toEqual([0, 4096]);
+
+    spark.trimAccumulators();
+
+    // Accumulators are now trimmed
+    expect(spark.current.numSplats).toBe(64);
+    expect(spark.current.maxSplats).toBe(2048);
+    expect(spark.accumulators.map((acc) => acc.maxSplats)).toEqual([0, 2048]);
+  });
+
+  test("ensures enough capacity remains in display accumulator after trimming", async () => {
+    const highSplatCountMesh = splatGenerator(6144);
+    const mediumSplatCountMesh = splatGenerator(4096);
+    const lowSplatCountMesh = splatGenerator(2048);
+    const { spark, scene, camera, finishSorts, frame } =
+      await setup(highSplatCountMesh);
+
+    // Move camera to generate into a second accumulator
+    camera.position.x += 1;
+    await finishSorts();
+
+    // Change scene to display the medium splat count
+    scene.remove(highSplatCountMesh);
+    scene.add(mediumSplatCountMesh);
+    await finishSorts();
+
+    // Change scene to low splat count
+    scene.remove(mediumSplatCountMesh);
+    scene.add(lowSplatCountMesh);
+    await frame();
+
+    // Accumulators have capacity of the high splat count
+    expect(spark.current.numSplats).toBe(2048);
+    expect(spark.current.maxSplats).toBe(6144);
+    expect(spark.display.numSplats).toBe(4096);
+    expect(spark.display.maxSplats).toBe(6144);
+
+    spark.trimAccumulators();
+
+    // Accumulators are now trimmed
+    expect(spark.current.numSplats).toBe(2048);
+    expect(spark.current.maxSplats).toBe(2048);
+    // The display accumulator still has the needed capacity
+    expect(spark.display.numSplats).toBe(4096);
+    expect(spark.display.maxSplats).toBe(4096);
+  });
+});
 
 describe("a disposed SparkRenderer", () => {
   test("disposes its LoD index textures", async () => {
