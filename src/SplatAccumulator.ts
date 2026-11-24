@@ -41,7 +41,7 @@ import {
   unindentLines,
 } from "./dyno";
 import { getShaders } from "./shaders";
-import { getTextureSize, threeMrtArray } from "./utils";
+import { computeMaxSplats, getTextureSize, threeMrtArray } from "./utils";
 
 // A GeneratorMapping describes a Gsplat range that was generated, including
 // which generator and its version number.
@@ -58,20 +58,22 @@ export type GeneratorMapping = {
 export class SplatAccumulator {
   time = 0;
   deltaTime = 0;
-  viewToWorld = new THREE.Matrix4();
-  viewOrigin = new THREE.Vector3();
-  viewDirection = new THREE.Vector3();
-  static viewCenterUniform = new DynoVec3({ value: new THREE.Vector3() });
-  static viewDirUniform = new DynoVec3({ value: new THREE.Vector3() });
-  static sortRadialUniform = new DynoBool({ value: true });
+  readonly viewToWorld = new THREE.Matrix4();
+  readonly viewOrigin = new THREE.Vector3();
+  readonly viewDirection = new THREE.Vector3();
+  private static viewCenterUniform = new DynoVec3({
+    value: new THREE.Vector3(),
+  });
+  private static viewDirUniform = new DynoVec3({ value: new THREE.Vector3() });
+  private static sortRadialUniform = new DynoBool({ value: true });
   maxSplats = 0;
   numSplats = 0;
   target: THREE.WebGLArrayRenderTarget | null = null;
   mapping: GeneratorMapping[] = [];
   version = -1;
   mappingVersion = -1;
-  extSplats: boolean;
-  covSplats: boolean;
+  readonly extSplats: boolean;
+  readonly covSplats: boolean;
   readback: Readback | null = null;
   readbackSplats: DynoUsampler2DArray<"extSplats", THREE.DataArrayTexture>[] =
     [];
@@ -85,6 +87,37 @@ export class SplatAccumulator {
     }
     this.extSplats = extSplats ?? true;
     this.covSplats = covSplats ?? false;
+  }
+
+  trim(
+    splatCount: number,
+    keepContents: boolean,
+    renderer: THREE.WebGLRenderer,
+  ) {
+    const maxSplats = computeMaxSplats(splatCount);
+    if (!this.target || maxSplats >= this.maxSplats) {
+      return;
+    }
+
+    const previousTarget = this.target;
+    this.target = null;
+    this.ensureGenerate({ maxSplats });
+    const newTarget = this.target as THREE.WebGLArrayRenderTarget | null;
+    if (newTarget && keepContents) {
+      // Copy over the contents
+      renderer.initRenderTarget(newTarget);
+      for (let i = 0; i < previousTarget.textures.length; i++) {
+        const src = previousTarget.textures[i];
+        const dst = newTarget.textures[i];
+        const srcRegion = new THREE.Box3(
+          new THREE.Vector3(0, 0, 0),
+          new THREE.Vector3(dst.width, dst.height, dst.depth),
+        );
+        renderer.copyTextureToTexture(src, dst, srcRegion);
+      }
+    }
+
+    previousTarget.dispose();
   }
 
   dispose() {
@@ -141,7 +174,7 @@ export class SplatAccumulator {
     return { maxSplats, mapping };
   }
 
-  // Ensures our NewSplatAccumulator.target render target has enough space
+  // Ensures our SplatAccumulator.target render target has enough space
   // to generate maxSplats total Gsplats, and reallocate if not large enough.
   ensureGenerate({ maxSplats }: { maxSplats: number }) {
     if (this.target && (maxSplats ?? 1) <= this.maxSplats) {
