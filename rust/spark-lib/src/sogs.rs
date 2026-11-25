@@ -16,20 +16,8 @@ const MAX_SPLAT_CHUNK: usize = 65536;
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum PcSogsRoot {
-    V2(PcSogsV2),
+    V2Plus(PcSogsV2Plus),
     V1(PcSogsV1),
-}
-
-#[derive(Debug, Deserialize)]
-struct PcSogsV2 {
-    version: u32,
-    count: usize,
-    means: Means,
-    scales: ScalesV2,
-    quats: Quats,
-    sh0: Sh0V2,
-    #[serde(rename = "shN")]
-    shn: Option<ShNV2>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -43,11 +31,22 @@ struct PcSogsV1 {
 }
 
 #[derive(Debug, Deserialize)]
+struct PcSogsV2Plus {
+    version: u32,
+    count: usize,
+    means: Means,
+    scales: ScalesV2,
+    quats: Quats,
+    sh0: Sh0V2,
+    #[serde(rename = "shN")]
+    shn: Option<ShNV2>,
+}
+
+#[derive(Debug, Deserialize)]
 struct Means {
     files: [String; 2],
     mins: [f32; 3],
     maxs: [f32; 3],
-    shape: Option<[usize; 2]>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -188,27 +187,27 @@ fn decode_sogs<T: SplatReceiver>(bytes: Vec<u8>, splats: &mut T, _pathname: Opti
         .collect::<anyhow::Result<HashMap<String, ImageData>>>()?;
 
     match meta {
-        PcSogsRoot::V2(v2) => decode_v2(v2, splats, &images),
-        PcSogsRoot::V1(v1) => decode_v1(v1, splats, &images),
+        PcSogsRoot::V2Plus(meta) => decode_v2_plus(meta, splats, &images),
+        PcSogsRoot::V1(meta) => decode_v1(meta, splats, &images),
     }
 }
 
 fn meta_image_files(meta: &PcSogsRoot) -> Vec<&String> {
     let mut out = Vec::new();
     match meta {
-        PcSogsRoot::V2(v2) => {
-            out.extend(v2.means.files.iter());
-            out.extend(v2.scales.files.iter());
-            out.extend(v2.quats.files.iter());
-            out.extend(v2.sh0.files.iter());
-            if let Some(shn) = &v2.shn { out.extend(shn.files.iter()); }
+        PcSogsRoot::V2Plus(meta) => {
+            out.extend(meta.means.files.iter());
+            out.extend(meta.scales.files.iter());
+            out.extend(meta.quats.files.iter());
+            out.extend(meta.sh0.files.iter());
+            if let Some(shn) = &meta.shn { out.extend(shn.files.iter()); }
         }
-        PcSogsRoot::V1(v1) => {
-            out.extend(v1.means.files.iter());
-            out.extend(v1.scales.files.iter());
-            out.extend(v1.quats.files.iter());
-            out.extend(v1.sh0.files.iter());
-            if let Some(shn) = &v1.shn { out.extend(shn.files.iter()); }
+        PcSogsRoot::V1(meta) => {
+            out.extend(meta.means.files.iter());
+            out.extend(meta.scales.files.iter());
+            out.extend(meta.quats.files.iter());
+            out.extend(meta.sh0.files.iter());
+            if let Some(shn) = &meta.shn { out.extend(shn.files.iter()); }
         }
     }
     out
@@ -272,13 +271,16 @@ fn emit_chunks<T: SplatReceiver>(
     splats.finish()
 }
 
-fn decode_v2<T: SplatReceiver>(
-    meta: PcSogsV2,
+fn decode_v2_plus<T: SplatReceiver>(
+    meta: PcSogsV2Plus,
     splats: &mut T,
     images: &HashMap<String, ImageData>,
 ) -> anyhow::Result<()> {
-    let _ = meta.version;
-    let _ = meta.means.shape;
+    let version = meta.version;
+    if version < 2 || version > 3 {
+        return Err(anyhow!("Unsupported SOG version: {}", version));
+    }
+
     let num_splats = meta.count;
     let max_sh_degree = meta.shn.as_ref().map(|shn| {
         if shn.bands >= 3 { 3 } else if shn.bands >= 2 { 2 } else if shn.bands >= 1 { 1 } else { 0 }
@@ -297,12 +299,22 @@ fn decode_v2<T: SplatReceiver>(
 
     let scale_lookup: Vec<f32> = meta.scales.codebook.iter().map(|v| v.exp()).collect();
     let rgb_lookup: Vec<f32> = meta.sh0.codebook.iter().map(|v| SH_C0 * v + 0.5).collect();
-    let a_lookup: Vec<f32> = (0..256).map(|i| i as f32 / 255.0).collect();
+    let a_lookup: Vec<f32> = if version == 2 {
+        (0..256).map(|i| i as f32 / 255.0).collect()
+    } else {
+        // Set values >= 204 to 1.0 as Spark does not handle >1.0 alpha values
+        // as described in the SOG v3 format specification.
+        (0..256).map(|i| if i >= 204 { 1.0 } else { (i as f32 / 204.0).powi(2) }).collect()
+    };
 
     emit_chunks(splats, num_splats, max_sh_degree, |base, count, c| {
         decode_means(&meta.means.mins, &meta.means.maxs, means0, means1, base, &mut c.center[..count * 3]);
         decode_scales(&scale_lookup, &scale_lookup, &scale_lookup, scales_img, base, &mut c.scale[..count * 3]);
-        decode_quats(quats_img, base, &mut c.quat[..count * 4]);
+        if version == 3 {
+            decode_quats_24(quats_img, base, &mut c.quat[..count * 4]);
+        } else {
+            decode_quats_26(quats_img, base, &mut c.quat[..count * 4]);
+        }
         decode_sh0(&rgb_lookup, &rgb_lookup, &rgb_lookup, &a_lookup, sh0_img, base, &mut c.rgb[..count * 3], &mut c.opacity[..count]);
         if let Some(shn) = &shn {
             shn.decode(base, count, c);
@@ -370,7 +382,7 @@ fn decode_v1<T: SplatReceiver>(
     emit_chunks(splats, num_splats, max_sh_degree, |base, count, c| {
         decode_means(&meta.means.mins, &meta.means.maxs, means0, means1, base, &mut c.center[..count * 3]);
         decode_scales(&lx, &ly, &lz, scales_img, base, &mut c.scale[..count * 3]);
-        decode_quats(quats_img, base, &mut c.quat[..count * 4]);
+        decode_quats_26(quats_img, base, &mut c.quat[..count * 4]);
         decode_sh0(&lr, &lg, &lb, &la, sh0_img, base, &mut c.rgb[..count * 3], &mut c.opacity[..count]);
         if let Some(shn) = &shn {
             shn.decode(base, count, c);
@@ -419,7 +431,7 @@ fn decode_scales(lx: &[f32], ly: &[f32], lz: &[f32], img: &ImageData, base: usiz
     }
 }
 
-fn decode_quats(img: &ImageData, base: usize, out_quat: &mut [f32]) {
+fn decode_quats_26(img: &ImageData, base: usize, out_quat: &mut [f32]) {
     const SQRT2: f32 = std::f32::consts::SQRT_2;
     let lookup: [f32; 256] = std::array::from_fn(|i| (i as f32 / 255.0 - 0.5) * SQRT2);
     let rgba = &img.rgba[base * 4..];
@@ -438,6 +450,27 @@ fn decode_quats(img: &ImageData, base: usize, out_quat: &mut [f32]) {
         out_quat[i4 + 1] = quat_y;
         out_quat[i4 + 2] = quat_z;
         out_quat[i4 + 3] = quat_w;
+    }
+}
+
+fn decode_quats_24(img: &ImageData, base: usize, out_quat: &mut [f32]) {
+    const FRAC_PI_2: f32 = std::f32::consts::FRAC_PI_2;
+    let lookup: [f32; 256] = std::array::from_fn(|i| (i as i16 - 128) as f32 / 127.0);
+    let rgba = &img.rgba[base * 4..];
+    for i in 0..out_quat.len() / 4 {
+        let i4 = i * 4;
+        let r0 = lookup[rgba[i4] as usize];
+        let r1 = lookup[rgba[i4 + 1] as usize];
+        let r2 = lookup[rgba[i4 + 2] as usize];
+
+        let r = r0.hypot(r1).hypot(r2);
+        let theta = FRAC_PI_2 * r;
+        let k = if r > 0.0 { theta.sin() / r } else { 0.0 };
+
+        out_quat[i4] = r0 * k;
+        out_quat[i4 + 1] = r1 * k;
+        out_quat[i4 + 2] = r2 * k;
+        out_quat[i4 + 3] = theta.cos();
     }
 }
 
@@ -485,10 +518,11 @@ impl<'a> ShN<'a> {
     fn decode(&self, base: usize, count: usize, c: &mut Chunk) {
         let (centroids, lookup) = (self.centroids, &self.lookup);
         let labels = &self.labels.rgba[base * 4..];
-        let stride = if self.degree >= 3 { 15 } else if self.degree >= 2 { 8 } else { 3 };
+        let stride = if self.degree >= 4 { 24 } else if self.degree >= 3 { 15 } else if self.degree >= 2 { 8 } else { 3 };
         for i in 0..count {
             let i4 = i * 4;
-            let label = labels[i4] as u16 | ((labels[i4 + 1] as u16) << 8);
+            // V3 uses RGB for labels where V2 only uses RG, assume that the B channel in V2 is 0.
+            let label = labels[i4] as u32 | ((labels[i4 + 1] as u32) << 8) | ((labels[i4 + 2] as u32) << 16);
             let col = (label & 63) as usize * stride;
             let row = (label >> 6) as usize;
             let offset = row * centroids.width + col;
@@ -645,7 +679,7 @@ mod tests {
         let q = img(W * H, |ch, r| if ch == 3 { 252 + (r % 4) as u8 } else { r as u8 });
         let c = img(W * H, |_, r| r as u8);
         let cent = img(CW * CH, |_, r| r as u8);
-        let lab = img(W * H, |ch, r| if ch == 1 { (r % 4) as u8 } else { r as u8 });
+        let lab = img(W * H, |ch, r| if ch == 1 { (r % 4) as u8 } else { 0_u8 });
         let mut rf = xorshift(0x9e37_79b9);
         let mut cb = || -> Vec<f32> { (0..256).map(|_| (rf() % 2000) as f32 / 1000.0 - 1.0).collect() };
         let cb = [cb(), cb(), cb()];
