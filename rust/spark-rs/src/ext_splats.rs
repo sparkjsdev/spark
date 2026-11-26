@@ -1,10 +1,13 @@
 use std::array;
 
 use js_sys::{Array, Object, Reflect, Uint32Array};
+use serde::Serialize;
+use crate::serde_utils::{PreservedUint32Array, serialize_splat_file_type};
+use tsify::Tsify;
 #[cfg(feature = "csplat")]
 use spark_lib::csplat::CsplatArray;
 use spark_lib::{
-    decoder::{SetSplatEncoding, SplatEncoding, SplatGetter, SplatInit, SplatProps, SplatPropsMut, SplatReceiver, copy_getter_to_receiver},
+    decoder::{SetSplatEncoding, SplatEncoding, SplatFileType, SplatGetter, SplatInit, SplatProps, SplatPropsMut, SplatReceiver, copy_getter_to_receiver},
     gsplat::GsplatArray,
     tsplat::{TsplatArray, Tsplat},
     splat_encode::{
@@ -38,6 +41,40 @@ pub struct ExtSplatsData {
     buffer_dirty: bool,
 }
 
+#[derive(Tsify, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtSplatsResult {
+    pub max_splats: usize,
+    pub num_splats: usize,
+    pub max_sh_degree: usize,
+    pub ext_arrays: [PreservedUint32Array; 2],
+    pub extra: ExtExtra,
+}
+
+#[derive(Tsify, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtExtra {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sh1: Option<PreservedUint32Array>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sh2: Option<PreservedUint32Array>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sh3a: Option<PreservedUint32Array>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sh3b: Option<PreservedUint32Array>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sh1_codes: Option<PreservedUint32Array>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sh2_codes: Option<PreservedUint32Array>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sh3_codes: Option<[PreservedUint32Array; 2]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lod_tree: Option<PreservedUint32Array>,
+    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "serialize_splat_file_type")]
+    #[tsify(type = "string")]
+    pub file_type: Option<SplatFileType>,
+}
+
 impl ExtSplatsData {
     pub fn new() -> Self {
         Self {
@@ -66,41 +103,24 @@ impl ExtSplatsData {
         }
     }
 
-    pub fn into_splat_object(self) -> Object {
-        let object = Object::new();
-        Reflect::set(&object, &JsValue::from_str("maxSplats"), &JsValue::from(self.max_splats as u32)).unwrap();
-        Reflect::set(&object, &JsValue::from_str("numSplats"), &JsValue::from(self.num_splats as u32)).unwrap();
-        Reflect::set(&object, &JsValue::from_str("maxShDegree"), &JsValue::from(self.max_sh_degree as u32)).unwrap();
-        Reflect::set(&object, &JsValue::from_str("ext0"), &JsValue::from(self.ext_arrays[0].clone())).unwrap();
-        Reflect::set(&object, &JsValue::from_str("ext1"), &JsValue::from(self.ext_arrays[1].clone())).unwrap();
-        if let Some(sh1) = self.sh1.as_ref() {
-            Reflect::set(&object, &JsValue::from_str("sh1"), &JsValue::from(sh1)).unwrap();
+    pub fn into_splat_object(self) -> ExtSplatsResult {
+        ExtSplatsResult {
+            max_splats: self.max_splats,
+            num_splats: self.num_splats,
+            max_sh_degree: self.max_sh_degree,
+            ext_arrays: self.ext_arrays.map(Into::into),
+            extra: ExtExtra {
+                sh1: self.sh1.map(Into::into),
+                sh2: self.sh2.map(Into::into),
+                sh3a: self.sh3a.map(Into::into),
+                sh3b: self.sh3b.map(Into::into),
+                sh1_codes: self.sh1_codes_out.map(Into::into),
+                sh2_codes: self.sh2_codes_out.map(Into::into),
+                sh3_codes: self.sh3_codes_out.map(|x| x.map(Into::into)),
+                lod_tree: self.lod_tree.map(Into::into),
+                file_type: None,
+            }
         }
-        if let Some(sh2) = self.sh2.as_ref() {
-            Reflect::set(&object, &JsValue::from_str("sh2"), &JsValue::from(sh2)).unwrap();
-        }
-        if let Some(sh3a) = self.sh3a.as_ref() {
-            Reflect::set(&object, &JsValue::from_str("sh3a"), &JsValue::from(sh3a)).unwrap();
-        }
-        if let Some(sh3b) = self.sh3b.as_ref() {
-            Reflect::set(&object, &JsValue::from_str("sh3b"), &JsValue::from(sh3b)).unwrap();
-        }
-        if let Some(sh1_codes) = self.sh1_codes_out.as_ref() {
-            Reflect::set(&object, &JsValue::from_str("sh1Codes"), &JsValue::from(sh1_codes)).unwrap();
-        }
-        if let Some(sh2_codes) = self.sh2_codes_out.as_ref() {
-            Reflect::set(&object, &JsValue::from_str("sh2Codes"), &JsValue::from(sh2_codes)).unwrap();
-        }
-        if let Some(sh3_codes) = self.sh3_codes_out.as_ref() {
-            let pair = Array::new();
-            pair.push(&JsValue::from(&sh3_codes[0]));
-            pair.push(&JsValue::from(&sh3_codes[1]));
-            Reflect::set(&object, &JsValue::from_str("sh3Codes"), &JsValue::from(pair)).unwrap();
-        }
-        if let Some(lod_tree) = self.lod_tree.as_ref() {
-            Reflect::set(&object, &JsValue::from_str("lodTree"), &JsValue::from(lod_tree)).unwrap();
-        }
-        object
     }
 
     pub fn from_js_arrays(ext_arrays: [Uint32Array; 2], num_splats: usize, extra: Option<&Object>) -> anyhow::Result<Self> {

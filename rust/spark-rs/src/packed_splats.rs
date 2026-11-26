@@ -1,10 +1,13 @@
 use std::array;
 
 use js_sys::{Object, Reflect, Uint32Array};
+use serde::Serialize;
+use crate::serde_utils::{PreservedUint32Array, serialize_splat_file_type};
+use tsify::Tsify;
 #[cfg(feature = "gsplat")]
 use spark_lib::gsplat::GsplatArray;
 use spark_lib::{
-    csplat::CsplatArray, decoder::{SetSplatEncoding, SplatEncoding, SplatGetter, SplatInit, SplatProps, SplatPropsMut, SplatReceiver, copy_getter_to_receiver}, splat_encode::{
+    csplat::CsplatArray, decoder::{SetSplatEncoding, SplatEncoding, SplatFileType, SplatGetter, SplatInit, SplatProps, SplatPropsMut, SplatReceiver, copy_getter_to_receiver}, splat_encode::{
         decode_packed_splat_center, decode_packed_splat_opacity, decode_packed_splat_quat, decode_packed_splat_rgb, decode_packed_splat_scale, decode_sh1_internal_words, decode_sh2_internal_words, decode_sh3_internal_words, encode_lod_tree, encode_packed_splat, encode_packed_splat_center, encode_packed_splat_opacity, encode_packed_splat_quat, encode_packed_splat_rgb, encode_packed_splat_rgba, encode_packed_splat_scale, encode_sh1_array, encode_sh2_array, encode_sh3_array, get_decode_sh1_scale, get_decode_sh2_scale, get_decode_sh3_scale, get_splat_tex_size
     }, tsplat::{Tsplat, TsplatArray}
 };
@@ -34,6 +37,54 @@ pub struct PackedSplatsData {
     buffer_dirty: bool,
 }
 
+#[derive(Tsify, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PackedSplatsResult {
+    pub max_splats: usize,
+    pub num_splats: usize,
+    pub max_sh_degree: usize,
+    pub packed_array: PreservedUint32Array,
+    pub extra: PackedExtra,
+    #[tsify(type = "SplatEncodingDef")]
+    #[serde(with = "SplatEncodingDef")]
+    pub splat_encoding: SplatEncoding,
+}
+
+#[derive(Serialize, Tsify)]
+#[serde(remote = "SplatEncoding", rename_all = "camelCase")]
+pub struct SplatEncodingDef {
+    pub rgb_min: f32,
+    pub rgb_max: f32,
+    pub ln_scale_min: f32,
+    pub ln_scale_max: f32,
+    pub sh1_max: f32,
+    pub sh2_max: f32,
+    pub sh3_max: f32,
+    pub lod_opacity: bool,
+}
+
+#[derive(Tsify, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PackedExtra {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sh1: Option<PreservedUint32Array>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sh2: Option<PreservedUint32Array>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sh3: Option<PreservedUint32Array>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sh1_codes: Option<PreservedUint32Array>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sh2_codes: Option<PreservedUint32Array>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sh3_codes: Option<PreservedUint32Array>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lod_tree: Option<PreservedUint32Array>,
+    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "serialize_splat_file_type")]
+    #[tsify(type = "string")]
+    pub file_type: Option<SplatFileType>,
+}
+
 impl PackedSplatsData {
     pub fn new(encoding: SplatEncoding) -> Self {
         Self {
@@ -61,35 +112,24 @@ impl PackedSplatsData {
         }
     }
 
-    pub fn into_splat_object(self) -> Object {
-        let object = Object::new();
-        Reflect::set(&object, &JsValue::from_str("maxSplats"), &JsValue::from(self.max_splats as u32)).unwrap();
-        Reflect::set(&object, &JsValue::from_str("numSplats"), &JsValue::from(self.num_splats as u32)).unwrap();
-        Reflect::set(&object, &JsValue::from_str("maxShDegree"), &JsValue::from(self.max_sh_degree as u32)).unwrap();
-        Reflect::set(&object, &JsValue::from_str("packed"), &self.packed).unwrap();
-        if let Some(sh1) = self.sh1.as_ref() {
-            Reflect::set(&object, &JsValue::from_str("sh1"), &JsValue::from(sh1)).unwrap();
+    pub fn into_splat_object(self) -> PackedSplatsResult {
+        PackedSplatsResult {
+            max_splats: self.max_splats,
+            num_splats: self.num_splats,
+            max_sh_degree: self.max_sh_degree,
+            packed_array: self.packed.into(),
+            extra: PackedExtra {
+                sh1: self.sh1.map(Into::into),
+                sh2: self.sh2.map(Into::into),
+                sh3: self.sh3.map(Into::into),
+                sh1_codes: self.sh1_codes_out.map(Into::into),
+                sh2_codes: self.sh2_codes_out.map(Into::into),
+                sh3_codes: self.sh3_codes_out.map(Into::into),
+                lod_tree: self.lod_tree.map(Into::into),
+                file_type: None,
+            },
+            splat_encoding: self.encoding
         }
-        if let Some(sh2) = self.sh2.as_ref() {
-            Reflect::set(&object, &JsValue::from_str("sh2"), &JsValue::from(sh2)).unwrap();
-        }
-        if let Some(sh3) = self.sh3.as_ref() {
-            Reflect::set(&object, &JsValue::from_str("sh3"), &JsValue::from(sh3)).unwrap();
-        }
-        if let Some(sh1_codes) = self.sh1_codes_out.as_ref() {
-            Reflect::set(&object, &JsValue::from_str("sh1Codes"), &JsValue::from(sh1_codes)).unwrap();
-        }
-        if let Some(sh2_codes) = self.sh2_codes_out.as_ref() {
-            Reflect::set(&object, &JsValue::from_str("sh2Codes"), &JsValue::from(sh2_codes)).unwrap();
-        }
-        if let Some(sh3_codes) = self.sh3_codes_out.as_ref() {
-            Reflect::set(&object, &JsValue::from_str("sh3Codes"), &JsValue::from(sh3_codes)).unwrap();
-        }
-        if let Some(lod_tree) = self.lod_tree.as_ref() {
-            Reflect::set(&object, &JsValue::from_str("lodTree"), &JsValue::from(lod_tree)).unwrap();
-        }
-        Reflect::set(&object, &JsValue::from_str("splatEncoding"), &serde_wasm_bindgen::to_value(&self.encoding).unwrap()).unwrap();
-        object
     }
 
     pub fn from_js_arrays(packed: Uint32Array, num_splats: usize, extra: Option<&Object>, encoding: SplatEncoding) -> anyhow::Result<Self> {

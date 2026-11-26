@@ -51,7 +51,8 @@ type PackedSplatsExtra = {
   sh1Texture?: DynoUsampler2DArray<"sh1", THREE.DataArrayTexture>;
   sh2Texture?: DynoUsampler2DArray<"sh2", THREE.DataArrayTexture>;
   sh3Texture?: DynoUsampler2DArray<"sh3", THREE.DataArrayTexture>;
-} & Record<string, unknown>;
+  lodTree?: Uint32Array;
+};
 
 // Initialize a PackedSplats collection from source data via
 // url, fileBytes, or packedArray. Creates an empty array if none are set,
@@ -312,7 +313,7 @@ export class PackedSplats implements SplatSource {
     this.packedArray = null;
 
     for (const key in this.extra) {
-      const dyno = this.extra[key] as DynoUniform<
+      const dyno = this.extra[key as keyof typeof this.extra] as DynoUniform<
         DynoType,
         string,
         THREE.Texture

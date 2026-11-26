@@ -10,7 +10,6 @@ import init_wasm, {
   dispose_lod_tree,
   traverse_lod_trees,
   dynamic_traverse_lod_trees,
-  type ChunkDecoder,
   tiny_lod_packedsplats,
   bhatt_lod_packedsplats,
   update_lod_trees,
@@ -18,8 +17,11 @@ import init_wasm, {
   tiny_lod_extsplats,
   bhatt_lod_extsplats,
   get_lod_tree_level,
+  type ChunkDecoderTS,
+  type PackedSplatsResult,
+  type ExtSplatsResult,
 } from "spark-rs";
-import type { ExtResult, PackedResult, SplatEncoding } from "./defines";
+import type { SplatEncoding } from "./defines";
 
 const rpcHandlers = {
   sortSplats16,
@@ -100,7 +102,7 @@ function sortSplats32({
   return { activeSplats, readback, ordering };
 }
 
-async function decodeBytesUrl({
+async function decodeBytesUrl<T>({
   decoder,
   fileBytes,
   url,
@@ -110,7 +112,7 @@ async function decodeBytesUrl({
   chunkedLength,
   sendStatus,
 }: {
-  decoder: ChunkDecoder;
+  decoder: ChunkDecoderTS<T>;
   fileBytes?: Uint8Array;
   url?: string;
   requestHeader?: Record<string, string>;
@@ -195,36 +197,6 @@ async function decodeBytesUrl({
   return decoded;
 }
 
-type DecodedPackedResult = {
-  readonly numSplats: number;
-  readonly packed: Uint32Array<ArrayBuffer>;
-  readonly sh1?: Uint32Array<ArrayBuffer>;
-  readonly sh2?: Uint32Array<ArrayBuffer>;
-  readonly sh3?: Uint32Array<ArrayBuffer>;
-  readonly sh1Codes?: Uint32Array<ArrayBuffer>;
-  readonly sh2Codes?: Uint32Array<ArrayBuffer>;
-  readonly sh3Codes?: Uint32Array<ArrayBuffer>;
-  readonly lodTree?: Uint32Array<ArrayBuffer>;
-  readonly splatEncoding: SplatEncoding;
-};
-
-function toPackedResult(packed: DecodedPackedResult): PackedResult {
-  return {
-    numSplats: packed.numSplats,
-    packedArray: packed.packed,
-    extra: {
-      sh1: packed.sh1,
-      sh2: packed.sh2,
-      sh3: packed.sh3,
-      sh1Codes: packed.sh1Codes,
-      sh2Codes: packed.sh2Codes,
-      sh3Codes: packed.sh3Codes,
-      lodTree: packed.lodTree,
-    },
-    splatEncoding: packed.splatEncoding,
-  };
-}
-
 async function loadPackedSplats(
   {
     url,
@@ -287,7 +259,7 @@ async function loadPackedSplats(
       chunkedLength,
       sendStatus,
     });
-    const result = toPackedResult(decoded as DecodedPackedResult);
+    const result = decoded;
     if (result.splatEncoding.lodOpacity) {
       return { lodSplats: result };
     }
@@ -307,25 +279,22 @@ async function loadPackedSplats(
   });
 
   if (decoded.has_lod()) {
-    const result = toPackedResult(
-      decoded.to_packedsplats_lod() as DecodedPackedResult,
-    );
-    return { lodSplats: result };
+    return { lodSplats: decoded.to_packedsplats_lod() };
   }
 
   if (lodAbove !== undefined) {
     if (decoded.len() < lodAbove) {
-      return toPackedResult(decoded.to_packedsplats() as DecodedPackedResult);
+      return decoded.to_packedsplats();
     }
   }
 
   let result:
-    | (PackedResult & { lodSplats?: PackedResult })
-    | { lodSplats?: PackedResult } = {};
+    | (PackedSplatsResult & { lodSplats?: PackedSplatsResult })
+    | { lodSplats?: PackedSplatsResult } = {};
 
   if (nonLod) {
     // Wait until LoD computation is complete before resolving full PackedSplats result
-    result = toPackedResult(decoded.to_packedsplats() as DecodedPackedResult);
+    result = decoded.to_packedsplats();
   }
 
   const initialSplats = decoded.len();
@@ -348,42 +317,8 @@ async function loadPackedSplats(
     `${lodName} LoD: ${initialSplats} -> ${decoded.len()} (${lodDuration} ms)`,
   );
 
-  const lodPacked = decoded.to_packedsplats_lod();
-  result.lodSplats = toPackedResult(lodPacked as DecodedPackedResult);
-  return result as
-    | (PackedResult & { lodSplats: PackedResult })
-    | { lodSplats: PackedResult };
-}
-
-type DecodedExtResult = {
-  numSplats: number;
-  ext0: Uint32Array<ArrayBuffer>;
-  ext1: Uint32Array<ArrayBuffer>;
-  sh1?: Uint32Array<ArrayBuffer>;
-  sh2?: Uint32Array<ArrayBuffer>;
-  sh3a?: Uint32Array<ArrayBuffer>;
-  sh3b?: Uint32Array<ArrayBuffer>;
-  sh1Codes?: Uint32Array<ArrayBuffer>;
-  sh2Codes?: Uint32Array<ArrayBuffer>;
-  sh3Codes?: [Uint32Array<ArrayBuffer>, Uint32Array<ArrayBuffer>];
-  lodTree?: Uint32Array<ArrayBuffer>;
-};
-
-function toExtResult(packed: DecodedExtResult): ExtResult {
-  return {
-    numSplats: packed.numSplats,
-    extArrays: [packed.ext0, packed.ext1],
-    extra: {
-      sh1: packed.sh1,
-      sh2: packed.sh2,
-      sh3a: packed.sh3a,
-      sh3b: packed.sh3b,
-      sh1Codes: packed.sh1Codes,
-      sh2Codes: packed.sh2Codes,
-      sh3Codes: packed.sh3Codes,
-      lodTree: packed.lodTree,
-    },
-  };
+  result.lodSplats = decoded.to_packedsplats_lod();
+  return result;
 }
 
 async function loadExtSplats(
@@ -445,11 +380,10 @@ async function loadExtSplats(
       chunkedLength,
       sendStatus,
     });
-    const result = toExtResult(decoded as DecodedExtResult);
-    if (result.extra.lodTree) {
-      return { lodSplats: result };
+    if (decoded.extra.lodTree) {
+      return { lodSplats: decoded };
     }
-    return result;
+    return decoded;
   }
 
   const decoder = decode_to_gsplatarray(fileType, pathName ?? url);
@@ -466,23 +400,23 @@ async function loadExtSplats(
 
   if (decoded.has_lod()) {
     return {
-      lodSplats: toExtResult(decoded.to_extsplats_lod() as DecodedExtResult),
+      lodSplats: decoded.to_extsplats_lod(),
     };
   }
 
   if (lodAbove !== undefined) {
     if (decoded.len() < lodAbove) {
-      return toExtResult(decoded.to_extsplats() as DecodedExtResult);
+      return decoded.to_extsplats();
     }
   }
 
   let result:
-    | (ExtResult & { lodSplats?: ExtResult })
-    | { lodSplats?: ExtResult } = {};
+    | (ExtSplatsResult & { lodSplats?: ExtSplatsResult })
+    | { lodSplats?: ExtSplatsResult } = {};
 
   if (nonLod) {
     // Wait until LoD computation is complete before resolving full PackedSplats result
-    result = toExtResult(decoded.to_extsplats() as DecodedExtResult);
+    result = decoded.to_extsplats();
   }
 
   const initialSplats = decoded.len();
@@ -505,11 +439,8 @@ async function loadExtSplats(
     `${lodName} LoD: ${initialSplats} -> ${decoded.len()} (${lodDuration} ms)`,
   );
 
-  const lodPacked = decoded.to_extsplats_lod();
-  result.lodSplats = toExtResult(lodPacked as DecodedExtResult);
-  return result as
-    | (ExtResult & { lodSplats: ExtResult })
-    | { lodSplats: ExtResult };
+  result.lodSplats = decoded.to_extsplats_lod();
+  return result;
 }
 
 async function tinyLodPackedSplats({
@@ -540,7 +471,7 @@ async function tinyLodPackedSplats({
     encoding,
   );
   const lodDuration = performance.now() - lodStart;
-  const result = toPackedResult(decoded as DecodedPackedResult);
+  const result = decoded;
   console.log(
     `Tiny LoD: ${numSplats} -> ${result.numSplats} (${lodDuration} ms)`,
   );
@@ -573,7 +504,7 @@ async function qualityLodPackedSplats({
     encoding,
   );
   const lodDuration = performance.now() - lodStart;
-  const result = toPackedResult(decoded as DecodedPackedResult);
+  const result = decoded;
   console.log(
     `Bhatt LoD: ${numSplats} -> ${result.numSplats} (${lodDuration} ms)`,
   );
@@ -608,11 +539,10 @@ async function tinyLodExtSplats({
     rgba,
   );
   const lodDuration = performance.now() - lodStart;
-  const result = toExtResult(decoded as DecodedExtResult);
   console.log(
-    `Tiny LoD: ${numSplats} -> ${result.numSplats} (${lodDuration} ms)`,
+    `Tiny LoD: ${numSplats} -> ${decoded.numSplats} (${lodDuration} ms)`,
   );
-  return result;
+  return decoded;
 }
 
 async function qualityLodExtSplats({
@@ -641,11 +571,10 @@ async function qualityLodExtSplats({
     rgba,
   );
   const lodDuration = performance.now() - lodStart;
-  const result = toExtResult(decoded as DecodedExtResult);
   console.log(
-    `Bhatt LoD: ${numSplats} -> ${result.numSplats} (${lodDuration} ms)`,
+    `Bhatt LoD: ${numSplats} -> ${decoded.numSplats} (${lodDuration} ms)`,
   );
-  return result;
+  return decoded;
 }
 
 function newLodTree({

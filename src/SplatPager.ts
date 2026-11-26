@@ -1,9 +1,9 @@
 import * as THREE from "three";
 
+import type { ExtSplatsResult, PackedSplatsResult } from "spark-rs";
 import { evaluateExtSH } from "./ExtSplats";
 import { evaluatePackedSH } from "./PackedSplats";
 import type { PagedSplats } from "./PagedSplats";
-import type { ExtResult, PackedResult } from "./defines";
 import * as dyno from "./dyno";
 import { type DynoUsampler2DArray, pagedSplatTexCoord } from "./dyno";
 import { getTextureSize, removeWhere } from "./utils";
@@ -98,7 +98,7 @@ export class SplatPager {
   private readonly fetched: {
     splats: PagedSplats;
     chunk: number;
-    data: PackedResult | ExtResult;
+    data: PackedSplatsResult | ExtSplatsResult;
   }[];
   fetchPriority: { splats: PagedSplats; chunk: number }[];
 
@@ -877,9 +877,9 @@ export class SplatPager {
 
 // Convenience function to distinguish ExtResult and PackedResult
 function isExtResult(
-  data: ExtResult | PackedResult,
+  data: ExtSplatsResult | PackedSplatsResult,
   extSplats: boolean,
-): data is ExtResult {
+): data is ExtSplatsResult {
   return extSplats;
 }
 

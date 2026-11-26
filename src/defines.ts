@@ -80,39 +80,3 @@ export type RadMeta = {
   }[];
   readonly splatEncoding?: SplatEncoding;
 };
-
-export type PackedExtra = {
-  readonly sh1?: Uint32Array<ArrayBuffer>;
-  readonly sh2?: Uint32Array<ArrayBuffer>;
-  readonly sh3?: Uint32Array<ArrayBuffer>;
-  readonly sh1Codes?: Uint32Array<ArrayBuffer>;
-  readonly sh2Codes?: Uint32Array<ArrayBuffer>;
-  readonly sh3Codes?: Uint32Array<ArrayBuffer>;
-  readonly lodTree?: Uint32Array<ArrayBuffer>;
-  readonly radMeta?: RadMeta;
-};
-
-export type PackedResult = {
-  readonly numSplats: number;
-  readonly packedArray: Uint32Array;
-  readonly extra: PackedExtra;
-  readonly splatEncoding: SplatEncoding;
-};
-
-export type ExtExtra = {
-  readonly sh1?: Uint32Array<ArrayBuffer>;
-  readonly sh2?: Uint32Array<ArrayBuffer>;
-  readonly sh3a?: Uint32Array<ArrayBuffer>;
-  readonly sh3b?: Uint32Array<ArrayBuffer>;
-  readonly sh1Codes?: Uint32Array<ArrayBuffer>;
-  readonly sh2Codes?: Uint32Array<ArrayBuffer>;
-  readonly sh3Codes?: [Uint32Array<ArrayBuffer>, Uint32Array<ArrayBuffer>];
-  readonly lodTree?: Uint32Array<ArrayBuffer>;
-  readonly radMeta?: RadMeta;
-};
-
-export type ExtResult = {
-  readonly numSplats: number;
-  readonly extArrays: [Uint32Array, Uint32Array];
-  readonly extra: ExtExtra;
-};

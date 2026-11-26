@@ -1,10 +1,11 @@
 import { unzipSync } from "fflate";
+import type { ExtSplatsResult, PackedSplatsResult } from "spark-rs";
 import { FileLoader, Loader, type LoadingManager } from "three";
 import { ExtSplats, type ExtSplatsOptions } from "./ExtSplats";
 import { PackedSplats, type PackedSplatsOptions } from "./PackedSplats";
 import { SplatMesh } from "./SplatMesh";
 import { workerPool } from "./SplatWorker";
-import { type ExtResult, type PackedResult, SplatFileType } from "./defines";
+import { SplatFileType } from "./defines";
 import { decompressPartialGzip, getTextureSize } from "./utils";
 
 // SplatLoader implements the THREE.Loader interface and supports loading a variety
@@ -174,11 +175,11 @@ export class SplatLoader extends Loader {
         if ("lodSplats" in decoded) {
           if (extSplats) {
             options.lodSplats = new ExtSplats({
-              ...(decoded.lodSplats as ExtResult),
+              ...(decoded.lodSplats as ExtSplatsResult),
             });
           } else {
             options.lodSplats = new PackedSplats({
-              ...(decoded.lodSplats as PackedResult),
+              ...(decoded.lodSplats as PackedSplatsResult),
               maxSplats: packedSplats?.maxSplats,
             });
           }
