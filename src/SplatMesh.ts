@@ -1080,7 +1080,9 @@ export class SplatMesh extends SplatGenerator {
       const splatEncoding =
         (paged
           ? this.paged?.splatEncoding
-          : this.packedSplats?.splatEncoding) ?? DEFAULT_SPLAT_ENCODING;
+          : indices
+            ? this.packedSplats?.lodSplats?.splatEncoding
+            : this.packedSplats?.splatEncoding) ?? DEFAULT_SPLAT_ENCODING;
       for (let base = 0; base < numSplats; base += bufferSize) {
         const count = Math.min(bufferSize, numSplats - base);
         if (!indices) {
