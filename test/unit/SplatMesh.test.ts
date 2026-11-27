@@ -1,3 +1,4 @@
+import * as THREE from "three";
 import { describe, expect, test, vi } from "vitest";
 import { ExtSplats } from "../../src/ExtSplats";
 import { PackedSplats } from "../../src/PackedSplats";
@@ -40,4 +41,34 @@ describe("SplatMesh credentials", () => {
     expect(urlFetchSource.withCredentials).toBeUndefined();
     expect(urlFetchSource.requestHeader).toBeUndefined();
   });
+});
+
+describe("SplatMesh.getBoundingBox", () => {
+  test.each([
+    ["PackedSplats", PackedSplats, "packedSplats"],
+    ["ExtSplats", ExtSplats, "extSplats"],
+  ] as const)(
+    "covers a mesh whose %s holds only LoD splats",
+    async (_, Splats, option) => {
+      const lodSplats = new Splats();
+      for (const center of [
+        new THREE.Vector3(-1, -2, -3),
+        new THREE.Vector3(1, 2, 3),
+      ]) {
+        lodSplats.pushSplat(
+          center,
+          new THREE.Vector3(0.1, 0.1, 0.1),
+          new THREE.Quaternion(),
+          1,
+          new THREE.Color(),
+        );
+      }
+      const mesh = new SplatMesh({ [option]: new Splats({ lodSplats }) });
+      await mesh.initialized;
+
+      const box = mesh.getBoundingBox();
+      expect(box.min.toArray()).toEqual([-1, -2, -3]);
+      expect(box.max.toArray()).toEqual([1, 2, 3]);
+    },
+  );
 });

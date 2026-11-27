@@ -654,7 +654,12 @@ export class SplatMesh extends SplatGenerator {
       }
     }
 
-    this.splats?.forEachSplat(callback);
+    // A mesh loaded with LoD and without nonLod has its splats only in
+    // lodSplats, which is what update() draws.
+    const splats = this.splats?.getNumSplats()
+      ? this.splats
+      : (this.packedSplats?.lodSplats ?? this.extSplats?.lodSplats);
+    splats?.forEachSplat(callback);
     const box = new THREE.Box3(minVec, maxVec);
     return box;
   }
