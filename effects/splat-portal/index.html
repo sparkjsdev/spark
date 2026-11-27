@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>spark | splat-portal</title>
+  <style>
+    html, body, #canvas { width: 100%; height: 100%; margin: 0; padding: 0; display: block; }
+    body { background: #000; overflow: hidden; }
+    .legend {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      color: white;
+      font-family: Arial, sans-serif;
+      font-size: 16px;
+      background: rgba(0, 0, 0, 0.7);
+      padding: 10px 15px;
+      border-radius: 5px;
+      pointer-events: none;
+      z-index: 100;
+    }
+  </style>
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+    <div class="legend">WASD + Mouse to move camera • Go through portal to switch between worlds</div>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
+
