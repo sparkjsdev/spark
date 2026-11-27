@@ -35,7 +35,8 @@ type ExtSplatsExtra = {
   sh2Texture?: DynoUsampler2DArray<"sh2", THREE.DataArrayTexture>;
   sh3TextureA?: DynoUsampler2DArray<"sh3", THREE.DataArrayTexture>;
   sh3TextureB?: DynoUsampler2DArray<"sh3b", THREE.DataArrayTexture>;
-} & Record<string, unknown>;
+  lodTree?: Uint32Array;
+};
 
 export type ExtSplatsOptions = {
   // URL to fetch a Gaussian splat file from (supports .ply, .splat, .ksplat,
@@ -245,7 +246,7 @@ export class ExtSplats implements SplatSource {
     this.extArrays = [new Uint32Array(0), new Uint32Array(0)];
 
     for (const key in this.extra) {
-      const dyno = this.extra[key] as DynoUniform<
+      const dyno = this.extra[key as keyof typeof this.extra] as DynoUniform<
         DynoType,
         string,
         THREE.Texture

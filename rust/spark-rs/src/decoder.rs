@@ -37,7 +37,7 @@ impl ChunkDecoder {
             buffer.resize((bytes.length() as usize).min(MAX_BUFFER_SIZE), 0);
 
             let mut base = 0;
-            while base < bytes.length() {                
+            while base < bytes.length() {
                 let chunk = (bytes.length() - base).min(buffer.len() as u32);
                 bytes.subarray(base, base + chunk).copy_to(&mut buffer[..chunk as usize]);
                 self.receiver.push(&buffer[..chunk as usize]).map_err(|e| JsValue::from_str(&e.to_string()))?;
@@ -54,5 +54,14 @@ impl ChunkDecoder {
         let (receiver, on_finish) = self.into_inner();
         on_finish(receiver)
     }
-
 }
+
+#[wasm_bindgen(typescript_custom_section)]
+const TS_CUSTOM_TYPES: &'static str = r#"
+export interface ChunkDecoderTS<T> {
+    free(): void;
+    [Symbol.dispose](): void;
+    finish(): T;
+    push(bytes: Uint8Array): void;
+}
+"#;

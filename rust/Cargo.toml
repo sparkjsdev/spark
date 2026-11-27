@@ -37,6 +37,7 @@ space = { version = "0.17.0", default-features = false, features = ["alloc"] }
 wgpu = "29"
 pollster = "0.4.0"
 bytemuck = { version = "1.25.0", features = ["derive"] }
+tsify = { version = "0.5.8", features = ["js"] }
 
 [profile.release]
 opt-level = 3

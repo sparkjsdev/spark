@@ -35,22 +35,15 @@ pub struct SplatInit {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SplatEncoding {
-    #[serde(rename = "rgbMin")]
     pub rgb_min: f32,
-    #[serde(rename = "rgbMax")]
     pub rgb_max: f32,
-    #[serde(rename = "lnScaleMin")]
     pub ln_scale_min: f32,
-    #[serde(rename = "lnScaleMax")]
     pub ln_scale_max: f32,
-    #[serde(rename = "sh1Max")]
     pub sh1_max: f32,
-    #[serde(rename = "sh2Max")]
     pub sh2_max: f32,
-    #[serde(rename = "sh3Max")]
     pub sh3_max: f32,
-    #[serde(rename = "lodOpacity")]
     pub lod_opacity: bool,
 }
 
@@ -70,22 +63,15 @@ impl Default for SplatEncoding {
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SetSplatEncoding {
-    #[serde(rename = "rgbMin")]
     pub rgb_min: Option<f32>,
-    #[serde(rename = "rgbMax")]
     pub rgb_max: Option<f32>,
-    #[serde(rename = "lnScaleMin")]
     pub ln_scale_min: Option<f32>,
-    #[serde(rename = "lnScaleMax")]
     pub ln_scale_max: Option<f32>,
-    #[serde(rename = "sh1Max")]
     pub sh1_max: Option<f32>,
-    #[serde(rename = "sh2Max")]
     pub sh2_max: Option<f32>,
-    #[serde(rename = "sh3Max")]
     pub sh3_max: Option<f32>,
-    #[serde(rename = "lodOpacity")]
     pub lod_opacity: Option<bool>,
 }
 

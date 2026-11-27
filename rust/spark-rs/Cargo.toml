@@ -40,6 +40,7 @@ spark-lib = { path = "../spark-lib", default-features = false, features = [] }
 serde-wasm-bindgen.workspace = true
 serde_json.workspace = true
 serde.workspace = true
+tsify.workspace = true
 itertools.workspace = true
 console_error_panic_hook = "0.1"
 

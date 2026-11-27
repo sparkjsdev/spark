@@ -244,7 +244,7 @@ export class PagedSplats implements SplatSource {
           sh2Codes: this.sh2Codes?.slice(),
           sh3Codes: (this.sh3Codes as Uint32Array | undefined)?.slice(),
         });
-        if (!("lodSplats" in result)) {
+        if (!("lodSplats" in result) || !result.lodSplats) {
           throw new Error("Loaded chunk does not contain LoD splats");
         }
 
@@ -291,7 +291,7 @@ export class PagedSplats implements SplatSource {
           ? [sh3Codes[0].slice(), sh3Codes[1].slice()]
           : undefined,
       });
-      if (!("lodSplats" in result)) {
+      if (!("lodSplats" in result) || !result.lodSplats) {
         throw new Error("Loaded chunk does not contain LoD splats");
       }
       const lodSplats = result.lodSplats;
