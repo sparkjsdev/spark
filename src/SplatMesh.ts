@@ -577,7 +577,9 @@ export class SplatMesh extends SplatGenerator {
       color: THREE.Color,
     ) => void,
   ) {
-    this.splats?.forEachSplat(callback);
+    (this.splats ?? this.packedSplats ?? this.extSplats)?.forEachSplat(
+      callback,
+    );
   }
 
   // Call this when you are finished with the SplatMesh and want to free
@@ -654,7 +656,13 @@ export class SplatMesh extends SplatGenerator {
       }
     }
 
-    this.splats?.forEachSplat(callback);
+    // A mesh loaded with LoD and without nonLod has its splats only in
+    // lodSplats, which is what update() draws.
+    const base = this.splats ?? this.packedSplats ?? this.extSplats;
+    const splats = base?.getNumSplats()
+      ? base
+      : (this.packedSplats?.lodSplats ?? this.extSplats?.lodSplats);
+    splats?.forEachSplat(callback);
     const box = new THREE.Box3(minVec, maxVec);
     return box;
   }
