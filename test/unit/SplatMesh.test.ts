@@ -71,4 +71,27 @@ describe("SplatMesh.getBoundingBox", () => {
       expect(box.max.toArray()).toEqual([1, 2, 3]);
     },
   );
+  test("finds splats pushed into a mesh built without options", async () => {
+    const mesh = new SplatMesh();
+    for (const center of [
+      new THREE.Vector3(-1, -2, -3),
+      new THREE.Vector3(1, 2, 3),
+    ]) {
+      mesh.pushSplat(
+        center,
+        new THREE.Vector3(0.1, 0.1, 0.1),
+        new THREE.Quaternion(),
+        1,
+        new THREE.Color(),
+      );
+    }
+    await mesh.initialized;
+
+    let count = 0;
+    mesh.forEachSplat(() => count++);
+    expect(count).toBe(2);
+    const box = mesh.getBoundingBox();
+    expect(box.min.toArray()).toEqual([-1, -2, -3]);
+    expect(box.max.toArray()).toEqual([1, 2, 3]);
+  });
 });
